@@ -1,0 +1,8 @@
+service_type,rate,unit
+pick_pack,2.50,per_unit
+storage,25.00,per_pallet
+receiving,35.00,per_hour
+returns,3.00,per_unit
+labeling,0.50,per_unit
+kitting,5.00,per_unit
+special_task,45.00,per_hour

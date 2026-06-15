@@ -1,0 +1,15 @@
+carrier,service,rate,weight_min,weight_max
+UPS,Ground,8.50,0,5
+UPS,Ground,10.00,5,10
+UPS,Ground,13.00,10,20
+UPS,2nd Day Air,18.00,0,5
+UPS,Next Day Air,28.00,0,5
+FedEx,Ground,8.00,0,5
+FedEx,Ground,11.00,5,10
+FedEx,Express Saver,16.00,0,5
+FedEx,Priority Overnight,30.00,0,5
+USPS,Priority Mail,7.50,0,5
+USPS,Priority Mail,9.00,5,10
+USPS,First Class,4.50,0,1
+Stamps,Priority Mail,7.00,0,5
+Stamps,First Class,4.00,0,1

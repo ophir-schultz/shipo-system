@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 70" fill="none">
+  <!-- Shipo custom italic bold lettering -->
+  <text
+    x="20"
+    y="48"
+    font-family="Arial Black, Arial, sans-serif"
+    font-size="46"
+    font-weight="900"
+    font-style="italic"
+    fill="white"
+    letter-spacing="-2"
+  >Shipo</text>
+  <!-- Long underline accent -->
+  <line x1="18" y1="57" x2="160" y2="57" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <!-- Short angled accent line -->
+  <line x1="163" y1="57" x2="182" y2="57" stroke="white" stroke-width="3" stroke-linecap="round"/>
+</svg>
