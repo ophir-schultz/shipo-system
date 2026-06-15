@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import pdf from 'pdf-parse'
+import pdfParse from 'pdf-parse/lib/pdf-parse.js'
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: clientId } = await params
@@ -9,7 +9,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
 
   const buffer = Buffer.from(await file.arrayBuffer())
-  const parsed = await pdf(buffer)
+  const parsed = await pdfParse(buffer)
   const text = parsed.text
 
   // Extract rows by looking for lines with a number (price) in them
