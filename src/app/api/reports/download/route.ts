@@ -54,7 +54,7 @@ export async function GET(req: Request) {
     const { data } = await q
     const byClient: Record<string, any> = {}
     for (const s of data ?? []) {
-      const name = s.clients?.name ?? 'Unknown'
+      const name = (s.clients as any)?.name ?? 'Unknown'
       if (!byClient[name]) byClient[name] = { revenue: 0, cost: 0, profit: 0, shipments: 0, losses: 0 }
       byClient[name].revenue += s.client_rate ?? 0
       byClient[name].cost += s.actual_cost ?? 0
