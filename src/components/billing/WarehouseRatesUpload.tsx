@@ -10,11 +10,10 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
-  const [rows, setRows] = useState([{ service_type: 'pick_pack', rate: '', unit: 'per_unit' }])
+  const [rows, setRows] = useState([{ service_type: 'storage', rate: '', unit: 'per_unit' }])
   const [loading, setLoading] = useState(false)
-  const [pdfLoading, setPdfLoading] = useState(false)
+  const [xlsxLoading, setXlsxLoading] = useState(false)
   const [error, setError] = useState('')
-  const [pdfRawText, setPdfRawText] = useState('')
 
   function addRow() {
     setRows(r => [...r, { service_type: 'storage', rate: '', unit: 'per_unit' }])
@@ -28,30 +27,40 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
     setRows(r => r.map((row, idx) => idx === i ? { ...row, [field]: value } : row))
   }
 
-  async function handlePdfUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleExcelUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setPdfLoading(true)
+    setXlsxLoading(true)
     setError('')
-    const form = new FormData()
-    form.append('file', file)
-    const res = await fetch(`/api/clients/${clientId}/warehouse-rates/upload-pdf`, {
-      method: 'POST',
-      body: form,
-    })
-    const data = await res.json()
-    if (!res.ok) { setError('Could not parse PDF'); setPdfLoading(false); return }
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await file.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: 'array' })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const data: any[] = XLSX.utils.sheet_to_json(sheet)
 
-    if (data.rates?.length > 0) {
-      setRows(data.rates.map((r: any) => ({ service_type: r.service_type, rate: String(r.rate), unit: r.unit })))
-      setPdfRawText(data.rawText)
+      const parsed = data
+        .map((row: any) => ({
+          service_type: String(row['service_type'] ?? row['Service Type'] ?? row['service'] ?? '').toLowerCase().trim().replace(/\s+/g, '_'),
+          rate: String(row['rate'] ?? row['Rate'] ?? row['price'] ?? row['Price'] ?? ''),
+          unit: String(row['unit'] ?? row['Unit'] ?? 'per_unit').toLowerCase().trim().replace(/\s+/g, '_'),
+        }))
+        .filter(r => r.service_type && r.rate && parseFloat(r.rate) > 0)
+
+      if (parsed.length === 0) {
+        setError('No valid rows found. Make sure columns are: service_type, rate, unit')
+        setXlsxLoading(false)
+        return
+      }
+
+      setRows(parsed)
       setOpen(true)
-    } else {
-      setError('Could not extract rates from PDF. Please enter them manually below.')
-      setPdfRawText(data.rawText)
-      setOpen(true)
+    } catch {
+      setError('Could not read Excel file. Please use the template.')
     }
-    setPdfLoading(false)
+    setXlsxLoading(false)
+    // Reset file input so same file can be re-uploaded
+    if (fileRef.current) fileRef.current.value = ''
   }
 
   async function handleSave() {
@@ -73,24 +82,37 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
     })
     if (!res.ok) { setError('Failed to save'); setLoading(false); return }
     setOpen(false)
-    setPdfRawText('')
     router.refresh()
     setLoading(false)
   }
 
   return (
     <div className="flex gap-2">
-      <input ref={fileRef} type="file" accept=".pdf" onChange={handlePdfUpload} className="hidden" />
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelUpload} className="hidden" />
+
+      {/* Download template */}
+      <a
+        href="/templates/warehouse-rates-template.csv"
+        download
+        className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+      >
+        ↓ Template
+      </a>
+
+      {/* Upload Excel */}
       <button
         onClick={() => fileRef.current?.click()}
-        disabled={pdfLoading}
+        disabled={xlsxLoading}
         className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
       >
-        {pdfLoading ? 'Reading PDF...' : '↑ Upload PDF'}
+        {xlsxLoading ? 'Reading...' : '↑ Upload Excel'}
       </button>
+
+      {/* Manual entry */}
       <button
         onClick={() => setOpen(true)}
-        className="bg-[#00AAFF] hover:bg-[#33BBFF] text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+        className="text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+        style={{ background: '#00AAFF' }}
       >
         + Add Manually
       </button>
@@ -100,13 +122,6 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
           <div className="bg-gray-800 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h4 className="font-semibold text-white mb-1">Warehouse Rates</h4>
             <p className="text-gray-400 text-sm mb-4">Review and edit before saving</p>
-
-            {pdfRawText && (
-              <details className="mb-4">
-                <summary className="text-[#00AAFF] text-xs cursor-pointer">View raw PDF text (for reference)</summary>
-                <pre className="text-gray-500 text-xs mt-2 bg-gray-900 p-3 rounded max-h-32 overflow-y-auto whitespace-pre-wrap">{pdfRawText}</pre>
-              </details>
-            )}
 
             <div className="space-y-2 mb-4">
               <div className="grid grid-cols-3 gap-2 text-xs text-gray-400 px-1">
@@ -146,8 +161,8 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
 
             {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
             <div className="flex gap-3">
-              <button onClick={() => { setOpen(false); setPdfRawText('') }} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition">Cancel</button>
-              <button onClick={handleSave} disabled={loading} className="flex-1 bg-[#00AAFF] hover:bg-[#33BBFF] disabled:opacity-50 text-white py-2 rounded-lg text-sm font-medium transition">
+              <button onClick={() => setOpen(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition">Cancel</button>
+              <button onClick={handleSave} disabled={loading} className="flex-1 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-medium transition" style={{ background: '#00AAFF' }}>
                 {loading ? 'Saving...' : 'Save Rates'}
               </button>
             </div>
