@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { showError, showSuccess } from '@/components/ui/Toast'
 
 export default function ShippingRatesUpload({ clientId }: { clientId: string }) {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -78,11 +79,13 @@ export default function ShippingRatesUpload({ clientId }: { clientId: string }) 
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Upload failed')
+      showSuccess('Rates uploaded', `${allRows.length} shipping rates saved successfully`)
       setPreview([])
       setAllRows([])
       if (fileRef.current) fileRef.current.value = ''
       router.refresh()
     } catch (err: any) {
+      showError('Upload failed', err?.message ?? 'Could not save rates')
       setError(err.message)
     } finally {
       setLoading(false)

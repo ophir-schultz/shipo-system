@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { showError, showSuccess } from '@/components/ui/Toast'
 
 const SERVICE_TYPES = ['storage', 'receiving', 'returns', 'labeling', 'kitting', 'pallet_in', 'pallet_out', 'special_task']
 const UNITS = ['per_unit', 'per_order', 'per_pallet', 'per_hour', 'flat', 'per_lb']
@@ -80,7 +81,13 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rates }),
     })
-    if (!res.ok) { setError('Failed to save'); setLoading(false); return }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      showError('Failed to save rates', data.error ?? 'Please try again')
+      setLoading(false)
+      return
+    }
+    showSuccess('Warehouse rates saved', `${rates.length} rates saved successfully`)
     setOpen(false)
     router.refresh()
     setLoading(false)

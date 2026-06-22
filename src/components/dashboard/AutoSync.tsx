@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { showError } from '@/components/ui/Toast'
 
 const SYNC_INTERVAL_MS = 3 * 60 * 1000 // 3 minutes
 
@@ -18,8 +19,8 @@ export default function AutoSync() {
       await fetch('/api/sync/all', { method: 'GET' })
       setLastSynced(new Date())
       router.refresh()
-    } catch {
-      // silent fail — will retry next interval
+    } catch (err: any) {
+      showError('Sync failed', err?.message ?? 'Could not connect to ShipStation. Will retry in 3 minutes.')
     } finally {
       setSyncing(false)
     }

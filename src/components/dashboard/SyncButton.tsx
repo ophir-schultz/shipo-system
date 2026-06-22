@@ -2,46 +2,49 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { showError, showSuccess } from '@/components/ui/Toast'
 
 export default function SyncButton() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [recalcLoading, setRecalcLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
 
   async function handleSync() {
     setLoading(true)
-    setResult(null)
-    const res = await fetch('/api/sync/all', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ daysBack: 30 }),
-    })
-    const data = await res.json()
-    setResult(data)
-    setLoading(false)
-    router.refresh()
+    try {
+      const res = await fetch('/api/sync/all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ daysBack: 30 }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Sync failed')
+      showSuccess('Sync complete', `${data.shipments?.created ?? 0} new · ${data.shipments?.updated ?? 0} updated · ${data.shipments?.adjustments ?? 0} adjustments`)
+      router.refresh()
+    } catch (err: any) {
+      showError('Sync failed', err?.message ?? 'Could not sync with ShipStation')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function handleRecalculate() {
     setRecalcLoading(true)
-    setResult(null)
-    const res = await fetch('/api/sync/recalculate', { method: 'POST' })
-    const data = await res.json()
-    setResult({ recalc: data })
-    setRecalcLoading(false)
-    router.refresh()
+    try {
+      const res = await fetch('/api/sync/recalculate', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Recalculation failed')
+      showSuccess('Recalculation complete', `${data.updated} shipments updated · ${data.repriced} repriced by weight`)
+      router.refresh()
+    } catch (err: any) {
+      showError('Recalculation failed', err?.message ?? 'Could not recalculate weights')
+    } finally {
+      setRecalcLoading(false)
+    }
   }
 
   return (
     <div className="flex items-center gap-3">
-      {result && (
-        <span className="text-sm text-gray-400">
-          {result.recalc
-            ? `✓ ${result.recalc.updated} shipments recalculated · ${result.recalc.repriced} repriced by weight`
-            : `✓ ${result.shipments?.created ?? 0} new · ${result.shipments?.updated ?? 0} updated · ${result.shipments?.adjustments ?? 0} adjustments`}
-        </span>
-      )}
       <button
         onClick={handleRecalculate}
         disabled={recalcLoading || loading}

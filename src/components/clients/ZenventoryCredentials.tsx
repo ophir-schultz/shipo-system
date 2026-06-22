@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { showError, showSuccess } from '@/components/ui/Toast'
 
 export default function ZenventoryCredentials({ clientId, apiKey, apiSecret }: {
   clientId: string
@@ -24,7 +25,13 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret }: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ zenventory_api_key: key, zenventory_api_secret: secret }),
     })
-    if (!res.ok) { setError('Failed to save'); setLoading(false); return }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      showError('Failed to save credentials', data.error ?? 'Please try again')
+      setLoading(false)
+      return
+    }
+    showSuccess('Credentials saved')
     setEditing(false)
     setLoading(false)
     router.refresh()
@@ -36,6 +43,8 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret }: {
     const res = await fetch(`/api/clients/${clientId}/test-zenventory`, { method: 'POST' })
     const data = await res.json()
     setTested(data.success)
+    if (!data.success) showError('Connection failed', 'Check your Zenventory API key and secret')
+    else showSuccess('Connection successful', 'Zenventory credentials are working')
     setLoading(false)
   }
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { showError, showSuccess } from '@/components/ui/Toast'
 
 const TABS = [
   { id: 'shipments', label: 'Shipments', icon: '🚚' },
@@ -31,8 +32,12 @@ export default function ReportsTabs({ data }: { data: any }) {
       warehouse: 'warehouse',
     }
     const params = new URLSearchParams({ type: typeMap[activeTab], dateFrom, dateTo, ...(clientId ? { clientId } : {}) })
-    const res = await fetch(`/api/reports/download?${params}`)
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/reports/download?${params}`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? `Server error ${res.status}`)
+      }
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -40,8 +45,12 @@ export default function ReportsTabs({ data }: { data: any }) {
       a.download = `${typeMap[activeTab]}-${dateFrom}-${dateTo}.xlsx`
       a.click()
       URL.revokeObjectURL(url)
+      showSuccess('Report downloaded')
+    } catch (err: any) {
+      showError('Download failed', err?.message ?? 'Could not generate report')
+    } finally {
+      setDownloading(false)
     }
-    setDownloading(false)
   }
 
   return (

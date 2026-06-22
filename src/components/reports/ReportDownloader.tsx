@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { showError, showSuccess } from '@/components/ui/Toast'
 
 const colors: Record<string, string> = {
   blue: 'border-blue-700 bg-blue-950/30',
@@ -29,16 +30,25 @@ export default function ReportDownloader({ report, clients }: { report: any; cli
       dateTo,
       ...(clientId ? { clientId } : {}),
     })
-    const res = await fetch(`/api/reports/download?${params}`)
-    if (!res.ok) { setLoading(false); return }
-    const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${report.id}-${dateFrom}-${dateTo}.xlsx`
-    a.click()
-    URL.revokeObjectURL(url)
-    setLoading(false)
+    try {
+      const res = await fetch(`/api/reports/download?${params}`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? `Server error ${res.status}`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${report.id}-${dateFrom}-${dateTo}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+      showSuccess('Report downloaded', `${report.title} exported as Excel`)
+    } catch (err: any) {
+      showError('Download failed', err?.message ?? 'Could not generate report')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
