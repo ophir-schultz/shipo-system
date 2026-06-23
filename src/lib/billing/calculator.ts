@@ -1,25 +1,43 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { resolveZone, resolveZoneRate } from '@/lib/billing/zones'
 
 export async function calculateShipmentProfitLoss(
   clientId: string,
   carrier: string,
   service: string,
   weight: number,
-  actualCost: number
-): Promise<{ clientRate: number; profitLoss: number; isLoss: boolean }> {
-  const { data: rate } = await supabaseAdmin
-    .from('client_shipping_rates')
-    .select('rate')
-    .eq('client_id', clientId)
-    .eq('carrier', carrier)
-    .eq('service', service)
-    .lte('weight_min', weight)
-    .or(`weight_max.is.null,weight_max.gte.${weight}`)
-    .single()
+  actualCost: number,
+  shipment?: { recipient_zip?: string | null; raw_data?: unknown; zone?: number | null },
+  originZip?: string | null
+): Promise<{ clientRate: number; profitLoss: number; isLoss: boolean; zone: number | null }> {
+  let clientRate = 0
+  let zone: number | null = null
 
-  const clientRate = rate?.rate ?? 0
+  // 1. Prefer the zone-based rate matrix when a zone can be resolved
+  if (shipment) {
+    zone = await resolveZone(shipment, originZip)
+    if (zone != null) {
+      const zoneRate = await resolveZoneRate(clientId, carrier, service, weight, zone)
+      if (zoneRate != null) clientRate = zoneRate
+    }
+  }
+
+  // 2. Fall back to the legacy carrier/service weight-range rate card
+  if (clientRate === 0) {
+    const { data: rate } = await supabaseAdmin
+      .from('client_shipping_rates')
+      .select('rate')
+      .eq('client_id', clientId)
+      .eq('carrier', carrier)
+      .eq('service', service)
+      .lte('weight_min', weight)
+      .or(`weight_max.is.null,weight_max.gte.${weight}`)
+      .maybeSingle()
+    if (rate?.rate != null) clientRate = Number(rate.rate)
+  }
+
   const profitLoss = clientRate - actualCost
-  return { clientRate, profitLoss, isLoss: profitLoss < 0 }
+  return { clientRate, profitLoss, isLoss: profitLoss < 0, zone }
 }
 
 export async function generateWeeklyBill(clientId: string, weekStart: string, weekEnd: string) {

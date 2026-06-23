@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import EmployeesClient from './EmployeesClient'
+import MfaSetup from '@/components/auth/MfaSetup'
 
 export default async function EmployeesPage() {
   const { data: users } = await supabaseAdmin.auth.admin.listUsers()
@@ -20,6 +21,13 @@ export default async function EmployeesPage() {
         <p className="text-gray-400 text-sm mt-1">{employees.length} user{employees.length !== 1 ? 's' : ''} with access</p>
       </div>
       <EmployeesClient employees={employees} />
+
+      <div>
+        <h3 className="text-lg font-semibold text-white mb-3">My Security</h3>
+        <div className="max-w-md">
+          <MfaSetup />
+        </div>
+      </div>
     </div>
   )
 }

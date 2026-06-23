@@ -32,7 +32,21 @@ export async function proxy(request: NextRequest) {
   }
 
   if (user && pathname === '/login') {
+    // Check MFA — if MFA enrolled and not at AAL2, send back to login (client handles MFA step)
+    const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aalData?.nextLevel === 'aal2' && aalData.nextLevel !== aalData.currentLevel) {
+      // Still needs MFA — let login page handle it
+      return supabaseResponse
+    }
     return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  // Enforce MFA for authenticated users who have it enrolled but haven't completed it
+  if (user && pathname !== '/login') {
+    const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aalData?.nextLevel === 'aal2' && aalData.nextLevel !== aalData.currentLevel) {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
   }
 
   return supabaseResponse
