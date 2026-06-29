@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { testZenventoryCredentials } from '@/lib/api/zenventory'
 import { NextResponse } from 'next/server'
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -9,17 +10,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     .eq('id', id)
     .single()
 
-  if (!client?.zenventory_api_key) return NextResponse.json({ success: false, error: 'No credentials' })
-
-  try {
-    const res = await fetch('https://app.zenventory.com/api/customer-orders?page=1&perPage=1', {
-      headers: {
-        'Authorization': 'Basic ' + Buffer.from(`${client.zenventory_api_key}:${client.zenventory_api_secret}`).toString('base64'),
-        'Content-Type': 'application/json',
-      },
-    })
-    return NextResponse.json({ success: res.ok, status: res.status })
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message })
+  if (!client?.zenventory_api_key) {
+    return NextResponse.json({ success: false, error: 'No Zenventory credentials saved for this client' })
   }
+
+  const result = await testZenventoryCredentials(client.zenventory_api_key, client.zenventory_api_secret)
+  return NextResponse.json({ success: result.ok, status: result.status, error: result.error })
 }
