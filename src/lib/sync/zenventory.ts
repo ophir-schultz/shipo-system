@@ -2,91 +2,96 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getCustomerOrders } from '@/lib/api/zenventory'
 
 /**
- * Uses ONE global Zenventory account (ZENVENTORY_API_KEY / ZENVENTORY_API_SECRET)
- * that contains all client orders. Matches orders to clients by company name.
+ * Each client has their own Zenventory account.
+ * We pull orders from each client's API key — every order returned belongs to that client.
+ * No name-matching needed.
  */
-export async function buildOrderClientMap(daysBack = 30): Promise<Map<string, string>> {
-  const map = new Map<string, string>()
+export async function syncClientAssignments(daysBack = 30) {
+  // Load all active clients that have Zenventory credentials
+  const { data: clients } = await supabaseAdmin
+    .from('clients')
+    .select('id, name, zenventory_api_key, zenventory_api_secret')
+    .eq('active', true)
+    .not('zenventory_api_key', 'is', null)
+    .not('zenventory_api_secret', 'is', null)
 
-  const apiKey    = process.env.ZENVENTORY_API_KEY    ?? ''
-  const apiSecret = process.env.ZENVENTORY_API_SECRET ?? ''
-
-  if (!apiKey || !apiSecret) {
-    throw new Error(
-      'ZENVENTORY_API_KEY and ZENVENTORY_API_SECRET are not set. ' +
-      'Add them to your Vercel environment variables.'
-    )
+  if (!clients?.length) {
+    throw new Error('No active clients have Zenventory credentials. Add API keys on each client\'s page.')
   }
 
   const modifiedFrom = new Date()
   modifiedFrom.setDate(modifiedFrom.getDate() - daysBack)
   const modifiedFromISO = modifiedFrom.toISOString()
 
-  // Load all active clients for name-matching
-  const { data: clients } = await supabaseAdmin
-    .from('clients')
-    .select('id, name')
-    .eq('active', true)
+  let totalMapped = 0
+  let totalUpdated = 0
+  let totalSkipped = 0
+  const clientErrors: string[] = []
 
-  if (!clients?.length) throw new Error('No active clients found in the database')
+  for (const client of clients) {
+    let page = 1
+    let hasMore = true
+    const orderNumbers: string[] = []
 
-  let page = 1
-  let hasMore = true
+    // Pull all orders from this client's Zenventory account
+    while (hasMore) {
+      let data: any
+      try {
+        data = await getCustomerOrders(client.zenventory_api_key, client.zenventory_api_secret, {
+          page,
+          perPage: 100,
+          modifiedFrom: modifiedFromISO,
+        })
+      } catch (err: any) {
+        clientErrors.push(`${client.name}: ${err.message}`)
+        hasMore = false
+        break
+      }
 
-  while (hasMore) {
-    const data = await getCustomerOrders(apiKey, apiSecret, {
-      page,
-      perPage: 100,
-      modifiedFrom: modifiedFromISO,
-    })
+      const orders = data.customerOrders ?? data.orders ?? []
+      const meta = data.meta ?? {}
 
-    const orders = data.customerOrders ?? data.orders ?? []
-    const meta   = data.meta ?? {}
+      for (const order of orders) {
+        const orderNumber = String(order.orderNumber ?? order.order_number ?? '')
+        if (orderNumber) orderNumbers.push(orderNumber)
+      }
 
-    for (const order of orders) {
-      const orderNumber = String(order.orderNumber ?? order.order_number ?? '')
-      const company     = order.customer?.company || order.customer?.name || ''
-      if (!orderNumber || !company) continue
-
-      // Match company name to a client (case-insensitive, partial match)
-      const matched = clients.find(c =>
-        c.name.toLowerCase() === company.toLowerCase() ||
-        company.toLowerCase().includes(c.name.toLowerCase()) ||
-        c.name.toLowerCase().includes(company.toLowerCase())
-      )
-      if (matched) map.set(orderNumber, matched.id)
+      hasMore = page < (meta.totalPages ?? meta.total_pages ?? 1)
+      page++
     }
 
-    hasMore = page < (meta.totalPages ?? meta.total_pages ?? 1)
-    page++
+    totalMapped += orderNumbers.length
+
+    // Assign each order's shipment to this client
+    for (const orderNumber of orderNumbers) {
+      const { data: shipment } = await supabaseAdmin
+        .from('shipments')
+        .select('id, client_id')
+        .eq('order_number', orderNumber)
+        .maybeSingle()
+
+      if (!shipment) { totalSkipped++; continue }
+      if (shipment.client_id === client.id) { totalSkipped++; continue }
+
+      await supabaseAdmin
+        .from('shipments')
+        .update({ client_id: client.id })
+        .eq('id', shipment.id)
+
+      totalUpdated++
+    }
   }
 
-  return map
-}
-
-/** Sync Zenventory orders → update client_id on matching shipments */
-export async function syncClientAssignments(daysBack = 30) {
-  const orderClientMap = await buildOrderClientMap(daysBack)
-  let updated = 0
-  let skipped = 0
-
-  for (const [orderNumber, clientId] of orderClientMap.entries()) {
-    const { data: shipment } = await supabaseAdmin
-      .from('shipments')
-      .select('id, client_id')
-      .eq('order_number', orderNumber)
-      .maybeSingle()
-
-    if (!shipment)                          { skipped++; continue }
-    if (shipment.client_id === clientId)    { skipped++; continue }
-
-    await supabaseAdmin
-      .from('shipments')
-      .update({ client_id: clientId })
-      .eq('id', shipment.id)
-
-    updated++
+  // If every client with credentials failed, surface errors
+  if (clientErrors.length === clients.length) {
+    throw new Error(`Zenventory sync failed for all clients:\n${clientErrors.join('\n')}`)
   }
 
-  return { mapped: orderClientMap.size, updated, skipped }
+  return {
+    clients_synced: clients.length - clientErrors.length,
+    mapped: totalMapped,
+    updated: totalUpdated,
+    skipped: totalSkipped,
+    errors: clientErrors,
+  }
 }
