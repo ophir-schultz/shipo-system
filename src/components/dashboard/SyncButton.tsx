@@ -19,7 +19,10 @@ export default function SyncButton() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Sync failed')
-      showSuccess('Sync complete', `${data.shipments?.created ?? 0} new · ${data.shipments?.updated ?? 0} updated · ${data.shipments?.adjustments ?? 0} adjustments`)
+      showSuccess('ShipStation sync complete', `${data.shipments?.created ?? 0} new · ${data.shipments?.updated ?? 0} updated · ${data.shipments?.adjustments ?? 0} adjustments`)
+      if (data.client_sync_error) {
+        showError('Zenventory client mapping failed', data.client_sync_error)
+      }
       router.refresh()
     } catch (err: any) {
       showError('Sync failed', err?.message ?? 'Could not sync with ShipStation')
@@ -34,7 +37,7 @@ export default function SyncButton() {
       const res = await fetch('/api/sync/recalculate', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Recalculation failed')
-      showSuccess('Recalculation complete', `${data.updated} shipments updated · ${data.repriced} repriced by weight`)
+      showSuccess('Recalculation complete', `${data.updated} shipments updated · ${data.zone_matched ?? 0} zone-matched · ${data.legacy_matched ?? 0} rate card · ${data.unmatched ?? 0} unmatched`)
       router.refresh()
     } catch (err: any) {
       showError('Recalculation failed', err?.message ?? 'Could not recalculate weights')
