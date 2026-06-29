@@ -10,6 +10,7 @@ const nav = [
   { href: '/dashboard', label: 'Dashboard', icon: '📊' },
   { href: '/clients', label: 'Clients', icon: '👥' },
   { href: '/shipments', label: 'Shipments', icon: '🚚' },
+  { href: '/losses', label: 'Loss Analysis', icon: '📉' },
   { href: '/adjustments', label: 'Adjustments', icon: '⚠️' },
   { href: '/warehouse', label: 'Warehouse Log', icon: '📦' },
   { href: '/billing', label: 'Billing', icon: '💰' },
