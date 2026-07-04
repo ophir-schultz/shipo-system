@@ -2,6 +2,28 @@
 
 import { useEffect, useState } from 'react'
 
+interface VideoScript {
+  title: string
+  platform: 'linkedin' | 'youtube' | 'website'
+  status: 'scripted' | 'filmed' | 'posted' | 'published' | 'live'
+  angle: string
+  length: string
+  date: string
+}
+
+interface VideoState {
+  linkedinVideosScripted: number
+  linkedinVideosFilmed: number
+  linkedinVideosPosted: number
+  youtubeEpisodesScripted: number
+  youtubeEpisodesFilmed: number
+  youtubeEpisodesPublished: number
+  websiteVideoFilmed: boolean
+  websiteVideoLive: boolean
+  nextVideoToFilm: string
+  scripts: VideoScript[]
+}
+
 interface WebsiteData {
   connected: boolean
   message?: string
@@ -43,10 +65,12 @@ interface MarketingState {
     feedbackReceived: boolean
     topPerformingAngle: string | null
   }
+  video?: VideoState
   schedule: {
     linkedinDaily: string
     blogWeekly: string
     optimizationLoop: string
+    youtubeWeekly?: string
   }
   live?: {
     blogPostsOnDisk: number
@@ -326,6 +350,64 @@ export default function MarketingDashboard() {
             </div>
           </div>
         </div>
+
+        {/* Video Marketing */}
+        {data.video && (
+          <div style={{ marginTop: 24, background: '#0d1420', border: '1px solid #1a2540', borderRadius: 16, padding: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: '#ff6688' }}>🎬 Video Marketing</h2>
+              <div style={{ fontSize: 12, color: '#667799' }}>
+                Next to film: <span style={{ color: '#ff6688', fontWeight: 600 }}>{data.video.nextVideoToFilm}</span>
+              </div>
+            </div>
+
+            {/* Video Stats */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+              {[
+                { label: 'LinkedIn Videos', scripted: data.video.linkedinVideosScripted, filmed: data.video.linkedinVideosFilmed, posted: data.video.linkedinVideosPosted, color: '#0077b5' },
+                { label: 'YouTube Episodes', scripted: data.video.youtubeEpisodesScripted, filmed: data.video.youtubeEpisodesFilmed, posted: data.video.youtubeEpisodesPublished, color: '#ff0000' },
+                { label: 'Website Video', scripted: 1, filmed: data.video.websiteVideoFilmed ? 1 : 0, posted: data.video.websiteVideoLive ? 1 : 0, color: '#00AAFF' },
+              ].map(({ label, scripted, filmed, posted, color }) => (
+                <div key={label} style={{ background: '#1a2540', borderRadius: 12, padding: 20 }}>
+                  <div style={{ fontSize: 13, color: '#8899bb', marginBottom: 14, fontWeight: 600 }}>{label}</div>
+                  <div style={{ display: 'flex', gap: 16 }}>
+                    {[['Scripted', scripted, '#8899bb'], ['Filmed', filmed, color], ['Live', posted, '#44dd88']].map(([l, v, c]) => (
+                      <div key={l as string} style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 24, fontWeight: 800, color: c as string }}>{v as number}</div>
+                        <div style={{ fontSize: 11, color: '#556688', marginTop: 2 }}>{l}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Scripts Table */}
+            <div style={{ fontSize: 12, color: '#8899bb', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>All Scripts</div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {data.video.scripts.map((script, i) => {
+                const platformColor: Record<string, string> = { linkedin: '#0077b5', youtube: '#ff0000', website: '#00AAFF' }
+                const statusColor: Record<string, string> = { scripted: '#ffaa44', filmed: '#aa66ff', posted: '#44dd88', published: '#44dd88', live: '#00ff88' }
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#1a2540', borderRadius: 10, padding: '12px 16px' }}>
+                    <span style={{ background: platformColor[script.platform] + '22', color: platformColor[script.platform], fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                      {script.platform}
+                    </span>
+                    <div style={{ flex: 1, fontSize: 13, color: '#ccd6ee' }}>{script.title}</div>
+                    <div style={{ fontSize: 11, color: '#556688', whiteSpace: 'nowrap' }}>{script.length}</div>
+                    <span style={{ background: statusColor[script.status] + '22', color: statusColor[script.status], fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                      {script.status}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{ marginTop: 16, padding: '14px 16px', background: '#1a1a2a', borderRadius: 10, border: '1px dashed #2a3a5c', fontSize: 13, color: '#8899bb' }}>
+              📁 Scripts saved in <span style={{ color: '#00AAFF' }}>~/shipo-marketing/video-scripts/</span> · linkedin/ · youtube/ · website/
+            </div>
+          </div>
+        )}
 
         {/* Website Analytics */}
         <div style={{ marginTop: 24, background: '#0d1420', border: '1px solid #1a2540', borderRadius: 16, padding: 28 }}>
