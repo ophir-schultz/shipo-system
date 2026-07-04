@@ -16,6 +16,7 @@ const nav = [
   { href: '/billing', label: 'Billing', icon: '💰' },
   { href: '/reports', label: 'Reports', icon: '📥' },
   { href: '/employees', label: 'Employees', icon: '🧑‍💼' },
+  { href: '/marketing', label: 'Marketing', icon: '📣' },
 ]
 
 export default function Sidebar() {
