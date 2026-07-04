@@ -2,6 +2,18 @@
 
 import { useEffect, useState } from 'react'
 
+interface WebsiteData {
+  connected: boolean
+  message?: string
+  visitors: { total: number; today: number; thisWeek: number; thisMonth: number }
+  pageviews: { total: number; today: number }
+  topPages: { path: string; views: number; visitors: number }[]
+  topSources: { source: string; visitors: number }[]
+  recentDeployments: { url: string; state: string; createdAt: string; commitMessage: string }[]
+  conversionEvents: { bookACall: number; emailClicks: number; pricingViews: number }
+  lastUpdated: string
+}
+
 interface MarketingState {
   lastUpdated: string
   linkedin: {
@@ -103,14 +115,22 @@ function Badge({ status }: { status: string }) {
 
 export default function MarketingDashboard() {
   const [data, setData] = useState<MarketingState | null>(null)
+  const [website, setWebsite] = useState<WebsiteData | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
   const [loading, setLoading] = useState(true)
 
   const fetchData = async () => {
     try {
-      const res = await fetch('/api/marketing', { cache: 'no-store' })
-      const json = await res.json()
-      setData(json)
+      const [marketingRes, websiteRes] = await Promise.all([
+        fetch('/api/marketing', { cache: 'no-store' }),
+        fetch('/api/website', { cache: 'no-store' }),
+      ])
+      const [marketingJson, websiteJson] = await Promise.all([
+        marketingRes.json(),
+        websiteRes.json(),
+      ])
+      setData(marketingJson)
+      setWebsite(websiteJson)
       setLastRefresh(new Date())
     } catch (e) {
       console.error(e)
@@ -121,7 +141,7 @@ export default function MarketingDashboard() {
 
   useEffect(() => {
     fetchData()
-    const interval = setInterval(fetchData, 30000) // refresh every 30s
+    const interval = setInterval(fetchData, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -303,6 +323,118 @@ export default function MarketingDashboard() {
               <div style={{ fontSize: 12, color: '#556688', marginTop: 6 }}>
                 Will generate 3 new posts + 2 new Canva visuals + send you the full package
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Website Analytics */}
+        <div style={{ marginTop: 24, background: '#0d1420', border: '1px solid #1a2540', borderRadius: 16, padding: 28 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: '#00AAFF' }}>🌐 shipousa.com — Website Analytics</h2>
+              {website?.connected
+                ? <span style={{ background: '#00ff8822', color: '#00ff88', fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 700 }}>LIVE</span>
+                : <span style={{ background: '#ffaa4422', color: '#ffaa44', fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 700 }}>SETUP NEEDED</span>
+              }
+            </div>
+            <a href="https://vercel.com/shipo/shipo-website1/analytics" target="_blank" rel="noopener noreferrer"
+              style={{ background: '#00AAFF22', color: '#00AAFF', fontSize: 12, padding: '6px 14px', borderRadius: 8, textDecoration: 'none', fontWeight: 600 }}>
+              Open in Vercel →
+            </a>
+          </div>
+
+          {!website?.connected && (
+            <div style={{ background: '#1a1a0a', border: '1px solid #ffaa4444', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
+              <div style={{ fontSize: 13, color: '#ffaa44', fontWeight: 600, marginBottom: 6 }}>
+                {website?.message || 'Add VERCEL_TOKEN to see live traffic data'}
+              </div>
+              <div style={{ fontSize: 12, color: '#667799' }}>
+                Go to Vercel → Settings → Tokens → Create → add as VERCEL_TOKEN in shipo-system environment variables
+              </div>
+            </div>
+          )}
+
+          {/* Visitor Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+            {[
+              { label: 'Total Visitors (30d)', value: website?.visitors.thisMonth ?? 0, color: '#00AAFF' },
+              { label: 'Page Views (30d)', value: website?.pageviews.total ?? 0, color: '#44dd88' },
+              { label: 'Top Pages Tracked', value: website?.topPages.length ?? 0, color: '#aa66ff' },
+              { label: 'Deployments', value: website?.recentDeployments.length ?? 0, color: '#ffaa44' },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ background: '#1a2540', borderRadius: 12, padding: '20px 20px' }}>
+                <div style={{ fontSize: 12, color: '#8899bb', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>{label}</div>
+                <div style={{ fontSize: 32, fontWeight: 800, color }}>{value.toLocaleString()}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20 }}>
+
+            {/* Top Pages */}
+            <div style={{ background: '#1a2540', borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 12, color: '#8899bb', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Top Pages</div>
+              {website?.topPages.length === 0 && (
+                <div style={{ fontSize: 13, color: '#445566' }}>No data yet — traffic will appear here once your site gets visitors</div>
+              )}
+              {website?.topPages.map((page, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #2a3a5c' }}>
+                  <div style={{ fontSize: 13, color: '#ccd6ee', flex: 1 }}>{page.path || '/'}</div>
+                  <div style={{ fontSize: 13, color: '#00AAFF', fontWeight: 700, marginLeft: 12 }}>{page.views.toLocaleString()}</div>
+                </div>
+              ))}
+              {(!website?.topPages || website.topPages.length === 0) && website?.connected && (
+                <div style={{ fontSize: 13, color: '#445566', marginTop: 8 }}>Enable Vercel Analytics in project settings to track pages</div>
+              )}
+            </div>
+
+            {/* Traffic Sources */}
+            <div style={{ background: '#1a2540', borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 12, color: '#8899bb', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Traffic Sources</div>
+              {website?.topSources.length === 0 && (
+                <div style={{ fontSize: 13, color: '#445566' }}>No referrer data yet</div>
+              )}
+              {website?.topSources.map((src, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #2a3a5c' }}>
+                  <div style={{ fontSize: 13, color: '#ccd6ee' }}>{src.source}</div>
+                  <div style={{ fontSize: 13, color: '#44dd88', fontWeight: 700 }}>{src.visitors}</div>
+                </div>
+              ))}
+              {(!website?.topSources || website.topSources.length === 0) && (
+                <div style={{ marginTop: 12, fontSize: 12, color: '#445566' }}>
+                  Once live, LinkedIn traffic, Google organic, and direct visits will appear here
+                </div>
+              )}
+            </div>
+
+            {/* Recent Deployments */}
+            <div style={{ background: '#1a2540', borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 12, color: '#8899bb', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Recent Deployments</div>
+              {website?.recentDeployments.length === 0 && (
+                <div style={{ fontSize: 13, color: '#445566' }}>No deployments yet</div>
+              )}
+              {website?.recentDeployments.map((d, i) => (
+                <div key={i} style={{ padding: '10px 0', borderBottom: '1px solid #2a3a5c' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 10,
+                      background: d.state === 'READY' ? '#1a5c3a' : '#3a1a1a',
+                      color: d.state === 'READY' ? '#44dd88' : '#ff6644',
+                    }}>
+                      {d.state}
+                    </span>
+                    <span style={{ fontSize: 11, color: '#667799' }}>{timeAgo(d.createdAt)}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#ccd6ee', marginTop: 4 }}>{d.commitMessage.substring(0, 50)}</div>
+                  <a href={`https://${d.url}`} target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: 11, color: '#00AAFF', textDecoration: 'none' }}>
+                    {d.url}
+                  </a>
+                </div>
+              ))}
             </div>
           </div>
         </div>
