@@ -14,6 +14,7 @@ const nav = [
   { href: '/adjustments', label: 'Adjustments', icon: '⚠️' },
   { href: '/warehouse', label: 'Warehouse Log', icon: '📦' },
   { href: '/billing', label: 'Billing', icon: '💰' },
+  { href: '/referrals', label: 'Referral Payouts', icon: '🤝' },
   { href: '/reports', label: 'Reports', icon: '📥' },
   { href: '/employees', label: 'Employees', icon: '🧑‍💼' },
   { href: '/marketing', label: 'Marketing', icon: '📣' },
