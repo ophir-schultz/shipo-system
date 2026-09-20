@@ -1,7 +1,11 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { requireStaff } from '@/lib/require-staff'
 
 export async function POST(req: Request) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { date, rows } = await req.json()
 
   const entries = []
@@ -37,6 +41,9 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { searchParams } = new URL(req.url)
   const date = searchParams.get('date')
 

@@ -1,8 +1,12 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { testZenventoryCredentials } from '@/lib/api/zenventory'
 import { NextResponse } from 'next/server'
+import { requireStaff } from '@/lib/require-staff'
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { id } = await params
   const { data: client } = await supabaseAdmin
     .from('clients')

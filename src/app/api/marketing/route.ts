@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
+import { requireStaff } from '@/lib/require-staff'
 
 const STATE_FILE = path.join(process.env.HOME || '/Users/ophirschultz', 'shipo-marketing/optimization/state.json')
 const BLOG_DIR = path.join(process.env.HOME || '/Users/ophirschultz', 'shipo-marketing/blog-posts')
 const LINKEDIN_DIR = path.join(process.env.HOME || '/Users/ophirschultz', 'shipo-marketing/linkedin-posts')
 
 export async function GET() {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   try {
     // Read state file
     const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))

@@ -1,7 +1,11 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { requireStaff } from '@/lib/require-staff'
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { id } = await params
   const { entries } = await req.json().catch(() => ({}))
 
@@ -43,6 +47,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { id } = await params
   const { data: client } = await supabaseAdmin.from('clients').select('origin_zip').eq('id', id).single()
   const originPrefix = String(client?.origin_zip ?? '').replace(/\D/g, '').slice(0, 3)

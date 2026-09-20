@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
+import { requireStaff } from '@/lib/require-staff'
 
 export async function GET(req: Request) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { searchParams } = new URL(req.url)
   const type = searchParams.get('type')
   const dateFrom = searchParams.get('dateFrom')

@@ -1,7 +1,11 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { requireStaff } from '@/lib/require-staff'
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { id } = await params
   const { error } = await supabaseAdmin.from('clients').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -9,6 +13,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { id } = await params
   const body = await req.json()
   const { error } = await supabaseAdmin.from('clients').update(body).eq('id', id)

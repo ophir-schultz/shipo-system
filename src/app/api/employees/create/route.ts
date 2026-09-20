@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { requireStaff } from '@/lib/require-staff'
 
 export async function POST(req: Request) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { email, name, role, password } = await req.json()
 
   if (!email || !password) {

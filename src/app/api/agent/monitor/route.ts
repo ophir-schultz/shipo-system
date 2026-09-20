@@ -17,18 +17,18 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { syncShipments } from '@/lib/sync/shipstation'
 import { syncClientAssignments } from '@/lib/sync/zenventory'
 import { sendEmail } from '@/lib/email'
+import { requireStaffOrCron } from '@/lib/require-staff'
+import { recalculateShipments } from '@/lib/billing/recalculate'
 
 const ALERT_TO = process.env.ALERT_EMAIL || 'ophir@shipousa.com'
-const SECRET   = process.env.MONITOR_SECRET  // optional bearer token guard
 
 export async function GET(req: Request) {
-  // Optional secret guard so only Vercel cron (or you) can trigger it
-  if (SECRET) {
-    const auth = req.headers.get('authorization') ?? ''
-    if (auth !== `Bearer ${SECRET}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-  }
+  // Two callers, both legitimate: the Vercel cron (see vercel.json) and
+  // the AutoSync widget on the staff dashboard, which polls this every
+  // five minutes from a signed-in browser. The guard has to accept
+  // both, so it is not a plain requireStaff().
+  const denied = await requireStaffOrCron(req)
+  if (denied) return denied
 
   const log: string[] = []
   const errors: string[] = []
@@ -62,8 +62,10 @@ export async function GET(req: Request) {
   // ── 3. Recalculate rates ───────────────────────────────────────────────────
   let recalcStats = { updated: 0, zone_matched: 0, legacy_matched: 0, unmatched: 0 }
   try {
-    const res = await fetch(new URL('/api/sync/recalculate', process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').toString(), { method: 'POST' })
-    recalcStats = await res.json()
+    // Called directly, not over HTTP. The old self-fetch to
+    // /api/sync/recalculate carried no credentials, which is the only
+    // reason that endpoint had to stay unauthenticated.
+    recalcStats = await recalculateShipments()
     log.push(`✓ Recalculate: ${recalcStats.updated} shipments · ${recalcStats.zone_matched} zone-matched · ${recalcStats.legacy_matched} rate-card · ${recalcStats.unmatched} unmatched`)
     if (recalcStats.unmatched > 0) {
       errors.push(`⚠ ${recalcStats.unmatched} shipments have no rate match (check zone matrix / rate cards)`)

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { requireStaff } from '@/lib/require-staff'
 
 const VERCEL_TOKEN = process.env.VERCEL_TOKEN
 const VERCEL_PROJECT = 'shipo-website1'
@@ -19,6 +20,9 @@ async function fetchVercelAnalytics(endpoint: string) {
 }
 
 export async function GET() {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const now = new Date()
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
   const from = thirtyDaysAgo.toISOString().split('T')[0]

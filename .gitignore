@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# agent scratch space — .claude/worktrees holds nested git checkouts,
+# which git will not track correctly and which must never ship.
+.claude/
+
+# generated quote/price artifacts, including real client documents
+scripts/out/

@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
 import { syncShipments } from '@/lib/sync/shipstation'
 import { syncClientAssignments } from '@/lib/sync/zenventory'
+import { requireStaff } from '@/lib/require-staff'
 
 export async function POST(req: Request) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { daysBack = 30 } = await req.json().catch(() => ({}))
 
   // Step 1: Pull shipments from ShipStation (must succeed)

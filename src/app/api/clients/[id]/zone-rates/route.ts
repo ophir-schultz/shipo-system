@@ -1,7 +1,11 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
+import { requireStaff } from '@/lib/require-staff'
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { id } = await params
   const { rates, carrier = '', service = '' } = await req.json().catch(() => ({}))
 
@@ -44,6 +48,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const { id } = await params
   const { error } = await supabaseAdmin.from('client_zone_rates').delete().eq('client_id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
