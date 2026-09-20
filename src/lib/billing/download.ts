@@ -267,7 +267,7 @@ export async function downloadBillingPDF({
     doc.setTextColor(255, 255, 255)
     doc.setFontSize(7)
     doc.setFont('helvetica', 'normal')
-    doc.text('ShipoLLC Operations Platform', 14, 293)
+    doc.text('Shipo LLC Operations Platform', 14, 293)
     doc.text(`Page ${p} of ${pages}`, W - 14, 293, { align: 'right' })
   }
 

@@ -15,6 +15,9 @@ const nav = [
   { href: '/warehouse', label: 'Warehouse Log', icon: '📦' },
   { href: '/billing', label: 'Billing', icon: '💰' },
   { href: '/referrals', label: 'Referral Payouts', icon: '🤝' },
+  // Lives at /quotes, not /rate-sheets: that segment is excluded from the
+  // proxy so prospects can open their links without logging in.
+  { href: '/quotes', label: 'Rate Sheets', icon: '📄' },
   { href: '/reports', label: 'Reports', icon: '📥' },
   { href: '/employees', label: 'Employees', icon: '🧑‍💼' },
   { href: '/marketing', label: 'Marketing', icon: '📣' },
@@ -77,7 +80,7 @@ export default function Sidebar() {
         >
           <span>🚪</span> Sign Out
         </button>
-        <p className="text-xs text-gray-600 px-2">ShipoLLC © 2025</p>
+        <p className="text-xs text-gray-600 px-2">Shipo LLC © 2026</p>
       </div>
     </aside>
   )

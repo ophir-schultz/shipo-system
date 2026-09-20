@@ -330,7 +330,7 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="text-center text-xs text-gray-600 mt-6">ShipoLLC Operations Platform · Internal Use Only</p>
+        <p className="text-center text-xs text-gray-600 mt-6">Shipo LLC Operations Platform · Internal Use Only</p>
       </div>
     </div>
   )

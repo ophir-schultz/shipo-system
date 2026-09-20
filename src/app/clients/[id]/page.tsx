@@ -102,6 +102,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         clientId={id}
         apiKey={client.zenventory_api_key}
         apiSecret={client.zenventory_api_secret}
+        secureKey={client.zenventory_secure_key}
       />
 
       {/* Shipping Rates */}

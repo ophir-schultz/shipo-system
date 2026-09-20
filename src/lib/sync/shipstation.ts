@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { getShipments } from '@/lib/api/shipstation'
+import { calcDimWeightOz, calcBilledWeightOz } from '@/lib/billing/dim-weight'
 
 export async function syncShipments(daysBack = 30) {
   const dateFrom = new Date()
@@ -41,20 +42,19 @@ export async function syncShipments(daysBack = 30) {
         const weightUnit = s.weight?.units ?? 'ounces'
         const weightOz = weightUnit === 'pounds' ? weightRaw * 16 : weightRaw
 
-        // Dimensional weight: (L × W × H) / 166 → lbs → oz (USPS DIM divisor)
-        const dimWeightOz = (lengthIn > 0 && widthIn > 0 && heightIn > 0)
-          ? parseFloat(((lengthIn * widthIn * heightIn) / 166 * 16).toFixed(2))
-          : null
-
-        // Billed weight = higher of actual vs dimensional
-        const billedWeightOz = dimWeightOz ? Math.max(weightOz, dimWeightOz) : weightOz
+        const carrier = s.carrierCode?.toUpperCase() ?? ''
+        const service = s.serviceCode ?? ''
+        // Service matters: UPS air applies DIM to every parcel, ground only
+        // above 1 cubic foot. See src/lib/billing/dim-weight.ts.
+        const dimWeightOz = calcDimWeightOz(lengthIn, widthIn, heightIn, carrier, service)
+        const billedWeightOz = calcBilledWeightOz(weightOz, dimWeightOz)
 
         const shipmentData = {
           order_number: String(s.orderNumber),
           order_date: s.orderDate,
           ship_date: s.shipDate,
-          carrier: s.carrierCode?.toUpperCase() ?? '',
-          service: s.serviceCode ?? '',
+          carrier,
+          service,
           tracking_number: s.trackingNumber ?? '',
           recipient_name: s.shipTo?.name ?? '',
           recipient_city: s.shipTo?.city ?? '',

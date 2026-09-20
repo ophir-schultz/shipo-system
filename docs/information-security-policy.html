@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shipo LLC — Information Security Policy</title>
+<style>
+  @page { margin: 0.9in 0.85in; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #1a1f2b;
+    font-size: 11pt;
+    line-height: 1.5;
+    margin: 0;
+  }
+  h1 {
+    font-size: 19pt;
+    color: #0d1420;
+    margin: 0 0 4px 0;
+    line-height: 1.25;
+  }
+  .accent { height: 4px; background: #00AAFF; width: 100%; margin: 10px 0 18px 0; border-radius: 2px; }
+  h2 {
+    font-size: 12.5pt;
+    color: #0d1420;
+    border-bottom: 1px solid #d8dee9;
+    padding-bottom: 4px;
+    margin: 22px 0 8px 0;
+  }
+  .meta {
+    background: #f4f7fb;
+    border: 1px solid #e0e7f1;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 10pt;
+    margin-bottom: 6px;
+  }
+  .meta div { margin: 2px 0; }
+  .meta b { color: #0d1420; display: inline-block; min-width: 130px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 9.5pt; background: #eef2f7; padding: 1px 4px; border-radius: 3px; }
+  .sign {
+    margin-top: 34px;
+    border-top: 1px solid #d8dee9;
+    padding-top: 18px;
+  }
+  .sign .line { margin: 22px 0; }
+  .muted { color: #5b6473; font-size: 9.5pt; }
+</style>
+</head>
+<body>
+
+<h1>Shipo LLC — Information Security, Risk Assessment &amp; Incident Response Policy</h1>
+<div class="accent"></div>
+
+<div class="meta">
+  <div><b>Company:</b> Shipo LLC</div>
+  <div><b>Address:</b> 310 Cornell Dr, Wilmington, DE 19801</div>
+  <div><b>Policy owner:</b> Ophir Schultz (Owner / Principal)</div>
+  <div><b>Effective date:</b> 2026-08-10</div>
+  <div><b>Review cadence:</b> At least annually, and after any material change to systems, staffing, or a security incident.</div>
+  <div><b>Version:</b> 1.0</div>
+</div>
+
+<h2>1. Purpose &amp; Scope</h2>
+<p>This policy defines how Shipo LLC protects the confidentiality, integrity, and availability of the data we handle — including client business information, inventory and order data, and any Amazon-originated data we process to provide third-party logistics (3PL) and fulfillment services.</p>
+<p>It applies to all Shipo LLC owners, employees, contractors, and any third-party service providers who access Shipo systems or data.</p>
+
+<h2>2. Data We Handle</h2>
+<ul>
+  <li><b>Client data:</b> contact details, inventory records, SKUs, and shipment/order data provided by our clients.</li>
+  <li><b>Amazon-related data:</b> order, product, and shipment information received <b>only</b> from our clients or authorized Amazon systems for the purpose of fulfilling their orders. We do <b>not</b> gather Amazon customer, product, or business information from non-Amazon third-party sources.</li>
+  <li><b>Operational data:</b> billing records, carrier/shipping data, and internal fulfillment records.</li>
+</ul>
+<p>We do <b>not</b> sell, rent, or share individual or combined client data with other customers, partner companies, or outside organizations, except as strictly required to deliver the service the client has engaged us for (e.g., carriers, ShipStation) or as required by law.</p>
+
+<h2>3. Access Control</h2>
+<ul>
+  <li>Access to systems and data is granted on a <b>least-privilege, need-to-know</b> basis.</li>
+  <li>Each user has a unique account; <b>credentials are never shared</b>.</li>
+  <li>Multi-factor authentication (MFA) is enabled on all critical systems where available (email, cloud infrastructure, Supabase, Vercel, GitHub, Amazon Seller/SPN portals).</li>
+  <li>Administrative credentials and API keys are stored in a password manager or secure secrets store — <b>never</b> in plain text, email, chat, or source code.</li>
+  <li>Access is reviewed periodically and <b>revoked promptly</b> when a person leaves or no longer needs it.</li>
+</ul>
+
+<h2>4. Data Protection</h2>
+<ul>
+  <li>Data in transit is protected using <b>TLS/HTTPS</b>.</li>
+  <li>Data at rest is protected by the encryption provided by our cloud platforms (Supabase/PostgreSQL, Vercel).</li>
+  <li>Row-Level Security (RLS) is enabled on database tables to restrict data access.</li>
+  <li>Backups of critical data are maintained by our managed database provider, with point-in-time recovery available.</li>
+  <li>Production secrets (API keys, passwords, tokens) are managed via environment variables / secrets managers, not committed to code repositories.</li>
+</ul>
+
+<h2>5. Risk Assessment Process</h2>
+<p>Shipo LLC performs a documented risk assessment on a recurring basis:</p>
+<ol>
+  <li><b>Inventory</b> the systems, data, and third-party services in use.</li>
+  <li><b>Identify threats</b> to each (unauthorized access, credential compromise, data loss, vendor breach, service outage, phishing/social engineering).</li>
+  <li><b>Assess</b> each risk by likelihood and impact.</li>
+  <li><b>Mitigate</b> — apply controls (MFA, least-privilege, encryption, monitoring, vendor vetting) to bring risk to an acceptable level.</li>
+  <li><b>Document &amp; review</b> — record findings and re-assess at least annually and after any significant change or incident.</li>
+</ol>
+<p>New vendors and integrations are reviewed for their security posture before being granted access to Shipo data.</p>
+
+<h2>6. Monitoring &amp; Detection</h2>
+<ul>
+  <li>Access logs and system logs from our cloud platforms (Supabase, Vercel, GitHub) are available and reviewed when anomalies are suspected.</li>
+  <li>Failed login attempts, unexpected access patterns, and platform security alerts are monitored.</li>
+  <li>Staff are instructed to report anything suspicious (phishing emails, unexpected access requests, unusual system behavior) immediately.</li>
+</ul>
+
+<h2>7. Incident Response Plan</h2>
+<p>If a security incident is suspected or confirmed, Shipo LLC follows these steps:</p>
+<ol>
+  <li><b>Identify &amp; Report</b> — Anyone who detects a potential incident notifies the Policy Owner (Ophir Schultz) <b>immediately</b>.</li>
+  <li><b>Contain</b> — Limit the damage: disable affected accounts, rotate compromised credentials, isolate affected systems.</li>
+  <li><b>Assess</b> — Determine what data/systems were affected, the scope, and the cause.</li>
+  <li><b>Eradicate &amp; Recover</b> — Remove the threat, restore from clean backups if needed, and verify systems are secure before returning to normal operation.</li>
+  <li><b>Notify</b> — Notify affected clients, and any partners or authorities, as required by contract and applicable law, without undue delay. <b>Any security incident involving Amazon information is reported to Amazon at <span class="mono">security@amazon.com</span> within 24 hours of confirming the incident.</b></li>
+  <li><b>Review</b> — After resolution, conduct a post-incident review to document the root cause and update controls and this policy to prevent recurrence.</li>
+</ol>
+<p><b>Primary incident contact:</b> Ophir Schultz — <span class="mono">ophir@shipousa.com</span> / <span class="mono">ophir@getshipo.com</span> — 302-442-2343</p>
+
+<h2>8. Credential Hygiene</h2>
+<ul>
+  <li>Passwords are strong, unique, and stored in a password manager.</li>
+  <li>Credentials are <b>rotated</b> immediately if exposure is suspected.</li>
+  <li>Credentials are never transmitted in plain text over email or chat.</li>
+</ul>
+
+<h2>9. Notifying Amazon of Organizational Changes</h2>
+<p>Shipo LLC maintains a policy to <b>notify Amazon within 30 days</b> of material organizational changes, including changes to legal entity, ownership, primary contacts, or business address, in accordance with Amazon's program requirements.</p>
+
+<h2>10. Policy Governance</h2>
+<ul>
+  <li>This policy is owned by the Policy Owner and reviewed at least annually.</li>
+  <li>All staff and contractors are expected to read and comply with it.</li>
+  <li>Violations may result in loss of access and/or termination of engagement.</li>
+</ul>
+
+<div class="sign">
+  <div class="line">Approved by: __________________________&nbsp;&nbsp;(Ophir Schultz, Owner, Shipo LLC)</div>
+  <div class="line">Date: __________________________</div>
+</div>
+
+</body>
+</html>

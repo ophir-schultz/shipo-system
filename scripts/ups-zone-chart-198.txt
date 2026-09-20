@@ -1,0 +1,62 @@
+# UPS ZONE CHART — origin ZIP prefix 198 (Wilmington, DE 19801 — Shipo LLC)
+#
+# SOURCE (verified live 2026-09-03, fetched through the browser because ups.com
+# refuses non-browser clients):
+#   https://www.ups.com/media/us/currentrates/zone-csv/198.xls
+#   Sheet header: "For shipments originating in ZIP Codes 198-01 to 198-99.
+#                  To determine zone take the first three digits of the
+#                  receiver's ZIP Code and refer to the chart below."
+#   Services covered: UPS Ground / 3 Day Select / 2nd Day Air /
+#                     2nd Day Air A.M. / Next Day Air Saver / Next Day Air
+#   NOTE: https://www.ups.com/media/us/currentrates/zone-txt/198.txt returns 404.
+#         Only the .xls exists for this prefix. 197/199/190 have .txt files.
+#
+# VERIFIED PROPERTY (checked across all 906 destination prefixes in the file):
+#   UPS Ground zone == 3 Day Select zone == 2nd Day Air zone for all 903
+#   mainland prefixes. The only exceptions are Puerto Rico, listed below.
+#   So ONE zone number per destination prefix covers all three services
+#   Shipo prices on. (2nd Day Air A.M. = 40+zone, NDA Saver = 30+zone.)
+#
+# FORMAT: <dest-prefix or range>=<zone>
+# Prefixes absent from this list are not in the UPS chart (no service / non-US).
+
+## Puerto Rico — different zone per service, do NOT use the single-zone rule
+006-007  Ground=45  3DaySelect=none  2ndDayAir=25  NextDayAir=25
+009      Ground=45  3DaySelect=none  2ndDayAir=25  NextDayAir=25
+
+## Mainland US — Ground / 3 Day Select / 2nd Day Air share this zone
+005=2 010-034=3 035=4 036=3 037-050=4 051-053=3 054=4 055=3 056=4 057=3
+058-059=4 060-065=3 066=2 067=3 068-089=2 100-118=2 119-126=3 127=2 128=3
+129=4 130-135=3 136=4 137-168=3 169=2 170=3 171-212=2 214=2 215=3 216-224=2
+225-239=3 240-243=4 244-245=3 246-248=4 249=3 250-253=4 254=2 255-259=4
+260=3 261=4 262-268=3 270-272=4 273=3 274=4 275-279=3 280-283=4 284=5
+285-299=4 300-302=5 303=6 304-309=4 310-312=5 313-314=4 315-329=5 330-331=6
+332-333=5 334=6 335-339=5 341-342=5 344=5 346-347=5 349-352=5 354-372=5
+373-374=4 375=5 376-379=4 380-384=5 385=4 386-399=5 400-404=4 405=5
+406-418=4 420=5 421-422=4 423-424=5 425-427=4 430-438=4 439=3 440-441=4
+442=3 443=4 444-447=3 448-462=4 463-464=5 465-474=4 475-477=5 478-495=4
+496=5 497=4 498-509=5 510-513=6 514=5 515-516=6 520-528=5 530-532=5
+534-535=5 537-551=5 553-560=5 561-567=6 569-576=6 577=7 580-585=6 586=7
+587=6 588=7 590-593=7 594=8 595=7 596-599=8 600-620=5 622-631=5 633-641=5
+644-647=5 648=6 649-658=5 660-662=5 664-681=6 683-693=6 700-701=6 703-708=6
+710-714=6 716=5 717-719=6 720-726=5 727=6 728=5 729-731=6 733-741=6
+743-768=6 769=7 770=6 772-779=6 780-785=7 786-787=6 788=7 789=6 790-791=7
+792=6 793-816=7 820-830=7 831-838=8 840-847=8 850-853=8 855-857=8 859-860=8
+863-864=8 865=7 870-871=7 873-875=7 877-885=7 889-891=8 893-895=8 897-898=8
+900-908=8 910-928=8 930-961=8 970-986=8 988-994=8
+
+## WHAT THIS CORRECTED (2026-09-03)
+# The first rate pull labelled its seven destination cities by ASSUMPTION, not
+# from this chart. Five of the seven labels were wrong:
+#   Philadelphia 19102 (191)  labelled Z2 -> ACTUALLY Zone 2   correct
+#   New York     10001 (100)  labelled Z3 -> ACTUALLY Zone 2   WRONG
+#   Raleigh      27601 (276)  labelled Z4 -> ACTUALLY Zone 3   WRONG
+#   Atlanta      30303 (303)  labelled Z5 -> ACTUALLY Zone 6   WRONG
+#   Chicago      60601 (606)  labelled Z6 -> ACTUALLY Zone 5   WRONG
+#   Dallas       75201 (752)  labelled Z7 -> ACTUALLY Zone 6   WRONG
+#   Los Angeles  90001 (900)  labelled Z8 -> ACTUALLY Zone 8   correct
+# This also explains the smoking gun in the data: Atlanta and Dallas returned
+# byte-identical rates at all 50 weights. They are BOTH Zone 6.
+# Zones 4 and 7 were never quoted at all. Replacements chosen from this chart:
+#   Zone 4 -> Charlotte,   NC 28202 (prefix 282)
+#   Zone 7 -> Denver,      CO 80202 (prefix 802)

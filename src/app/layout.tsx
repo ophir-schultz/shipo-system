@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Shipo System",
-  description: "ShipoLLC Operations & Billing Platform",
+  description: "Shipo LLC Operations & Billing Platform",
 };
 
 export default function RootLayout({
