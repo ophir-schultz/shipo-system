@@ -1,10 +1,14 @@
 import axios, { AxiosError } from 'axios'
 
-// API 2.0 — Basic Auth (API Key + API Secret)
-const BASE_URL = 'https://app.zenventory.com/api'
+// Zenventory has TWO APIs on two DIFFERENT paths. Neither of them is /api —
+// that path does not exist on the host and returns an Apache HTML 404 page,
+// which is indistinguishable from a credentials problem unless you read the body.
+//
+// API 2.0 — Basic Auth (API Key + API Secret). Spec: https://docs.zenventory.com/openapi.php
+const BASE_URL = 'https://app.zenventory.com/rest'
 
-// Legacy REST API — SecureKey header (for shipment data and other endpoints not yet in API 2.0)
-const LEGACY_BASE_URL = 'https://app.zenventory.com/api'
+// Legacy REST API — SecureKey header (endpoints not present in API 2.0)
+const LEGACY_BASE_URL = 'https://app.zenventory.com/services/rest'
 
 function makeClient(apiKey: string, apiSecret: string) {
   return axios.create({
@@ -36,15 +40,21 @@ function extractError(err: unknown): string {
 export async function getCustomerOrders(
   apiKey: string,
   apiSecret: string,
-  params?: { page?: number; perPage?: number; modifiedFrom?: string }
+  params?: { page?: number; perPage?: number; modifiedSince?: string }
 ) {
   const c = makeClient(apiKey, apiSecret)
   try {
     const res = await c.get('/customer-orders', {
       params: {
         page: params?.page ?? 1,
+        // perPage is capped at 100 by the API; anything higher is rejected.
         perPage: params?.perPage ?? 100,
-        modifiedFrom: params?.modifiedFrom,
+        // Date filtering uses the Customer Order Advanced Filter, which takes a
+        // value parameter plus a matching <field>Conditional. There is no
+        // "modifiedFrom" parameter — that name was silently doing nothing.
+        ...(params?.modifiedSince
+          ? { modifiedDate: params.modifiedSince, modifiedDateConditional: 'on_or_after' }
+          : {}),
       },
     })
     return res.data
@@ -63,18 +73,23 @@ export async function testZenventoryCredentials(apiKey: string, apiSecret: strin
   }
 }
 
-// Legacy API — requires SecureKey header
-export async function getShipments(
+// Legacy API — requires SecureKey header.
+//
+// NOTE: there is no GET /shipments in either Zenventory API. This previously
+// called that path and could only ever 404. The legacy list endpoint is
+// /shippingorders (detail at /shippingorders/{id}, lines at
+// /shippingorders/{id}/items). Shipment rows in this app come from ShipStation
+// (see lib/api/shipstation.ts), not from here.
+export async function getShippingOrders(
   secureKey: string,
-  params?: { page?: number; perPage?: number; modifiedFrom?: string }
+  params?: { page?: number; perPage?: number }
 ) {
   const c = makeLegacyClient(secureKey)
   try {
-    const res = await c.get('/shipments', {
+    const res = await c.get('/shippingorders', {
       params: {
         page: params?.page ?? 1,
         perPage: params?.perPage ?? 100,
-        modifiedFrom: params?.modifiedFrom,
       },
     })
     return res.data
@@ -86,7 +101,7 @@ export async function getShipments(
 export async function testZenventorySecureKey(secureKey: string) {
   const c = makeLegacyClient(secureKey)
   try {
-    const res = await c.get('/shipments', { params: { page: 1, perPage: 1 } })
+    const res = await c.get('/shippingorders', { params: { page: 1, perPage: 1 } })
     return { ok: true, status: res.status }
   } catch (err) {
     return { ok: false, error: extractError(err) }

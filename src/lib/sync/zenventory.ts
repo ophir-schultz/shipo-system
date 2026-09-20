@@ -40,7 +40,7 @@ export async function syncClientAssignments(daysBack = 30) {
         data = await getCustomerOrders(client.zenventory_api_key, client.zenventory_api_secret, {
           page,
           perPage: 100,
-          modifiedFrom: modifiedFromISO,
+          modifiedSince: modifiedFromISO,
         })
       } catch (err: any) {
         clientErrors.push(`${client.name}: ${err.message}`)
