@@ -10,6 +10,10 @@ import {
   qualifyBars,
   qualifiesInMonth,
   bonusAmount,
+  foundingPlaces,
+  clearsLaunchBar,
+  tenureReleaseDate,
+  FOUNDING_CLIENT_TERMS,
   REFERRAL_TERMS,
   type ReferralPartner,
   type ReferredClient,
@@ -25,12 +29,17 @@ function check(name: string, actual: unknown, expected: unknown) {
 
 const standing: ReferralPartner = { id: 'p1', name: 'Standing Partner', company: null, status: 'active' }
 
-// Admitted exactly as /api/referrals/partners stamps them: the two
-// volume bars set, and bonus_min_revenue deliberately NULL. Ophir's
-// approved wording is "more than 500 orders per month or in the FBA
-// more than 1500 units per month" — no dollar route.
+// A partner on BESPOKE terms written by hand in the DB: the two volume
+// bars set, and bonus_min_revenue deliberately NULL — no dollar route.
+//
+// Nothing in the UI writes these any more. The launch offer moved to
+// the CLIENT (see the launch-places block at the bottom of this file),
+// because a 10-PARTNER cap with unlimited clients each is an unbounded
+// liability. The columns remain because qualifyBars() still honours
+// them, and the all-or-nothing reading below is what stops a NULL
+// revenue column quietly inheriting the standing $500.
 const founding: ReferralPartner = {
-  id: 'p2', name: 'Founding Partner', company: null, status: 'active',
+  id: 'p2', name: 'Bespoke Partner', company: null, status: 'active',
   signup_bonus_amount: 500, bonus_min_units: 1500, bonus_min_orders: 500,
   bonus_min_revenue: null, founding_partner: true,
 }
@@ -91,8 +100,16 @@ check(
 )
 
 // ---- end to end through computeOwed ----
-const client = (id: string, paid: string | null): ReferredClient => ({
+//
+// A FIXED `now` well past the 60-day gate. Using the real clock here
+// would make these checks pass today and fail on a machine whose date
+// is a week earlier — a test that depends on when it is run is not a
+// test.
+const NOW = new Date('2027-06-01T00:00:00Z')
+
+const client = (id: string, paid: string | null, seq: number | null = null): ReferredClient => ({
   id, name: id, referral_partner_id: 'p2', referral_signup_date: null, referral_first_payment_date: paid,
+  founding_bonus_seq: seq,
 })
 
 const owed = computeOwed(
@@ -104,6 +121,7 @@ const owed = computeOwed(
     inv({ id: 'c', client_id: 'small', amount: 300, orders_shipped: 40 }),
   ],
   [],
+  { now: NOW },
 )
 
 const bonuses = owed.filter((l) => l.kind === 'signup_bonus')
@@ -115,6 +133,97 @@ check('sub-scale client is NOT owed', byClient.small.period, 'awaiting')
 console.log(`        small client note: "${byClient.small.note}"`)
 console.log(`        fba client note:   "${byClient.fba.note}"`)
 console.log(`        dtc client note:   "${byClient.dtc.note}"`)
+
+// ---- THE 60-DAY GATE ----
+// Published on the partner page and, until now, enforced nowhere:
+// "bills >= $500 in a calendar month, 60 days active, and first invoice
+// paid in full." Three conditions, two of which were implemented.
+check(
+  'release date is 60 days after the first invoiced month',
+  tenureReleaseDate([inv({ period: '2026-10-01' })], 60)?.toISOString().slice(0, 10),
+  '2026-11-30',
+)
+
+const earlyOwed = computeOwed(
+  [founding],
+  [client('fast', '2026-10-01')],
+  [inv({ id: 'e', client_id: 'fast', amount: 9000, units_shipped: 5000 })],
+  [],
+  { now: new Date('2026-10-15T00:00:00Z') }, // 14 days in
+)
+const early = earlyOwed.find((l) => l.kind === 'signup_bonus')!
+check('qualified on day 14 -> still awaiting, not owed', early.period, 'awaiting')
+console.log(`        day-14 note: "${early.note}"`)
+check(
+  'the same client past 60 days -> owed',
+  computeOwed([founding], [client('fast', '2026-10-01')],
+    [inv({ id: 'e', client_id: 'fast', amount: 9000, units_shipped: 5000 })], [], { now: NOW })
+    .find((l) => l.kind === 'signup_bonus')!.period,
+  '2026-10',
+)
+
+// ---- THE LAUNCH OFFER, PER CLIENT ----
+//
+// The bug this replaces: the cap used to count PARTNERS, so 10 partners
+// referring 100 clients each paid 1,000 × $500. Counting clients makes
+// the published ceiling — 10 × $200 = $2,000 — actually true.
+check('launch bar: 1,501 units clears', clearsLaunchBar(inv({ units_shipped: 1501 })), true)
+check('launch bar: 1,500 units does NOT (more than)', clearsLaunchBar(inv({ units_shipped: 1500 })), false)
+check('launch bar: 501 orders clears', clearsLaunchBar(inv({ orders_shipped: 501 })), true)
+check('launch bar: $1m with no volume does NOT clear', clearsLaunchBar(inv({ amount: 1_000_000 })), false)
+
+// 12 qualifying clients, one per month, all under ONE STANDING partner.
+//
+// Standing and not the bespoke fixture above on purpose: that partner
+// carries signup_bonus_amount = 500, so every client of theirs is worth
+// $500 whether or not they hold a launch place, and the cap would look
+// like it was working when it was doing nothing at all. The $300
+// fallback is only visible against a partner on the standing terms.
+const many = Array.from({ length: 12 }, (_, i) => ({
+  ...client(`c${String(i).padStart(2, '0')}`, '2026-01-01'),
+  referral_partner_id: 'p1',
+}))
+// amount 9000 so they also clear the STANDING $500 revenue bar — the
+// launch place decides what the bonus is worth, not whether it exists.
+const manyInv = many.map((c, i) =>
+  inv({ id: `i${i}`, client_id: c.id, period: `2026-${String(i + 1).padStart(2, '0')}-01`, amount: 9000, units_shipped: 9000 }),
+)
+const places = foundingPlaces(many, manyInv)
+check('the cap is 10 CLIENTS, not 10 partners', places.taken, FOUNDING_CLIENT_TERMS.CAP)
+check('...so the 11th and 12th get nothing', [places.place.get('c10'), places.place.get('c11')], [undefined, undefined])
+check('places go to the earliest qualifiers, in order', [places.place.get('c00'), places.place.get('c09')], [1, 10])
+check('every unapproved place is provisional', places.provisional.size, 10)
+
+// A stored place is FIXED. Client c11 qualified last, but was approved
+// and paid at place 1 — a backdated invoice for anyone else must not be
+// able to take that back.
+const withStored = many.map((c) => (c.id === 'c11' ? { ...c, founding_bonus_seq: 1 } : c))
+const storedPlaces = foundingPlaces(withStored, manyInv)
+check('a stored place is honoured exactly, not re-ranked', storedPlaces.place.get('c11'), 1)
+check('...and place 1 is not handed out twice', storedPlaces.place.get('c00'), 2)
+check('...and the earliest qualifier still fits', storedPlaces.taken, 10)
+check('a stored place is not provisional', storedPlaces.provisional.has('c11'), false)
+
+// The partner statement sees ONE partner's clients. Ranking inside that
+// slice would promise a $500 to someone 40th in line.
+const sliceOnly = foundingPlaces(many, manyInv, false)
+check('a partial client list assigns NO provisional places', sliceOnly.taken, 0)
+check('...but still honours stored ones', foundingPlaces(withStored, manyInv, false).place.get('c11'), 1)
+
+// End to end: the 11th qualifying client is paid the standing $300.
+const capOwed = computeOwed([standing], many, manyInv, [], { now: NOW })
+const capBonus = Object.fromEntries(
+  capOwed.filter((l) => l.kind === 'signup_bonus').map((b) => [b.clientId, b]),
+)
+check('launch client #1 is paid $500', capBonus.c00.amount, FOUNDING_CLIENT_TERMS.BONUS)
+check('client #11 is paid the standing $300', capBonus.c10.amount, REFERRAL_TERMS.SIGNUP_BONUS)
+check('client #12 is paid the standing $300', capBonus.c11.amount, REFERRAL_TERMS.SIGNUP_BONUS)
+check(
+  'total launch exposure is exactly 10 x $200',
+  Object.values(capBonus).reduce((s, b) => s + b.amount, 0) - many.length * REFERRAL_TERMS.SIGNUP_BONUS,
+  FOUNDING_CLIENT_TERMS.CAP * (FOUNDING_CLIENT_TERMS.BONUS - REFERRAL_TERMS.SIGNUP_BONUS),
+)
+console.log(`        launch place note: "${capBonus.c00.note}"`)
 
 // ---- a 0 bar CLOSES that path, and must not fall back to $500 ----
 //

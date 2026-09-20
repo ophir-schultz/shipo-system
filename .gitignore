@@ -46,3 +46,6 @@ next-env.d.ts
 
 # generated quote/price artifacts, including real client documents
 scripts/out/
+
+# Supabase CLI scratch — version cache, not source
+supabase/.temp/

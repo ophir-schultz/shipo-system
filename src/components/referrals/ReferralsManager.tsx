@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
-import { REFERRAL_TERMS, FOUNDING_PARTNER_TERMS, netProfit, totalCosts, commissionOn } from '@/lib/referrals'
+import { REFERRAL_TERMS, FOUNDING_CLIENT_TERMS, netProfit, totalCosts, commissionOn } from '@/lib/referrals'
 import type { OwedLine, FbaInvoice } from '@/lib/referrals'
 
 const PCT = `${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%`
@@ -128,6 +128,7 @@ export default function ReferralsManager({
 
       {/* ---- Payouts Owed ---- */}
       <Section title="Payouts Owed" subtitle="Auto-computed — approve each line to clear it for payment">
+        <LaunchPlaces owed={owed} />
         {owed.length === 0 ? (
           <p className="text-gray-500 text-sm">
             No payouts yet. Link a client to a partner and add a monthly account below, and the $
@@ -227,6 +228,57 @@ export default function ReferralsManager({
 }
 
 // ============================================================
+// Launch offer — read-only
+//
+// There is nothing to tick. A client either cleared the volume bar
+// before the first 10 places ran out or it did not, and the answer is
+// computed from the invoices. Showing it as a control would imply Ophir
+// can hand a place out by hand, which he cannot and should not: the
+// order is what makes "first 10" mean anything.
+//
+// Counted off the owed lines rather than the client table so this can
+// never disagree with the money printed directly underneath it.
+// ============================================================
+function LaunchPlaces({ owed }: { owed: OwedLine[] }) {
+  const held = new Map<string, boolean>() // clientId -> provisional?
+  for (const l of owed) {
+    if (l.kind === 'signup_bonus' && l.foundingSeq != null) {
+      held.set(l.clientId, !!l.foundingProvisional)
+    }
+  }
+  const taken = held.size
+  const left = Math.max(0, FOUNDING_CLIENT_TERMS.CAP - taken)
+  const provisional = [...held.values()].filter(Boolean).length
+
+  return (
+    <div className="mb-4 rounded-lg border border-purple-800/40 bg-purple-950/20 px-4 py-3 text-sm">
+      <span className="text-gray-200 font-medium">
+        Launch offer — {fmt(FOUNDING_CLIENT_TERMS.BONUS)} instead of {fmt(REFERRAL_TERMS.SIGNUP_BONUS)} for the first{' '}
+        {FOUNDING_CLIENT_TERMS.CAP} referred clients
+      </span>
+      <span className="block text-xs text-gray-400 mt-1">
+        {taken} of {FOUNDING_CLIENT_TERMS.CAP} taken, {left} left.
+        {provisional > 0 && (
+          <>
+            {' '}
+            {provisional} {provisional === 1 ? 'is' : 'are'} still provisional — a place is only locked in when you
+            approve that client&apos;s bonus, so an earlier qualifier entered before then can still take it.
+          </>
+        )}
+      </span>
+      <span className="block text-xs text-gray-500 mt-1">
+        A client takes a place by doing, in one calendar month, more than{' '}
+        {FOUNDING_CLIENT_TERMS.MIN_ORDERS.toLocaleString()} DTC orders or more than{' '}
+        {FOUNDING_CLIENT_TERMS.MIN_UNITS.toLocaleString()} FBA prep units — either one counts, so DTC and FBA
+        referrals both qualify. Maximum extra exposure is {FOUNDING_CLIENT_TERMS.CAP} ×{' '}
+        {fmt(FOUNDING_CLIENT_TERMS.BONUS - REFERRAL_TERMS.SIGNUP_BONUS)} ={' '}
+        {fmt(FOUNDING_CLIENT_TERMS.CAP * (FOUNDING_CLIENT_TERMS.BONUS - REFERRAL_TERMS.SIGNUP_BONUS))}.
+      </span>
+    </div>
+  )
+}
+
+// ============================================================
 // Partners
 // ============================================================
 function PartnersPanel({
@@ -238,16 +290,17 @@ function PartnersPanel({
   busy: string | null
   call: (url: string, body: unknown, method?: string, tag?: string) => Promise<boolean>
 }) {
+  // No Founding Partner checkbox any more. The launch offer belongs to
+  // the CLIENT, not the partner — see the launch-places banner above the
+  // payout table, and FOUNDING_CLIENT_TERMS in src/lib/referrals.ts.
+  // Admitting a partner has no effect on what any bonus is worth.
   const empty = {
     name: '', company: '', email: '', phone: '', partner_type: '', refer_method: '', notes: '',
-    founding_partner: false,
   }
   const [form, setForm] = useState(empty)
   const [open, setOpen] = useState(false)
 
   const pending = partners.filter((p) => p.status === 'pending')
-  const foundingTaken = partners.filter((p) => p.founding_partner).length
-  const foundingLeft = Math.max(0, FOUNDING_PARTNER_TERMS.CAP - foundingTaken)
 
   async function addPartner() {
     if (!form.name.trim()) {
@@ -307,37 +360,6 @@ function PartnersPanel({
           <Input label="Phone" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
           <Input label="Partner type" value={form.partner_type} onChange={(v) => setForm({ ...form, partner_type: v })} />
           <Input label="How they refer" value={form.refer_method} onChange={(v) => setForm({ ...form, refer_method: v })} />
-
-          {/* The launch offer. A checkbox and not three number fields
-              on purpose: the amounts are stamped server-side from
-              FOUNDING_PARTNER_TERMS, so there is no way to typo a
-              partner into a $5,000 bonus. */}
-          <label className="col-span-2 flex items-start gap-3 rounded-lg border border-gray-700 bg-gray-900/60 p-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.founding_partner}
-              disabled={foundingLeft === 0}
-              onChange={(e) => setForm({ ...form, founding_partner: e.target.checked })}
-              className="mt-0.5 h-4 w-4 accent-[#00AAFF] disabled:opacity-40"
-            />
-            <span className="text-sm">
-              <span className={foundingLeft === 0 ? 'text-gray-500' : 'text-gray-200'}>
-                Founding Partner — ${FOUNDING_PARTNER_TERMS.BONUS} bonus instead of ${REFERRAL_TERMS.SIGNUP_BONUS}
-              </span>
-              <span className="block text-xs text-gray-500 mt-1">
-                {foundingLeft === 0 ? (
-                  <>All {FOUNDING_PARTNER_TERMS.CAP} places are taken. New partners join on the standing terms.</>
-                ) : (
-                  <>
-                    {foundingLeft} of {FOUNDING_PARTNER_TERMS.CAP} left. Their referred client has to do, in one
-                    calendar month, more than {FOUNDING_PARTNER_TERMS.MIN_ORDERS.toLocaleString()} DTC orders or
-                    more than {FOUNDING_PARTNER_TERMS.MIN_UNITS.toLocaleString()} FBA prep units — either one
-                    counts, so DTC and FBA referrals both qualify.
-                  </>
-                )}
-              </span>
-            </span>
-          </label>
 
           <div className="col-span-2 flex justify-end">
             <button

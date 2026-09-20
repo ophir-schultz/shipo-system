@@ -45,7 +45,9 @@ export default async function Statement({ partner }: { partner: StatementPartner
   const [clientsRes, invoicesRes, payoutsRes] = await Promise.all([
     supabaseAdmin
       .from('clients')
-      .select('id, name, referral_partner_id, referral_signup_date, referral_first_payment_date')
+      .select(
+        'id, name, referral_partner_id, referral_signup_date, referral_first_payment_date, founding_bonus_seq',
+      )
       .eq('referral_partner_id', partner.id),
     supabaseAdmin
       .from('fba_invoices')
@@ -62,7 +64,17 @@ export default async function Statement({ partner }: { partner: StatementPartner
   const invoices = ((invoicesRes.data ?? []) as FbaInvoice[]).filter((i) => clientIds.has(i.client_id))
   const payouts = (payoutsRes.data ?? []) as PayoutRecord[]
 
-  const lines = computeOwed([partner as ReferralPartner], clients, invoices, payouts)
+  // provisionalPlaces: false — and this is not an optimisation.
+  //
+  // `clients` here is ONE partner's clients. Launch places are ranked
+  // across every referred client in the system, so ranking them inside
+  // this slice would hand out places 1..10 among this partner's clients
+  // alone and print a $500 bonus for someone who is really 40th in line.
+  // Only a place already written to the client row is true when read
+  // from here, so only those are honoured.
+  const lines = computeOwed([partner as ReferralPartner], clients, invoices, payouts, {
+    provisionalPlaces: false,
+  })
   const s = buildStatement(partner.id, clients, lines, invoices)
 
   return (

@@ -58,34 +58,48 @@ export const REFERRAL_TERMS = {
   // order bar, which is what the Founding Partner offer uses.
   QUALIFY_MIN_UNITS: null as number | null,
   QUALIFY_MIN_ORDERS: null as number | null,
+
+  // "60 days active", as published. The bonus is not released until
+  // the client has been on the books this long, even if they cleared
+  // the money bar in their very first month. It exists to stop a
+  // bonus being paid on an account that churns immediately.
+  QUALIFY_MIN_DAYS_ACTIVE: 60,
 } as const
 
 /**
- * The Founding Partner launch offer, approved by Ophir 2026-09-20.
+ * The launch offer, approved by Ophir 2026-09-20.
  *
- * These three numbers are stamped onto the partner row at the moment
- * they are admitted, and never read from here again — so changing or
- * ending the offer later cannot rewrite what an existing Founding
- * Partner was promised.
+ * ⚠️ THE CAP COUNTS CLIENTS, NOT PARTNERS. Read this before changing it.
  *
- * CAP is the whole of the downside: 10 × ($500 − $300) = $2,000 of
- * extra exposure, and not a dollar more. It is enforced in
- * /api/referrals/partners, not merely documented here.
+ * An earlier version of this file capped at 10 admitted PARTNERS and
+ * carried a comment claiming the downside was "10 × ($500 − $300) =
+ * $2,000". That arithmetic was wrong, and wrong in the expensive
+ * direction: 10 partners each referring an unlimited number of
+ * clients, each client paying $500 instead of $300, is an UNBOUNDED
+ * liability. The $2,000 figure was only ever true if every partner
+ * brought exactly one client.
+ *
+ * Counting clients makes the sentence true. The first 10 referred
+ * clients that clear the launch bar earn $500; every client after
+ * them earns the standing $300. Maximum extra exposure is 10 × $200 =
+ * $2,000, full stop, no matter how the referrals are distributed.
+ *
+ * The place is recorded on the CLIENT row (`founding_bonus_seq`) at
+ * the moment the bonus is approved, so a backdated invoice entered
+ * later can never retroactively bump a client out of a place they
+ * have already been paid for.
  */
-export const FOUNDING_PARTNER_TERMS = {
+export const FOUNDING_CLIENT_TERMS = {
   BONUS: 500, // instead of the standing $300
   MIN_UNITS: 1500, // FBA prep path: MORE THAN 1,500 units in a month
   MIN_ORDERS: 500, // DTC path: MORE THAN 500 orders in a month
+  CAP: 10, // first 10 qualifying CLIENTS, across all partners
 
   // NO revenue path, deliberately. Ophir's approved wording is
   // "more than 500 orders per month or in the FBA more than 1500
   // units per month" — two physical-volume bars and no dollar bar.
   // An earlier draft carried MIN_REVENUE: 2500 as a DTC stand-in;
-  // that was my invention, not the offer, and leaving it in would
-  // have qualified a client on a route he never approved.
-  MIN_REVENUE: null as number | null,
-
-  CAP: 10, // first 10 partners only
+  // that was my invention, not the offer.
 } as const
 
 export type PayoutKind = 'signup_bonus' | 'commission'
@@ -114,6 +128,12 @@ export interface ReferredClient {
   referral_partner_id: string | null
   referral_signup_date: string | null // YYYY-MM-DD — record only
   referral_first_payment_date: string | null // YYYY-MM-DD — starts the 12-month window
+
+  // 1..CAP if this client holds one of the launch-offer places, null
+  // otherwise. Written once, when the bonus is approved, and never
+  // recomputed — a place already paid for cannot be taken back by a
+  // backdated invoice for some other client.
+  founding_bonus_seq?: number | null
 }
 
 export interface FbaInvoice {
@@ -158,6 +178,12 @@ export interface OwedLine {
   // human note explaining timing / gating
   note?: string
   recordId?: string
+
+  // signup_bonus lines only: the launch place this client holds, and
+  // whether it is still provisional (not yet written to the DB, so it
+  // can still move if an earlier qualifier turns up).
+  foundingSeq?: number | null
+  foundingProvisional?: boolean
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -296,6 +322,123 @@ export function qualifyingInvoice(
   return null
 }
 
+// ---- the launch offer, per CLIENT --------------------------------
+
+/** The launch bar: more than 1,500 prep units OR more than 500 orders. */
+export function clearsLaunchBar(inv: FbaInvoice): boolean {
+  return qualifiesInMonth(inv, {
+    minRevenue: null,
+    minUnits: FOUNDING_CLIENT_TERMS.MIN_UNITS,
+    minOrders: FOUNDING_CLIENT_TERMS.MIN_ORDERS,
+  })
+}
+
+/** Earliest invoice that clears the launch bar, or null. */
+export function launchQualifyingInvoice(invoices: FbaInvoice[]): FbaInvoice | null {
+  const sorted = invoices.slice().sort((a, b) => a.period.localeCompare(b.period))
+  for (const inv of sorted) if (clearsLaunchBar(inv)) return inv
+  return null
+}
+
+export interface FoundingPlaces {
+  /** clientId -> place number. Includes both taken and provisional. */
+  place: Map<string, number>
+  /** Places not yet written to the DB — they can still move. */
+  provisional: Set<string>
+  taken: number
+  left: number
+}
+
+/**
+ * Who holds the 10 launch places.
+ *
+ * Places already written to `clients.founding_bonus_seq` are FIXED and
+ * are honoured exactly as stored, even if a client that qualified
+ * earlier turns up later — the money is already out the door and a
+ * spreadsheet cannot un-pay it.
+ *
+ * Remaining places are handed to the earliest qualifiers, ordered by
+ * the month they cleared the bar and then by client id. The id
+ * tiebreak is arbitrary but DETERMINISTIC, which is the property that
+ * matters: without it, two clients qualifying in the same month could
+ * swap places between one page load and the next, and the $500 would
+ * appear to move from one partner to another for no visible reason.
+ */
+export function foundingPlaces(
+  clients: ReferredClient[],
+  invoices: FbaInvoice[],
+  assignProvisional: boolean = true,
+): FoundingPlaces {
+  const byClient = new Map<string, FbaInvoice[]>()
+  for (const inv of invoices) {
+    const arr = byClient.get(inv.client_id) ?? []
+    arr.push(inv)
+    byClient.set(inv.client_id, arr)
+  }
+
+  const place = new Map<string, number>()
+  const used = new Set<number>()
+  for (const c of clients) {
+    const seq = c.founding_bonus_seq
+    if (seq != null && Number.isFinite(Number(seq))) {
+      place.set(c.id, Number(seq))
+      used.add(Number(seq))
+    }
+  }
+
+  // ⚠️ Provisional assignment needs EVERY client in the system, because
+  // the ordering is global. Handed a partial list — the partner
+  // statement loads only its own partner's clients — it would number
+  // places 1..10 inside that slice and promise a $500 that the client
+  // has not got. A caller that cannot supply the whole table passes
+  // false and gets stored places only, which are true from any angle.
+  const candidates = !assignProvisional
+    ? []
+    : clients
+    .filter((c) => c.referral_partner_id && !place.has(c.id))
+    .map((c) => ({ c, q: launchQualifyingInvoice(byClient.get(c.id) ?? []) }))
+    .filter((x) => x.q !== null)
+    .sort((a, b) => a.q!.period.localeCompare(b.q!.period) || a.c.id.localeCompare(b.c.id))
+
+  const provisional = new Set<string>()
+  let next = 1
+  for (const { c } of candidates) {
+    while (used.has(next)) next++
+    if (next > FOUNDING_CLIENT_TERMS.CAP) break
+    place.set(c.id, next)
+    provisional.add(c.id)
+    used.add(next)
+  }
+
+  const taken = place.size
+  return { place, provisional, taken, left: Math.max(0, FOUNDING_CLIENT_TERMS.CAP - taken) }
+}
+
+// ---- "60 days active" --------------------------------------------
+
+/**
+ * The client's first invoiced month is the best start date available —
+ * `clients` carries no start date, and adding one would be another
+ * hand-typed field that defaults to wrong.
+ */
+function firstPeriodOf(invoices: FbaInvoice[]): string | null {
+  let first: string | null = null
+  for (const inv of invoices) if (!first || inv.period < first) first = inv.period
+  return first
+}
+
+/** The date the 60-day clock runs out, or null if they have no invoices. */
+export function tenureReleaseDate(invoices: FbaInvoice[], minDays: number): Date | null {
+  const first = firstPeriodOf(invoices)
+  if (!first) return null
+  const [y, m, d] = first.slice(0, 10).split('-').map(Number)
+  const start = new Date(Date.UTC(y, m - 1, d || 1))
+  start.setUTCDate(start.getUTCDate() + minDays)
+  return start
+}
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10)
+
 /** Human sentence for why a bonus is or is not owed yet. */
 function qualifyNote(bars: QualifyBars): string {
   const parts: string[] = []
@@ -344,12 +487,30 @@ export function dedupeKey(clientId: string, kind: PayoutKind, period: string): s
  * Merges in the persisted ledger status (pending/approved/paid);
  * lines with no ledger row yet are marked 'computed'.
  */
+export interface ComputeOwedOptions {
+  /** Injectable clock, so the 60-day gate is testable. */
+  now?: Date
+  /**
+   * False when `clients` is only part of the table. The partner
+   * statement loads one partner's clients, and provisional launch
+   * places cannot be ranked from a slice — see foundingPlaces().
+   */
+  provisionalPlaces?: boolean
+}
+
 export function computeOwed(
   partners: ReferralPartner[],
   clients: ReferredClient[],
   invoices: FbaInvoice[],
   payouts: PayoutRecord[],
+  opts: ComputeOwedOptions = {},
 ): OwedLine[] {
+  const now = opts.now ?? new Date()
+
+  // Who holds the 10 launch places. Computed once, across ALL clients,
+  // because the cap is global — a per-client loop cannot see it.
+  const founding = foundingPlaces(clients, invoices, opts.provisionalPlaces !== false)
+
   const partnerById = new Map(partners.map((p) => [p.id, p]))
   const payoutByKey = new Map(payouts.filter((p) => p.dedupe_key).map((p) => [p.dedupe_key as string, p]))
   const invoicesByClient = new Map<string, FbaInvoice[]>()
@@ -389,17 +550,44 @@ export function computeOwed(
       const bars = qualifyBars(partner)
       const qualifier = qualifyingInvoice(clientInvoices, bars)
 
-      // Period is the month they qualified, not the month they paid —
-      // that is the month the bonus was actually earned.
-      const period = qualifier ? monthLabel(qualifier.period) : 'awaiting'
+      // "60 days active", the third published condition. A client can
+      // clear the money bar in month one and still not be released —
+      // the wait is there so a bonus is not paid on an account that
+      // churns immediately.
+      const releaseOn = tenureReleaseDate(clientInvoices, REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE)
+      const tenureMet = releaseOn !== null && now >= releaseOn
+
+      // The launch place, if this client holds one.
+      const seq = founding.place.get(client.id)
+      const isFounding = seq !== undefined
+      const amount = isFounding ? FOUNDING_CLIENT_TERMS.BONUS : bonusAmount(partner)
+
+      const releasable = !!qualifier && !!anchor && tenureMet
+
+      // 'awaiting' keeps an unreleased bonus OUT of the owed totals and
+      // off the partner's statement. Only a bonus that has cleared all
+      // three published conditions carries a real month, and that month
+      // is the one they QUALIFIED in — not the one they paid in.
+      const period = releasable ? monthLabel(qualifier!.period) : 'awaiting'
       const key = dedupeKey(client.id, 'signup_bonus', period)
       const { status, recordId } = statusFor(key)
 
       let note: string
       if (!qualifier) note = qualifyNote(bars)
       else if (!anchor) note = 'Qualified — set the first-payment date to release'
-      else {
+      else if (!tenureMet) {
+        note =
+          `Qualified on ${clearedBy(qualifier, bars)} in ${monthLabel(qualifier.period)} — ` +
+          `releases after ${REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE} days active` +
+          (releaseOn ? `, on ${isoDay(releaseOn)}` : '')
+      } else {
         note = `Owed — qualified on ${clearedBy(qualifier, bars)} in ${monthLabel(qualifier.period)}`
+      }
+
+      if (isFounding) {
+        note +=
+          ` · launch place ${seq} of ${FOUNDING_CLIENT_TERMS.CAP}` +
+          (founding.provisional.has(client.id) ? ' (not locked in until approved)' : '')
       }
 
       lines.push({
@@ -410,10 +598,12 @@ export function computeOwed(
         clientName: client.name,
         kind: 'signup_bonus',
         period,
-        amount: bonusAmount(partner),
+        amount,
         status,
         recordId,
         note,
+        foundingSeq: seq ?? null,
+        foundingProvisional: founding.provisional.has(client.id),
       })
     }
 

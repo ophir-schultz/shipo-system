@@ -15,7 +15,9 @@ async function getData() {
       .order('created_at', { ascending: false }),
     supabaseAdmin
       .from('clients')
-      .select('id, name, active, referral_partner_id, referral_signup_date, referral_first_payment_date')
+      .select(
+        'id, name, active, referral_partner_id, referral_signup_date, referral_first_payment_date, founding_bonus_seq',
+      )
       .order('name'),
     supabaseAdmin
       .from('fba_invoices')
