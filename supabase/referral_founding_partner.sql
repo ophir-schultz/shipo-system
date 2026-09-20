@@ -33,6 +33,35 @@ alter table referral_partners add column if not exists bonus_min_units integer;
   -- client must ship MORE THAN this many units in a calendar month
   -- before the bonus is owed. Founding Partners: 2000.
 
+alter table referral_partners add column if not exists bonus_min_revenue numeric(10,2);
+  -- The SAME qualification expressed in dollars, for referrals that
+  -- have no meaningful unit count.
+  --
+  -- WHY BOTH, AND WHY EITHER ONE CLEARS IT
+  -- --------------------------------------
+  -- Shipo sells two things. FBA prep is billed per unit, so "2,000
+  -- units in a month" is a real, readable number on the invoice. DTC
+  -- fulfillment is not: a DTC brand can be one of the best accounts
+  -- in the building and never have a prep unit count at all, because
+  -- `units_shipped` is typed in by hand on the invoice form and
+  -- defaults to 0.
+  --
+  -- So a units-only qualification is an FBA-only qualification. It
+  -- would silently pay nothing on every DTC referral — no error, no
+  -- warning, just a bonus that never becomes owed.
+  --
+  -- The fix is not a service-line flag on the client (one more field
+  -- for someone to forget). It is to let the client qualify on
+  -- WHICHEVER bar it actually clears: units OR revenue, in the same
+  -- calendar month. FBA accounts clear on units, DTC accounts clear
+  -- on dollars, and an account that does both clears on either.
+  --
+  -- NULL = the standing revenue bar applies (REFERRAL_TERMS
+  -- .QUALIFY_MIN_REVENUE, $500/month as published on
+  -- shipousa.com/partner-program/). A number = this partner's frozen
+  -- bar, e.g. 2500 for a Founding Partner — the dollar equivalent of
+  -- 2,000 prep units at $1.25/unit.
+
 alter table referral_partners add column if not exists founding_partner boolean default false;
   -- Drives the "listed by name on the partner page" part of the offer.
 
@@ -93,6 +122,7 @@ alter table fba_invoices enable row level security;
 --   ('referral_partners','updated_at'),
 --   ('referral_partners','signup_bonus_amount'),
 --   ('referral_partners','bonus_min_units'),
+--   ('referral_partners','bonus_min_revenue'),
 --   ('referral_partners','founding_partner'),
 --   ('referral_partners','applied_at'),
 --   ('fba_invoices','units_shipped'),

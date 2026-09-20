@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
-import { REFERRAL_TERMS, netProfit, totalCosts, commissionOn } from '@/lib/referrals'
+import { REFERRAL_TERMS, FOUNDING_PARTNER_TERMS, netProfit, totalCosts, commissionOn } from '@/lib/referrals'
 import type { OwedLine, FbaInvoice } from '@/lib/referrals'
 
 const PCT = `${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%`
@@ -20,6 +20,7 @@ interface Partner {
   notes: string | null
   source: string | null
   portal_last_seen_at?: string | null
+  founding_partner?: boolean | null
 }
 interface Client {
   id: string
@@ -112,8 +113,8 @@ export default function ReferralsManager({
       <Section title="Payouts Owed" subtitle="Auto-computed — approve each line to clear it for payment">
         {owed.length === 0 ? (
           <p className="text-gray-500 text-sm">
-            No payouts yet. Link a client to a partner and add a monthly account below, and the $300 bonus + {PCT}{' '}
-            commissions will appear here.
+            No payouts yet. Link a client to a partner and add a monthly account below, and the $
+            {REFERRAL_TERMS.SIGNUP_BONUS} bonus + {PCT} commissions will appear here.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -138,7 +139,11 @@ export default function ReferralsManager({
                       <td className="py-2.5 pr-3 text-gray-300">{l.clientName}</td>
                       <td className="py-2.5 pr-3">
                         <span className={`px-1.5 py-0.5 rounded text-xs ${l.kind === 'signup_bonus' ? 'bg-purple-900/40 text-purple-300' : 'bg-sky-900/30 text-sky-300'}`}>
-                          {l.kind === 'signup_bonus' ? '$300 bonus' : `${PCT} of net profit`}
+                          {/* Reads the line's own amount, not a constant — a
+                              Founding Partner's bonus is $500 and a badge
+                              hardcoded to $300 would misstate the money
+                              sitting next to it in the very same row. */}
+                          {l.kind === 'signup_bonus' ? `${fmt(l.amount)} bonus` : `${PCT} of net profit`}
                         </span>
                       </td>
                       <td className="py-2.5 pr-3 text-gray-400">{l.period === 'awaiting' ? '—' : l.period}</td>
@@ -216,11 +221,16 @@ function PartnersPanel({
   busy: string | null
   call: (url: string, body: unknown, method?: string, tag?: string) => Promise<boolean>
 }) {
-  const empty = { name: '', company: '', email: '', phone: '', partner_type: '', refer_method: '', notes: '' }
+  const empty = {
+    name: '', company: '', email: '', phone: '', partner_type: '', refer_method: '', notes: '',
+    founding_partner: false,
+  }
   const [form, setForm] = useState(empty)
   const [open, setOpen] = useState(false)
 
   const pending = partners.filter((p) => p.status === 'pending')
+  const foundingTaken = partners.filter((p) => p.founding_partner).length
+  const foundingLeft = Math.max(0, FOUNDING_PARTNER_TERMS.CAP - foundingTaken)
 
   async function addPartner() {
     if (!form.name.trim()) {
@@ -280,6 +290,38 @@ function PartnersPanel({
           <Input label="Phone" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} />
           <Input label="Partner type" value={form.partner_type} onChange={(v) => setForm({ ...form, partner_type: v })} />
           <Input label="How they refer" value={form.refer_method} onChange={(v) => setForm({ ...form, refer_method: v })} />
+
+          {/* The launch offer. A checkbox and not three number fields
+              on purpose: the amounts are stamped server-side from
+              FOUNDING_PARTNER_TERMS, so there is no way to typo a
+              partner into a $5,000 bonus. */}
+          <label className="col-span-2 flex items-start gap-3 rounded-lg border border-gray-700 bg-gray-900/60 p-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.founding_partner}
+              disabled={foundingLeft === 0}
+              onChange={(e) => setForm({ ...form, founding_partner: e.target.checked })}
+              className="mt-0.5 h-4 w-4 accent-[#00AAFF] disabled:opacity-40"
+            />
+            <span className="text-sm">
+              <span className={foundingLeft === 0 ? 'text-gray-500' : 'text-gray-200'}>
+                Founding Partner — ${FOUNDING_PARTNER_TERMS.BONUS} bonus instead of ${REFERRAL_TERMS.SIGNUP_BONUS}
+              </span>
+              <span className="block text-xs text-gray-500 mt-1">
+                {foundingLeft === 0 ? (
+                  <>All {FOUNDING_PARTNER_TERMS.CAP} places are taken. New partners join on the standing terms.</>
+                ) : (
+                  <>
+                    {foundingLeft} of {FOUNDING_PARTNER_TERMS.CAP} left. Their referred client has to bill $
+                    {FOUNDING_PARTNER_TERMS.MIN_REVENUE.toLocaleString()} or ship more than{' '}
+                    {FOUNDING_PARTNER_TERMS.MIN_UNITS.toLocaleString()} units in one calendar month — either one
+                    counts, so DTC and FBA referrals both qualify.
+                  </>
+                )}
+              </span>
+            </span>
+          </label>
+
           <div className="col-span-2 flex justify-end">
             <button
               onClick={addPartner}

@@ -15,10 +15,28 @@
 //     carrier charges, packaging and prep materials, storage, and
 //     payment-processing fees. Warehouse labor is NOT deducted.
 //   • A balance under $50 rolls into the following month.
+//   • The client must QUALIFY before the bonus is owed: $500 or
+//     more billed in a calendar month.
 //
 // Nothing here moves money. It computes what is OWED so Ophir can
 // review each line and approve it. Every payout stays `pending`
 // until approved.
+//
+// TWO SERVICE LINES, ONE PROGRAM
+// -------------------------------
+// Shipo sells FBA prep (billed per unit) and DTC fulfillment (not).
+// The commission half of the deal never cared about the difference —
+// it is 5% of net profit on whatever was invoiced, so it works for
+// both without knowing which is which.
+//
+// The bonus half does care, because a qualification written in units
+// is an FBA-only qualification: `units_shipped` is typed by hand on
+// the invoice form and defaults to 0, so a DTC referral would sit at
+// "not yet owed" forever with nothing on screen to explain why.
+//
+// So a client qualifies on WHICHEVER bar it clears in a calendar
+// month — units or revenue. No service-line flag on the client, no
+// field for anyone to forget to set.
 // ============================================================
 
 export const REFERRAL_TERMS = {
@@ -26,6 +44,36 @@ export const REFERRAL_TERMS = {
   COMMISSION_RATE: 0.05, // 5% of net profit on the account
   COMMISSION_MONTHS: 12, // window length, from first paid invoice
   MIN_PAYOUT: 50, // below this a balance rolls to the next month
+
+  // Qualification, as published at shipousa.com/partner-program/:
+  // "A client counts once they're billing $500 or more in a calendar
+  // month." At-or-above, not strictly above.
+  QUALIFY_MIN_REVENUE: 500,
+
+  // There is no standing UNIT bar — the published qualification is
+  // stated in dollars only. null means "revenue is the only standing
+  // path"; a partner row may still carry its own unit bar, which is
+  // what the Founding Partner offer uses.
+  QUALIFY_MIN_UNITS: null as number | null,
+} as const
+
+/**
+ * The Founding Partner launch offer, approved by Ophir 2026-09-20.
+ *
+ * These three numbers are stamped onto the partner row at the moment
+ * they are admitted, and never read from here again — so changing or
+ * ending the offer later cannot rewrite what an existing Founding
+ * Partner was promised.
+ *
+ * CAP is the whole of the downside: 10 × ($500 − $300) = $2,000 of
+ * extra exposure, and not a dollar more. It is enforced in
+ * /api/referrals/partners, not merely documented here.
+ */
+export const FOUNDING_PARTNER_TERMS = {
+  BONUS: 500, // instead of the standing $300
+  MIN_UNITS: 2000, // FBA prep path: MORE THAN 2,000 units in a month
+  MIN_REVENUE: 2500, // DTC path: the dollar equivalent at ~$1.25/unit
+  CAP: 10, // first 10 partners only
 } as const
 
 export type PayoutKind = 'signup_bonus' | 'commission'
@@ -36,6 +84,15 @@ export interface ReferralPartner {
   name: string
   company: string | null
   status: string | null
+
+  // The offer this partner was ADMITTED under, frozen on their row.
+  // All null = the standing terms apply, whatever REFERRAL_TERMS says
+  // today. A value = this partner's own figure, which changing the
+  // standing offer later must never rewrite.
+  signup_bonus_amount?: number | null // e.g. 500 for a Founding Partner
+  bonus_min_units?: number | null // e.g. 2000 prep units in a month
+  bonus_min_revenue?: number | null // e.g. 2500 billed in a month
+  founding_partner?: boolean | null
 }
 
 export interface ReferredClient {
@@ -112,6 +169,79 @@ export function commissionOn(inv: FbaInvoice): number {
   return round2(netProfit(inv) * REFERRAL_TERMS.COMMISSION_RATE)
 }
 
+// ---- qualification -------------------------------------------------
+
+export interface QualifyBars {
+  minRevenue: number | null
+  minUnits: number | null
+}
+
+/**
+ * The bars this partner's referrals have to clear, resolved from the
+ * partner row first and the standing terms second.
+ *
+ * `?? ` and not `||` on purpose: a deliberate 0 on the partner row
+ * means "no bar", and `||` would throw that away and silently
+ * reinstate the standing $500.
+ */
+export function qualifyBars(partner: ReferralPartner): QualifyBars {
+  return {
+    minRevenue: partner.bonus_min_revenue ?? REFERRAL_TERMS.QUALIFY_MIN_REVENUE,
+    minUnits: partner.bonus_min_units ?? REFERRAL_TERMS.QUALIFY_MIN_UNITS,
+  }
+}
+
+/** What this partner is owed per referred client that qualifies. */
+export function bonusAmount(partner: ReferralPartner): number {
+  return round2(partner.signup_bonus_amount ?? REFERRAL_TERMS.SIGNUP_BONUS)
+}
+
+/**
+ * Does one month's invoice clear either bar?
+ *
+ * Revenue is AT OR ABOVE its bar — the published wording is "$500 or
+ * more". Units are STRICTLY ABOVE theirs — the Founding Partner offer
+ * says "more than 2,000 units", and 2,000 exactly does not clear it.
+ * The two comparators differ because the two promises differ; do not
+ * "tidy" them into the same one.
+ *
+ * Either path is enough. An FBA account clears on units, a DTC
+ * account clears on revenue, and an account doing both clears on
+ * whichever comes first.
+ */
+export function qualifiesInMonth(inv: FbaInvoice, bars: QualifyBars): boolean {
+  if (bars.minRevenue !== null && num(inv.amount) >= bars.minRevenue) return true
+  if (bars.minUnits !== null && num(inv.units_shipped) > bars.minUnits) return true
+  return false
+}
+
+/**
+ * The EARLIEST invoice that qualifies, or null if none has yet.
+ *
+ * Earliest and not latest: the bonus is owed from the moment the
+ * client first clears the bar, and a later dip back below it does not
+ * un-owe a bonus that was already earned.
+ */
+export function qualifyingInvoice(
+  invoices: FbaInvoice[],
+  bars: QualifyBars,
+): FbaInvoice | null {
+  const sorted = invoices.slice().sort((a, b) => a.period.localeCompare(b.period))
+  for (const inv of sorted) {
+    if (qualifiesInMonth(inv, bars)) return inv
+  }
+  return null
+}
+
+/** Human sentence for why a bonus is or is not owed yet. */
+function qualifyNote(bars: QualifyBars): string {
+  const parts: string[] = []
+  if (bars.minRevenue !== null) parts.push(`$${bars.minRevenue.toLocaleString()} billed`)
+  if (bars.minUnits !== null) parts.push(`more than ${bars.minUnits.toLocaleString()} units`)
+  if (parts.length === 0) return 'No qualification set for this partner'
+  return `Not yet owed — needs ${parts.join(' or ')} in one calendar month`
+}
+
 /** 'YYYY-MM' label for a YYYY-MM-DD date string (UTC-safe, no tz drift). */
 export function monthLabel(dateStr: string): string {
   return dateStr.slice(0, 7)
@@ -160,12 +290,40 @@ export function computeOwed(
       return { status: (rec.status as PayoutStatus) ?? 'pending', recordId: rec.id }
     }
 
-    // --- $300 one-time signup bonus (additive, after first payment) ---
+    const anchor = client.referral_first_payment_date
+    const clientInvoices = (invoicesByClient.get(client.id) ?? []).slice().sort((a, b) => a.period.localeCompare(b.period))
+
+    // --- one-time signup bonus, at this partner's admitted amount ---
+    //
+    // TWO conditions, both required, and they are not the same thing:
+    //   1. the client has PAID  (referral_first_payment_date is set)
+    //   2. the client has QUALIFIED (cleared the revenue or unit bar
+    //      in some calendar month)
+    //
+    // A client can pay $200/month forever and never qualify. Before
+    // this gate existed the bonus was released on payment alone, which
+    // does not match what is published on the partner page.
     {
-      const paid = client.referral_first_payment_date
-      const period = paid ? monthLabel(paid) : 'awaiting'
+      const bars = qualifyBars(partner)
+      const qualifier = qualifyingInvoice(clientInvoices, bars)
+
+      // Period is the month they qualified, not the month they paid —
+      // that is the month the bonus was actually earned.
+      const period = qualifier ? monthLabel(qualifier.period) : 'awaiting'
       const key = dedupeKey(client.id, 'signup_bonus', period)
       const { status, recordId } = statusFor(key)
+
+      let note: string
+      if (!qualifier) note = qualifyNote(bars)
+      else if (!anchor) note = 'Qualified — set the first-payment date to release'
+      else {
+        const why =
+          bars.minUnits !== null && num(qualifier.units_shipped) > bars.minUnits
+            ? `${num(qualifier.units_shipped).toLocaleString()} units`
+            : `$${num(qualifier.amount).toLocaleString()} billed`
+        note = `Owed — qualified on ${why} in ${monthLabel(qualifier.period)}`
+      }
+
       lines.push({
         dedupeKey: key,
         partnerId: partner.id,
@@ -174,18 +332,14 @@ export function computeOwed(
         clientName: client.name,
         kind: 'signup_bonus',
         period,
-        amount: REFERRAL_TERMS.SIGNUP_BONUS,
+        amount: bonusAmount(partner),
         status,
         recordId,
-        note: paid
-          ? 'Owed — first payment received'
-          : 'Not yet owed — set the first-payment date to release',
+        note,
       })
     }
 
     // --- 5% of net profit, 12-month window from the FIRST PAID INVOICE ---
-    const anchor = client.referral_first_payment_date
-    const clientInvoices = (invoicesByClient.get(client.id) ?? []).slice().sort((a, b) => a.period.localeCompare(b.period))
     for (const inv of clientInvoices) {
       let inWindow = true
       let note: string | undefined

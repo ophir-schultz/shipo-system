@@ -10,7 +10,7 @@ async function getData() {
     supabaseAdmin
       .from('referral_partners')
       .select(
-        'id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at, portal_last_seen_at',
+        'id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at, portal_last_seen_at, signup_bonus_amount, bonus_min_units, bonus_min_revenue, founding_partner',
       )
       .order('created_at', { ascending: false }),
     supabaseAdmin
