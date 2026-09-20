@@ -225,6 +225,76 @@ check(
 )
 console.log(`        launch place note: "${capBonus.c00.note}"`)
 
+// ---- THE 5% STARTS IN MONTH 2 FOR LAUNCH CLIENTS ----
+//
+// Approved by Ophir 2026-09-20, and scoped to launch clients only.
+// The window SHIFTS to months 2-13; it does not shorten to 2-12. That
+// distinction is a whole month of commission on every launch client,
+// and shortening would contradict the "12 months" in the agreement.
+const yearOf = (id: string, partnerId: string, seq: number | null) => {
+  const c: ReferredClient = {
+    id, name: id, referral_partner_id: partnerId,
+    referral_signup_date: null, referral_first_payment_date: '2026-01-01',
+    founding_bonus_seq: seq,
+  }
+  // 15 straight months of trading, so the window's edges are visible.
+  const invs = Array.from({ length: 15 }, (_, i) =>
+    inv({
+      id: `${id}-${i}`, client_id: id,
+      period: `${2026 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}-01`,
+      amount: 10000, units_shipped: 9000,
+    }),
+  )
+  return { c, invs }
+}
+
+const launch = yearOf('launch', 'p1', 1)
+const launchMonths = computeOwed([standing], [launch.c], launch.invs, [], { now: NOW })
+  .filter((l) => l.kind === 'commission')
+  .map((l) => l.period)
+
+check('launch client: no commission in month 1', launchMonths.includes('2026-01'), false)
+check('launch client: 5% starts in month 2', launchMonths[0], '2026-02')
+check('launch client: still 12 paid months, not 11', launchMonths.length, REFERRAL_TERMS.COMMISSION_MONTHS)
+check('launch client: last paid month is 13', launchMonths[launchMonths.length - 1], '2027-01')
+
+// A standing client is NOT affected — Ophir scoped this to the launch
+// offer. Shifting everyone would have silently restated live partners.
+//
+// This fixture ALSO clears the launch volume bar, so it holds a
+// PROVISIONAL launch place, and that is exactly the case worth pinning
+// down: a provisional place must not shift the window. If it did, a
+// candidate's month-1 commission would be shown and then vanish the
+// instant Ophir approved the place — money coming off a statement with
+// no event behind it. The shift reads the STORED founding_bonus_seq, so
+// the extra $200 and the forfeited month arrive on the same click.
+const plain = yearOf('plain', 'p1', null)
+const plainMonths = computeOwed([standing], [plain.c], plain.invs, [], { now: NOW })
+  .filter((l) => l.kind === 'commission')
+  .map((l) => l.period)
+
+check('standing client: 5% still starts in month 1', plainMonths[0], '2026-01')
+check('standing client: still 12 paid months', plainMonths.length, REFERRAL_TERMS.COMMISSION_MONTHS)
+check('standing client: last paid month is 12', plainMonths[plainMonths.length - 1], '2026-12')
+
+// Guard the premise of the test above: if `plain` ever stopped holding
+// a provisional place, the two checks would still pass while proving
+// nothing at all about provisional places.
+check(
+  'the standing fixture really does hold a provisional place',
+  computeOwed([standing], [plain.c], plain.invs, [], { now: NOW })
+    .some((l) => l.kind === 'signup_bonus' && l.foundingSeq != null && l.foundingProvisional),
+  true,
+)
+
+// The two differ by exactly one month at each end, and not in count —
+// the single assertion that catches a shortened window.
+check(
+  'the launch window is SHIFTED, not shortened',
+  launchMonths.length === plainMonths.length && launchMonths[0] !== plainMonths[0],
+  true,
+)
+
 // ---- a 0 bar CLOSES that path, and must not fall back to $500 ----
 //
 // Changed deliberately from "0 is kept as 0". `amount >= 0` is true of

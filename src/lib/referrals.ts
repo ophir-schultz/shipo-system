@@ -95,6 +95,21 @@ export const FOUNDING_CLIENT_TERMS = {
   MIN_ORDERS: 500, // DTC path: MORE THAN 500 orders in a month
   CAP: 10, // first 10 qualifying CLIENTS, across all partners
 
+  /**
+   * Launch clients only: the 5% starts in the client's SECOND month,
+   * not their first. Approved by Ophir 2026-09-20.
+   *
+   * The window SHIFTS, it does not shorten — months 2 through 13, so
+   * the partner is still paid COMMISSION_MONTHS times and the agreement
+   * clause promising "12 months" stays true. Ending at month 12 instead
+   * would have quietly cost them a month against a signed agreement.
+   *
+   * 1-based: 1 would mean "from the first month", i.e. the standing
+   * behaviour. Standing partners are unaffected — Ophir scoped this to
+   * launch clients only.
+   */
+  COMMISSION_START_MONTH: 2,
+
   // NO revenue path, deliberately. Ophir's approved wording is
   // "more than 500 orders per month or in the FBA more than 1500
   // units per month" — two physical-volume bars and no dollar bar.
@@ -536,6 +551,32 @@ export function computeOwed(
     const anchor = client.referral_first_payment_date
     const clientInvoices = (invoicesByClient.get(client.id) ?? []).slice().sort((a, b) => a.period.localeCompare(b.period))
 
+    // Whether this client is on the launch offer gets asked TWICE below
+    // — once to price the bonus, once to decide when the 5% starts —
+    // and the two questions have different answers. They are declared
+    // together so that is impossible to miss.
+    //
+    // This one, the ranked place, may be provisional: it prices the
+    // bonus at $500 before anyone has approved anything.
+    const seq = founding.place.get(client.id)
+    const isFounding = seq !== undefined
+
+    // This one is the stored place, and the asymmetry is deliberate.
+    //
+    // A provisional place only ever ADDS money ($300 -> $500). If the
+    // ranking moves and the place is lost, a figure nobody approved
+    // gets smaller. The shift does the opposite: it WITHHOLDS month 1.
+    // Gating that provisionally would mean a launch candidate's month-1
+    // commission is shown, and then vanishes at the moment the place is
+    // approved — money disappearing with no event the partner can see.
+    //
+    // Reading `founding_bonus_seq` instead makes the extra $200 and the
+    // forfeited month land in the same act, on the same click. It also
+    // keeps the partner portal in agreement with this page: that view
+    // assigns no provisional places at all, so a provisional gate would
+    // have had the two screens disagree about a month of commission.
+    const shiftsCommission = client.founding_bonus_seq != null
+
     // --- one-time signup bonus, at this partner's admitted amount ---
     //
     // TWO conditions, both required, and they are not the same thing:
@@ -557,9 +598,6 @@ export function computeOwed(
       const releaseOn = tenureReleaseDate(clientInvoices, REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE)
       const tenureMet = releaseOn !== null && now >= releaseOn
 
-      // The launch place, if this client holds one.
-      const seq = founding.place.get(client.id)
-      const isFounding = seq !== undefined
       const amount = isFounding ? FOUNDING_CLIENT_TERMS.BONUS : bonusAmount(partner)
 
       const releasable = !!qualifier && !!anchor && tenureMet
@@ -612,10 +650,21 @@ export function computeOwed(
       let inWindow = true
       let note: string | undefined
       if (anchor) {
-        const start = monthIndex(anchor)
+        // Launch clients skip month 1: the window SHIFTS to months 2-13
+        // rather than shortening to 2-12, so the count of paid months is
+        // still COMMISSION_MONTHS and the "12 months" in the agreement
+        // stays true. Standing partners are untouched — offset 0.
+        const offset = shiftsCommission ? FOUNDING_CLIENT_TERMS.COMMISSION_START_MONTH - 1 : 0
+        const start = monthIndex(anchor) + offset
         const idx = monthIndex(inv.period)
         inWindow = idx >= start && idx < start + REFERRAL_TERMS.COMMISSION_MONTHS
-        if (!inWindow) note = 'Outside the 12-month window — not owed'
+        if (!inWindow) {
+          note =
+            idx < start
+              ? `Month ${idx - monthIndex(anchor) + 1} — the launch offer's 5% starts in month ` +
+                `${FOUNDING_CLIENT_TERMS.COMMISSION_START_MONTH}`
+              : `Outside the ${REFERRAL_TERMS.COMMISSION_MONTHS}-month window — not owed`
+        }
       } else {
         note = 'No first-payment date set — window has not started'
         inWindow = false

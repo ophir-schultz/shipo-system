@@ -3,6 +3,7 @@ import {
   computeOwed,
   buildStatement,
   REFERRAL_TERMS,
+  FOUNDING_CLIENT_TERMS,
   type ReferralPartner,
   type ReferredClient,
   type FbaInvoice,
@@ -75,6 +76,12 @@ export default async function Statement({ partner }: { partner: StatementPartner
   const lines = computeOwed([partner as ReferralPartner], clients, invoices, payouts, {
     provisionalPlaces: false,
   })
+
+  // Does this partner hold any launch-offer client? Drives one extra
+  // paragraph below. Read from the STORED place for the same reason the
+  // ranking is: a provisional place is not a fact yet, and a partner
+  // should not be told terms that may turn out not to be theirs.
+  const hasLaunchClient = clients.some((c) => c.founding_bonus_seq != null)
   const s = buildStatement(partner.id, clients, lines, invoices)
 
   return (
@@ -200,6 +207,17 @@ export default async function Statement({ partner }: { partner: StatementPartner
           on that client&apos;s account, every month for {REFERRAL_TERMS.COMMISSION_MONTHS} months from their first paid
           invoice.
         </p>
+        {hasLaunchClient && (
+          <p>
+            <span className="text-gray-200">Launch offer.</span> One or more of the clients above qualified under
+            Shipo&apos;s launch offer. For those clients the one-time bonus is{' '}
+            <span className="text-gray-200">${FOUNDING_CLIENT_TERMS.BONUS}</span> instead of $
+            {REFERRAL_TERMS.SIGNUP_BONUS}, and their {(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}% begins in the
+            client&apos;s <span className="text-gray-200">second</span> month rather than their first — still{' '}
+            {REFERRAL_TERMS.COMMISSION_MONTHS} monthly payments in total. Everything else on this page works the same
+            way.
+          </p>
+        )}
         <p>
           <span className="text-gray-200">Net profit</span> means the amount invoiced to the client for the month, less
           the direct costs of serving that account — freight and carrier charges, packaging and prep materials, storage,
