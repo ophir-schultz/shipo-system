@@ -3,7 +3,10 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
-import type { OwedLine } from '@/lib/referrals'
+import { REFERRAL_TERMS, netProfit, totalCosts, commissionOn } from '@/lib/referrals'
+import type { OwedLine, FbaInvoice } from '@/lib/referrals'
+
+const PCT = `${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%`
 
 interface Partner {
   id: string
@@ -16,6 +19,7 @@ interface Partner {
   status: string | null
   notes: string | null
   source: string | null
+  portal_last_seen_at?: string | null
 }
 interface Client {
   id: string
@@ -25,11 +29,7 @@ interface Client {
   referral_signup_date: string | null
   referral_first_payment_date: string | null
 }
-interface Invoice {
-  id: string
-  client_id: string
-  period: string
-  amount: number
+interface Invoice extends FbaInvoice {
   notes: string | null
 }
 interface Totals {
@@ -112,8 +112,8 @@ export default function ReferralsManager({
       <Section title="Payouts Owed" subtitle="Auto-computed — approve each line to clear it for payment">
         {owed.length === 0 ? (
           <p className="text-gray-500 text-sm">
-            No payouts yet. Link a client to a partner and add an FBA invoice below, and the $300 bonus + 8% commissions
-            will appear here.
+            No payouts yet. Link a client to a partner and add a monthly account below, and the $300 bonus + {PCT}{' '}
+            commissions will appear here.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -138,7 +138,7 @@ export default function ReferralsManager({
                       <td className="py-2.5 pr-3 text-gray-300">{l.clientName}</td>
                       <td className="py-2.5 pr-3">
                         <span className={`px-1.5 py-0.5 rounded text-xs ${l.kind === 'signup_bonus' ? 'bg-purple-900/40 text-purple-300' : 'bg-sky-900/30 text-sky-300'}`}>
-                          {l.kind === 'signup_bonus' ? '$300 bonus' : '8% commission'}
+                          {l.kind === 'signup_bonus' ? '$300 bonus' : `${PCT} of net profit`}
                         </span>
                       </td>
                       <td className="py-2.5 pr-3 text-gray-400">{l.period === 'awaiting' ? '—' : l.period}</td>
@@ -239,6 +239,26 @@ function PartnersPanel({
     await call('/api/referrals/partners', { id: p.id, name: p.name, status }, 'POST', p.id)
   }
 
+  // ---- portal access ----
+  // Partners sign in themselves: their email, then a 6-digit code we
+  // mail them. There is no link to hand out and nothing to copy.
+  // "Send invite" only tells them where the portal is.
+  // To cut a partner off entirely, set them inactive — that blocks
+  // every future login and kills every live session at once.
+  async function sendInvite(p: Partner) {
+    if (!p.email) {
+      showError('No email on file', `Add an email address for ${p.name} first — the portal login is by email.`)
+      return
+    }
+    const ok = await call('/api/referrals/portal-access', { partner_id: p.id, action: 'invite' }, 'POST', `link-${p.id}`)
+    if (ok) showSuccess('Invite sent', `${p.email} can now sign in at /partner/login.`)
+  }
+
+  async function signOutEverywhere(p: Partner) {
+    const ok = await call('/api/referrals/portal-access', { partner_id: p.id, action: 'signout' }, 'POST', `link-${p.id}`)
+    if (ok) showSuccess('Signed out everywhere', `${p.name} will need a new code to get back in.`)
+  }
+
   return (
     <Section
       title="Referral Partners"
@@ -285,6 +305,7 @@ function PartnersPanel({
                 <th className="pb-2 pr-3">Type</th>
                 <th className="pb-2 pr-3">Source</th>
                 <th className="pb-2 pr-3">Status</th>
+                <th className="pb-2 pr-3">Portal</th>
                 <th className="pb-2 text-right">Action</th>
               </tr>
             </thead>
@@ -300,6 +321,37 @@ function PartnersPanel({
                   <td className="py-2.5 pr-3 text-gray-400">{p.partner_type ?? '—'}</td>
                   <td className="py-2.5 pr-3 text-gray-500 text-xs">{p.source === 'website_form' ? 'website' : 'manual'}</td>
                   <td className="py-2.5 pr-3"><StatusBadge status={p.status ?? 'active'} /></td>
+                  <td className="py-2.5 pr-3 whitespace-nowrap">
+                    {p.email ? (
+                      <div className="inline-flex items-center gap-1.5">
+                        <button
+                          onClick={() => sendInvite(p)}
+                          disabled={busy === `link-${p.id}` || p.status === 'inactive'}
+                          className="px-2 py-1 rounded text-xs bg-[#00AAFF]/15 text-[#00AAFF] hover:bg-[#00AAFF]/25 disabled:opacity-40"
+                          title="Email them the portal address. No code and no link that works on its own."
+                        >
+                          Send invite
+                        </button>
+                        {p.portal_last_seen_at && (
+                          <button
+                            onClick={() => signOutEverywhere(p)}
+                            disabled={busy === `link-${p.id}`}
+                            className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-400 hover:bg-red-900/40 hover:text-red-300 disabled:opacity-50"
+                            title="End every open session. They can sign in again with a new code."
+                          >
+                            Sign out
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-600">Needs an email</span>
+                    )}
+                    {p.portal_last_seen_at && (
+                      <span className="block text-[10px] text-gray-600 mt-0.5">
+                        last opened {p.portal_last_seen_at.slice(0, 10)}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-2.5 text-right whitespace-nowrap">
                     {p.status === 'pending' ? (
                       <button
@@ -378,7 +430,10 @@ function ClientsPanel({
   const activePartners = partners.filter((p) => p.status !== 'inactive')
 
   return (
-    <Section title="Referred Clients" subtitle="Link a client to the partner who referred them, then set the two payout dates">
+    <Section
+      title="Referred Clients"
+      subtitle="Link a client to the partner who referred them. The first-payment date is what starts the 12-month clock — without it nothing is owed."
+    >
       {clients.length === 0 ? (
         <p className="text-gray-500 text-sm">No clients yet.</p>
       ) : (
@@ -388,8 +443,10 @@ function ClientsPanel({
               <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
                 <th className="pb-2 pr-3">Client</th>
                 <th className="pb-2 pr-3">Referred by</th>
-                <th className="pb-2 pr-3">Signup date <span className="normal-case text-gray-600">(8% clock)</span></th>
-                <th className="pb-2 pr-3">1st payment <span className="normal-case text-gray-600">($300 trigger)</span></th>
+                <th className="pb-2 pr-3">Signup date <span className="normal-case text-gray-600">(record only)</span></th>
+                <th className="pb-2 pr-3">
+                  1st payment <span className="normal-case text-gray-600">($300 trigger + {PCT} clock)</span>
+                </th>
                 <th className="pb-2 text-right">Save</th>
               </tr>
             </thead>
@@ -463,21 +520,55 @@ function InvoicesPanel({
   call: (url: string, body: unknown, method?: string, tag?: string) => Promise<boolean>
   clientName: (id: string) => string
 }) {
-  const [clientId, setClientId] = useState('')
-  const [month, setMonth] = useState('')
-  const [amount, setAmount] = useState('')
+  const emptyForm = {
+    clientId: '',
+    month: '',
+    amount: '',
+    units: '',
+    cost_freight: '',
+    cost_materials: '',
+    cost_storage: '',
+    cost_processing: '',
+  }
+  const [f, setF] = useState(emptyForm)
+  const set = (k: keyof typeof emptyForm, v: string) => setF((p) => ({ ...p, [k]: v }))
 
   const referred = clients.filter((c) => c.referral_partner_id)
 
+  // live preview of what the partner will see
+  const n = (v: string) => (Number.isFinite(Number(v)) ? Number(v) : 0)
+  const previewCosts = n(f.cost_freight) + n(f.cost_materials) + n(f.cost_storage) + n(f.cost_processing)
+  const previewProfit = Math.max(0, n(f.amount) - previewCosts)
+  const previewShare = previewProfit * REFERRAL_TERMS.COMMISSION_RATE
+  const costsExceed = n(f.amount) > 0 && previewCosts > n(f.amount)
+
   async function add() {
-    if (!clientId || !month || !amount) {
-      showError('Missing fields', 'Client, month and amount are all required.')
+    if (!f.clientId || !f.month || !f.amount) {
+      showError('Missing fields', 'Client, month and amount invoiced are all required.')
       return
     }
-    const ok = await call('/api/referrals/invoices', { client_id: clientId, month, amount }, 'POST', 'add-invoice')
+    if (costsExceed) {
+      showError('Costs exceed the invoice', 'Check the figures — this would compute a negative profit.')
+      return
+    }
+    const ok = await call(
+      '/api/referrals/invoices',
+      {
+        client_id: f.clientId,
+        month: f.month,
+        amount: f.amount,
+        units_shipped: f.units || 0,
+        cost_freight: f.cost_freight || 0,
+        cost_materials: f.cost_materials || 0,
+        cost_storage: f.cost_storage || 0,
+        cost_processing: f.cost_processing || 0,
+      },
+      'POST',
+      'add-invoice',
+    )
     if (ok) {
-      showSuccess('FBA invoice saved', `${clientName(clientId)} · ${month}`)
-      setAmount('')
+      showSuccess('Month saved', `${clientName(f.clientId)} · ${f.month}`)
+      setF({ ...emptyForm, clientId: f.clientId, month: f.month })
     }
   }
 
@@ -487,90 +578,141 @@ function InvoicesPanel({
 
   return (
     <Section
-      title="FBA Prep Invoices"
-      subtitle="The 8% commission is computed only off these amounts — not off total client revenue"
+      title="Monthly Account Figures"
+      subtitle={`Net profit = invoiced less these four direct costs. Warehouse labor is NOT deducted. ${PCT} of the result is the partner's.`}
     >
-      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-gray-700 bg-gray-900/40 p-4">
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">Referred client</label>
-          <select
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 w-52"
+      <div className="mb-4 rounded-lg border border-gray-700 bg-gray-900/40 p-4 space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Referred client</label>
+            <select
+              value={f.clientId}
+              onChange={(e) => set('clientId', e.target.value)}
+              className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 w-52"
+            >
+              <option value="">— select —</option>
+              {referred.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Month</label>
+            <input
+              type="month"
+              value={f.month}
+              onChange={(e) => set('month', e.target.value)}
+              className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+            />
+          </div>
+          <Num label="Units shipped" value={f.units} onChange={(v) => set('units', v)} step="1" width="w-28" />
+          <Num label="Total invoiced ($)" value={f.amount} onChange={(v) => set('amount', v)} width="w-32" />
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3 border-t border-gray-700/60 pt-3">
+          <span className="text-xs text-gray-500 pb-2">Direct costs</span>
+          <Num label="Freight &amp; carrier ($)" value={f.cost_freight} onChange={(v) => set('cost_freight', v)} />
+          <Num label="Packaging &amp; materials ($)" value={f.cost_materials} onChange={(v) => set('cost_materials', v)} />
+          <Num label="Storage ($)" value={f.cost_storage} onChange={(v) => set('cost_storage', v)} />
+          <Num label="Payment processing ($)" value={f.cost_processing} onChange={(v) => set('cost_processing', v)} />
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-700/60 pt-3">
+          <div className="text-sm">
+            {costsExceed ? (
+              <span className="text-red-400">Costs {fmt(previewCosts)} exceed the {fmt(n(f.amount))} invoiced.</span>
+            ) : (
+              <span className="text-gray-400">
+                Net profit <span className="text-gray-200">{fmt(previewProfit)}</span> · partner gets{' '}
+                <span className="text-sky-300">{fmt(previewShare)}</span>
+              </span>
+            )}
+          </div>
+          <button
+            onClick={add}
+            disabled={busy === 'add-invoice' || costsExceed}
+            className="px-4 py-2 rounded-lg text-sm bg-[#00AAFF] text-white hover:opacity-90 disabled:opacity-50"
           >
-            <option value="">— select —</option>
-            {referred.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+            {busy === 'add-invoice' ? 'Saving…' : 'Save month'}
+          </button>
         </div>
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">Month</label>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">FBA invoice amount ($)</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 w-32"
-          />
-        </div>
-        <button
-          onClick={add}
-          disabled={busy === 'add-invoice'}
-          className="px-4 py-2 rounded-lg text-sm bg-[#00AAFF] text-white hover:opacity-90 disabled:opacity-50"
-        >
-          {busy === 'add-invoice' ? 'Saving…' : 'Add invoice'}
-        </button>
+
         {referred.length === 0 && (
-          <span className="text-xs text-yellow-500/80">Link a client to a partner first (above) so it appears here.</span>
+          <span className="block text-xs text-yellow-500/80">Link a client to a partner first (above) so it appears here.</span>
         )}
       </div>
 
       {invoices.length === 0 ? (
-        <p className="text-gray-500 text-sm">No FBA invoices logged yet.</p>
+        <p className="text-gray-500 text-sm">Nothing logged yet.</p>
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
-              <th className="pb-2 pr-3">Client</th>
-              <th className="pb-2 pr-3">Month</th>
-              <th className="pb-2 pr-3 text-right">Invoice</th>
-              <th className="pb-2 pr-3 text-right">8% owed</th>
-              <th className="pb-2 text-right"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoices.map((i) => (
-              <tr key={i.id} className="border-b border-gray-700/40">
-                <td className="py-2 pr-3 text-gray-200">{clientName(i.client_id)}</td>
-                <td className="py-2 pr-3 text-gray-400">{i.period.slice(0, 7)}</td>
-                <td className="py-2 pr-3 text-right text-gray-300">{fmt(i.amount)}</td>
-                <td className="py-2 pr-3 text-right text-sky-300">{fmt(i.amount * 0.08)}</td>
-                <td className="py-2 text-right">
-                  <button
-                    onClick={() => remove(i.id)}
-                    disabled={busy === i.id}
-                    className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-400 hover:bg-red-900/40 hover:text-red-300 disabled:opacity-50"
-                  >
-                    Delete
-                  </button>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
+                <th className="pb-2 pr-3">Client</th>
+                <th className="pb-2 pr-3">Month</th>
+                <th className="pb-2 pr-3 text-right">Units</th>
+                <th className="pb-2 pr-3 text-right">Invoiced</th>
+                <th className="pb-2 pr-3 text-right">Costs</th>
+                <th className="pb-2 pr-3 text-right">Net profit</th>
+                <th className="pb-2 pr-3 text-right">{PCT} owed</th>
+                <th className="pb-2 text-right"></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {invoices.map((i) => (
+                <tr key={i.id} className="border-b border-gray-700/40">
+                  <td className="py-2 pr-3 text-gray-200">{clientName(i.client_id)}</td>
+                  <td className="py-2 pr-3 text-gray-400">{i.period.slice(0, 7)}</td>
+                  <td className="py-2 pr-3 text-right text-gray-400">{(i.units_shipped ?? 0).toLocaleString('en-US')}</td>
+                  <td className="py-2 pr-3 text-right text-gray-300">{fmt(i.amount)}</td>
+                  <td className="py-2 pr-3 text-right text-gray-500">{fmt(totalCosts(i))}</td>
+                  <td className="py-2 pr-3 text-right text-gray-200">{fmt(netProfit(i))}</td>
+                  <td className="py-2 pr-3 text-right text-sky-300">{fmt(commissionOn(i))}</td>
+                  <td className="py-2 text-right">
+                    <button
+                      onClick={() => remove(i.id)}
+                      disabled={busy === i.id}
+                      className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-400 hover:bg-red-900/40 hover:text-red-300 disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Section>
+  )
+}
+
+function Num({
+  label,
+  value,
+  onChange,
+  step = '0.01',
+  width = 'w-36',
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  step?: string
+  width?: string
+}) {
+  return (
+    <div>
+      <label className="block text-xs text-gray-400 mb-1" dangerouslySetInnerHTML={{ __html: label }} />
+      <input
+        type="number"
+        min="0"
+        step={step}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 ${width}`}
+      />
+    </div>
   )
 }
 

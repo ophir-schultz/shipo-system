@@ -9,7 +9,9 @@ async function getData() {
   const [partnersRes, clientsRes, invoicesRes, payoutsRes] = await Promise.all([
     supabaseAdmin
       .from('referral_partners')
-      .select('id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at')
+      .select(
+        'id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at, portal_last_seen_at',
+      )
       .order('created_at', { ascending: false }),
     supabaseAdmin
       .from('clients')
@@ -17,7 +19,9 @@ async function getData() {
       .order('name'),
     supabaseAdmin
       .from('fba_invoices')
-      .select('id, client_id, period, amount, notes')
+      .select(
+        'id, client_id, period, amount, units_shipped, cost_freight, cost_materials, cost_storage, cost_processing, notes',
+      )
       .order('period', { ascending: false }),
     supabaseAdmin
       .from('referral_payouts')
@@ -52,8 +56,9 @@ export default async function ReferralsPage() {
         <h2 className="text-2xl font-bold text-white">Referral Payouts</h2>
         <p className="text-gray-400 text-sm mt-1">
           Who to pay and how much. <span className="text-gray-300">${REFERRAL_TERMS.SIGNUP_BONUS}</span> one-time after the referred
-          client&apos;s first payment, plus <span className="text-gray-300">{(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%</span> of the
-          FBA-prep invoice for <span className="text-gray-300">{REFERRAL_TERMS.COMMISSION_MONTHS} months</span> from signup. Every payout
+          client&apos;s first payment, plus <span className="text-gray-300">{(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%</span> of{' '}
+          <span className="text-gray-300">net profit</span> on that account for{' '}
+          <span className="text-gray-300">{REFERRAL_TERMS.COMMISSION_MONTHS} months</span> from their first paid invoice. Every payout
           stays <span className="text-yellow-400">pending</span> until you approve it — nothing is ever paid automatically.
         </p>
       </div>
@@ -62,8 +67,10 @@ export default async function ReferralsPage() {
         <div className="rounded-xl p-4 border border-yellow-700/50 bg-yellow-950/30">
           <p className="text-yellow-300 text-sm font-medium">⚠ Referral tables not created yet</p>
           <p className="text-yellow-500/80 text-xs mt-1">
-            Run <span className="font-mono">supabase/referral_program.sql</span> in the Supabase SQL editor to enable partner
-            tracking, FBA-invoice entry, and the payout ledger.
+            Run <span className="font-mono">supabase/referral_program.sql</span>, then{' '}
+            <span className="font-mono">supabase/partner_portal.sql</span>, then{' '}
+            <span className="font-mono">supabase/partner_login.sql</span> in the Supabase SQL editor to enable partner
+            tracking, monthly account entry, the payout ledger, the partner portal and partner logins.
           </p>
         </div>
       )}

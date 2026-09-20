@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { requireStaff } from '@/lib/require-staff'
 
 // Link a client to a referral partner and set the two payout clocks:
 //   referral_signup_date        -> starts the 12-month 8% window
 //   referral_first_payment_date -> releases the $300 bonus
 export async function POST(req: Request) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const body = await req.json()
   const { client_id, referral_partner_id, referral_signup_date, referral_first_payment_date } = body
 

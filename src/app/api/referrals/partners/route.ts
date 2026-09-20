@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { requireStaff } from '@/lib/require-staff'
 
 // Create or update a referral partner (manual entry / review of a
 // website-form sign-up). No money moves here.
 export async function POST(req: Request) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const body = await req.json()
   const { id, name, company, email, phone, partner_type, refer_method, status, notes } = body
 

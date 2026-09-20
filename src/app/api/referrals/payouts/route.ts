@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
+import { requireStaff } from '@/lib/require-staff'
 
 // The payout ledger. This records / advances a payout's approval
 // state. It NEVER sends money — 'paid' only means Ophir has marked
@@ -11,6 +12,9 @@ import { supabaseAdmin } from '@/lib/supabase'
 //   fba_invoice_id?
 // }
 export async function POST(req: Request) {
+  const denied = await requireStaff()
+  if (denied) return denied
+
   const body = await req.json()
   const { action, dedupe_key } = body
 
