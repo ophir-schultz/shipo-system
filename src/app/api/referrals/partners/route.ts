@@ -54,10 +54,16 @@ export async function POST(req: Request) {
         )
       }
 
+      // bonus_min_revenue is stamped as NULL on purpose. The offer is
+      // "more than 1,500 units OR more than 500 orders" — two volume
+      // bars and no dollar bar. qualifyBars() reads a row carrying any
+      // bar of its own as the WHOLE offer, so a null here closes the
+      // revenue path rather than reopening the standing $500 one.
       foundingFields = {
         founding_partner: true,
         signup_bonus_amount: FOUNDING_PARTNER_TERMS.BONUS,
         bonus_min_units: FOUNDING_PARTNER_TERMS.MIN_UNITS,
+        bonus_min_orders: FOUNDING_PARTNER_TERMS.MIN_ORDERS,
         bonus_min_revenue: FOUNDING_PARTNER_TERMS.MIN_REVENUE,
       }
     } else {
@@ -69,6 +75,7 @@ export async function POST(req: Request) {
         founding_partner: false,
         signup_bonus_amount: null,
         bonus_min_units: null,
+        bonus_min_orders: null,
         bonus_min_revenue: null,
       }
     }

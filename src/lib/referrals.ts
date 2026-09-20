@@ -35,8 +35,10 @@
 // "not yet owed" forever with nothing on screen to explain why.
 //
 // So a client qualifies on WHICHEVER bar it clears in a calendar
-// month — units or revenue. No service-line flag on the client, no
-// field for anyone to forget to set.
+// month — units, orders, or revenue. No service-line flag on the
+// client, no field for anyone to forget to set. An FBA account clears
+// on units, a DTC account clears on orders, and an account doing both
+// clears on whichever comes first.
 // ============================================================
 
 export const REFERRAL_TERMS = {
@@ -50,11 +52,12 @@ export const REFERRAL_TERMS = {
   // month." At-or-above, not strictly above.
   QUALIFY_MIN_REVENUE: 500,
 
-  // There is no standing UNIT bar — the published qualification is
-  // stated in dollars only. null means "revenue is the only standing
-  // path"; a partner row may still carry its own unit bar, which is
-  // what the Founding Partner offer uses.
+  // There is no standing UNIT or ORDER bar — the published
+  // qualification is stated in dollars only. null means "revenue is the
+  // only standing path"; a partner row may still carry its own unit or
+  // order bar, which is what the Founding Partner offer uses.
   QUALIFY_MIN_UNITS: null as number | null,
+  QUALIFY_MIN_ORDERS: null as number | null,
 } as const
 
 /**
@@ -71,8 +74,17 @@ export const REFERRAL_TERMS = {
  */
 export const FOUNDING_PARTNER_TERMS = {
   BONUS: 500, // instead of the standing $300
-  MIN_UNITS: 2000, // FBA prep path: MORE THAN 2,000 units in a month
-  MIN_REVENUE: 2500, // DTC path: the dollar equivalent at ~$1.25/unit
+  MIN_UNITS: 1500, // FBA prep path: MORE THAN 1,500 units in a month
+  MIN_ORDERS: 500, // DTC path: MORE THAN 500 orders in a month
+
+  // NO revenue path, deliberately. Ophir's approved wording is
+  // "more than 500 orders per month or in the FBA more than 1500
+  // units per month" — two physical-volume bars and no dollar bar.
+  // An earlier draft carried MIN_REVENUE: 2500 as a DTC stand-in;
+  // that was my invention, not the offer, and leaving it in would
+  // have qualified a client on a route he never approved.
+  MIN_REVENUE: null as number | null,
+
   CAP: 10, // first 10 partners only
 } as const
 
@@ -90,7 +102,8 @@ export interface ReferralPartner {
   // today. A value = this partner's own figure, which changing the
   // standing offer later must never rewrite.
   signup_bonus_amount?: number | null // e.g. 500 for a Founding Partner
-  bonus_min_units?: number | null // e.g. 2000 prep units in a month
+  bonus_min_units?: number | null // e.g. 1500 prep units in a month
+  bonus_min_orders?: number | null // e.g. 500 DTC orders in a month
   bonus_min_revenue?: number | null // e.g. 2500 billed in a month
   founding_partner?: boolean | null
 }
@@ -108,7 +121,13 @@ export interface FbaInvoice {
   client_id: string
   period: string // YYYY-MM-DD (first of month)
   amount: number // TOTAL invoiced to the client that month, before deductions
-  units_shipped?: number | null
+
+  // Volume, by service line. Both are NULLABLE with no default on
+  // purpose: null means "not recorded", 0 means "recorded, and it was
+  // genuinely zero". A column defaulting to 0 cannot tell those apart,
+  // and the difference decides whether a bonus is owed.
+  units_shipped?: number | null // FBA prep
+  orders_shipped?: number | null // DTC
   cost_freight?: number | null
   cost_materials?: number | null
   cost_storage?: number | null
@@ -174,20 +193,56 @@ export function commissionOn(inv: FbaInvoice): number {
 export interface QualifyBars {
   minRevenue: number | null
   minUnits: number | null
+  minOrders: number | null
+}
+
+/** A stored bar, normalised. null or <= 0 means "this path is closed". */
+function bar(v: number | null | undefined): number | null {
+  if (v === null || v === undefined) return null
+  const n = Number(v)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n
 }
 
 /**
- * The bars this partner's referrals have to clear, resolved from the
- * partner row first and the standing terms second.
+ * The bars this partner's referrals have to clear.
  *
- * `?? ` and not `||` on purpose: a deliberate 0 on the partner row
- * means "no bar", and `||` would throw that away and silently
- * reinstate the standing $500.
+ * ALL-OR-NOTHING, not per-column fallback. If the partner row carries
+ * any bar of its own, that row IS the whole offer and the standing
+ * terms are not consulted for the columns it leaves null.
+ *
+ * This matters for real money. A Founding Partner is admitted on
+ * "more than 1,500 units OR more than 500 orders" and deliberately has
+ * NO revenue path. Under per-column `??` fallback their null revenue
+ * column would have resolved to the standing $500, and a client billing
+ * $500 would have collected a $500 bonus through a route Ophir never
+ * approved. A frozen offer is a complete offer, not a patch over the
+ * standing one.
+ *
+ * A stored 0 CLOSES a path rather than opening it. `amount >= 0` is
+ * true of every invoice ever written, so reading 0 as a live bar would
+ * qualify everyone instantly — the opposite of what typing a 0 looks
+ * like it means.
  */
 export function qualifyBars(partner: ReferralPartner): QualifyBars {
+  const own =
+    partner.bonus_min_revenue !== null && partner.bonus_min_revenue !== undefined
+      ? true
+      : partner.bonus_min_units !== null && partner.bonus_min_units !== undefined
+        ? true
+        : partner.bonus_min_orders !== null && partner.bonus_min_orders !== undefined
+
+  if (own) {
+    return {
+      minRevenue: bar(partner.bonus_min_revenue),
+      minUnits: bar(partner.bonus_min_units),
+      minOrders: bar(partner.bonus_min_orders),
+    }
+  }
   return {
-    minRevenue: partner.bonus_min_revenue ?? REFERRAL_TERMS.QUALIFY_MIN_REVENUE,
-    minUnits: partner.bonus_min_units ?? REFERRAL_TERMS.QUALIFY_MIN_UNITS,
+    minRevenue: bar(REFERRAL_TERMS.QUALIFY_MIN_REVENUE),
+    minUnits: bar(REFERRAL_TERMS.QUALIFY_MIN_UNITS),
+    minOrders: bar(REFERRAL_TERMS.QUALIFY_MIN_ORDERS),
   }
 }
 
@@ -200,18 +255,26 @@ export function bonusAmount(partner: ReferralPartner): number {
  * Does one month's invoice clear either bar?
  *
  * Revenue is AT OR ABOVE its bar — the published wording is "$500 or
- * more". Units are STRICTLY ABOVE theirs — the Founding Partner offer
- * says "more than 2,000 units", and 2,000 exactly does not clear it.
- * The two comparators differ because the two promises differ; do not
- * "tidy" them into the same one.
+ * more". Units and orders are STRICTLY ABOVE theirs — the Founding
+ * Partner offer says "more than 1,500 units" and "more than 500
+ * orders", so 1,500 and 500 exactly do not clear them. The comparators
+ * differ because the promises differ; do not "tidy" them into one.
  *
- * Either path is enough. An FBA account clears on units, a DTC
- * account clears on revenue, and an account doing both clears on
+ * Any single path is enough. An FBA account clears on units, a DTC
+ * account clears on orders, and an account doing both clears on
  * whichever comes first.
+ *
+ * A null volume figure is NOT a zero here. `num()` would turn it into
+ * 0 and quietly answer "does not qualify" for a month nobody has
+ * entered volume for yet — a wrong answer dressed as a real one. Only
+ * a recorded number is compared.
  */
 export function qualifiesInMonth(inv: FbaInvoice, bars: QualifyBars): boolean {
   if (bars.minRevenue !== null && num(inv.amount) >= bars.minRevenue) return true
-  if (bars.minUnits !== null && num(inv.units_shipped) > bars.minUnits) return true
+  if (bars.minUnits !== null && inv.units_shipped != null && num(inv.units_shipped) > bars.minUnits)
+    return true
+  if (bars.minOrders !== null && inv.orders_shipped != null && num(inv.orders_shipped) > bars.minOrders)
+    return true
   return false
 }
 
@@ -238,8 +301,27 @@ function qualifyNote(bars: QualifyBars): string {
   const parts: string[] = []
   if (bars.minRevenue !== null) parts.push(`$${bars.minRevenue.toLocaleString()} billed`)
   if (bars.minUnits !== null) parts.push(`more than ${bars.minUnits.toLocaleString()} units`)
+  if (bars.minOrders !== null) parts.push(`more than ${bars.minOrders.toLocaleString()} orders`)
   if (parts.length === 0) return 'No qualification set for this partner'
   return `Not yet owed — needs ${parts.join(' or ')} in one calendar month`
+}
+
+/**
+ * Which bar actually cleared it, for the note on the owed line.
+ * Checked in the same order `qualifiesInMonth` checks them, so the
+ * sentence can never name a bar that was not the one that fired.
+ */
+function clearedBy(inv: FbaInvoice, bars: QualifyBars): string {
+  if (bars.minRevenue !== null && num(inv.amount) >= bars.minRevenue) {
+    return `$${num(inv.amount).toLocaleString()} billed`
+  }
+  if (bars.minUnits !== null && inv.units_shipped != null && num(inv.units_shipped) > bars.minUnits) {
+    return `${num(inv.units_shipped).toLocaleString()} units`
+  }
+  if (bars.minOrders !== null && inv.orders_shipped != null && num(inv.orders_shipped) > bars.minOrders) {
+    return `${num(inv.orders_shipped).toLocaleString()} orders`
+  }
+  return 'qualifying volume'
 }
 
 /** 'YYYY-MM' label for a YYYY-MM-DD date string (UTC-safe, no tz drift). */
@@ -297,8 +379,8 @@ export function computeOwed(
     //
     // TWO conditions, both required, and they are not the same thing:
     //   1. the client has PAID  (referral_first_payment_date is set)
-    //   2. the client has QUALIFIED (cleared the revenue or unit bar
-    //      in some calendar month)
+    //   2. the client has QUALIFIED (cleared the revenue, unit or
+    //      order bar in some calendar month)
     //
     // A client can pay $200/month forever and never qualify. Before
     // this gate existed the bonus was released on payment alone, which
@@ -317,11 +399,7 @@ export function computeOwed(
       if (!qualifier) note = qualifyNote(bars)
       else if (!anchor) note = 'Qualified — set the first-payment date to release'
       else {
-        const why =
-          bars.minUnits !== null && num(qualifier.units_shipped) > bars.minUnits
-            ? `${num(qualifier.units_shipped).toLocaleString()} units`
-            : `$${num(qualifier.amount).toLocaleString()} billed`
-        note = `Owed — qualified on ${why} in ${monthLabel(qualifier.period)}`
+        note = `Owed — qualified on ${clearedBy(qualifier, bars)} in ${monthLabel(qualifier.period)}`
       }
 
       lines.push({
@@ -417,7 +495,14 @@ export function summarize(lines: OwedLine[]) {
 export interface StatementClientLine {
   clientId: string
   clientName: string
-  units: number
+
+  // null, not 0, when the figure was never recorded. A DTC account has
+  // no unit count and an FBA account has no order count; printing "0"
+  // for the one that does not apply tells a partner their client did
+  // nothing that month, which is a different and false statement.
+  units: number | null
+  orders: number | null
+
   billed: number
   costs: { freight: number; materials: number; storage: number; processing: number }
   totalCosts: number
@@ -486,7 +571,8 @@ export function buildStatement(
       clientLines.push({
         clientId: l.clientId,
         clientName: l.clientName,
-        units: inv ? Math.max(0, Math.round(num(inv.units_shipped))) : 0,
+        units: inv && inv.units_shipped != null ? Math.max(0, Math.round(num(inv.units_shipped))) : null,
+        orders: inv && inv.orders_shipped != null ? Math.max(0, Math.round(num(inv.orders_shipped))) : null,
         billed: inv ? round2(num(inv.amount)) : 0,
         costs,
         totalCosts: inv ? totalCosts(inv) : 0,

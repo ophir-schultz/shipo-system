@@ -11,17 +11,42 @@ import { requireStaff } from '@/lib/require-staff'
 //
 // Body: {
 //   client_id, month: 'YYYY-MM', amount,
-//   units_shipped?, cost_freight?, cost_materials?,
+//   units_shipped?, orders_shipped?, cost_freight?, cost_materials?,
 //   cost_storage?, cost_processing?, notes?
 // }
 const COST_FIELDS = ['cost_freight', 'cost_materials', 'cost_storage', 'cost_processing'] as const
+
+// The two service-line volume figures. FBA prep is billed per unit;
+// DTC is not, and counts orders instead. A client normally has one of
+// the two, not both.
+const VOLUME_FIELDS = ['units_shipped', 'orders_shipped'] as const
+
+/**
+ * A volume figure, kept NULL when it was not supplied.
+ *
+ * Deliberately NOT `Number(v ?? 0)`. Blank, missing and null all have
+ * to survive as null, because null means "nobody recorded this" while
+ * 0 means "recorded, and it was genuinely zero" — and a bonus worth
+ * $500 hangs on telling those apart. `Number('')` is 0, so an empty
+ * form field would otherwise be written as a hard zero and the
+ * qualification would read "does not qualify" forever, silently.
+ *
+ * Returns `undefined` on a value that is present but not a number, so
+ * the caller can reject it rather than storing a wrong figure.
+ */
+function volume(v: unknown): number | null | undefined {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 0) return undefined
+  return Math.round(n)
+}
 
 export async function POST(req: Request) {
   const denied = await requireStaff()
   if (denied) return denied
 
   const body = await req.json()
-  const { client_id, month, amount, units_shipped, notes } = body
+  const { client_id, month, amount, notes } = body
 
   if (!client_id || !month || amount == null) {
     return NextResponse.json({ error: 'client_id, month and amount are required.' }, { status: 400 })
@@ -48,9 +73,13 @@ export async function POST(req: Request) {
     )
   }
 
-  const units = Number(units_shipped ?? 0)
-  if (!Number.isFinite(units) || units < 0) {
-    return NextResponse.json({ error: 'units_shipped must be a non-negative number.' }, { status: 400 })
+  const volumes: Record<string, number | null> = {}
+  for (const f of VOLUME_FIELDS) {
+    const v = volume(body[f])
+    if (v === undefined) {
+      return NextResponse.json({ error: `${f} must be a non-negative number, or left blank.` }, { status: 400 })
+    }
+    volumes[f] = v
   }
 
   // normalize 'YYYY-MM' -> first-of-month date
@@ -62,7 +91,7 @@ export async function POST(req: Request) {
       client_id,
       period,
       amount: amt,
-      units_shipped: Math.round(units),
+      ...volumes,
       ...costs,
       notes: notes ?? null,
       updated_at: new Date().toISOString(),

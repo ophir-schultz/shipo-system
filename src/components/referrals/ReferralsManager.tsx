@@ -42,6 +42,23 @@ interface Totals {
 
 const fmt = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toFixed(2)}`
 
+/**
+ * The month's volume, labelled by which service line it came from.
+ *
+ * An em dash when neither figure was recorded — never a 0. A zero on
+ * screen reads as "this client shipped nothing", which is a claim
+ * about the account; a blank reads as "nobody entered it", which is a
+ * claim about the record. Only the first would rightly block a bonus,
+ * so showing the second as the first would send someone hunting a
+ * problem with the client instead of with the data entry.
+ */
+function volumeLabel(i: Invoice): string {
+  const parts: string[] = []
+  if (i.units_shipped != null) parts.push(`${Number(i.units_shipped).toLocaleString('en-US')} units`)
+  if (i.orders_shipped != null) parts.push(`${Number(i.orders_shipped).toLocaleString('en-US')} orders`)
+  return parts.length ? parts.join(' · ') : '—'
+}
+
 export default function ReferralsManager({
   partners,
   clients,
@@ -312,9 +329,9 @@ function PartnersPanel({
                   <>All {FOUNDING_PARTNER_TERMS.CAP} places are taken. New partners join on the standing terms.</>
                 ) : (
                   <>
-                    {foundingLeft} of {FOUNDING_PARTNER_TERMS.CAP} left. Their referred client has to bill $
-                    {FOUNDING_PARTNER_TERMS.MIN_REVENUE.toLocaleString()} or ship more than{' '}
-                    {FOUNDING_PARTNER_TERMS.MIN_UNITS.toLocaleString()} units in one calendar month — either one
+                    {foundingLeft} of {FOUNDING_PARTNER_TERMS.CAP} left. Their referred client has to do, in one
+                    calendar month, more than {FOUNDING_PARTNER_TERMS.MIN_ORDERS.toLocaleString()} DTC orders or
+                    more than {FOUNDING_PARTNER_TERMS.MIN_UNITS.toLocaleString()} FBA prep units — either one
                     counts, so DTC and FBA referrals both qualify.
                   </>
                 )}
@@ -567,6 +584,7 @@ function InvoicesPanel({
     month: '',
     amount: '',
     units: '',
+    orders: '',
     cost_freight: '',
     cost_materials: '',
     cost_storage: '',
@@ -599,7 +617,13 @@ function InvoicesPanel({
         client_id: f.clientId,
         month: f.month,
         amount: f.amount,
-        units_shipped: f.units || 0,
+        // Blank stays blank — NOT `|| 0`. A DTC client has no prep
+        // unit count and an FBA client has no order count; sending 0
+        // for the one that does not apply records a hard zero that is
+        // indistinguishable from "they did nothing", and the bonus
+        // qualification silently reads it as "does not qualify".
+        units_shipped: f.units === '' ? null : f.units,
+        orders_shipped: f.orders === '' ? null : f.orders,
         cost_freight: f.cost_freight || 0,
         cost_materials: f.cost_materials || 0,
         cost_storage: f.cost_storage || 0,
@@ -647,9 +671,18 @@ function InvoicesPanel({
               className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
             />
           </div>
-          <Num label="Units shipped" value={f.units} onChange={(v) => set('units', v)} step="1" width="w-28" />
+          <Num label="FBA units" value={f.units} onChange={(v) => set('units', v)} step="1" width="w-24" />
+          <Num label="DTC orders" value={f.orders} onChange={(v) => set('orders', v)} step="1" width="w-24" />
           <Num label="Total invoiced ($)" value={f.amount} onChange={(v) => set('amount', v)} width="w-32" />
         </div>
+
+        {/* Leave the one that does not apply EMPTY. Typing a 0 is a
+            statement that the client did zero that month; blank is
+            the statement that there is no such figure. The bonus
+            qualification treats them differently. */}
+        <p className="text-xs text-gray-500 -mt-1">
+          Fill whichever applies — leave the other blank. A blank means “no such figure”; a 0 means “zero this month”.
+        </p>
 
         <div className="flex flex-wrap items-end gap-3 border-t border-gray-700/60 pt-3">
           <span className="text-xs text-gray-500 pb-2">Direct costs</span>
@@ -693,7 +726,7 @@ function InvoicesPanel({
               <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
                 <th className="pb-2 pr-3">Client</th>
                 <th className="pb-2 pr-3">Month</th>
-                <th className="pb-2 pr-3 text-right">Units</th>
+                <th className="pb-2 pr-3 text-right">Volume</th>
                 <th className="pb-2 pr-3 text-right">Invoiced</th>
                 <th className="pb-2 pr-3 text-right">Costs</th>
                 <th className="pb-2 pr-3 text-right">Net profit</th>
@@ -706,7 +739,10 @@ function InvoicesPanel({
                 <tr key={i.id} className="border-b border-gray-700/40">
                   <td className="py-2 pr-3 text-gray-200">{clientName(i.client_id)}</td>
                   <td className="py-2 pr-3 text-gray-400">{i.period.slice(0, 7)}</td>
-                  <td className="py-2 pr-3 text-right text-gray-400">{(i.units_shipped ?? 0).toLocaleString('en-US')}</td>
+                  {/* An em dash for "not recorded", never a 0 — the
+                      two mean different things and only one of them
+                      blocks a bonus. */}
+                  <td className="py-2 pr-3 text-right text-gray-400 whitespace-nowrap">{volumeLabel(i)}</td>
                   <td className="py-2 pr-3 text-right text-gray-300">{fmt(i.amount)}</td>
                   <td className="py-2 pr-3 text-right text-gray-500">{fmt(totalCosts(i))}</td>
                   <td className="py-2 pr-3 text-right text-gray-200">{fmt(netProfit(i))}</td>

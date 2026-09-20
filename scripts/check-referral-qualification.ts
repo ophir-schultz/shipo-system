@@ -24,9 +24,15 @@ function check(name: string, actual: unknown, expected: unknown) {
 }
 
 const standing: ReferralPartner = { id: 'p1', name: 'Standing Partner', company: null, status: 'active' }
+
+// Admitted exactly as /api/referrals/partners stamps them: the two
+// volume bars set, and bonus_min_revenue deliberately NULL. Ophir's
+// approved wording is "more than 500 orders per month or in the FBA
+// more than 1500 units per month" — no dollar route.
 const founding: ReferralPartner = {
   id: 'p2', name: 'Founding Partner', company: null, status: 'active',
-  signup_bonus_amount: 500, bonus_min_units: 2000, bonus_min_revenue: 2500, founding_partner: true,
+  signup_bonus_amount: 500, bonus_min_units: 1500, bonus_min_orders: 500,
+  bonus_min_revenue: null, founding_partner: true,
 }
 
 const inv = (o: Partial<FbaInvoice>): FbaInvoice => ({
@@ -34,28 +40,53 @@ const inv = (o: Partial<FbaInvoice>): FbaInvoice => ({
 })
 
 // ---- bars resolve from the partner row, then the standing terms ----
-check('standing bars', qualifyBars(standing), { minRevenue: 500, minUnits: null })
-check('founding bars', qualifyBars(founding), { minRevenue: 2500, minUnits: 2000 })
+check('standing bars', qualifyBars(standing), { minRevenue: 500, minUnits: null, minOrders: null })
+check('founding bars', qualifyBars(founding), { minRevenue: null, minUnits: 1500, minOrders: 500 })
 check('standing bonus amount', bonusAmount(standing), 300)
 check('founding bonus amount', bonusAmount(founding), 500)
 
-// ---- DTC: no unit count at all, must still qualify on revenue ----
-const sb = qualifyBars(standing)
-check('DTC $500 billed, 0 units -> qualifies', qualifiesInMonth(inv({ amount: 500 }), sb), true)
-check('DTC $499 billed, 0 units -> does not', qualifiesInMonth(inv({ amount: 499 }), sb), false)
-check('DTC $3000 billed, units null -> qualifies', qualifiesInMonth(inv({ amount: 3000, units_shipped: null }), sb), true)
+// ---- THE ALL-OR-NOTHING RULE ----
+// The money bug this guards: a Founding Partner's NULL revenue column
+// must NOT fall back to the standing $500. If it did, a client billing
+// $500 would collect a $500 bonus through a route never approved.
+check(
+  'founding partner has NO revenue path — null does not inherit $500',
+  qualifyBars(founding).minRevenue,
+  null,
+)
+check(
+  'a $9,999 invoice with no volume does NOT qualify a founding partner',
+  qualifiesInMonth(inv({ amount: 9999 }), qualifyBars(founding)),
+  false,
+)
 
-// ---- FBA: clears on units even when the dollar bar is not met ----
+// ---- DTC standing: no unit count at all, must still qualify on revenue ----
+const sb = qualifyBars(standing)
+check('standing DTC $500 billed -> qualifies', qualifiesInMonth(inv({ amount: 500 }), sb), true)
+check('standing DTC $499 billed -> does not', qualifiesInMonth(inv({ amount: 499 }), sb), false)
+check('standing DTC $3000, units null -> qualifies', qualifiesInMonth(inv({ amount: 3000, units_shipped: null }), sb), true)
+
+// ---- FBA founding: clears on units, with no dollar help ----
 const fb = qualifyBars(founding)
-check('FBA 2001 units, $0 -> qualifies', qualifiesInMonth(inv({ amount: 0, units_shipped: 2001 }), fb), true)
-check('FBA exactly 2000 units -> does NOT (more than)', qualifiesInMonth(inv({ amount: 0, units_shipped: 2000 }), fb), false)
-check('FBA 1500 units but $2500 billed -> qualifies on revenue', qualifiesInMonth(inv({ amount: 2500, units_shipped: 1500 }), fb), true)
-check('FBA 1500 units and $2499 -> does not', qualifiesInMonth(inv({ amount: 2499, units_shipped: 1500 }), fb), false)
+check('FBA 1501 units, $0 -> qualifies', qualifiesInMonth(inv({ amount: 0, units_shipped: 1501 }), fb), true)
+check('FBA exactly 1500 units -> does NOT (more than)', qualifiesInMonth(inv({ amount: 0, units_shipped: 1500 }), fb), false)
+check('FBA 1400 units and $9000 billed -> does NOT (no revenue path)', qualifiesInMonth(inv({ amount: 9000, units_shipped: 1400 }), fb), false)
+
+// ---- DTC founding: clears on ORDERS ----
+check('DTC 501 orders, $0 -> qualifies', qualifiesInMonth(inv({ amount: 0, orders_shipped: 501 }), fb), true)
+check('DTC exactly 500 orders -> does NOT (more than)', qualifiesInMonth(inv({ amount: 0, orders_shipped: 500 }), fb), false)
+check('DTC 600 orders and no unit count -> qualifies', qualifiesInMonth(inv({ orders_shipped: 600, units_shipped: null }), fb), true)
+
+// ---- null is NOT zero ----
+// The whole point of the nullable columns. A month nobody has entered
+// volume for must not answer "does not qualify" as if it were a fact.
+check('units null is not read as 0', qualifiesInMonth(inv({ units_shipped: null }), { minRevenue: null, minUnits: 0, minOrders: null }), false)
+check('orders null is not read as 0', qualifiesInMonth(inv({ orders_shipped: null }), { minRevenue: null, minUnits: null, minOrders: 0 }), false)
 
 // ---- the regression this whole change is about ----
 check(
   'DTC referral under a units-ONLY bar would never qualify',
-  qualifiesInMonth(inv({ amount: 9999, units_shipped: 0 }), { minRevenue: null, minUnits: 2000 }),
+  qualifiesInMonth(inv({ amount: 9999, orders_shipped: 4000 }), { minRevenue: null, minUnits: 2000, minOrders: null }),
   false,
 )
 
@@ -68,9 +99,9 @@ const owed = computeOwed(
   [founding],
   [client('dtc', '2026-10-01'), client('fba', '2026-10-01'), client('small', '2026-10-01')],
   [
-    inv({ id: 'a', client_id: 'dtc', amount: 4000, units_shipped: 0 }),
+    inv({ id: 'a', client_id: 'dtc', amount: 4000, orders_shipped: 900 }),
     inv({ id: 'b', client_id: 'fba', amount: 800, units_shipped: 2400 }),
-    inv({ id: 'c', client_id: 'small', amount: 300, units_shipped: 40 }),
+    inv({ id: 'c', client_id: 'small', amount: 300, orders_shipped: 40 }),
   ],
   [],
 )
@@ -85,9 +116,16 @@ console.log(`        small client note: "${byClient.small.note}"`)
 console.log(`        fba client note:   "${byClient.fba.note}"`)
 console.log(`        dtc client note:   "${byClient.dtc.note}"`)
 
-// ---- a 0 bar on the row means no bar, and must not fall back ----
+// ---- a 0 bar CLOSES that path, and must not fall back to $500 ----
+//
+// Changed deliberately from "0 is kept as 0". `amount >= 0` is true of
+// every invoice ever written, so a live 0 bar would qualify every
+// client instantly — the opposite of what typing a 0 looks like it
+// means. What matters, and is still asserted, is that it does not
+// silently become the standing 500.
 const noBar: ReferralPartner = { ...standing, bonus_min_revenue: 0 }
-check('explicit 0 revenue bar is kept, not replaced by 500', qualifyBars(noBar).minRevenue, 0)
+check('explicit 0 revenue bar closes the path, not replaced by 500', qualifyBars(noBar).minRevenue, null)
+check('...and a $1m invoice does not sneak through it', qualifiesInMonth(inv({ amount: 1_000_000 }), qualifyBars(noBar)), false)
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} FAILURE(S)`}`)
 process.exit(failures === 0 ? 0 : 1)

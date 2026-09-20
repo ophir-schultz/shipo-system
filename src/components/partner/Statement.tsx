@@ -49,7 +49,7 @@ export default async function Statement({ partner }: { partner: StatementPartner
       .eq('referral_partner_id', partner.id),
     supabaseAdmin
       .from('fba_invoices')
-      .select('id, client_id, period, amount, units_shipped, cost_freight, cost_materials, cost_storage, cost_processing'),
+      .select('id, client_id, period, amount, units_shipped, orders_shipped, cost_freight, cost_materials, cost_storage, cost_processing'),
     supabaseAdmin
       .from('referral_payouts')
       .select('id, dedupe_key, status, amount, approved_at, paid_at')
@@ -118,7 +118,12 @@ export default async function Statement({ partner }: { partner: StatementPartner
                     <Badge status={c.status} />
                   </div>
                   <dl className="text-sm">
-                    <Row label="Units shipped" value={fmtInt(c.units)} />
+                    {/* Only the line that applies. A DTC client has no
+                        prep unit count and an FBA client has no order
+                        count, so rendering both would print a "0" that
+                        tells this partner their client shipped nothing. */}
+                    {c.units !== null && <Row label="Units shipped" value={fmtInt(c.units)} />}
+                    {c.orders !== null && <Row label="Orders shipped" value={fmtInt(c.orders)} />}
                     <Row label="Total billed" value={fmt(c.billed)} />
                     <Row label="Freight &amp; carrier" value={fmtNeg(c.costs.freight)} indent />
                     <Row label="Packaging &amp; materials" value={fmtNeg(c.costs.materials)} indent />

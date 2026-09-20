@@ -10,7 +10,7 @@ async function getData() {
     supabaseAdmin
       .from('referral_partners')
       .select(
-        'id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at, portal_last_seen_at, signup_bonus_amount, bonus_min_units, bonus_min_revenue, founding_partner',
+        'id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at, portal_last_seen_at, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue, founding_partner',
       )
       .order('created_at', { ascending: false }),
     supabaseAdmin
@@ -20,7 +20,7 @@ async function getData() {
     supabaseAdmin
       .from('fba_invoices')
       .select(
-        'id, client_id, period, amount, units_shipped, cost_freight, cost_materials, cost_storage, cost_processing, notes',
+        'id, client_id, period, amount, units_shipped, orders_shipped, cost_freight, cost_materials, cost_storage, cost_processing, notes',
       )
       .order('period', { ascending: false }),
     supabaseAdmin
