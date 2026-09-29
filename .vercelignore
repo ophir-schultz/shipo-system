@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------
+# DENY-LIST — and it has to be, unlike shipo-sales-dashboard.
+#
+# That repo is a static site, so it uses deny-by-default (`*` plus a short
+# allow-list): every file served is a file someone chose to serve. This repo is
+# a Next.js app that Vercel BUILDS from source, so `*` would starve the build.
+# Here we ship the source and name the things that must not travel with it.
+#
+# Why this file exists at all: `vercel --prod` uploads the working directory,
+# not the git index, so untracked files ship too.
+#
+# The one that actually matters is .env.local. Next.js loads it during the
+# build, so if it rides along it can override the environment variables set in
+# the Vercel dashboard — silently swapping production config for whatever is on
+# this laptop. Vercel does not exclude it for you.
+#
+# Uploaded source is a build input, not a public URL, so this is a smaller blast
+# radius than the dashboard repo's allow-list. It is not zero.
+# ---------------------------------------------------------------------------
+
+# --- secrets: never upload. Env vars belong in the Vercel dashboard. ---
+.env
+.env.*
+!.env.example
+
+# --- local-only tooling, never imported by the app ---
+scripts/
+supabase/
+docs/
+
+# --- agent / editor / VCS scratch ---
+.claude/
+.git/
+.vscode/
+.DS_Store
+
+# --- build + dependency output, rebuilt on Vercel ---
+node_modules/
+.next/
+tsconfig.tsbuildinfo
