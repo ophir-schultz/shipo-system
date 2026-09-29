@@ -1,3 +1,7 @@
+// CRON COUPLING: vercel.json fires this route at 06:00, 14:00 and 20:00 UTC.
+// src/lib/ledger/pick-date.ts derives pick dates from those times via a
+// before-06:00-local rule. Change the schedule and you must change that rule.
+
 /**
  * Monitoring Agent — runs on a schedule via Vercel Cron.
  *
