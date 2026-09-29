@@ -87,7 +87,50 @@ wrong when it is not:
 
 Also: `perPage` is capped at 100 by the API. Higher values are rejected, not clamped.
 
-## 4. What is still unverified — and the permission wall
+## 4. The response parsing is also correct — verified against the spec
+
+`src/lib/sync/zenventory.ts` parses the response through fallback chains that look
+like guesses. They are not; the first branch of each is right. Checked against the
+`CustomerOrderList` / `CustomerOrder` / `PaginationMeta` schemas:
+
+| Code | Spec says | Verdict |
+|---|---|---|
+| `data.customerOrders ?? data.orders ?? []` | array property is `customerOrders` | ✅ |
+| `data.meta` | `meta` object present | ✅ |
+| `meta.totalPages ?? meta.total_pages ?? 1` | `meta.totalPages` (alongside `count`, `page`, `perPage`) | ✅ |
+| `order.orderNumber ?? order.order_number` | `orderNumber` (string). Note `orderReference` is a **different**, optional field — don't confuse them | ✅ |
+
+This matters because each of these has a *silent* failure mode: a wrong array key or a
+wrong order-number key yields zero orders and the sync reports **success with 0
+mapped**, no error anywhere. That hypothesis is now eliminated — the parsing is not
+the problem.
+
+One latent trap to be aware of, though it is not currently firing: `hasMore = page <
+(meta.totalPages ?? ... ?? 1)`. If `meta` were ever absent the sync would stop after
+page 1 and silently cap at 100 orders per client. `meta` is confirmed present, so this
+is fine today — but it fails quietly rather than loudly if that ever changes.
+
+## 5. Blind spot: partial failures are invisible in the UI
+
+Independent of the API bug, there is a real diagnosability gap that will bite **the
+moment you start fixing credentials one client at a time**:
+
+- `syncClientAssignments` collects per-client failures into `clientErrors`, but only
+  *throws* when **every** client fails (`if (clientErrors.length === clients.length)`).
+- `/api/sync/all` surfaces only that thrown message, as `client_sync_error`.
+- `SyncButton.tsx` displays only `client_sync_error`.
+
+So if 7 of 8 clients fail, `clientResults.errors` holds 7 messages and **the UI shows
+nothing at all** — the sync appears to succeed. The only reason the failure is visible
+today is that *all* clients are failing, which clears the all-must-fail bar.
+
+Consequence for the debugging: as soon as one client's credential is corrected, the
+remaining 7 failures go silent and the sync will look fixed when it is not. Worth
+surfacing `clientResults.errors` in the UI before working through the credentials.
+Not changed here — it is not the root cause, and it should not be edited blind while
+the actual fault is still unconfirmed.
+
+## 6. What is still unverified — and the permission wall
 
 Everything checkable *without credentials* is correct. The one remaining hypothesis is
 **the per-client credentials stored in Supabase**, which is exactly what the original
@@ -133,9 +176,10 @@ Then read the output per client:
   selects clients where both columns are non-null, so these were never being synced at
   all and were never part of the "all 8 failing" count.
 
-## 5. Bottom line
+## 7. Bottom line
 
 The reported root cause is fixed, deployed, and independently verified. The base URLs,
-the resource spellings, and the date-filter parameters in `src/lib/api/zenventory.ts`
-are all correct as written. The next move is not a code change — it is running
-`diag-client-api20.mjs` to see which of the 8 clients has which failure mode.
+the resource spellings, the date-filter parameters, and the response parsing are all
+correct as written. Every hypothesis checkable without a credential has been
+eliminated. The next move is not a code change — it is running `diag-client-api20.mjs`
+to see which of the 8 clients has which failure mode.
