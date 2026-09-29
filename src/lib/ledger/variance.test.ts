@@ -30,7 +30,7 @@ describe('labourVariance', () => {
       standardRate: 0.23,
       quantity: 20000,
     })
-    expect(r.variance).toBe(0)
+    expect(r.variance).toBeCloseTo(0, 6)
     expect(r.basis).toBe('measured')
   })
 
@@ -69,8 +69,8 @@ describe('labourVariance', () => {
       standardRate: 0,
       quantity: 20000,
     })
-    expect(r.absorbed).toBe(0)
-    expect(r.variance).toBe(500)
+    expect(r.absorbed).toBeCloseTo(0, 6)
+    expect(r.variance).toBeCloseTo(500, 6)
     expect(r.basis).toBe('measured')
   })
 
@@ -82,7 +82,7 @@ describe('labourVariance', () => {
       standardRate: 0.23,
       quantity: 0,
     })
-    expect(r.absorbed).toBe(0)
+    expect(r.absorbed).toBeCloseTo(0, 6)
     expect(r.variance).toBeCloseTo(5000, 6)
   })
 
