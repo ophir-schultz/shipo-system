@@ -187,8 +187,24 @@ legacy API when a client has a SecureKey but no working 2.0 credential.
 
 Do not build that fallback speculatively. Confirm the failure mode first — the two
 modes need opposite fixes, and the legacy endpoint returns a different payload shape
-(`/shippingorders`, not `customerOrders`) that would need its own mapping to order
-numbers.
+that would need its own mapping to order numbers.
+
+### Prep notes for wiring the legacy fallback
+
+Two things to get right, gathered from `~/qr-batch/station.py`, an independent and
+known-working legacy consumer:
+
+1. **Call `/customerorders`, not `/shippingorders`.** The sync needs order *numbers*
+   to match against the `shipments` table. `getShippingOrders` currently points at
+   `/shippingorders`, which is the wrong resource for that job. Legacy
+   `/customerorders` is confirmed to exist (JSON 401 on probe).
+
+2. **Legacy field names are all lowercase — API 2.0's are camelCase.** `station.py`
+   works with `customerorderitemid`, `locationid`, `lotnumber`, `expirationdate`.
+   So `order.orderNumber` will be `undefined` against a legacy payload; expect
+   something like `ordernumber`. Getting this wrong reproduces exactly the silent
+   "success with 0 mapped" failure described in section 4 — no error, just nothing
+   happening. Verify the real key against a live response before trusting it.
 
 Read-only diagnostics for this already exist, untracked, in `scripts/`. None of them
 write anything and none print a credential value:
