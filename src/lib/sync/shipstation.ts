@@ -1,21 +1,35 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { getShipments } from '@/lib/api/shipstation'
 import { calcDimWeightOz, calcBilledWeightOz } from '@/lib/billing/dim-weight'
+import { sourceForCarrier } from '@/lib/ledger/carrier'
+import { openSyncRun } from '@/lib/ledger/sync-run'
 
 export async function syncShipments(daysBack = 30) {
   const dateFrom = new Date()
   dateFrom.setDate(dateFrom.getDate() - daysBack)
   const dateStr = dateFrom.toISOString().split('T')[0]
 
+  const run = await openSyncRun({
+    source: 'shipstation',
+    mode: 'live',
+    windowStart: dateStr,
+    windowEnd: new Date().toISOString().split('T')[0],
+  })
+
   let page = 1
   let hasMore = true
-  const results = { created: 0, updated: 0, adjustments: 0, errors: 0 }
+  const results = {
+    created: 0, updated: 0, adjustments: 0, refunds: 0,
+    errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
+  }
 
   while (hasMore) {
     const data = await getShipments({
       shipDateStart: dateStr,
       page,
       pageSize: 100,
+      // Task 11 removes this line. It stays here so that the fixes in this
+      // task can be proven against traffic we already handle.
       carrierCode: 'stamps_com',
     })
 
@@ -23,34 +37,64 @@ export async function syncShipments(daysBack = 30) {
     if (shipments.length === 0 || page >= (data.pages ?? 1)) hasMore = false
 
     for (const s of shipments) {
+      run.seen()
       try {
-        // Try to match client by ShipStation store/tag — for now match by order source
-        const { data: existingShipment } = await supabaseAdmin
+        // DEFECT 1, FIXED. The old code matched on order_number with
+        // .single() and destructured the error away. .single() returns
+        // {data: null, error: PGRST116} when several rows match — it does not
+        // throw — so a multi-package order fell through to .insert() and
+        // duplicated itself on every run. shipmentId is unique per label.
+        const shipmentId = Number(s.shipmentId)
+        if (!Number.isFinite(shipmentId)) {
+          run.fail('missing shipmentId', { orderNumber: s.orderNumber })
+          results.errors++
+          continue
+        }
+
+        const { data: existingShipment, error: matchError } = await supabaseAdmin
           .from('shipments')
           .select('id, actual_cost, client_id')
-          .eq('order_number', String(s.orderNumber))
-          .single()
+          .eq('shipstation_shipment_id', shipmentId)
+          .maybeSingle()
 
-        // Dimensions from ShipStation
+        // DEFECT 4, FIXED. The error is inspected, not discarded.
+        if (matchError) {
+          run.fail(`match shipment ${shipmentId}`, matchError)
+          results.errors++
+          continue
+        }
+
+        const orderNumber = String(s.orderNumber ?? '').trim()
+        if (!orderNumber) results.blankOrderNumber++
+
         const dims = s.dimensions ?? {}
         const lengthIn = dims.length ?? 0
         const widthIn = dims.width ?? 0
         const heightIn = dims.height ?? 0
 
-        // Weight — normalize to ounces
         const weightRaw = s.weight?.value ?? 0
         const weightUnit = s.weight?.units ?? 'ounces'
         const weightOz = weightUnit === 'pounds' ? weightRaw * 16 : weightRaw
 
         const carrier = s.carrierCode?.toUpperCase() ?? ''
         const service = s.serviceCode ?? ''
-        // Service matters: UPS air applies DIM to every parcel, ground only
-        // above 1 cubic foot. See src/lib/billing/dim-weight.ts.
         const dimWeightOz = calcDimWeightOz(lengthIn, widthIn, heightIn, carrier, service)
         const billedWeightOz = calcBilledWeightOz(weightOz, dimWeightOz)
 
+        // DEFECT 3, FIXED. source is derived from the carrier code instead of
+        // being hardcoded to 'stamps'. Unknown carriers are counted, not
+        // guessed at.
+        const { source, known } = sourceForCarrier(s.carrierCode ?? '')
+        if (!known) {
+          results.unknownCarrier++
+          run.fail(`unknown carrier ${s.carrierCode}`, { shipmentId })
+        }
+
+        const newCost = parseFloat(String(s.shipmentCost ?? 0))
+
         const shipmentData = {
-          order_number: String(s.orderNumber),
+          shipstation_shipment_id: shipmentId,
+          order_number: orderNumber,
           order_date: s.orderDate,
           ship_date: s.shipDate,
           carrier,
@@ -68,53 +112,61 @@ export async function syncShipments(daysBack = 30) {
           dim_unit: dims.units ?? 'inches',
           dim_weight: dimWeightOz,
           billed_weight: parseFloat(billedWeightOz.toFixed(2)),
-          actual_cost: parseFloat(s.shipmentCost ?? 0),
-          source: 'stamps',
+          actual_cost: newCost,
+          source,
           raw_data: s,
         }
 
         if (existingShipment) {
-          // Check for rate adjustment — cost changed after the fact
-          const prevCost = parseFloat(existingShipment.actual_cost ?? 0)
-          const newCost = parseFloat(s.shipmentCost ?? 0)
+          const prevCost = parseFloat(String(existingShipment.actual_cost ?? 0))
           const diff = parseFloat((newCost - prevCost).toFixed(2))
 
-          if (diff > 0.01 && existingShipment.client_id) {
-            // Rate adjustment detected
-            const { data: existingAdj } = await supabaseAdmin
+          // DEFECT 2, FIXED. The old guard was `diff > 0.01`, so only cost
+          // INCREASES were recorded. A void or a refund is a decrease and was
+          // structurally invisible: we could see money leave and never see it
+          // come back.
+          if (Math.abs(diff) > 0.01 && existingShipment.client_id) {
+            const { data: existingAdj, error: adjError } = await supabaseAdmin
               .from('rate_adjustments')
               .select('id')
-              .eq('order_number', String(s.orderNumber))
+              .eq('shipment_id', existingShipment.id)
               .eq('adjustment_amount', diff)
-              .single()
+              .maybeSingle()
 
-            if (!existingAdj) {
-              await supabaseAdmin.from('rate_adjustments').insert({
-                shipment_id: existingShipment.id,
-                client_id: existingShipment.client_id,
-                order_number: String(s.orderNumber),
-                original_cost: prevCost,
-                adjusted_cost: newCost,
-                adjustment_amount: diff,
-                reason: 'Carrier rate adjustment',
-                adjustment_date: new Date().toISOString(),
-                status: 'pending',
-              })
-              results.adjustments++
+            if (adjError) {
+              run.fail(`adjustment lookup ${shipmentId}`, adjError)
+            } else if (!existingAdj) {
+              const { error: insError } = await supabaseAdmin
+                .from('rate_adjustments').insert({
+                  shipment_id: existingShipment.id,
+                  client_id: existingShipment.client_id,
+                  order_number: orderNumber,
+                  original_cost: prevCost,
+                  adjusted_cost: newCost,
+                  adjustment_amount: diff,
+                  reason: diff > 0 ? 'Carrier rate adjustment' : 'Refund or void',
+                  adjustment_date: new Date().toISOString(),
+                  status: 'pending',
+                })
+              if (insError) run.fail(`adjustment insert ${shipmentId}`, insError)
+              else if (diff > 0) results.adjustments++
+              else results.refunds++
             }
           }
 
-          // Update shipment cost
-          await supabaseAdmin
-            .from('shipments')
-            .update({ ...shipmentData, actual_cost: newCost })
-            .eq('id', existingShipment.id)
-          results.updated++
+          const { error: updError } = await supabaseAdmin
+            .from('shipments').update(shipmentData).eq('id', existingShipment.id)
+          if (updError) { run.fail(`update ${shipmentId}`, updError); results.errors++ }
+          else { results.updated++; run.wrote() }
         } else {
-          await supabaseAdmin.from('shipments').insert(shipmentData)
-          results.created++
+          const { error: insError } = await supabaseAdmin
+            .from('shipments').insert(shipmentData)
+          if (insError) { run.fail(`insert ${shipmentId}`, insError); results.errors++ }
+          else { results.created++; run.wrote() }
         }
-      } catch {
+      } catch (err) {
+        // Still a catch, but it keeps what it caught.
+        run.fail(`shipment ${s?.shipmentId ?? 'unknown'}`, err)
         results.errors++
       }
     }
@@ -122,10 +174,10 @@ export async function syncShipments(daysBack = 30) {
     page++
   }
 
+  await run.close()
   return results
 }
 
 export async function syncAdjustments() {
-  // Pull shipments from last 30 days and check for cost changes
   return syncShipments(30)
 }
