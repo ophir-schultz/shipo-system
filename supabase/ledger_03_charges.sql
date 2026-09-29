@@ -46,8 +46,16 @@ create table if not exists order_charges (
   charge_date        date not null,
   charge_date_source text,
   source             text not null,
-  is_estimate        boolean default false,
-  calculated_at      timestamptz default now()
+  is_estimate        boolean not null default false,
+  calculated_at      timestamptz default now(),
+
+  -- A cost figure with no basis is a number whose provenance nobody can state,
+  -- and every screen downstream would render it as measured. Note the converse is
+  -- deliberately allowed: cost null with cost_basis null is the honest
+  -- representation of "we do not know what this cost", which is different from
+  -- "it was free" (cost = 0).
+  constraint order_charges_cost_has_basis
+    check (cost is null or cost_basis is not null)
 );
 
 -- Two partial unique indexes, for the same reason `orders` needed two. Not
@@ -59,16 +67,29 @@ create table if not exists order_charges (
 create unique index if not exists order_charges_order_key
   on order_charges (order_id, charge_key) where order_id is not null;
 create unique index if not exists order_charges_client_key
-  on order_charges (client_id, charge_key) where order_id is null;
+  on order_charges (client_id, charge_key) where order_id is null and client_id is not null;
+
+-- Neither partial index above covers a row with BOTH order_id and client_id
+-- null. No path in this plan produces one -- unattributed label spend is
+-- reported by leaks_monthly.unattributed_label_spend rather than written as a
+-- charge, and storage charges always carry a client_id. This index exists
+-- because "unreachable" is a claim about code not yet written, and the cost of
+-- being wrong is asymmetric: an absent constraint here means the thrice-daily
+-- cron inserts a fresh copy of the same charge every run, and the ledger
+-- triples while still looking plausible.
+create unique index if not exists order_charges_unattributed_key
+  on order_charges (charge_key)
+  where order_id is null and client_id is null;
 
 create index if not exists order_charges_order_idx on order_charges (order_id);
 create index if not exists order_charges_client_date_idx
   on order_charges (client_id, charge_date);
 create index if not exists order_charges_type_date_idx
   on order_charges (charge_type, charge_date);
--- The stale-delete in Task 14 scans by (order_id, calculated_at).
+-- The stale-delete in Task 14 scans by (order_id, calculated_at); the composite
+-- index satisfies that filter+sort without a table scan.
 create index if not exists order_charges_calculated_idx
-  on order_charges (calculated_at);
+  on order_charges (order_id, calculated_at);
 
 -- ---------------------------------------------------------------------------
 -- The client rate card gains structure and effective dates.
