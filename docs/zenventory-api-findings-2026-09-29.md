@@ -140,9 +140,55 @@ Supporting evidence, from the header comment of `scripts/diag-client-api20.mjs`
 (written by an earlier session): the key in `.env.local` returns **200** on
 `/rest/customer-orders`, while the UI's test button returned an Apache HTML 404. Same
 code, same URL, different credential — so **the credential is the only remaining
-variable**. A 404 across a whole API tree is the signature of that tree not existing
-*for that account* (e.g. API 2.0 not enabled on the client's plan), whereas a 401
-means the tree exists and the key is simply wrong.
+variable**.
+
+**That observation is post-fix, which is what makes it trustworthy.** The obvious
+objection is that it might have compared a hand-made call against a UI still running
+the old broken `/api` base URL, which would make it meaningless. It did not. Timings:
+
+| Event | When |
+|---|---|
+| Base-URL fix committed (`c582ec5`) | 2026-09-20 21:51 |
+| Deployed to production | 2026-09-20 21:53 |
+| `diag-client-api20.mjs` written (recording the 404) | **2026-09-21 12:31** |
+
+The 404 was seen ~15 hours after the corrected URL was live, so it is not an artifact
+of the old path. Check this before trusting the clue again — and note the sibling
+scripts `diag-securekey.mjs` (09:39) and `diag-legacy-auth.mjs` (09:51) were written
+the same morning, i.e. that session was already probing whether the **legacy** API
+could be used instead. That is a meaningful hint about where it was heading.
+
+**Read the 404-vs-401 distinction carefully, because they mean opposite things:**
+
+- **JSON 401** → the API tree exists, the key is simply wrong. Fix: re-enter the key.
+- **Apache HTML 404 across the whole tree** → the tree does not exist *for that
+  account*, i.e. **API 2.0 is not enabled on that client's Zenventory plan**. No key
+  will ever work. This is not a code bug and cannot be fixed by editing this repo.
+
+If it is the second, the fix is one of: have Zenventory enable API 2.0 on those
+accounts, or route those clients through the **legacy** API instead. The legacy path
+is already implemented here (`getShippingOrders` / `testZenventorySecureKey`, using a
+`SecureKey` header against `/services/rest`), and the `clients` table already carries
+a `zenventory_secure_key` column — so the groundwork for that fallback exists.
+
+**But the fallback is only half-wired, and this is probably the actual missing piece:**
+
+| Layer | State |
+|---|---|
+| DB column `zenventory_secure_key` | exists (`supabase/zenventory_secure_key.sql`) |
+| UI captures and saves it | yes (`components/clients/ZenventoryCredentials.tsx:26`, `clients/[id]/page.tsx:105`) |
+| Legacy API client functions | yes (`getShippingOrders`, `testZenventorySecureKey`) |
+| **The sync actually using it** | **no — `syncClientAssignments` selects only `zenventory_api_key` / `zenventory_api_secret` and calls `getCustomerOrders` (API 2.0) exclusively** |
+
+So a client can have a perfectly good SecureKey saved through the UI and the sync will
+still ignore it and fail on API 2.0. If the 404s turn out to be "API 2.0 not enabled
+on that account", **that is the fix**: have `syncClientAssignments` fall back to the
+legacy API when a client has a SecureKey but no working 2.0 credential.
+
+Do not build that fallback speculatively. Confirm the failure mode first — the two
+modes need opposite fixes, and the legacy endpoint returns a different payload shape
+(`/shippingorders`, not `customerOrders`) that would need its own mapping to order
+numbers.
 
 Read-only diagnostics for this already exist, untracked, in `scripts/`. None of them
 write anything and none print a credential value:
