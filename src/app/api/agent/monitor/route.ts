@@ -23,6 +23,8 @@ import { syncClientAssignments } from '@/lib/sync/zenventory'
 import { sendEmail } from '@/lib/email'
 import { requireStaffOrCron } from '@/lib/require-staff'
 import { recalculateShipments } from '@/lib/billing/recalculate'
+import { recalculateCharges, type RecalculateResult } from '@/lib/ledger/persist-charges'
+import { loadChargeInputs } from '@/lib/ledger/load-charge-inputs'
 
 const ALERT_TO = process.env.ALERT_EMAIL || 'ophir@shipousa.com'
 
@@ -76,6 +78,43 @@ export async function GET(req: Request) {
     }
   } catch (err: any) {
     const msg = `✗ Recalculate FAILED: ${err.message}`
+    log.push(msg)
+    errors.push(msg)
+  }
+
+  // ── 3b. Recalculate ledger charges ─────────────────────────────────────────
+  // Thirty days: long enough to catch a pick recorded against a date already
+  // passed, short enough that a run stays inside the cron's time budget.
+  let chargeResult: RecalculateResult | null = null
+  try {
+    const windowStart = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+    chargeResult = await recalculateCharges(() => loadChargeInputs(windowStart))
+
+    if (chargeResult.skipped) {
+      // Logged either way, because a skip that looks like a run with nothing to
+      // do is how a permanently-stuck lock would stay invisible. Only the
+      // unreadable-gate case is an issue: this route is also polled every five
+      // minutes by the AutoSync widget, so losing that race is routine and
+      // must not raise an alert every time it happens.
+      log.push(`⏭ Charges: skipped — ${chargeResult.reason}`)
+      if (chargeResult.cause === 'gate-unreadable') {
+        errors.push(`⚠ Charge calculation skipped: ${chargeResult.reason}`)
+      }
+    } else {
+      log.push(`✓ Charges: ${chargeResult.orders} orders · ${chargeResult.upserted} written · ${chargeResult.deleted} stale removed`)
+      if (chargeResult.failedOrders > 0) {
+        errors.push(`⚠ ${chargeResult.failedOrders} orders failed charge calculation (see the latest sync_runs row for source = 'charges')`)
+      }
+      if (chargeResult.unpricedOrders > 0) {
+        errors.push(`⚠ ${chargeResult.unpricedOrders} orders had picked lines but produced no charge — most likely a client with no rate card line`)
+      }
+      if (chargeResult.unknownCostCharges > 0) {
+        log.push(`⚠ ${chargeResult.unknownCostCharges} charges have no known cost (flagged as estimates, cost left null)`)
+      }
+    }
+  } catch (err) {
+    const msg = `✗ Charge calculation FAILED: `
+      + `${err instanceof Error ? err.message : String(err)}`
     log.push(msg)
     errors.push(msg)
   }
@@ -197,6 +236,7 @@ export async function GET(req: Request) {
     stats: {
       sync: syncResult,
       recalc: recalcStats,
+      charges: chargeResult,
       losses: { count: lossCount, total: totalLoss },
       adjustments: { count: adjCount, total: adjTotal },
       unassigned: unassignedCount,
