@@ -58,14 +58,14 @@ describe('normaliseLines', () => {
       .toThrow(NegativeQuantityError)
   })
 
+  // The ordinal is asserted as 'line 2', not as a bare '2'. A bare '2' also
+  // matches the quantity -2 printed in the same message, so the old assertion
+  // passed against an implementation that never named the ordinal at all.
   it('names the offending line in the error, so it can be found', () => {
-    try {
-      normaliseLines([{ sku: 'A' }, { sku: 'BAD-SKU', quantityPicked: -2 }])
-      throw new Error('should have thrown')
-    } catch (e) {
-      expect((e as Error).message).toContain('BAD-SKU')
-      expect((e as Error).message).toContain('2')   // the line ordinal
-    }
+    const call = () => normaliseLines([{ sku: 'A' }, { sku: 'BAD-SKU', quantityPicked: -2 }])
+    expect(call).toThrow(NegativeQuantityError)
+    expect(call).toThrow(/BAD-SKU/)
+    expect(call).toThrow(/line 2\b/)
   })
 
   // Zenventory returns quantities as strings on some endpoints.

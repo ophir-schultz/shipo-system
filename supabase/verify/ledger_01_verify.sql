@@ -99,4 +99,24 @@ begin
   raise notice 'PASS: on conflict (client_id, order_key) upserts in place';
 end $$;
 
+-- Null-client rows are NOT covered by orders_client_order_key -- NULLs are
+-- distinct in SQL, so `unique (client_id, order_key)` never constrained them,
+-- partial predicate or not. orders_source_order_key is what holds them, and it
+-- stays partial deliberately: nothing upserts null-client rows by ON CONFLICT
+-- inference, so the 42P10 problem above does not apply to it. This block exists
+-- so that making the first index non-partial cannot be misread as having moved
+-- coverage around: the null-client guarantee is unchanged and still enforced.
+do $$
+begin
+  insert into orders (client_id, order_key, order_number, source)
+    values (null, 'VERIFY-NULLCLIENT', 'VERIFY-NULLCLIENT', 'zenventory');
+  begin
+    insert into orders (client_id, order_key, order_number, source)
+      values (null, 'VERIFY-NULLCLIENT', 'VERIFY-NULLCLIENT', 'zenventory');
+    raise exception 'FAIL: a second null-client row with the same (source, order_key) was accepted -- orders_source_order_key is missing or no longer covers it';
+  exception when unique_violation then
+    raise notice 'PASS: orders_source_order_key still constrains null-client rows';
+  end;
+end $$;
+
 rollback;

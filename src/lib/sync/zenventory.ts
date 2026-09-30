@@ -11,12 +11,20 @@ import { openSyncRun } from '@/lib/ledger/sync-run'
  */
 export async function syncClientAssignments(daysBack = 30) {
   // Load all active clients that have Zenventory credentials
-  const { data: clients } = await supabaseAdmin
+  const { data: clients, error: clientsErr } = await supabaseAdmin
     .from('clients')
     .select('id, name, zenventory_api_key, zenventory_api_secret')
     .eq('active', true)
     .not('zenventory_api_key', 'is', null)
     .not('zenventory_api_secret', 'is', null)
+
+  // The error is raised separately from the empty case on purpose. This query
+  // used to discard it, so a database outage or a permissions problem left
+  // clients null and produced the message below -- telling Ophir to go and add
+  // API keys that are already there, and hiding the real fault behind an errand.
+  if (clientsErr) {
+    throw new Error(`Could not load clients for the Zenventory sync: ${clientsErr.message}`)
+  }
 
   if (!clients?.length) {
     throw new Error('No active clients have Zenventory credentials. Add API keys on each client\'s page.')
@@ -160,23 +168,43 @@ export async function syncClientAssignments(daysBack = 30) {
 
     totalMapped += orderNumbers.length
 
-    // Assign each order's shipment to this client
+    // Assign each order's shipment to this client.
+    //
+    // Still one order number at a time. That is slow but correct, and widening
+    // it is out of scope here. What is NOT out of scope is that both calls used
+    // to throw their error away. Client attribution is what makes every
+    // per-client revenue and cost figure land on the right client, so a failure
+    // here is not cosmetic: the shipment keeps its old client_id -- or none --
+    // while totalUpdated counts an update that never happened, and the run
+    // reports a clean pass over a ledger that now attributes money to the wrong
+    // business. Spec: "Nothing in this design may discard an error object."
     for (const orderNumber of orderNumbers) {
-      const { data: shipment } = await supabaseAdmin
+      const { data: shipment, error: shipErr } = await supabaseAdmin
         .from('shipments')
         .select('id, client_id')
         .eq('order_number', orderNumber)
         .maybeSingle()
 
+      if (shipErr) {
+        run.fail(`shipment lookup ${orderNumber}`, shipErr)
+        continue
+      }
+
       if (!shipment) { totalSkipped++; continue }
       if (shipment.client_id === client.id) { totalSkipped++; continue }
 
-      await supabaseAdmin
+      const { error: assignErr } = await supabaseAdmin
         .from('shipments')
         .update({ client_id: client.id })
         .eq('id', shipment.id)
 
+      if (assignErr) {
+        run.fail(`assign shipment ${orderNumber} to ${client.name ?? client.id}`, assignErr)
+        continue
+      }
+
       totalUpdated++
+      run.wrote()
     }
 
     await run.close()
