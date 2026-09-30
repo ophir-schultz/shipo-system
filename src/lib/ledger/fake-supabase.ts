@@ -182,6 +182,12 @@ class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }>
   limit(n: number): this {
     this.call.limit = n; return this
   }
+  /**
+   * As supabase-js: zero rows is `{ data: null, error: null }`, one row is the
+   * row, and MORE THAN ONE is `{ data: null, error: PGRST116 }` — an error
+   * object, not a throw. See the note on PGRST116 in [RESULT] for why this
+   * double must not be kinder than that.
+   */
   maybeSingle(): this {
     this.returning = true; this.single = true; return this
   }
@@ -260,7 +266,30 @@ class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }>
     }
 
     if (!this.returning) return { data: null, error: null }
-    return { data: this.single ? (affected[0] ?? null) : affected, error: null }
+
+    if (this.single) {
+      // supabase-js does NOT throw when maybeSingle() matches more than one
+      // row: it returns `{ data: null, error: { code: 'PGRST116' } }`. Code
+      // that destructures only `data` therefore sees null and reads it as "no
+      // row exists", which is how the same duplicate-insert defect has been
+      // fixed three times on this branch (see the DEFECT 1 note in
+      // sync/shipstation.ts). A double that quietly answered `affected[0]`
+      // instead would make every test written against it useless as evidence
+      // about exactly the code path that keeps breaking, so the double is held
+      // to the real client's behaviour rather than to a more convenient one.
+      if (affected.length > 1) {
+        return {
+          data: null,
+          error: {
+            message: 'JSON object requested, multiple (or no) rows returned',
+            code: 'PGRST116',
+          },
+        }
+      }
+      return { data: affected[0] ?? null, error: null }
+    }
+
+    return { data: affected, error: null }
   }
 
   then<R1 = { data: unknown; error: FakeError | null }, R2 = never>(
