@@ -40,4 +40,31 @@ begin
   end;
 end $$;
 
+-- cost_rates_basis_valid. A distinct cost_type throughout, so these rows cannot
+-- collide with the overlap fixtures above and report an exclusion_violation as
+-- though it were a basis failure.
+--
+-- All three permitted values must be accepted. A constraint written against only
+-- 'estimated' would pass the rejection test below while blocking every real rate
+-- the day a measured figure finally arrives.
+insert into cost_rates (cost_type, variant, unit, rate, effective_from, basis)
+  values ('basis_probe', 'measured_v',  'per_unit', 1.0000, '2026-01-01', 'measured'),
+         ('basis_probe', 'derived_v',   'per_unit', 1.0000, '2026-01-01', 'derived'),
+         ('basis_probe', 'estimated_v', 'per_unit', 1.0000, '2026-01-01', 'estimated');
+do $$ begin raise notice 'PASS: measured, derived and estimated are all accepted'; end $$;
+
+-- The case the constraint exists for: a misspelt basis. calculate-charges.ts:144
+-- compares by exact string equality, so 'Estimated' would read as NOT estimated
+-- and set is_estimate = false on every charge derived from the rate.
+do $$
+begin
+  begin
+    insert into cost_rates (cost_type, variant, unit, rate, effective_from, basis)
+      values ('basis_probe', 'typo_v', 'per_unit', 1.0000, '2026-01-01', 'Estimated');
+    raise exception 'FAIL: basis ''Estimated'' was accepted';
+  exception when check_violation then
+    raise notice 'PASS: a misspelt basis is rejected';
+  end;
+end $$;
+
 rollback;

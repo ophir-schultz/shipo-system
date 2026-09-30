@@ -37,6 +37,43 @@ exception when duplicate_object then
   raise notice 'cost_rates_no_overlap already present';
 end $$;
 
+-- calculate-charges.ts:144 and :177 test `lookup.basis === 'estimated'` by exact
+-- string equality to decide is_estimate. Without this constraint one mistyped
+-- character in a hand-pasted seed file — 'Estimated', 'estimted' — sets
+-- is_estimate = false on every charge derived from that rate, and a placeholder
+-- is presented on screen as a measured cost. The three values below are the same
+-- set the loader's CostRateRow type declares (cost-rate.ts:27), so a value that
+-- passes here is a value the calculator can actually interpret.
+--
+-- ledger_06_seed_cost_rates.sql has a trailing select that catches this, but it
+-- only catches it if the operator reads it. This catches it at write time.
+do $$
+declare
+  offending text;
+begin
+  alter table cost_rates add constraint cost_rates_basis_valid
+    check (basis in ('measured','derived','estimated'));
+  raise notice 'cost_rates_basis_valid added';
+exception
+  when duplicate_object then
+    raise notice 'cost_rates_basis_valid already present';
+  when check_violation then
+    -- The failed ALTER is rolled back to this block's savepoint, so the table is
+    -- readable here. Name the bad values: "some row" alone does not tell the
+    -- operator which paste to go and fix.
+    select string_agg(quoted, ', ')
+      into offending
+      from (select distinct quote_literal(basis) as quoted
+              from cost_rates
+             where basis not in ('measured','derived','estimated')) bad;
+    raise exception
+      'cost_rates_basis_valid NOT added: cost_rates already holds invalid basis value(s): %', offending
+      using hint = 'Every charge derived from those rows has the wrong is_estimate. '
+        || 'Correct them, then re-run this file. Locate them with: '
+        || 'select id, cost_type, variant, effective_from, basis from cost_rates '
+        || 'where basis not in (''measured'',''derived'',''estimated'');';
+end $$;
+
 -- The monthly bills. `allocation` decides whether a cost is pushed down to
 -- individual orders or only subtracted at the top.
 create table if not exists operating_costs (

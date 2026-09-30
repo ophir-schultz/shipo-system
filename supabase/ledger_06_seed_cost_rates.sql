@@ -80,12 +80,13 @@ values
    'Placeholder pending rent and utilities allocated direct_storage.')
 on conflict do nothing;
 
--- Must return NO ROWS. `basis` has no CHECK constraint (ledger_02_cost.sql:19)
--- and calculate-charges.ts:144 tests `lookup.basis === 'estimated'` by exact
--- string equality, so one mistyped character in this hand-pasted file —
--- 'Estimated', 'estimted' — sets is_estimate = false on every charge derived
--- from that rate and presents a placeholder as a measured cost. That is exactly
--- what this file's header forbids.
+-- Must return NO ROWS. The cost_rates_basis_valid CHECK constraint in
+-- ledger_02_cost.sql now rejects a misspelt basis at write time, so 'Estimated'
+-- or 'estimted' can no longer reach the table at all. This select still earns
+-- its place: the constraint permits 'measured' and 'derived' too, and either of
+-- those on a row below — placeholders every one — would set is_estimate = false
+-- (calculate-charges.ts:144) and present a placeholder as a measured cost. That
+-- is exactly what this file's header forbids.
 select cost_type, variant, basis from cost_rates
 where effective_from = '2026-01-01' and basis is distinct from 'estimated';
 
