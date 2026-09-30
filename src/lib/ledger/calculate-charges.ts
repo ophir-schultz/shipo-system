@@ -58,7 +58,9 @@ export interface BuiltCharge {
 // 100.49999999999999, which Math.round would take to 100 (i.e. 1.00) and
 // underbill. `+ 0` normalises -0, which Postgres accepts but which renders as
 // "-0.00" and reads as a mistake.
-const cents = (n: number) => Math.round(Number((n * 100).toPrecision(12))) / 100 + 0
+// Exported so storage-charges.ts (and any future module) can import the
+// canonical rounding rule rather than redefine it incorrectly.
+export const cents = (n: number) => Math.round(Number((n * 100).toPrecision(12))) / 100 + 0
 
 export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltCharge[] {
   // A cancelled order earns nothing and costs nothing. Returning early is
