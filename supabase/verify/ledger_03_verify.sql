@@ -120,6 +120,93 @@ begin
   end;
 end $$;
 
+-- ...and the other direction, which is the load-bearing one. The file asserts
+-- above that order_charges_order_key must NOT be partial; it must also assert
+-- that order_charges_client_key MUST be, or a future reader "tidying" the two
+-- indexes to match has nothing stopping them. Dropping this predicate is not
+-- cosmetic: charge_key for a peak surcharge is the constant 'surcharge:peak'
+-- (src/lib/ledger/calculate-charges.ts), so without `where order_id is null`
+-- every order of a client after the first would be rejected on its surcharge
+-- row and start failing. The TASK 18 WARNING in ledger_03_charges.sql states
+-- this in prose; the block below makes it enforceable.
+do $$
+declare pred text; found_idx boolean;
+begin
+  select pg_get_expr(i.indpred, i.indrelid), true
+    into pred, found_idx
+  from   pg_index i
+  join   pg_class c on c.oid = i.indexrelid
+  where  c.relname = 'order_charges_client_key';
+
+  if found_idx is not true then
+    raise exception 'FAIL: index order_charges_client_key does not exist';
+  end if;
+
+  if pred is null then
+    raise exception 'FAIL: order_charges_client_key is NOT partial -- it now '
+                    'constrains order-level rows too, so the second peak surcharge '
+                    'for any client will be rejected and that order will fail';
+  end if;
+  raise notice 'PASS: order_charges_client_key is partial (%)', pred;
+end $$;
+
+-- And the behaviour that predicate buys, stated as an outcome rather than as a
+-- property of an index: two DIFFERENT orders of the SAME client, both carrying
+-- charge_key 'surcharge:peak', must both be accepted. That is the exact shape
+-- the calculator produces for every order it levies a peak surcharge on, so if
+-- this block ever fails the ledger stops writing on the second such order
+-- rather than degrading.
+do $$
+declare cid uuid; oid1 uuid; oid2 uuid;
+begin
+  select id into cid from clients limit 1;
+  insert into orders (client_id, order_key, order_number, source)
+    values (cid, 'VERIFY-PEAK-1', 'VERIFY-PEAK-1', 'zenventory') returning id into oid1;
+  insert into orders (client_id, order_key, order_number, source)
+    values (cid, 'VERIFY-PEAK-2', 'VERIFY-PEAK-2', 'zenventory') returning id into oid2;
+
+  insert into order_charges
+    (order_id, client_id, charge_key, charge_type, label, amount, charge_date, source)
+    values (oid1, cid, 'surcharge:peak', 'surcharge', 'Peak surcharge (8%)',
+            1.20, '2026-09-01', 'calculator');
+  insert into order_charges
+    (order_id, client_id, charge_key, charge_type, label, amount, charge_date, source)
+    values (oid2, cid, 'surcharge:peak', 'surcharge', 'Peak surcharge (8%)',
+            2.40, '2026-09-01', 'calculator');
+
+  raise notice 'PASS: two orders of one client may each carry charge_key surcharge:peak';
+exception when unique_violation then
+  raise exception 'FAIL: a second order of the same client was rejected on '
+                  'charge_key = ''surcharge:peak'' -- order_charges_client_key has lost '
+                  'its `where order_id is null` predicate and is now constraining '
+                  'order-level rows';
+end $$;
+
+-- amount must be NULLABLE, for the same reason cost is. An at-cost freight line
+-- is billed at whatever the carrier charged, so until the carrier reports, the
+-- revenue is unknown -- not zero. NOT NULL forces the calculator to write 0,
+-- which claims the label was given away free and understates revenue in every
+-- view that sums this column. `create table if not exists` will not repair a
+-- database that already carries the old NOT NULL, which is why
+-- ledger_03_charges.sql has a guarded alter and why this block exists.
+do $$
+declare oid uuid; cid uuid;
+begin
+  select id into cid from clients limit 1;
+  insert into orders (client_id, order_key, order_number, source)
+    values (cid, 'VERIFY-AMT-1', 'VERIFY-AMT-1', 'zenventory') returning id into oid;
+  insert into order_charges
+    (order_id, client_id, charge_key, charge_type, label, amount,
+     cost, cost_basis, charge_date, source)
+    values (oid, cid, 'shipment:amt1', 'shipping', 'Shipping', null,
+            null, null, '2026-09-01', 'verify');
+  raise notice 'PASS: order_charges.amount accepts null (unreported at-cost freight)';
+exception when not_null_violation then
+  raise exception 'FAIL: order_charges.amount is still NOT NULL, so an at-cost '
+                  'freight line whose carrier cost has not been reported cannot be '
+                  'written without claiming it was billed at zero';
+end $$;
+
 -- shipments.order_number_key is what makes the shipment-to-order join
 -- case-insensitive at the FETCH, not only in memory. If it is missing or not
 -- normalising, Task 14 silently loses every label whose order number arrived in

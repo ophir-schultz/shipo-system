@@ -63,7 +63,12 @@ create table if not exists order_charges (
   label              text not null,
   quantity           numeric(10,2),
   unit_rate          numeric(10,4),
-  amount             numeric(10,2) not null,
+  -- NULLABLE, for the same reason `cost` is. An at-cost freight line is billed
+  -- at whatever the carrier charged, so until the carrier reports we do not
+  -- know the revenue either. Storing 0 there is a claim that the label was
+  -- given away free, and it understates revenue in every view that sums this
+  -- column -- the exact null-versus-zero confusion this project exists to stop.
+  amount             numeric(10,2),
   cost               numeric(10,2),
   cost_basis         text,
   charge_date        date not null,
@@ -80,6 +85,19 @@ create table if not exists order_charges (
   constraint order_charges_cost_has_basis
     check (cost is null or cost_basis is not null)
 );
+
+-- `create table if not exists` does nothing to a table that already exists, and
+-- an earlier draft of this file created `amount` as NOT NULL. Without this, a
+-- database that has already had that draft applied rejects every at-cost
+-- freight charge whose carrier cost has not been reported -- which is a whole
+-- order's charges failing, not one row. Guarded and idempotent, in the same
+-- shape as the two `client_warehouse_rates` alters further down.
+do $$
+begin
+  alter table order_charges alter column amount drop not null;
+exception when others then
+  raise notice 'order_charges.amount was already nullable';
+end $$;
 
 -- Two unique indexes, for the same reason `orders` needed two. Not every charge
 -- belongs to an order: storage is billed monthly against a client, and
@@ -101,9 +119,39 @@ create table if not exists order_charges (
 -- ledger_01_orders.sql documents for orders_client_order_key. The drop below
 -- exists because an earlier draft of this file created it partial; re-running
 -- this migration converts it.
-drop index if exists order_charges_order_key;
-create unique index if not exists order_charges_order_key
-  on order_charges (order_id, charge_key);
+--
+-- The drop and the create are one atomic step, and the drop is conditional.
+-- Written as a bare `drop index` followed by `create unique index`, this file's
+-- own "safe to run more than once" header was not quite true: between the two
+-- statements there is NO unique index on (order_id, charge_key), and if the
+-- create then fails -- it fails if the table already holds a duplicate pair --
+-- that window never closes, leaving exactly the unconstrained table the
+-- three-index design exists to prevent. A PL/pgSQL block WITH an exception
+-- handler runs its body in a subtransaction, so a failed create rolls the drop
+-- back with it: the index is either its old shape or its new one, never absent.
+-- The `indpred is not null` test also makes a re-run a genuine no-op instead of
+-- a needless drop and rebuild.
+do $$
+begin
+  if exists (
+    select 1
+    from   pg_index i
+    join   pg_class c on c.oid = i.indexrelid
+    where  c.relname = 'order_charges_order_key'
+      and  i.indpred is not null
+  ) then
+    raise notice 'order_charges_order_key is partial; converting it to non-partial';
+    drop index order_charges_order_key;
+  end if;
+
+  create unique index if not exists order_charges_order_key
+    on order_charges (order_id, charge_key);
+exception when unique_violation then
+  raise exception 'order_charges already holds duplicate (order_id, charge_key) rows, '
+                  'so the unique index cannot be created (%). The previous index has been '
+                  'restored, so nothing is left unconstrained. Reconcile the duplicates '
+                  'and re-run this file.', sqlerrm;
+end $$;
 
 -- This one stays partial, and it is exactly what still covers the rows the
 -- index above stops constraining once its predicate is gone: order-less charges
