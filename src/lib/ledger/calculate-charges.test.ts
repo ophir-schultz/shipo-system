@@ -89,6 +89,41 @@ describe('buildCharges', () => {
     ]})).toEqual([])
   })
 
+  // The skip above is correct and is also unbilled revenue, so it must be
+  // audible. It used to be silent, which was tolerable only while the sync
+  // stamped a watermark on every picked line it found. It no longer does --
+  // during a discontinuity it leaves pick_date null on purpose -- so this is
+  // now a state the system reaches by design, and a state reached by design
+  // that nobody is told about is how money goes missing quietly.
+  it('names the undated picked line it declined to charge', () => {
+    const warnings: string[] = []
+    buildCharges({ ...base, items: [
+      { id: 'i4w', sku: 'R144GUSB01S10', quantityPicked: 3, isComponent: false, pickDate: null },
+    ]}, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('undated pick')
+    // The three things a person needs to find the line: which line, how much
+    // is unbilled, and which SKU. A warning that says only "an undated pick
+    // happened" cannot be acted on.
+    expect(warnings[0]).toContain('i4w')
+    expect(warnings[0]).toContain('R144GUSB01S10')
+    expect(warnings[0]).toContain('3 picked')
+  })
+
+  // A line with nothing picked and no date is not unbilled revenue -- it is an
+  // ordinary unpicked line, and every order in the system has them. Warning on
+  // those would bury the real ones.
+  it('stays quiet about an unpicked line with no pick date', () => {
+    const warnings: string[] = []
+    buildCharges({ ...base, items: [
+      { id: 'i4q', sku: 'A', quantityPicked: 0, isComponent: true, pickDate: null },
+      { id: 'i4r', sku: 'B', quantityPicked: null, isComponent: true, pickDate: null },
+    ]}, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+
+    expect(warnings).toEqual([])
+  })
+
   // A corrupt quantity is not an absent one. Null and zero mean "not picked",
   // which is a normal state; a negative or non-finite quantity means the data
   // is wrong and a person has to go and fix it. Swallowing it here as "no

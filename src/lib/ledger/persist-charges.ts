@@ -392,15 +392,22 @@ export async function recalculateCharges(
       }
     }
 
-    const refuseSweep = !candidatesCounted || staleCandidates > rows.length
+    // Each refusal reason is named ONCE and used twice — for the reported count
+    // and for the branch below. They were originally two separate expressions
+    // in those two places, which is one rule written twice and required to
+    // agree: an edit to the threshold in one of them would leave the run
+    // sweeping while reporting a refusal, or refusing while reporting nothing.
+    const countUnreadable = !candidatesCounted
+    const wouldDeleteMoreThanItBuilt = staleCandidates > rows.length
+    const refuseSweep = countUnreadable || wouldDeleteMoreThanItBuilt
     if (refuseSweep && staleCandidates > 0) staleDeleteRefused = staleCandidates
 
-    if (!candidatesCounted) {
+    if (countUnreadable) {
       run.fail('stale-delete refused', new Error(
         `Could not count the charges this run's stale-delete would remove, so the `
         + `sweep was skipped. Charges the calculator no longer produces remain in `
         + `order_charges for ${deletable.length} orders.`))
-    } else if (staleCandidates > rows.length) {
+    } else if (wouldDeleteMoreThanItBuilt) {
       run.fail('stale-delete refused', new Error(
         `The stale-delete would have removed ${staleCandidates} charges across `
         + `${deletable.length} orders while this run built only ${rows.length}. `

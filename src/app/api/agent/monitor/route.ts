@@ -58,7 +58,33 @@ export async function GET(req: Request) {
   let syncResult: any = {}
   try {
     syncResult = await syncShipments(7)
-    log.push(`✓ ShipStation sync: ${syncResult.created} new · ${syncResult.updated} updated · ${syncResult.adjustments} adjustments`)
+    // A green tick belongs to a clean pass, not to a pass that returned.
+    // syncShipments counts its own per-shipment failures in results.errors and
+    // does not throw on them, so the old unconditional ✓ printed beside three
+    // happy numbers while any number of shipments had silently not been
+    // recorded. Section 4 below is a post-mortem on exactly that shape of
+    // claim; this is the same claim, two stages earlier in the same handler.
+    const shipFailed = Number(syncResult.errors ?? 0)
+    log.push(`${shipFailed > 0 ? '⚠' : '✓'} ShipStation sync: ${syncResult.created} new · `
+      + `${syncResult.updated} updated · ${syncResult.adjustments} adjustments`
+      + `${shipFailed > 0 ? ` · ${shipFailed} FAILED` : ''}`)
+    if (shipFailed > 0) {
+      errors.push(`⚠ ${shipFailed} ShipStation shipment${shipFailed > 1 ? 's' : ''} could `
+        + `not be recorded (see the latest sync_runs row for source = `
+        + `'shipstation'). Their revenue and carrier cost are missing from the `
+        + `ledger until the next successful run picks them up.`)
+    }
+    // Log, not errors[]: an unrecognised carrier code leaves the cost null
+    // rather than wrong, and the shipment row is still written. It needs a
+    // person eventually, not a 🚨 subject line every eight hours.
+    if (Number(syncResult.unknownCarrier ?? 0) > 0) {
+      log.push(`⚠ ${syncResult.unknownCarrier} shipments carry a carrier code that maps `
+        + `to no cost rate (cost left null, not zero)`)
+    }
+    if (Number(syncResult.blankOrderNumber ?? 0) > 0) {
+      log.push(`⚠ ${syncResult.blankOrderNumber} shipments arrived with no order number, `
+        + `so they cannot be matched to a Zenventory order`)
+    }
   } catch (err: any) {
     const msg = `✗ ShipStation sync FAILED: ${err.message}`
     log.push(msg)
@@ -69,7 +95,32 @@ export async function GET(req: Request) {
   let clientResult: any = {}
   try {
     clientResult = await syncClientAssignments(7)
-    log.push(`✓ Client mapping: ${clientResult.updated ?? 0} shipments assigned`)
+    // syncClientAssignments only throws when EVERY client failed — a partial
+    // failure is its documented normal state, because two clients are 401ing
+    // while their Zenventory 2.0 credentials are restored. So the tick here was
+    // reporting "all clear" on a run that had lost whole clients. A client that
+    // did not sync has no new orders, no picks and therefore no pick revenue,
+    // which is exactly the kind of gap that reads downstream as a cheap month.
+    const clientsFailed = Number(clientResult.clients_failed ?? 0)
+    log.push(`${clientsFailed > 0 ? '⚠' : '✓'} Client mapping: `
+      + `${clientResult.updated ?? 0} shipments assigned`
+      + `${clientsFailed > 0 ? ` · ${clientsFailed} of `
+        + `${(clientResult.clients_synced ?? 0) + clientsFailed} clients FAILED` : ''}`)
+    if (clientsFailed > 0) {
+      errors.push(`⚠ ${clientsFailed} Zenventory client${clientsFailed > 1 ? 's' : ''} did `
+        + `not sync, so ${clientsFailed > 1 ? 'their' : 'its'} orders and picks are `
+        + `missing from this pass: ${(clientResult.errors ?? []).join('; ')}`)
+    }
+    // Picked lines the sync refused to date because it had no continuous
+    // observation to date them from. Not an error — declining to invent a date
+    // is the correct behaviour — but those lines produce no pick charge at all
+    // until a real date arrives, so the count cannot go unsaid.
+    if (Number(clientResult.undated_picks ?? 0) > 0) {
+      errors.push(`⚠ ${clientResult.undated_picks} picked lines have no pick date, `
+        + `because the sync had no recent prior run to date them from (see `
+        + `watermarkIsEvidence in src/lib/ledger/pick-date.ts). They are NOT billed `
+        + `until dated. This is expected on the first run after an outage.`)
+    }
   } catch (err: any) {
     const msg = `✗ Zenventory client mapping FAILED: ${err.message}`
     log.push(msg)
@@ -120,6 +171,21 @@ export async function GET(req: Request) {
       log.push(`✓ Charges: ${chargeResult.orders} orders · ${chargeResult.upserted} written · ${chargeResult.deleted} stale removed`)
       if (chargeResult.failedOrders > 0) {
         errors.push(`⚠ ${chargeResult.failedOrders} orders failed charge calculation (see the latest sync_runs row for source = 'charges')`)
+      }
+      // The sweep refused to delete. Either it could not count the stale
+      // candidates, or there were more of them than this run built rows for —
+      // the signature of a run that priced almost nothing (a rate-card typo, an
+      // empty rate window) and would otherwise have deleted the previous,
+      // correct revenue rows and left nothing in their place. The refusal saved
+      // the data; it also means order_charges now holds rows from two different
+      // runs and the totals may double-count until someone looks.
+      if (chargeResult.staleDeleteRefused > 0) {
+        errors.push(`⚠ The stale-charge sweep REFUSED to delete `
+          + `${chargeResult.staleDeleteRefused} old charge rows, because that is more `
+          + `than the ${chargeResult.upserted} rows this run wrote. That pattern means `
+          + `the run priced far less than it should have — check the rate cards and `
+          + `cost_rates effective dates before trusting this month's totals, which `
+          + `may now contain charges from two runs.`)
       }
       if (chargeResult.unpricedOrders > 0) {
         errors.push(`⚠ ${chargeResult.unpricedOrders} orders had picked lines but produced no pick charge — most likely a client with no rate card line`)

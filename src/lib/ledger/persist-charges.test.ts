@@ -140,6 +140,96 @@ describe('recalculateCharges — the stale-delete', () => {
   })
 })
 
+describe('recalculateCharges — the stale-delete blast radius', () => {
+  /**
+   * The scenario the floor exists for, and the reason it is the only guard in
+   * this file whose failure is unrecoverable. order_charges IS the billing
+   * record, not a cache of one: a rate card whose effective_to was typed a year
+   * early makes buildCharges emit nothing, the upsert writes nothing, and the
+   * sweep then deletes every charge in the window for having a stale
+   * calculated_at. Re-running cannot restore it, because the calculator that
+   * produced nothing is precisely why it went.
+   */
+  it('refuses a sweep that would delete more than the run built', async () => {
+    // Four historic charges on one order; this run prices none of them, because
+    // its rate card covers nothing.
+    h.db.tables.order_charges = [1, 2, 3, 4].map((n) => ({
+      id: `c-hist-${n}`, order_id: 'order-a', charge_key: `item:h${n}:pick`,
+      charge_type: 'pick', amount: 5, calculated_at: '2020-01-01T00:00:00.000Z',
+    }))
+
+    const result = await recalculateCharges(async () =>
+      [order('order-a', { rateCard: [] })])
+
+    expect(result).toMatchObject({ skipped: false, upserted: 0, deleted: 0 })
+    // Four candidates, zero rows built: 4 > 0, so nothing was deleted and the
+    // number is reported rather than swallowed.
+    expect(result.skipped === false && result.staleDeleteRefused).toBe(4)
+    // The history is still there. This is the assertion that would have caught
+    // the original bug.
+    expect(chargeKeysFor('order-a'))
+      .toEqual(['item:h1:pick', 'item:h2:pick', 'item:h3:pick', 'item:h4:pick'])
+  })
+
+  it('records the refusal as a run failure, not a warning', async () => {
+    // fail(), not warn(), for two reasons the code names: close() resolves
+    // non-'ok', so the run's status carries the problem; and the throttle only
+    // accepts a SUCCEEDED run, so a refusal cannot buy the next hour of
+    // silence for itself.
+    h.db.tables.order_charges = [1, 2].map((n) => ({
+      id: `c-h-${n}`, order_id: 'order-a', charge_key: `item:h${n}:pick`,
+      charge_type: 'pick', amount: 5, calculated_at: '2020-01-01T00:00:00.000Z',
+    }))
+
+    await recalculateCharges(async () => [order('order-a', { rateCard: [] })])
+
+    const run = (h.db.tables.sync_runs as FakeRow[]).find((r) => r.source === 'charges')
+    expect(run?.status).not.toBe('ok')
+    const stored = (run?.errors ?? []) as Array<{ kind: string; context: string }>
+    expect(stored.some((e) => e.kind === 'error' && e.context === 'stale-delete refused'))
+      .toBe(true)
+  })
+
+  it('refuses when it cannot count the candidates at all', async () => {
+    // "I could not check" is not "it is fine" — the same rule the run-lock read
+    // follows. An unreadable count must not wave through the sweep the count
+    // exists to stop.
+    h.db.tables.order_charges = [
+      { id: 'c-hist', order_id: 'order-a', charge_key: 'item:h:pick',
+        charge_type: 'pick', amount: 5, calculated_at: '2020-01-01T00:00:00.000Z' },
+    ]
+    h.db.failOn = (call) =>
+      call.table === 'order_charges' && call.verb === 'select' && call.count === 'exact'
+        ? { message: 'statement timeout' }
+        : null
+
+    const result = await recalculateCharges(async () => [order('order-a')])
+
+    expect(result).toMatchObject({ skipped: false, deleted: 0 })
+    // The stale row survives, and no delete was even attempted.
+    expect(chargeKeysFor('order-a'))
+      .toContain('item:h:pick')
+    const deletes = h.db.calls.filter((c) =>
+      c.table === 'order_charges' && c.verb === 'delete')
+    expect(deletes).toEqual([])
+  })
+
+  it('still sweeps when the run built at least as much as it would remove', async () => {
+    // The floor must not be so eager that ordinary recalculation stops working.
+    // One historic charge, one charge built: 1 > 1 is false, so the sweep runs.
+    h.db.tables.order_charges = [
+      { id: 'c-hist', order_id: 'order-a', charge_key: 'item:gone:pick',
+        charge_type: 'pick', amount: 5, calculated_at: '2020-01-01T00:00:00.000Z' },
+    ]
+
+    const result = await recalculateCharges(async () => [order('order-a')])
+
+    expect(result).toMatchObject({ skipped: false, upserted: 1, deleted: 1 })
+    expect(result.skipped === false && result.staleDeleteRefused).toBe(0)
+    expect(chargeKeysFor('order-a')).toEqual(['item:order-a-item:pick'])
+  })
+})
+
 describe('recalculateCharges — the gates', () => {
   it('skips, visibly, when a charge run finished recently', async () => {
     h.db.tables.sync_runs = [

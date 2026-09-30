@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCustomerOrders } from '@/lib/api/zenventory'
 import { normaliseLines, NegativeQuantityError } from '@/lib/ledger/order-line'
-import { watermarkPickDate } from '@/lib/ledger/pick-date'
+import { watermarkPickDate, watermarkIsEvidence } from '@/lib/ledger/pick-date'
 import { openSyncRun } from '@/lib/ledger/sync-run'
 
 /**
@@ -37,6 +37,11 @@ export async function syncClientAssignments(daysBack = 30) {
   let totalMapped = 0
   let totalUpdated = 0
   let totalSkipped = 0
+  // Picked lines seen for the first time during a discontinuity, left undated.
+  // See watermarkIsEvidence(). Surfaced in the return value because an undated
+  // picked line produces no pick charge at all, and a number nobody is shown is
+  // the same as revenue quietly not being billed.
+  let totalUndatedPicks = 0
   const clientErrors: string[] = []
 
   for (const client of clients) {
@@ -54,6 +59,35 @@ export async function syncClientAssignments(daysBack = 30) {
     // the same per-client boundary the 401s use: this client is named in
     // clientErrors and the rest still sync. Letting it propagate would abandon
     // every client after the first failure.
+    //
+    // Asked BEFORE openSyncRun, so the answer cannot depend on the row this run
+    // is about to insert. (That row is 'running' with a null finished_at and
+    // would be filtered out anyway; asking first means nobody has to verify
+    // that in order to read this.)
+    //
+    // 'ok' and 'partial' both count as continuity. A partial run pulled orders
+    // and wrote rows -- it observed the warehouse -- it merely also hit errors
+    // on some of them. A 'failed' run observed nothing, so it proves nothing
+    // about the gap.
+    const now = new Date()
+    const { data: previousRun, error: previousRunErr } = await supabaseAdmin
+      .from('sync_runs')
+      .select('finished_at')
+      .eq('source', 'zenventory')
+      .eq('client_id', client.id)
+      .in('status', ['ok', 'partial'])
+      .not('finished_at', 'is', null)
+      .order('finished_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    // An unreadable sync_runs table is not proof of continuity. Falling through
+    // to `true` here would restore the exact bug this guard exists to stop, on
+    // the one day the database is unhealthy.
+    const watermarkUsable = !previousRunErr
+      && watermarkIsEvidence(previousRun?.finished_at, now)
+    let undatedPicks = 0
+
     let run: Awaited<ReturnType<typeof openSyncRun>>
     try {
       run = await openSyncRun({
@@ -140,11 +174,39 @@ export async function syncClientAssignments(daysBack = 30) {
             let pickDate = existing?.pick_date ?? null
             let pickSource = existing?.pick_date_source ?? null
 
-            if (line.picked && !pickDate) {
-              pickDate = watermarkPickDate(new Date())
-              pickSource = 'watermark'
+            // `pickSource !== 'unknown'` is what makes the null STICKY, and it
+            // is the whole point. Without it, a line left undated during an
+            // outage re-enters this branch on the next healthy run and gets
+            // stamped with THAT day's date -- later, and so more wrong, than the
+            // date we declined to write in the first place. 'unknown' records
+            // that we have already looked at this line and found its date
+            // unknowable, so no later run will guess at it. A real observation
+            // (pickprintdate, modified_date) or a manual backfill can still
+            // fill it; nothing automatic will invent it.
+            if (line.picked && !pickDate && pickSource !== 'unknown') {
+              if (watermarkUsable) {
+                pickDate = watermarkPickDate(now)
+                pickSource = 'watermark'
+              } else {
+                // NULL, not today. See watermarkIsEvidence() in
+                // src/lib/ledger/pick-date.ts for why, and note the cost this
+                // accepts: calculate-charges.ts skips an item with no pickDate,
+                // so this line produces no pick charge until it is dated. That
+                // is the recoverable direction -- unknown revenue can be found
+                // and billed later; a fabricated pick date silently misstates
+                // the daily labour cost forever, in the one report that exists
+                // to make daily labour cost legible.
+                pickDate = null
+                pickSource = 'unknown'
+                undatedPicks++
+              }
             }
-            if (!line.picked && pickDate) {
+            // `|| pickSource` so an unpick also clears the 'unknown' marker.
+            // Testing pickDate alone would leave the sticky flag behind on a
+            // line that is no longer picked, and if it were picked again during
+            // a healthy run the flag would block the watermark that run had
+            // every right to write.
+            if (!line.picked && (pickDate || pickSource)) {
               pickDate = null
               pickSource = null
             }
@@ -223,6 +285,25 @@ export async function syncClientAssignments(daysBack = 30) {
       run.wrote()
     }
 
+    // warn(), not fail(): this is a correct outcome, not a broken one, and it
+    // must not push the run to 'partial'. But it is recorded against the run so
+    // that the client and the count are findable later, when somebody asks why
+    // a fortnight of picks carries no pick revenue.
+    if (previousRunErr) {
+      run.warn('pick date continuity unknown', `could not read the previous `
+        + `zenventory sync_runs row for this client, so the pick-date watermark `
+        + `was not trusted: ${previousRunErr.message}`)
+    }
+    if (undatedPicks > 0) {
+      run.warn('undated picks', `${undatedPicks} picked line`
+        + `${undatedPicks > 1 ? 's were' : ' was'} seen for the first time with no `
+        + `continuous sync to date ${undatedPicks > 1 ? 'them' : 'it'} from `
+        + `(previous finished run: ${previousRun?.finished_at ?? 'none'}). `
+        + `pick_date left null rather than stamped with today. These lines `
+        + `produce no pick charge until a real pick date is supplied.`)
+      totalUndatedPicks += undatedPicks
+    }
+
     await run.close()
   }
 
@@ -243,6 +324,7 @@ export async function syncClientAssignments(daysBack = 30) {
     mapped: totalMapped,
     updated: totalUpdated,
     skipped: totalSkipped,
+    undated_picks: totalUndatedPicks,
     errors: clientErrors,
   }
 }

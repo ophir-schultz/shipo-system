@@ -71,3 +71,54 @@ export function watermarkPickDate(
   const { date, hour } = warehouseParts(observedAt, timeZone)
   return hour < DAY_START_HOUR ? previousDay(date) : date
 }
+
+/**
+ * THE WATERMARK IS ONLY EVIDENCE WHEN THE SYNC HAS BEEN WATCHING.
+ *
+ * Everything above rests on a premise the function itself cannot check: that
+ * we observed the pick shortly after it happened. That is true while the crons
+ * run, and false the moment they stop. Zenventory's credentials are returning
+ * 401 for two clients as this is written, so the next SUCCESSFUL run is a first
+ * run against a backlog — and the old code stamped today's date on every
+ * already-picked line in it. Weeks of picks would have landed on a single day:
+ * a fabricated labour spike on that day and a fabricated drought before it, in
+ * a ledger whose whole purpose is to make cost per pick legible over time.
+ *
+ * So the watermark is used only when the previous finished run for this client
+ * is recent enough that the pick must have happened inside the gap.
+ *
+ * WHY 24 HOURS, and not a tuned number. Inside 24 hours the pick happened
+ * either today or yesterday, and the before-06:00 rule above exists precisely
+ * to decide that adjacency — so the watermark is either right or off by the one
+ * day the rule is built to handle. Past 24 hours the error is unbounded in days
+ * and nothing in the data can bound it. The crons are 8, 6 and 10 hours apart,
+ * so this tolerates two consecutive missed runs and rejects an outage.
+ *
+ * When it returns false the caller must leave pick_date NULL — unknown, which a
+ * later real observation or a manual backfill can still fill — rather than
+ * writing a date that is confidently wrong and, being set once and never moved,
+ * never corrects itself.
+ */
+export const WATERMARK_MAX_GAP_HOURS = 24
+
+export function watermarkIsEvidence(
+  previousRunFinishedAt: string | null | undefined,
+  now: Date,
+  maxGapHours: number = WATERMARK_MAX_GAP_HOURS
+): boolean {
+  // No previous run at all is the first-run case: nothing bounds when the picks
+  // we are about to read actually happened.
+  if (!previousRunFinishedAt) return false
+
+  const previous = new Date(previousRunFinishedAt)
+  if (Number.isNaN(previous.getTime())) return false
+
+  const gapHours = (now.getTime() - previous.getTime()) / 3_600_000
+  // A negative gap means a run finished in the future: clock skew, or a row
+  // written by something we do not understand. Either way it is not evidence of
+  // continuity, and the fail-safe answer to "I cannot tell" is the same as the
+  // answer to "there was no previous run".
+  if (gapHours < 0) return false
+
+  return gapHours <= maxGapHours
+}

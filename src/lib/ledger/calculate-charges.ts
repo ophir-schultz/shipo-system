@@ -114,7 +114,22 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // never the problem.
     if (qty === null || qty === undefined || qty === 0) continue
     // A charge with no date cannot be reported on, and charge_date is not null.
-    if (!item.pickDate) continue
+    //
+    // This skip used to be silent, and that was tolerable only while a picked
+    // line ALWAYS had a date: the sync stamped a watermark on anything it found
+    // picked. It no longer does — during a sync discontinuity it leaves
+    // pick_date null and pick_date_source 'unknown', deliberately, because a
+    // fabricated date is worse (see watermarkIsEvidence in pick-date.ts). That
+    // trade is only acceptable if the resulting gap is VISIBLE, so the quantity
+    // and the order are named here rather than dropped. Unbilled pick revenue
+    // that nobody is told about is the same failure as never having pulled it.
+    if (!item.pickDate) {
+      onWarn?.('undated pick', `client ${clientId ?? 'unattributed'}: order `
+        + `${input.order.id} line ${item.id} (sku ${item.sku ?? 'none'}) has `
+        + `${qty} picked but no pick date, so no pick or pack charge was built. `
+        + `Supply a pick date for this line to bill it.`)
+      continue
+    }
 
     const variant = item.isComponent ? 'component' : 'device'
     const rate = rateFor('pick', variant, item.pickDate)
