@@ -5,9 +5,15 @@
 // makes variance identically zero for every input, which is the failure this
 // module was written to prevent — see the first test in variance.test.ts.
 //
-// Null in, null out. A missing payroll figure or a missing held rate means the
-// answer is not yet known, which is a different claim from "no leak". The
-// callers render null as "not yet known".
+// Null in, null out — with one exception. A missing payroll figure or a
+// missing held rate means the answer is not yet known, which is a different
+// claim from "no leak". The callers render null as "not yet known".
+//
+// Exception: when quantity is 0, absorbed is 0 regardless of the rate.
+// standardRate × 0 = 0 for every finite rate, so the missing rate is not an
+// input to the answer. Returning null there would delete a number we actually
+// know. This is not a violation of the doctrine: the doctrine says "null in,
+// null out" when the missing input could change the answer — here it cannot.
 
 export interface VarianceInput {
   actualCost: number | null
@@ -26,6 +32,15 @@ export function labourVariance(input: VarianceInput): VarianceResult {
 
   if (!Number.isFinite(quantity) || quantity < 0) {
     throw new RangeError(`labourVariance: quantity must be >= 0, got ${quantity}`)
+  }
+
+  // Short-circuit: nothing was picked, so nothing was absorbed. The rate is
+  // not an input to this answer — standardRate × 0 = 0 for every finite rate.
+  // actualCost must still be present: a null here means payroll was never
+  // entered, which is UNKNOWN regardless of the zero quantity.
+  if (quantity === 0) {
+    if (actualCost == null) return { absorbed: 0, variance: null, basis: 'unavailable' }
+    return { absorbed: 0, variance: actualCost, basis: 'measured' }
   }
 
   // `== null` is deliberate: it catches null and undefined while letting a

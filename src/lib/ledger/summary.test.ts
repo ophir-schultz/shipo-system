@@ -324,17 +324,38 @@ describe('mapVarianceRows', () => {
       .toBe('not computable — no standard pick rate in effect for every variant picked')
   })
 
-  it('survives a payroll-only month instead of throwing on its zero quantity', () => {
+  it('survives a payroll-only month and reports the full payroll as variance', () => {
     // R22: payroll entered before the charge calculator has run. The view emits
-    // units_picked = 0 rather than dropping the month, and this must not throw.
+    // units_picked = 0. After the COMMIT 1 fix, labourVariance short-circuits at
+    // quantity=0: absorbed=0, variance=payroll. The missing rate is irrelevant —
+    // standardRate * 0 = 0 regardless — so the result is 'measured', not
+    // 'unavailable'. The full payroll amount is correctly reported as variance.
     const [row] = mapVarianceRows([varianceInput({
       units_picked: 0, standard_rate: null, standard_rate_basis: null,
       implied_actual_rate: null, variant_breakdown: null,
     })])
 
     expect(row.units_picked).toBe(0)
+    expect(row.basis).toBe('measured')
+    expect(row.absorbed).toBe(0)
+    expect(row.variance).toBeCloseTo(260, 10)   // default direct_labor in varianceInput
+    expect(varianceUnavailableText(row)).toBeNull()
+  })
+
+  it('payroll-only month with no payroll entered is still unavailable', () => {
+    // The exception to the zero-quantity short-circuit: if payroll itself is
+    // null, there is nothing to compare absorbed against. absorbed=0 (rate is
+    // irrelevant at zero quantity) but variance is UNKNOWN.
+    const [row] = mapVarianceRows([varianceInput({
+      units_picked: 0, standard_rate: null, standard_rate_basis: null,
+      direct_labor: null, implied_actual_rate: null, variant_breakdown: null,
+    })])
+
+    expect(row.units_picked).toBe(0)
+    expect(row.absorbed).toBe(0)
     expect(row.basis).toBe('unavailable')
-    expect(varianceUnavailableText(row)).toContain('none of the payroll was absorbed')
+    expect(varianceUnavailableText(row)).toContain('payroll not entered')
+    expect(varianceUnavailableText(row)).toContain('confirm the charge calculator')
   })
 
   it('never throws on a quantity labourVariance would reject', () => {
@@ -393,12 +414,18 @@ describe('mapVarianceRows', () => {
       varianceInput({ direct_labor: null }),
       varianceInput({ standard_rate: null }),
       varianceInput({ direct_labor: null, standard_rate: null }),
-      varianceInput({ units_picked: 0, standard_rate: null }),
+      // units_picked=0 with payroll present now produces 'measured' (COMMIT 1),
+      // so it no longer belongs in this unavailable-shapes list.
+      // units_picked=0, standard_rate=null, direct_labor=null: payroll is UNKNOWN
+      // so the result is still unavailable even at zero quantity.
       varianceInput({ units_picked: 0, standard_rate: null, direct_labor: null }),
       varianceInput({ unattributable_pick_charges: 1, standard_rate: null }),
       varianceInput({ units_picked: -1 }),
       varianceInput({ units_picked: Number.NaN, direct_labor: null }),
-      varianceInput({ units_picked: null, standard_rate: null }),
+      // units_picked:null is coerced to 0 by mapVarianceRows. With direct_labor
+      // present, zero quantity now produces 'measured' (COMMIT 1). To get
+      // 'unavailable' we also need the payroll to be absent.
+      varianceInput({ units_picked: null, standard_rate: null, direct_labor: null }),
     ]
     for (const shape of shapes) {
       const [row] = mapVarianceRows([shape])

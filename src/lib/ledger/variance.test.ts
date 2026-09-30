@@ -101,6 +101,35 @@ describe('labourVariance', () => {
     expect(r.variance).toBeCloseTo(5000, 6)
   })
 
+  // A month with no picks, no rate, but payroll entered: absorbed is 0 (rate is
+  // irrelevant at zero quantity) and variance is the full payroll amount. The
+  // rate being null does not make the answer unknown — standardRate × 0 = 0 for
+  // every finite rate, so the missing rate provably cannot change the result.
+  it('returns absorbed=0 and variance=payroll when quantity is 0 and rate is null', () => {
+    const r = labourVariance({
+      actualCost: 5000,
+      standardRate: null,
+      quantity: 0,
+    })
+    expect(r.absorbed).toBe(0)
+    expect(r.variance).toBe(5000)
+    expect(r.basis).toBe('measured')
+  })
+
+  // A month with no picks, no rate, and no payroll: absorbed is 0 (quantity is
+  // zero, so the rate is moot) but payroll is UNKNOWN — we cannot compute the
+  // variance from an unknown payroll figure, even with a known absorbed cost.
+  it('returns absorbed=0 but basis=unavailable when quantity=0 and payroll is null', () => {
+    const r = labourVariance({
+      actualCost: null,
+      standardRate: null,
+      quantity: 0,
+    })
+    expect(r.absorbed).toBe(0)
+    expect(r.variance).toBeNull()
+    expect(r.basis).toBe('unavailable')
+  })
+
   it('refuses a negative quantity rather than inventing negative absorption', () => {
     expect(() => labourVariance({
       actualCost: 5000, standardRate: 0.23, quantity: -5,

@@ -382,11 +382,20 @@ export function varianceUnavailableReason(row: VarianceRow): string {
         + 'so no standard rate can be chosen',
       )
     } else if (row.units_picked === 0) {
+      // After the COMMIT 1 change: when units_picked is 0 and direct_labor is
+      // present, labourVariance returns basis:'measured' (absorbed=0,
+      // variance=payroll), so varianceUnavailableReason is never called for
+      // that combination. This branch is therefore only reachable when
+      // direct_labor is also null — the first causes.push() above has already
+      // named the missing payroll, and this clause adds the rate context.
+      // Both causes are printed together, so the reader sees the full picture.
+      // The view cannot distinguish "nothing was picked" from "the charge
+      // calculator has not run yet" — both produce zero order_charges rows —
+      // so the conclusion is softened to a prompt rather than an assertion.
       causes.push(
-        row.direct_labor === null
-          ? 'no pick charges this month, so there is no standard rate to weight'
-          : 'no pick charges this month, so none of the payroll was absorbed — '
-            + 'the whole amount is unfavourable',
+        'no pick charges recorded this month, so nothing absorbs the payroll; '
+        + 'confirm the charge calculator has run for this month before treating '
+        + 'the whole amount as unfavourable',
       )
     } else {
       causes.push('no standard pick rate in effect for every variant picked')
