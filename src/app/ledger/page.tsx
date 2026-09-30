@@ -641,7 +641,9 @@ export default async function LedgerPage() {
           standard; a <span className="font-medium text-green-400">negative</span> one is an underspend.
           The standard rate is the units-weighted blend of the per-variant rates shown on the right,
           and it is null — so the variance is not computable — unless every variant picked that month
-          has a rate in effect.
+          has a rate in effect. The one exception is a month in which nothing was picked at all:
+          absorbed is then zero whatever the rate, so the whole payroll is the variance and the
+          standard rate column reads <span className="font-mono text-slate-400">—</span>.
         </p>
         <p className="mb-4 text-xs text-amber-400/90">
           This is a secondary signal. Until piece 2 reconciles against actual bills, the labour
@@ -711,6 +713,20 @@ export default async function LedgerPage() {
                           title="This many pick charges carry no rate-card variant, so no standard rate can be chosen for them. They are counted in the units above and they null this month's standard rate rather than being dropped."
                         >
                           +{int(r.unattributable_pick_charges)}?
+                        </span>
+                      )}
+                      {/* A bare 0 here reads as a fact, and on the payroll-only
+                          month it drives a confident red variance equal to the
+                          whole payroll. The view cannot tell "nothing was
+                          picked" from "the calculator has not run", so the one
+                          case where that distinction changes the number gets
+                          the caveat the prose gives every other case. */}
+                      {r.units_picked === 0 && (
+                        <span
+                          className="ml-1 cursor-help text-xs text-amber-400"
+                          title="Zero pick charges recorded. The ledger cannot tell a month in which nothing was picked from one the charge calculator has not run for yet — confirm which before treating the whole payroll as an overspend."
+                        >
+                          ?
                         </span>
                       )}
                     </td>

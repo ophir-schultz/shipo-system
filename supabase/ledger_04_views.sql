@@ -598,7 +598,8 @@ order by m.period_month desc;
 -- onto the service-role path -- NOT to grant anon back.
 --
 -- Both halves are needed. security_invoker closes the RLS-protected tables
--- (clients, shipments, rate_adjustments, client_warehouse_rates); the revoke is what closes the ledger
+-- (clients, shipments, rate_adjustments, client_warehouse_rates); the revoke
+-- is what closes the ledger
 -- tables from migrations 1-3 (orders, order_items, order_charges, cost_rates,
 -- operating_costs), which have no RLS of their own, so under security_invoker
 -- the anon role would read them as itself and still see everything.
@@ -677,7 +678,8 @@ begin
     raise notice 'WARNING: security_invoker is NOT set on: %. These views still '
                  'run with their OWNER''s privileges, which on Supabase means '
                  'they read the RLS-protected base tables (clients, shipments, '
-                 'rate_adjustments, client_warehouse_rates) with row level security bypassed. The revoke '
+                 'rate_adjustments, client_warehouse_rates) with row level '
+                 'security bypassed. The revoke '
                  'below keeps them closed to anon and authenticated, so nothing '
                  'is exposed TODAY -- but they are not RLS-safe, and granting '
                  'select on them back to any role would publish every client''s '

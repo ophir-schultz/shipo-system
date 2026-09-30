@@ -402,10 +402,14 @@ export function varianceUnavailableReason(row: VarianceRow): string {
       // The view cannot distinguish "nothing was picked" from "the charge
       // calculator has not run yet" — both produce zero order_charges rows —
       // so the conclusion is softened to a prompt rather than an assertion.
+      //
+      // The wording speaks to the LIVE path only. An earlier draft warned
+      // against "treating the whole amount as unfavourable" -- an amount that,
+      // on the only reachable path, was never entered. Naming a figure three
+      // clauses after saying it is missing teaches the reader to skim.
       causes.push(
-        'no pick charges recorded this month, so nothing absorbs the payroll; '
-        + 'confirm the charge calculator has run for this month before treating '
-        + 'the whole amount as unfavourable',
+        'no pick charges recorded this month, so there is no standard rate to '
+        + 'weight; confirm the charge calculator has run for this month',
       )
     } else {
       causes.push('no standard pick rate in effect for every variant picked')

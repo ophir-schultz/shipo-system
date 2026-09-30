@@ -404,9 +404,10 @@ describe('persistStorageCharges — orphan detector', () => {
   })
 
   // Test 4: a client-month that failed does not produce an orphan warning.
-  // Would catch: an implementation that ignores failedClientMonths when building
-  // declaredSet, causing it to report charges as orphaned even though the
-  // declaration exists but the run couldn't process it.
+  // Would catch: an implementation that builds declaredSet from the client-months
+  // it successfully PROCESSED rather than from the declarations it READ, causing
+  // it to report charges as orphaned even though the declaration exists and only
+  // the processing of it failed.
   it('does not report a failed client-month as orphaned', async () => {
     // Set up two client-months: one that will fail (corrupt count), one that has
     // a pre-existing charge but no declaration.
