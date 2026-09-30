@@ -89,7 +89,14 @@ select o.client_id, u.pick_date, u.sku,
 from usable    u
 join orders    o on o.id = u.order_id
 join preferred p on p.order_id = u.order_id and p.source = u.source
-where not o.cancelled
+-- `is not true`, NOT `not o.cancelled`. orders.cancelled is
+-- `boolean default false` and NULLABLE (ledger_01_orders.sql:29), so any row
+-- written before the column was populated carries null -- and `not null` is
+-- null, which a WHERE clause drops. The calculator reads the same column the
+-- opposite way deliberately: load-charge-inputs.ts:402 does
+-- `cancelled: o.cancelled === true`, i.e. null means "not cancelled".
+-- `is not true` is that same rule expressed in SQL, so the two stay in step.
+where o.cancelled is not true
 group by o.client_id, u.pick_date, u.sku;
 
 -- ---------------------------------------------------------------------------
@@ -165,7 +172,14 @@ from order_items oi
 join orders o on o.id = oi.order_id
 where oi.pick_date is not null
   and oi.quantity_picked > 0
-  and not o.cancelled
+  -- `is not true`, NOT `not o.cancelled`. orders.cancelled is nullable
+  -- (ledger_01_orders.sql:29) and `not null` is null, so the plain form drops
+  -- null-cancelled rows -- and this is a LEAK DETECTOR, so dropping them blinds
+  -- it in the silent direction: the calculator bills those orders
+  -- (load-charge-inputs.ts:402 treats null as not-cancelled) while this branch
+  -- refuses to see them, so unbilled picks go unreported. `is not true` is the
+  -- calculator's rule, in SQL.
+  and o.cancelled is not true
   and not exists (
     select 1 from order_charges c
     where c.order_id = o.id and c.charge_type = 'pick')
@@ -620,6 +634,27 @@ order by m.period_month desc;
 -- takes them back. It must stay in this file, below those creates, and it must
 -- stay unconditional.
 -- ---------------------------------------------------------------------------
+-- THE REVOKE RUNS FIRST, AHEAD OF EVERY GUARD BELOW. The guards now `raise
+-- exception` rather than `raise notice` (a guard that cannot fail the paste is
+-- not a guard -- a failed alter or a failed revoke used to finish as a green
+-- paste), and an exception ends the paste at that statement. Sequenced the old
+-- way, the one statement that actually closes the exposure sat BELOW two blocks
+-- that can now abort, so a loud guard could leave the views created and still
+-- granted to anon -- trading a silent hole for a louder one. Revoking first
+-- costs nothing: it depends on nothing above it, and the verifications that
+-- follow read the result rather than the statement.
+revoke all on public.pick_days              from anon, authenticated;
+revoke all on public.leaks_monthly          from anon, authenticated;
+revoke all on public.pnl_client_monthly     from anon, authenticated;
+revoke all on public.pnl_monthly            from anon, authenticated;
+revoke all on public.labour_variance_inputs from anon, authenticated;
+
+grant select on public.pick_days              to service_role;
+grant select on public.leaks_monthly          to service_role;
+grant select on public.pnl_client_monthly     to service_role;
+grant select on public.pnl_monthly            to service_role;
+grant select on public.labour_variance_inputs to service_role;
+
 -- The handler reports WHAT failed, not why. `when others` catches a mistyped
 -- view name (42P01) and an ownership failure (42501) just as readily as an
 -- unrecognized parameter, and the previous wording announced "Postgres 15+ is
@@ -638,18 +673,40 @@ begin
   alter view public.labour_variance_inputs set (security_invoker = true);
   raise notice 'security_invoker set on all five views.';
 exception when others then
-  raise notice 'security_invoker could NOT be set. SQLSTATE %: %. '
-               'Most likely this server predates Postgres 15, which is where the '
-               'option was introduced -- but check the SQLSTATE before assuming '
-               'that. The revoke below still applies and is what closes the '
-               'exposure. See the verification notice that follows.',
-               sqlstate, sqlerrm;
+  -- The version test lives INSIDE the handler, which is the distinction the
+  -- comment above is about. An unguarded `alter view` on a pre-15 server aborts
+  -- the paste, so the handler has to exist; but once we are in the handler the
+  -- `alter` has already been rolled back to the block's savepoint and asking
+  -- the server its version is free. Pre-15 is the one cause that is a fact
+  -- about the server rather than a mistake in this file, so it stays a notice
+  -- and degrades gracefully -- the revoke above has already closed the
+  -- exposure, which is the whole reason that degradation was acceptable.
+  --
+  -- Every OTHER cause -- a mistyped view name (42P01), an ownership failure
+  -- (42501), a create that silently did not happen -- is a broken paste, and a
+  -- broken paste must not finish green. Those now stop the file.
+  if current_setting('server_version_num')::int < 150000 then
+    raise notice 'security_invoker could NOT be set. SQLSTATE %: %. '
+                 'Most likely this server predates Postgres 15, which is where the '
+                 'option was introduced -- but check the SQLSTATE before assuming '
+                 'that. The revoke above has already applied and is what closes the '
+                 'exposure. See the verification notice that follows.',
+                 sqlstate, sqlerrm;
+  else
+    raise exception 'security_invoker could NOT be set. SQLSTATE %: %. '
+                 'Most likely this server predates Postgres 15, which is where the '
+                 'option was introduced -- but check the SQLSTATE before assuming '
+                 'that. The revoke above has already applied and is what closes the '
+                 'exposure. See the verification notice that follows.',
+                 sqlstate, sqlerrm;
+  end if;
 end $$;
 
 -- Second guard: confirm the setting actually TOOK. Without this, the only
 -- evidence that a view runs as its invoker is that an `alter` did not throw --
--- and the handler above deliberately swallows everything, so a silent failure
--- would otherwise be indistinguishable from success. This reads the stored
+-- and the handler above still swallows the one case it must (a pre-Postgres-15
+-- server, where the option does not exist), so a silent failure there would
+-- otherwise be indistinguishable from success. This reads the stored
 -- reloptions back and names the views that are missing the setting, whatever
 -- SQLSTATE the server chose. A view absent from pg_class entirely is also
 -- reported, since the left join leaves it with no options at all.
@@ -659,28 +716,47 @@ end $$;
 -- two agree. If the views were ever moved to a different schema the check would
 -- report all five missing while the `alter`s had in fact succeeded -- a false
 -- alarm. Keep the DDL and this check in the same schema.
+--
+-- THE LOOKUP IS WRAPPED IN ITS OWN INNER BLOCK, and that nesting is load-bearing
+-- now that the verdict below is a `raise exception`. `exception when others`
+-- catches ANY exception raised inside its block -- including one this block
+-- raises on purpose -- so with a single flat block the new hard failure would be
+-- caught by its own handler and demoted straight back to the notice this fix
+-- exists to remove. The inner block covers only the catalog read; the verdict
+-- sits outside it, where nothing can swallow it.
 do $$
-declare missing text;
+declare
+  missing    text;
+  readable   boolean := true;
 begin
-  select string_agg(v.name || ' (reloptions=' ||
-                    coalesce(c.reloptions::text, 'NULL') || ')',
-                    ', ' order by v.name) into missing
-  from unnest(array['pick_days', 'leaks_monthly',
-                    'pnl_client_monthly', 'pnl_monthly',
-                    'labour_variance_inputs']) as v(name)
-  left join pg_class c on c.relname = v.name
-                      and c.relnamespace = 'public'::regnamespace
-  where coalesce((select o.option_value::boolean
-                    from pg_options_to_table(c.reloptions) o
-                   where o.option_name = 'security_invoker'), false) is not true;
+  begin
+    select string_agg(v.name || ' (reloptions=' ||
+                      coalesce(c.reloptions::text, 'NULL') || ')',
+                      ', ' order by v.name) into missing
+    from unnest(array['pick_days', 'leaks_monthly',
+                      'pnl_client_monthly', 'pnl_monthly',
+                      'labour_variance_inputs']) as v(name)
+    left join pg_class c on c.relname = v.name
+                        and c.relnamespace = 'public'::regnamespace
+    where coalesce((select o.option_value::boolean
+                      from pg_options_to_table(c.reloptions) o
+                     where o.option_name = 'security_invoker'), false) is not true;
+  exception when others then
+    readable := false;
+    raise notice 'Could not verify security_invoker (SQLSTATE %: %). Treat the '
+                 'setting as UNCONFIRMED and do not grant these views to anon or '
+                 'authenticated.', sqlstate, sqlerrm;
+  end;
 
-  if missing is not null then
-    raise notice 'WARNING: security_invoker is NOT set on: %. These views still '
+  if not readable then
+    null;  -- already reported; the revoke above is what closes the exposure
+  elsif missing is not null then
+    raise exception 'WARNING: security_invoker is NOT set on: %. These views still '
                  'run with their OWNER''s privileges, which on Supabase means '
                  'they read the RLS-protected base tables (clients, shipments, '
                  'rate_adjustments, client_warehouse_rates) with row level '
                  'security bypassed. The revoke '
-                 'below keeps them closed to anon and authenticated, so nothing '
+                 'above keeps them closed to anon and authenticated, so nothing '
                  'is exposed TODAY -- but they are not RLS-safe, and granting '
                  'select on them back to any role would publish every client''s '
                  'data to that role. Do not grant them back on this server. '
@@ -691,45 +767,47 @@ begin
   else
     raise notice 'Verified: security_invoker is set on all five views.';
   end if;
-exception when others then
-  raise notice 'Could not verify security_invoker (SQLSTATE %: %). Treat the '
-               'setting as UNCONFIRMED and do not grant these views to anon or '
-               'authenticated.', sqlstate, sqlerrm;
 end $$;
-
-revoke all on public.pick_days              from anon, authenticated;
-revoke all on public.leaks_monthly          from anon, authenticated;
-revoke all on public.pnl_client_monthly     from anon, authenticated;
-revoke all on public.pnl_monthly            from anon, authenticated;
-revoke all on public.labour_variance_inputs from anon, authenticated;
-
-grant select on public.pick_days              to service_role;
-grant select on public.leaks_monthly          to service_role;
-grant select on public.pnl_client_monthly     to service_role;
-grant select on public.pnl_monthly            to service_role;
-grant select on public.labour_variance_inputs to service_role;
 
 -- Third guard: confirm the revoke actually closed the exposure. `security_invoker`
 -- is the RLS guard; `revoke` is the guard that closes the ledger tables that have
 -- no RLS of their own (orders, order_items, order_charges, cost_rates,
--- operating_costs). The `alter view` failure was swallowed, which is why it
--- needed a read-back; the `revoke` above is unconditional and aborts the paste on
+-- operating_costs). The `alter view` failure is still swallowed on a pre-15
+-- server, which is why it needs a read-back; the `revoke` above is unconditional and aborts the paste on
 -- failure, so a silent miss is less likely -- but `alter default privileges` or a
 -- `grant` elsewhere can re-open a view without touching this file. This block
 -- checks the result rather than the statement. Guarded the same way as the
 -- `reloptions` block: if the `anon` role does not exist (non-Supabase server) the
 -- function raises and we fall through to a notice rather than aborting the paste.
+--
+-- Same inner-block nesting as the reloptions guard, for the same reason: the
+-- verdict is now a `raise exception`, and a flat `exception when others` would
+-- catch that deliberate exception and demote it back to a notice. Only the
+-- `has_table_privilege` call -- the part that legitimately throws when the
+-- `anon` role does not exist -- sits inside the handler's reach.
 do $$
-declare still_open text;
+declare
+  still_open text;
+  readable   boolean := true;
 begin
-  select string_agg(v.name, ', ' order by v.name) into still_open
-  from unnest(array['public.pick_days', 'public.leaks_monthly',
-                    'public.pnl_client_monthly', 'public.pnl_monthly',
-                    'public.labour_variance_inputs']) as v(name)
-  where has_table_privilege('anon', v.name, 'SELECT');
+  begin
+    select string_agg(v.name, ', ' order by v.name) into still_open
+    from unnest(array['public.pick_days', 'public.leaks_monthly',
+                      'public.pnl_client_monthly', 'public.pnl_monthly',
+                      'public.labour_variance_inputs']) as v(name)
+    where has_table_privilege('anon', v.name, 'SELECT');
+  exception when others then
+    readable := false;
+    raise notice 'Could not verify anon privilege (SQLSTATE %: %). The `anon` '
+                 'role may not exist on this server. Confirm manually that anon '
+                 'cannot select from the five views before treating the file as '
+                 'applied.', sqlstate, sqlerrm;
+  end;
 
-  if still_open is not null then
-    raise notice 'WARNING: anon can still SELECT from: %. The revoke did not '
+  if not readable then
+    null;  -- already reported above
+  elsif still_open is not null then
+    raise exception 'WARNING: anon can still SELECT from: %. The revoke did not '
                  'close the exposure. Check whether `alter default privileges` '
                  'or an explicit grant elsewhere re-opened these views. Until '
                  'this is resolved every client''s margin is readable via the '
@@ -738,11 +816,6 @@ begin
   else
     raise notice 'Verified: anon cannot SELECT from any of the five views.';
   end if;
-exception when others then
-  raise notice 'Could not verify anon privilege (SQLSTATE %: %). The `anon` '
-               'role may not exist on this server. Confirm manually that anon '
-               'cannot select from the five views before treating the file as '
-               'applied.', sqlstate, sqlerrm;
 end $$;
 
 -- ---------------------------------------------------------------------------

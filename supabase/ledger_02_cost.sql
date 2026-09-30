@@ -90,3 +90,44 @@ create unique index if not exists operating_costs_month_category_vendor
   on operating_costs (period_month, category, coalesce(vendor, ''));
 create index if not exists operating_costs_month_idx
   on operating_costs (period_month);
+
+-- `allocation` is only ever read by exact string equality, and always inside a
+-- FILTER clause: ledger_04_views.sql:335-337 build pnl_monthly's overhead,
+-- direct_labor and direct_storage from
+-- `sum(amount) filter (where allocation = '<literal>')`, and :531 builds
+-- labour_variance_inputs from `where allocation = 'direct_labor'`. A value
+-- outside that set of three matches NO filter, so the cost is not merely
+-- mis-categorised -- it disappears from net_profit entirely and the month reads
+-- MORE profitable than it was. 'Overhead' and 'direct-labor' are both silent in
+-- exactly that direction, and the owner prices off this number.
+--
+-- Nothing in TypeScript writes operating_costs; every row is hand-typed into the
+-- Supabase SQL editor. The database is therefore the only validator that exists.
+-- Same shape as cost_rates_basis_valid above, and for the same reason.
+do $$
+declare
+  offending text;
+begin
+  alter table operating_costs add constraint operating_costs_allocation_valid
+    check (allocation in ('overhead','direct_labor','direct_storage'));
+  raise notice 'operating_costs_allocation_valid added';
+exception
+  when duplicate_object then
+    raise notice 'operating_costs_allocation_valid already present';
+  when check_violation then
+    -- The failed ALTER is rolled back to this block's savepoint, so the table is
+    -- readable here. Name the bad values: "some row" alone does not tell the
+    -- operator which paste to go and fix.
+    select string_agg(quoted, ', ')
+      into offending
+      from (select distinct quote_literal(allocation) as quoted
+              from operating_costs
+             where allocation not in ('overhead','direct_labor','direct_storage')) bad;
+    raise exception
+      'operating_costs_allocation_valid NOT added: operating_costs already holds invalid allocation value(s): %', offending
+      using hint = 'Every one of those rows is silently missing from pnl_monthly.net_profit, '
+        || 'which makes the month look more profitable than it was. '
+        || 'Correct them, then re-run this file. Locate them with: '
+        || 'select id, period_month, category, vendor, amount, allocation from operating_costs '
+        || 'where allocation not in (''overhead'',''direct_labor'',''direct_storage'');';
+end $$;

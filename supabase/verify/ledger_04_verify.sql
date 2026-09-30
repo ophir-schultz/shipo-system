@@ -326,4 +326,103 @@ begin
                'named by direct_storage_rows = 0';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- The security state of the five views. This is the only assertion in this file
+-- that is not about a number being right, and it is here because until now
+-- NOTHING downstream of ledger_04_views.sql confirmed it independently. That
+-- file's own guards report on themselves; a guard that is the sole witness to
+-- its own success is not a check. The `anon` key is a NEXT_PUBLIC_ string
+-- inlined into the browser bundle (src/lib/supabase.ts:3-6), so a view created
+-- but not revoked is every client's margin, published.
+--
+-- Two properties, both required, neither sufficient alone:
+--   * security_invoker -- without it the views read the RLS-protected base
+--     tables (clients, shipments, rate_adjustments, client_warehouse_rates) as
+--     their OWNER, RLS bypassed.
+--   * no SELECT for anon or authenticated -- what actually closes the ledger
+--     tables from migrations 1-3, which carry no RLS of their own.
+--
+-- THE TWO NAMING CONVENTIONS ARE NOT INTERCHANGEABLE, and getting one wrong
+-- produces an assertion that passes because it matched nothing -- strictly worse
+-- than no assertion. `pg_class.relname` holds the BARE name, so the catalog
+-- lookup uses bare names plus an explicit relnamespace; `has_table_privilege`
+-- takes a regclass-resolvable identifier resolved against search_path, so it
+-- gets the SCHEMA-QUALIFIED form. Both conventions already appear, each
+-- correctly, in ledger_04_views.sql -- they are copied from there, not chosen.
+--
+-- Both checks fail SAFE if a name is wrong: the left join leaves an unmatched
+-- view with NULL reloptions and reports it as missing, and has_table_privilege
+-- raises 42P01 on a name that resolves to nothing. Neither can quietly match
+-- zero rows and call that a pass.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  missing_invoker text;
+  absent_roles    text;
+  still_open      text;
+begin
+  -- `coalesce(..., false) is not true`, not `<> true`: pg_options_to_table over a
+  -- NULL reloptions yields no rows, so the scalar subquery is NULL, and
+  -- `NULL <> true` is NULL -- which an `if` falls through, printing PASS for a
+  -- view carrying no security_invoker option at all. Same NULL discipline as the
+  -- `is distinct from` comparisons above, in the form the catalog needs.
+  select string_agg(v.name || ' (reloptions=' ||
+                    coalesce(c.reloptions::text, 'NULL') || ')',
+                    ', ' order by v.name)
+    into missing_invoker
+  from unnest(array['pick_days', 'leaks_monthly',
+                    'pnl_client_monthly', 'pnl_monthly',
+                    'labour_variance_inputs']) as v(name)
+  left join pg_class c on c.relname = v.name
+                      and c.relnamespace = 'public'::regnamespace
+  where coalesce((select o.option_value::boolean
+                    from pg_options_to_table(c.reloptions) o
+                   where o.option_name = 'security_invoker'), false) is not true;
+
+  if missing_invoker is not null then
+    raise exception 'FAIL: security_invoker is NOT set on: %. Those views run '
+                    'with their OWNER''s privileges and read the RLS-protected '
+                    'base tables with row level security bypassed. Re-apply '
+                    'ledger_04_views.sql and read its notices. (reloptions=NULL '
+                    'means the option is absent; a view missing from pg_class '
+                    'entirely means the create never happened.)', missing_invoker;
+  end if;
+  raise notice 'PASS: security_invoker is set on all five views';
+
+  -- Assert the roles EXIST before asking what they can read. has_table_privilege
+  -- raises on an unknown role, and any formulation that swallowed that error
+  -- would turn "the role is absent" into a silent pass -- the exact failure mode
+  -- this block is written against. This is not an extra requirement:
+  -- ledger_04_views.sql does `revoke ... from anon, authenticated`, which itself
+  -- fails if either role is missing, so a database that applied that file has both.
+  select string_agg(r.role, ', ' order by r.role) into absent_roles
+  from unnest(array['anon', 'authenticated']) as r(role)
+  where to_regrole(r.role) is null;
+
+  if absent_roles is not null then
+    raise exception 'FAIL: role(s) % do not exist, so the privilege assertion '
+                    'below cannot be made and must not be reported as a pass. '
+                    'ledger_04_views.sql revokes from both roles by name; if '
+                    'this server has neither, that file was not applied here.',
+                    absent_roles;
+  end if;
+
+  select string_agg(v.name || ' -> ' || r.role, ', ' order by v.name, r.role)
+    into still_open
+  from unnest(array['public.pick_days', 'public.leaks_monthly',
+                    'public.pnl_client_monthly', 'public.pnl_monthly',
+                    'public.labour_variance_inputs']) as v(name)
+  cross join unnest(array['anon', 'authenticated']) as r(role)
+  where has_table_privilege(r.role, v.name, 'SELECT');
+
+  if still_open is not null then
+    raise exception 'FAIL: SELECT is still granted: %. Every client''s margin is '
+                    'readable with the public anon key. Re-apply the revoke block '
+                    'in ledger_04_views.sql, and check whether `alter default '
+                    'privileges` or an explicit grant elsewhere re-opened them.',
+                    still_open;
+  end if;
+  raise notice 'PASS: neither anon nor authenticated can SELECT any of the five views';
+end $$;
+
 rollback;
