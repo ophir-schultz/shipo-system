@@ -243,6 +243,14 @@ describe('persistStorageCharges — isolation and counting', () => {
     // The window is floored AND capped: a typo'd 2030-01-01 must not bill today.
     expect(read.filters.some((f) => f.op === 'gte' && f.column === 'period_month')).toBe(true)
     expect(read.filters.some((f) => f.op === 'lte' && f.column === 'period_month')).toBe(true)
+    // The sort must be recorded in the call — deleting the .order() from production
+    // code without updating this test would silently leave the order unspecified.
+    // Primary key is client_id, secondary is period_month (ascending): rows for
+    // the same client are contiguous and within a client run earliest-first.
+    expect(read.sort).toEqual([
+      { column: 'client_id', ascending: true },
+      { column: 'period_month', ascending: true },
+    ])
   })
 
   it('does not bill a month in the future', async () => {

@@ -68,6 +68,12 @@ export interface FakeCall {
   limit?: number
   /** The `count` option passed to .select(), if any. */
   count?: string
+  /**
+   * Sort keys, in the order they were added via .order(). Tests assert on this
+   * to confirm ordering is present — deleting an .order() call from production
+   * code would otherwise leave every test green.
+   */
+  sort: Array<{ column: string; ascending: boolean }>
 }
 
 export interface FakeDb {
@@ -141,11 +147,10 @@ class Builder implements PromiseLike<FakeResult> {
   private call: FakeCall
   private returning = false
   private single = false
-  private sort: Array<{ column: string; ascending: boolean }> = []
   private matched: number | null = null
 
   constructor(private db: FakeDb, table: string) {
-    this.call = { table, verb: 'select', filters: [], payload: [] }
+    this.call = { table, verb: 'select', filters: [], payload: [], sort: [] }
   }
 
   private rows(): FakeRow[] {
@@ -234,7 +239,7 @@ class Builder implements PromiseLike<FakeResult> {
    * codebase asks for.
    */
   order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }): this {
-    this.sort.push({ column, ascending: options?.ascending !== false })
+    this.call.sort.push({ column, ascending: options?.ascending !== false })
     return this
   }
   range(from: number, to: number): this {
@@ -254,9 +259,9 @@ class Builder implements PromiseLike<FakeResult> {
   }
 
   private sorted(rows: FakeRow[]): FakeRow[] {
-    if (this.sort.length === 0) return rows
+    if (this.call.sort.length === 0) return rows
     return [...rows].sort((a, b) => {
-      for (const { column, ascending } of this.sort) {
+      for (const { column, ascending } of this.call.sort) {
         const av = a[column], bv = b[column]
         if (valuesEqual(av, bv)) continue
         // Nulls sort last ascending, as Postgres does by default.

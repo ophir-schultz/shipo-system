@@ -185,9 +185,6 @@ export async function persistStorageCharges(): Promise<StorageResult> {
   let unpricedMonths = 0
   let estimatedCharges = 0
   let orphanedCharges = 0
-  /** Keys of client-months that threw during processing. Used by the orphan detector
-   *  to avoid reporting their charges as orphaned — the run simply didn't process them. */
-  const failedClientMonths = new Set<string>()
 
   if (months.length > 0) {
   // Both loads are paginated. A bare .select() silently caps at PostgREST's
@@ -354,7 +351,6 @@ export async function persistStorageCharges(): Promise<StorageResult> {
       }
     } catch (err) {
       failedMonths++
-      failedClientMonths.add(`${m.client_id}:${m.period_month}`)
       warn('storage month failed', `client ${m.client_id} ${m.period_month}: `
         + `${err instanceof Error ? err.message : String(err)}`)
     }
@@ -365,14 +361,13 @@ export async function persistStorageCharges(): Promise<StorageResult> {
   // Storage charges in the window whose (client_id, period_month) has no
   // declaration row: the declaration was DELETED rather than zeroed, so the
   // stale sweep can never reach them. This does not delete anything.
-  //
-  // Failed client-months are excluded: their charges are not orphaned, the run
-  // just did not process them this pass. failedClientMonths was populated in the
-  // catch block of the loop above.
   try {
-    // All months that were read — both successfully processed and failed.
-    // A failed month still has a declaration row; its charges are not orphaned.
-    // Orphaned means: the declaration row was DELETED (not in months at all).
+    // declaredSet is built from ALL months the query returned, including any that
+    // failed during per-client processing. A failed month still has a declaration
+    // row and is therefore not orphaned — its charges are not orphaned either,
+    // the run simply did not process that client-month this pass.
+    // Orphaned means: the declaration row was DELETED outright (not in months at
+    // all), so it can never appear in any loop iteration, successful or failed.
     const declaredSet = new Set(
       months.map((m) => `${m.client_id}:${m.period_month}`)
     )

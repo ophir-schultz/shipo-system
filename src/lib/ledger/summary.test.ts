@@ -236,6 +236,20 @@ describe('getLedgerSummary', () => {
     expect(s.variance[0].variance).toBeCloseTo(30, 10)
     expect(s.counts.variance).toBe(1)
   })
+
+  it('queries labour_variance_inputs with a window floor and a descending order', async () => {
+    // Asserted on the recorded FakeCall rather than row ordering: the ordering
+    // guarantee is about the STATEMENT, not a fixture effect. Deleting the
+    // .order() from getLedgerSummary would leave every data-shape test green
+    // while silently removing the guarantee.
+    await getLedgerSummary(NOW)
+    const varianceCall = h.db.calls.find((c) => c.table === 'labour_variance_inputs')!
+    expect(varianceCall).toBeDefined()
+    // The gte filter sets the three-month window floor.
+    expect(varianceCall.filters.some((f) => f.op === 'gte' && f.column === 'period_month')).toBe(true)
+    // The sort must be recorded and descending, so recent months appear first.
+    expect(varianceCall.sort).toEqual([{ column: 'period_month', ascending: false }])
+  })
 })
 
 // ---------------------------------------------------------------------------
