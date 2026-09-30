@@ -31,11 +31,27 @@ create table if not exists orders (
   created_at     timestamptz default now()
 );
 
--- Two partial indexes, not one. `unique (client_id, order_key)` does not
--- constrain rows where client_id is null, because NULLs are distinct in SQL,
--- so unattributed orders would duplicate silently on every run.
+-- Two indexes, not one. `unique (client_id, order_key)` does not constrain rows
+-- where client_id is null, because NULLs are distinct in SQL, so unattributed
+-- orders would duplicate silently on every run. The second index covers them.
+--
+-- The FIRST index is deliberately NOT partial, and must stay that way.
+-- A `where client_id is not null` predicate on it would be semantically free --
+-- it only excludes rows that NULL-distinctness leaves unconstrained anyway --
+-- but it breaks the Zenventory sync outright. PostgREST's on_conflict parameter
+-- emits only a column list, never an index predicate, so supabase-js
+-- `.upsert(..., { onConflict: 'client_id,order_key' })` produces
+-- `on conflict (client_id, order_key)` with no where clause. Postgres cannot
+-- infer a PARTIAL index from that and raises 42P10, "no unique or exclusion
+-- constraint matching the ON CONFLICT specification" -- on every single row.
+-- The drop below exists because an earlier draft of this file created it
+-- partial; re-running this migration converts it.
+drop index if exists orders_client_order_key;
 create unique index if not exists orders_client_order_key
-  on orders (client_id, order_key) where client_id is not null;
+  on orders (client_id, order_key);
+
+-- This one stays partial: its whole purpose is the null-client rows, and
+-- nothing upserts them by ON CONFLICT inference.
 create unique index if not exists orders_source_order_key
   on orders (source, order_key) where client_id is null;
 create index if not exists orders_order_date_idx on orders (order_date);
