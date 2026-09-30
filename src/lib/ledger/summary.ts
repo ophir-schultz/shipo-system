@@ -98,7 +98,12 @@ export interface VarianceVariant {
   units: number | null
   /** null = no cost_rates row covers this variant in this month. */
   standard_rate: number | null
-  basis: string | null
+  /**
+   * Same domain as standard_rate_basis on VarianceInputRow: the CHECK constraint
+   * cost_rates_basis_valid on the cost_rates table restricts the column to this
+   * set. Narrowed to match rather than left as string | null.
+   */
+  basis: 'measured' | 'derived' | 'estimated' | null
 }
 
 /** A row of labour_variance_inputs, as the view emits it. */
@@ -346,6 +351,11 @@ export function mapVarianceRows(rows: VarianceInputRow[]): VarianceRow[] {
       direct_labor: actualCost,
       standard_rate: standardRate,
       implied_actual_rate: num(r.implied_actual_rate),
+      // variant_breakdown is exempt from num(): PostgREST deserialises jsonb
+      // columns as plain JS objects/arrays before the response reaches this
+      // code, so the numeric fields inside arrive already typed as numbers.
+      // The breakdown is display-only — no arithmetic touches it — so the
+      // asymmetry with the top-level num() calls is deliberate, not an oversight.
       variant_breakdown: r.variant_breakdown ?? null,
       absorbed: v.absorbed,
       variance: v.variance,

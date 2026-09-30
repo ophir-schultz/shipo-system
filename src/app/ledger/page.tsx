@@ -648,7 +648,7 @@ export default async function LedgerPage() {
           variance rests on a standard rate whose own accuracy is unproven.
           {varianceIsEstimated && (
             <>
-              {' '}Every standard rate behind the figures below is currently marked{' '}
+              {' '}One or more of the standard rates behind the figures below is currently marked{' '}
               <span className="font-medium">estimated</span> — a placeholder, not a measured cost.
             </>
           )}
