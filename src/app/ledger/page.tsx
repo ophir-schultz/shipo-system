@@ -1,5 +1,6 @@
-// Read-only ledger screen. Four tables: leaks, monthly P&L, per-client P&L,
-// pick days. No charts, no filters, no drill-through. Server Component — it
+// Read-only ledger screen. Five tables: leaks, monthly P&L, per-client P&L,
+// pick days, and the §5.3.2 labour variance (a secondary signal, last and
+// labelled). No charts, no filters, no drill-through. Server Component — it
 // imports getLedgerSummary() and queries Supabase directly, exactly as the
 // twelve other server pages in this app do. It does NOT fetch its own API
 // route; see the header of src/lib/ledger/summary.ts for why that was removed.
@@ -13,9 +14,11 @@ import {
   fmtMonth,
   confidenceLabel,
   netProfitUnavailableReason,
+  varianceUnavailableText,
   PICK_ROW_LIMIT,
   type MonthlyRow,
   type LeakRow,
+  type VarianceRow,
 } from '@/lib/ledger/summary'
 
 export const dynamic = 'force-dynamic'
@@ -42,6 +45,29 @@ function int(n: number | null | undefined): string {
 function marginClass(n: number | null): string {
   if (n === null) return 'text-slate-400'
   return n < 0 ? 'text-red-400' : 'text-green-400'
+}
+
+/**
+ * Per-unit rates, at the four decimals cost_rates and client_warehouse_rates
+ * actually store. `fmt` would round $0.2300 to $0.23 and make a 0.2300/0.2000
+ * spread look like 0.23/0.20 — close enough to read as the same number.
+ */
+function fmtRate(n: number | null | undefined): string {
+  if (n === null || n === undefined) return '—'
+  return `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
+}
+
+/**
+ * Colour for a VARIANCE, which is NOT a margin and must not use marginClass.
+ * labourVariance returns actualCost - absorbed, so a POSITIVE number is an
+ * overspend against standard — the bad direction. marginClass paints positive
+ * green, which would show an overspend as a gain.
+ */
+function varianceClass(n: number | null): string {
+  if (n === null) return 'text-slate-400'
+  if (n > 0) return 'text-red-400'
+  if (n < 0) return 'text-green-400'
+  return 'text-slate-300'
 }
 
 // ------------------------------------------------------------------
@@ -127,6 +153,74 @@ function AllocationCell({ value, rows, label }: { value: number | null; rows: nu
   )
 }
 
+/**
+ * The variance cell. Either the figure, or the reason there is no figure —
+ * never $0.00 for an unknown. A zero variance ("we spent exactly standard") and
+ * an unknown variance ("nobody has entered payroll") look identical on a screen
+ * and mean opposite things. The text and the tooltip come from the same helper
+ * so the tooltip cannot assert a cause the text contradicts.
+ */
+function VarianceCell({ row }: { row: VarianceRow }) {
+  const unavailable = varianceUnavailableText(row)
+  if (unavailable !== null) {
+    return (
+      <span className="text-xs text-orange-500" title={unavailable}>
+        {unavailable}
+      </span>
+    )
+  }
+  return (
+    <span
+      className={varianceClass(row.variance)}
+      title="Actual payroll minus the standard cost of the units picked. Positive means we spent MORE than standard."
+    >
+      {row.variance !== null && row.variance > 0 ? '+' : ''}
+      {fmt(row.variance)}
+    </span>
+  )
+}
+
+/**
+ * The per-variant components §5.3.2 asks for, "so the cause is visible rather
+ * than inferred from one number". The month's standard rate is the units-
+ * weighted blend of these; without them a rate of $0.2150 looks like a rate
+ * somebody chose rather than a mix of 0.2300 and 0.2000.
+ */
+function VariantBreakdown({ row }: { row: VarianceRow }) {
+  const parts = row.variant_breakdown
+  if (parts === null || parts.length === 0) {
+    return <span className="text-xs text-slate-600">—</span>
+  }
+  return (
+    <div className="space-y-0.5">
+      {parts.map((p, i) => (
+        <div key={i} className="whitespace-nowrap text-xs">
+          <span className="font-mono text-sky-300">{p.variant ?? 'no variant'}</span>
+          <span className="ml-1.5 text-slate-400">{int(p.units)} u</span>
+          <span className="ml-1.5 text-slate-500">@</span>
+          {p.standard_rate === null ? (
+            <span
+              className="ml-1 text-orange-500"
+              title={
+                p.variant === null
+                  ? 'These pick charges carry no rate-card variant, so no standard rate can be chosen for them — which is why the whole month has no standard rate.'
+                  : 'No cost rate is in effect for this variant in this month, so the whole month has no standard rate. Averaging over the covered variants only would invent an unfavourable variance.'
+              }
+            >
+              no rate
+            </span>
+          ) : (
+            <span className="ml-1 text-slate-300">{fmtRate(p.standard_rate)}</span>
+          )}
+          {p.basis === 'estimated' && (
+            <span className="ml-1.5 text-amber-400/80">est</span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /** Shared cells for a leak row, minus the month column. */
 function LeakCells({ row }: { row: LeakRow }) {
   return (
@@ -145,7 +239,14 @@ function LeakCells({ row }: { row: LeakRow }) {
 // Page
 // ------------------------------------------------------------------
 export default async function LedgerPage() {
-  const { leaks, leaksUndated, monthly, clients, picks, counts, errors } = await getLedgerSummary()
+  const { leaks, leaksUndated, monthly, clients, picks, variance, counts, errors } =
+    await getLedgerSummary()
+
+  // Any month resting on a placeholder rate caveats the whole section. Read
+  // from the VIEW's basis, not from VarianceResult.basis: labourVariance
+  // returns 'measured' whenever both inputs are present, so it would label a
+  // placeholder-derived figure measured.
+  const varianceIsEstimated = variance.some((r) => r.standard_rate_basis === 'estimated')
 
   return (
     <div className="space-y-6 font-sans text-slate-200">
@@ -510,6 +611,136 @@ export default async function LedgerPage() {
                   )
                 })}
               </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ----------------------------------------------------------------
+          5. LABOUR VARIANCE — §5.3.2. A SECONDARY signal, and last on the
+          page for that reason. Positive is UNFAVOURABLE (we spent more
+          than standard), so it does NOT use marginClass. Every component
+          is shown beside the figure because §5.3.2 requires the cause to
+          be visible rather than inferred from one number. An unavailable
+          variance prints why, never $0.00.
+          ---------------------------------------------------------------- */}
+      <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
+        <div className="mb-1 flex items-start justify-between">
+          <h3 className="font-semibold text-white">
+            Labour Variance
+            <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 align-middle text-xs font-normal uppercase tracking-wide text-slate-300">
+              secondary signal
+            </span>
+          </h3>
+          <RowCount shown={variance.length} total={counts.variance} />
+        </div>
+        <p className="mb-2 text-xs text-slate-500">
+          Actual direct-labor payroll against the standard cost of the units picked:
+          <span className="mx-1 font-mono text-slate-400">variance = payroll − units × standard rate</span>.
+          A <span className="font-medium text-red-400">positive</span> figure is an overspend against
+          standard; a <span className="font-medium text-green-400">negative</span> one is an underspend.
+          The standard rate is the units-weighted blend of the per-variant rates shown on the right,
+          and it is null — so the variance is not computable — unless every variant picked that month
+          has a rate in effect.
+        </p>
+        <p className="mb-4 text-xs text-amber-400/90">
+          This is a secondary signal. Until piece 2 reconciles against actual bills, the labour
+          variance rests on a standard rate whose own accuracy is unproven.
+          {varianceIsEstimated && (
+            <>
+              {' '}Every standard rate behind the figures below is currently marked{' '}
+              <span className="font-medium">estimated</span> — a placeholder, not a measured cost.
+            </>
+          )}
+        </p>
+        {variance.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No pick charges and no direct-labor cost recorded in the last three months, so there is
+            nothing to compare. This is an absence of inputs, not a variance of zero.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700 text-left text-xs uppercase text-slate-500">
+                  <th className="pb-2 pr-3">Month</th>
+                  <th className="pb-2 pr-3 text-right">Payroll (direct labor)</th>
+                  <th className="pb-2 pr-3 text-right">Units Picked</th>
+                  <th className="pb-2 pr-3 text-right">Implied Actual Rate</th>
+                  <th className="pb-2 pr-3 text-right">Standard Rate</th>
+                  <th className="pb-2 pr-3 text-right">Absorbed</th>
+                  <th className="pb-2 pr-3 text-right">Variance (+ = overspend)</th>
+                  <th className="pb-2">Per-Variant Breakdown</th>
+                </tr>
+              </thead>
+              <tbody>
+                {variance.map((r, i) => (
+                  <tr key={i} className="border-b border-slate-700 align-top hover:bg-white/5">
+                    <td className="py-2.5 pr-3 text-slate-400">{fmtMonth(r.period_month)}</td>
+                    {/* Payroll — null is UNKNOWN and says so. Never $0.00: a zero
+                        here would report the whole standard cost as a saving. */}
+                    <td className="py-2.5 pr-3 text-right">
+                      {r.direct_labor !== null ? (
+                        <span className="text-slate-200">{fmt(r.direct_labor)}</span>
+                      ) : (
+                        <span
+                          className="text-xs text-orange-500"
+                          title="No direct_labor row in operating_costs for this month, so payroll is UNKNOWN — not zero."
+                        >
+                          not entered
+                        </span>
+                      )}
+                    </td>
+                    {/* Units picked, with the unattributable count beside it.
+                        A null here is a value the view returned that is not a
+                        usable count — not a month in which nothing was picked. */}
+                    <td className="py-2.5 pr-3 text-right">
+                      {r.units_picked !== null ? (
+                        <span className="text-slate-300">{int(r.units_picked)}</span>
+                      ) : (
+                        <span
+                          className="text-xs text-orange-500"
+                          title="The view returned a units figure that is not a usable count, so the picked volume is UNKNOWN — not zero."
+                        >
+                          unreadable
+                        </span>
+                      )}
+                      {r.unattributable_pick_charges > 0 && (
+                        <span
+                          className="ml-1 text-xs text-orange-500"
+                          title="This many pick charges carry no rate-card variant, so no standard rate can be chosen for them. They are counted in the units above and they null this month's standard rate rather than being dropped."
+                        >
+                          +{int(r.unattributable_pick_charges)}?
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-3 text-right text-slate-400">
+                      {fmtRate(r.implied_actual_rate)}
+                    </td>
+                    {/* Standard rate, with its provenance */}
+                    <td className="py-2.5 pr-3 text-right">
+                      <span className="text-slate-300">{fmtRate(r.standard_rate)}</span>
+                      {r.standard_rate_basis !== null && r.standard_rate_basis !== 'measured' && (
+                        <span
+                          className="ml-1 rounded bg-amber-900/30 px-1.5 py-0.5 text-xs text-amber-400"
+                          title={`The held standard rate for this month is ${r.standard_rate_basis}, not measured. The variance is only as good as it is.`}
+                        >
+                          {r.standard_rate_basis}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-3 text-right text-slate-400">{fmt(r.absorbed)}</td>
+                    <td className="py-2.5 pr-3 text-right font-medium">
+                      <VarianceCell row={r} />
+                    </td>
+                    <td className="py-2.5">
+                      <VariantBreakdown row={r} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {/* No total row. Summing variances across months with different
+                  standard rates produces a number nothing in §5.3.2 defines. */}
             </table>
           </div>
         )}

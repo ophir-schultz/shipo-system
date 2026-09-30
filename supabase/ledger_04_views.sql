@@ -26,7 +26,7 @@
 -- move it to a separate file, never make it conditional, and never add a view
 -- here without adding it there.
 --
--- No `cascade`, on purpose. Nothing in supabase/ or src/ selects from these four
+-- No `cascade`, on purpose. Nothing in supabase/ or src/ selects from these five
 -- today (verified: the only references are this file, the verify script, and
 -- comments), so a plain drop is sufficient. Should something come to depend on
 -- one of them later, a plain drop fails loudly and the next reader gets to
@@ -45,6 +45,7 @@ drop view if exists public.pnl_monthly;
 drop view if exists public.pnl_client_monthly;
 drop view if exists public.leaks_monthly;
 drop view if exists public.pick_days;
+drop view if exists public.labour_variance_inputs;
 
 -- ---------------------------------------------------------------------------
 -- pick_days: what was picked, per client per day per SKU.
@@ -394,7 +395,179 @@ from revenue r
 full outer join overhead o on o.period_month = r.period_month;
 
 -- ---------------------------------------------------------------------------
--- Lock the four views to the service role.
+-- labour_variance_inputs: the measured numbers §5.3.2 needs, and nothing
+-- derived from them. The subtraction lives in src/lib/ledger/variance.ts so
+-- there is exactly one implementation of it -- computing
+-- `payroll - units * standard_rate` here as well would give two, one tested and
+-- one not, and the first time either changed they would disagree in silence.
+--
+-- standard_rate is read from cost_rates as it stood ON the month being
+-- reported, not as it stands today. Using today's rate would silently rewrite
+-- every past month's variance the moment anyone re-baselines -- which is the
+-- circularity §5.3.2 exists to prevent, arriving by a different route.
+--
+-- THE RATE IS PER-VARIANT AND THIS VIEW MUST NOT BLEND IT BY ACCIDENT.
+-- ledger_06_seed_cost_rates.sql seeds ('pick','device') at 0.2300 and
+-- ('pick','component') at 0.2000, both with effective_from = '2026-01-01'.
+-- Filtering on cost_type = 'pick' alone and taking `order by effective_from
+-- desc limit 1` is therefore a coin toss the planner may call differently
+-- between two runs of the same query on unchanged data, and it would be applied
+-- to a units total that mixes both variants -- absorbed cost wrong by up to 13%
+-- in an unpredictable direction. So the view aggregates per (period_month,
+-- variant) internally and exposes a UNITS-WEIGHTED rate per month:
+--
+--     standard_rate = sum(units_v * rate_v) / sum(units_v)
+--
+-- which is algebraically exact: multiplying it by total units in TypeScript
+-- reproduces sum(units_v * rate_v). (Numeric division can be non-terminating --
+-- 1.00 over 3 units -- so the reconstruction can differ in the far tail of the
+-- fraction. That is a rounding artefact of order 1e-15 dollars, not a blend.)
+-- variant_breakdown beside it carries the per-variant detail, because §5.3.2
+-- asks for the components to be shown "so the cause is visible rather than
+-- inferred from one number".
+--
+-- HOW THE VARIANT IS RECOVERED: order_charges.rate_id -> client_warehouse_rates
+-- .variant. rate_id is never null on a charge the calculator wrote, because
+-- calculate-charges.ts:122-123 does `if (!rate || rate.rate === null) continue`
+-- -- the charge exists only because the rate card line did. The two rejected
+-- alternatives: cost_rate_id is null whenever the COST lookup failed
+-- (calculate-charges.ts:142), which is precisely the months this view has to
+-- keep reporting; and `label` is a display string ('Pick — device') containing
+-- an em-dash, which is fragile to match on.
+-- ---------------------------------------------------------------------------
+create or replace view public.labour_variance_inputs as
+with pick_charges as (
+  -- One row per pick charge, carrying the variant its rate-card line names.
+  -- LEFT join, not inner: a pick charge whose rate_id is null (or dangling)
+  -- must be COUNTED, never dropped. Dropping it would shrink units_picked and
+  -- report a fictitious unfavourable variance; it arrives here with a null
+  -- variant instead, and a null variant nulls the month's standard rate below.
+  select date_trunc('month', c.charge_date)::date as period_month,
+         w.variant                                as variant,
+         c.quantity                               as quantity
+  from order_charges c
+  left join client_warehouse_rates w on w.id = c.rate_id
+  where c.charge_type = 'pick'
+),
+per_variant as (
+  -- `sum(quantity)` skips null quantities. No writer in this codebase produces
+  -- one (calculate-charges.ts:115 skips null and zero outright), and the error
+  -- direction if one ever appears is the safe one: units read LOW, so absorbed
+  -- reads LOW and the variance reads UNFAVOURABLE. It does not flatter.
+  select period_month, variant,
+         sum(quantity) as units,
+         count(*)      as charges
+  from pick_charges
+  group by 1, 2
+),
+priced as (
+  -- The held cost rate for THIS variant, as it stood on the 1st of this month.
+  -- `cr.variant = v.variant` is an exact match, mirroring findCostRate
+  -- (cost-rate.ts:42). A null v.variant therefore matches nothing -- NULL =
+  -- NULL is NULL -- which is what makes an unattributable pick charge null the
+  -- month's rate rather than quietly borrowing the null-variant cost row.
+  --
+  -- The `order by ... limit 1` is belt and braces: cost_rates_no_overlap
+  -- (ledger_02_cost.sql:30-38) already guarantees at most one row per
+  -- (cost_type, variant) covers any given day, so unlike the cross-variant form
+  -- this tie-break is never actually exercised and the result is deterministic.
+  select v.period_month, v.variant, v.units, v.charges, cr.rate, cr.basis
+  from per_variant v
+  left join lateral (
+    select cr.rate, cr.basis
+    from cost_rates cr
+    where cr.cost_type = 'pick'
+      and cr.variant = v.variant
+      and cr.effective_from <= v.period_month
+      and (cr.effective_to is null or v.period_month < cr.effective_to)
+    order by cr.effective_from desc
+    limit 1
+  ) cr on true
+),
+picked as (
+  select period_month,
+         sum(units)                                  as units_picked,
+         sum(charges) filter (where variant is null) as unattributable_pick_charges,
+         -- ALL-OR-NOTHING, and this is the point of the column. If device has a
+         -- rate in effect and component does not, a weighted average over only
+         -- the covered subset understates absorbed and reports a leak that is
+         -- not there -- sending someone to hunt an overspend that never
+         -- happened. One uncovered variant nulls the whole month's rate.
+         bool_or(rate is null)                       as any_rate_missing,
+         sum(units * rate)                           as standard_cost,
+         -- The WEAKEST basis among the contributing rates. Every pick rate is
+         -- 'estimated' today (ledger_06_seed_cost_rates.sql), and that file's
+         -- header forbids presenting a placeholder as measured -- so the screen
+         -- needs this column to caveat the figure. It cannot use
+         -- VarianceResult.basis for the purpose: variance.ts:39 returns
+         -- 'measured' whenever both inputs are present, because it has no way
+         -- to know the rate it was handed is a placeholder.
+         -- cost_rates_basis_valid (ledger_02_cost.sql:55) limits the domain to
+         -- these three, so the chain is total.
+         case when bool_or(basis = 'estimated') then 'estimated'
+              when bool_or(basis = 'derived')   then 'derived'
+              when bool_or(basis = 'measured')  then 'measured'
+         end                                         as standard_rate_basis,
+         jsonb_agg(jsonb_build_object(
+                     'variant',       variant,
+                     'units',         units,
+                     'standard_rate', rate,
+                     'basis',         basis)
+                   order by variant nulls last)      as variant_breakdown
+  from priced
+  group by 1
+),
+payroll as (
+  -- date_trunc, NOT the raw column. ledger_02_cost.sql:81 declares
+  -- `period_month date not null` with no first-of-month constraint, and the
+  -- unique index is on (period_month, category, coalesce(vendor,'')) -- so
+  -- September payroll entered as 2026-09-15 is a perfectly legal row. Grouped
+  -- raw it would become a phantom month that joins to nothing, and September
+  -- would read "payroll not entered" while the payroll sat in the table. Same
+  -- reasoning, at length, at the `overhead` CTE in pnl_monthly above.
+  select date_trunc('month', period_month)::date as period_month,
+         sum(amount)                             as direct_labor
+  from operating_costs
+  where allocation = 'direct_labor'
+  group by 1
+),
+months as (
+  -- UNION, not "pick months left-joined to payroll". A month with payroll and
+  -- no picks -- a shutdown month, or simply any month where payroll is entered
+  -- before the charge calculator has run -- is 100%-unabsorbed labour, the
+  -- largest unfavourable variance there is. Drawn from the pick side alone it
+  -- would produce no row at all and be invisible.
+  select period_month from picked
+  union
+  select period_month from payroll
+)
+select m.period_month,
+       -- 0, not null: `picked` has no row for this month because order_charges
+       -- holds no pick charge in it, which is a measured zero, not an unknown.
+       coalesce(p.units_picked, 0)                as units_picked,
+       coalesce(p.unattributable_pick_charges, 0) as unattributable_pick_charges,
+       -- null, not 0: payroll for a month nobody has entered is UNKNOWN, and a
+       -- 0 here would report the entire standard cost as a favourable variance
+       -- -- a large fictitious saving. Nobody files a bug about a number that
+       -- flatters them.
+       r.direct_labor,
+       case when coalesce(p.any_rate_missing, false) then null
+            when p.units_picked > 0 then p.standard_cost / p.units_picked
+       end                                        as standard_rate,
+       case when coalesce(p.any_rate_missing, false) then null
+            else p.standard_rate_basis
+       end                                        as standard_rate_basis,
+       case when p.units_picked > 0 and r.direct_labor is not null
+            then r.direct_labor / p.units_picked
+       end                                        as implied_actual_rate,
+       p.variant_breakdown
+from months m
+left join picked  p on p.period_month = m.period_month
+left join payroll r on r.period_month = m.period_month
+order by m.period_month desc;
+
+-- ---------------------------------------------------------------------------
+-- Lock the five views to the service role.
 --
 -- Without this block, applying this file PUBLISHES every client's name,
 -- monthly label spend, cost and gross margin to anyone who opens devtools on
@@ -409,7 +582,7 @@ full outer join overhead o on o.period_month = r.period_month;
 --      RLS context of its OWNER. In the Supabase SQL editor that owner is
 --      `postgres`, which owns those tables, and a table owner is exempt from
 --      its own RLS unless FORCE ROW LEVEL SECURITY is set -- it is not, here or
---      anywhere. So these four views would read the base tables with RLS
+--      anywhere. So these five views would read the base tables with RLS
 --      switched off and hand the result to whoever asked.
 --   3. Supabase's bootstrap runs ALTER DEFAULT PRIVILEGES IN SCHEMA public
 --      GRANT ALL ON TABLES TO anon, authenticated, service_role, and that
@@ -457,11 +630,12 @@ full outer join overhead o on o.period_month = r.period_month;
 -- at; the verification block below closes that gap from the other end instead.
 do $$
 begin
-  alter view public.pick_days          set (security_invoker = true);
-  alter view public.leaks_monthly      set (security_invoker = true);
-  alter view public.pnl_client_monthly set (security_invoker = true);
-  alter view public.pnl_monthly        set (security_invoker = true);
-  raise notice 'security_invoker set on all four views.';
+  alter view public.pick_days              set (security_invoker = true);
+  alter view public.leaks_monthly          set (security_invoker = true);
+  alter view public.pnl_client_monthly     set (security_invoker = true);
+  alter view public.pnl_monthly            set (security_invoker = true);
+  alter view public.labour_variance_inputs set (security_invoker = true);
+  raise notice 'security_invoker set on all five views.';
 exception when others then
   raise notice 'security_invoker could NOT be set. SQLSTATE %: %. '
                'Most likely this server predates Postgres 15, which is where the '
@@ -482,7 +656,7 @@ end $$;
 -- NOTE: `c.relnamespace = 'public'::regnamespace` hard-codes the `public`
 -- schema. The DDL above uses the same schema (`public.pick_days` etc.), so the
 -- two agree. If the views were ever moved to a different schema the check would
--- report all four missing while the `alter`s had in fact succeeded -- a false
+-- report all five missing while the `alter`s had in fact succeeded -- a false
 -- alarm. Keep the DDL and this check in the same schema.
 do $$
 declare missing text;
@@ -491,7 +665,8 @@ begin
                     coalesce(c.reloptions::text, 'NULL') || ')',
                     ', ' order by v.name) into missing
   from unnest(array['pick_days', 'leaks_monthly',
-                    'pnl_client_monthly', 'pnl_monthly']) as v(name)
+                    'pnl_client_monthly', 'pnl_monthly',
+                    'labour_variance_inputs']) as v(name)
   left join pg_class c on c.relname = v.name
                       and c.relnamespace = 'public'::regnamespace
   where coalesce((select o.option_value::boolean
@@ -512,7 +687,7 @@ begin
                  'not appearing in pg_class at all means the create failed.)',
                  missing;
   else
-    raise notice 'Verified: security_invoker is set on all four views.';
+    raise notice 'Verified: security_invoker is set on all five views.';
   end if;
 exception when others then
   raise notice 'Could not verify security_invoker (SQLSTATE %: %). Treat the '
@@ -520,15 +695,17 @@ exception when others then
                'authenticated.', sqlstate, sqlerrm;
 end $$;
 
-revoke all on public.pick_days          from anon, authenticated;
-revoke all on public.leaks_monthly      from anon, authenticated;
-revoke all on public.pnl_client_monthly from anon, authenticated;
-revoke all on public.pnl_monthly        from anon, authenticated;
+revoke all on public.pick_days              from anon, authenticated;
+revoke all on public.leaks_monthly          from anon, authenticated;
+revoke all on public.pnl_client_monthly     from anon, authenticated;
+revoke all on public.pnl_monthly            from anon, authenticated;
+revoke all on public.labour_variance_inputs from anon, authenticated;
 
-grant select on public.pick_days          to service_role;
-grant select on public.leaks_monthly      to service_role;
-grant select on public.pnl_client_monthly to service_role;
-grant select on public.pnl_monthly        to service_role;
+grant select on public.pick_days              to service_role;
+grant select on public.leaks_monthly          to service_role;
+grant select on public.pnl_client_monthly     to service_role;
+grant select on public.pnl_monthly            to service_role;
+grant select on public.labour_variance_inputs to service_role;
 
 -- Third guard: confirm the revoke actually closed the exposure. `security_invoker`
 -- is the RLS guard; `revoke` is the guard that closes the ledger tables that have
@@ -545,7 +722,8 @@ declare still_open text;
 begin
   select string_agg(v.name, ', ' order by v.name) into still_open
   from unnest(array['public.pick_days', 'public.leaks_monthly',
-                    'public.pnl_client_monthly', 'public.pnl_monthly']) as v(name)
+                    'public.pnl_client_monthly', 'public.pnl_monthly',
+                    'public.labour_variance_inputs']) as v(name)
   where has_table_privilege('anon', v.name, 'SELECT');
 
   if still_open is not null then
@@ -556,11 +734,46 @@ begin
                  'public anon key.',
                  still_open;
   else
-    raise notice 'Verified: anon cannot SELECT from any of the four views.';
+    raise notice 'Verified: anon cannot SELECT from any of the five views.';
   end if;
 exception when others then
   raise notice 'Could not verify anon privilege (SQLSTATE %: %). The `anon` '
                'role may not exist on this server. Confirm manually that anon '
-               'cannot select from the four views before treating the file as '
+               'cannot select from the five views before treating the file as '
                'applied.', sqlstate, sqlerrm;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- OPERATOR CHECK for labour_variance_inputs. Run this after the paste and read
+-- the result; it cannot be run from the test suite, which has no database.
+--
+-- 1. `direct_labor` MUST be null on every row until operating_costs carries a
+--    direct_labor line. If it comes back 0.00, something is substituting zero
+--    for unknown, and the screen will report the entire standard cost as a
+--    favourable variance -- a large fictitious saving. Find it before shipping.
+-- 2. `standard_rate` is the units-weighted blend of the per-variant rates. Sanity
+--    check it against variant_breakdown: it must fall between the smallest and
+--    largest rate in that array, and equal one of them when only one variant was
+--    picked. A rate outside that interval means the weighting is wrong.
+-- 3. `standard_rate_basis` reads 'estimated' while ledger_06_seed_cost_rates.sql
+--    is the only source of pick rates. Anything else means someone re-baselined;
+--    confirm that was intended before the screen drops the estimate caveat.
+-- 4. `unattributable_pick_charges` MUST be 0. A non-zero count is pick charges
+--    whose rate_id does not resolve to a rate-card variant; the view correctly
+--    nulls that month's standard_rate rather than guessing, but the charges
+--    themselves need repairing at the source.
+-- 5. A month appearing with units_picked = 0 and a direct_labor figure is real
+--    and important: payroll was paid and nothing was picked, so none of it was
+--    absorbed. It is not a bug in this query.
+--
+-- Left COMMENTED OUT deliberately. The Supabase SQL editor shows the result of
+-- the last statement in a paste, so a live select here would replace the
+-- security notices raised by the three verification blocks above with a result
+-- grid -- burying the one output of this file nobody may skip. Run it as its own
+-- submission after the paste.
+-- ---------------------------------------------------------------------------
+-- select period_month, units_picked, unattributable_pick_charges, direct_labor,
+--        standard_rate, standard_rate_basis, implied_actual_rate,
+--        variant_breakdown
+-- from labour_variance_inputs
+-- order by period_month desc;

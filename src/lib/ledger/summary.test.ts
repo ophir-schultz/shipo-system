@@ -11,15 +11,20 @@ const {
   netProfitUnavailableReason,
   threeMonthWindowStart,
   fmtMonth,
+  mapVarianceRows,
+  varianceUnavailableReason,
+  varianceUnavailableText,
   PICK_ROW_LIMIT,
 } = await import('@/lib/ledger/summary')
 
 type MonthlyRow = Parameters<typeof netProfitUnavailableReason>[0]
+type VarianceInputRow = Parameters<typeof mapVarianceRows>[0][number]
 
 /** Every view the summary reads, so an unseeded one cannot look like a failure. */
 function seed(over: Partial<Record<string, Record<string, unknown>[]>> = {}) {
   h.db = createFakeSupabase({
     leaks_monthly: [], pnl_monthly: [], pnl_client_monthly: [], pick_days: [],
+    labour_variance_inputs: [],
     ...over,
   })
 }
@@ -134,7 +139,7 @@ describe('netProfitUnavailableReason', () => {
 describe('getLedgerSummary', () => {
   const NOW = new Date('2026-09-15T12:00:00')
 
-  it('reads all four views and returns the errors array', async () => {
+  it('reads all five views and returns the errors array', async () => {
     const s = await getLedgerSummary(NOW)
     expect(s.errors).toEqual([])
     const tables = h.db.calls.map((c) => c.table)
@@ -142,6 +147,7 @@ describe('getLedgerSummary', () => {
     expect(tables).toContain('pnl_monthly')
     expect(tables).toContain('pnl_client_monthly')
     expect(tables).toContain('pick_days')
+    expect(tables).toContain('labour_variance_inputs')
   })
 
   it('names the view in every error rather than returning a bare message', async () => {
@@ -189,7 +195,7 @@ describe('getLedgerSummary', () => {
 
   it('asks for an exact count on every query', async () => {
     await getLedgerSummary(NOW)
-    expect(h.db.calls).toHaveLength(5)
+    expect(h.db.calls).toHaveLength(6)
     for (const call of h.db.calls) {
       expect(call.count, `${call.table} was read without a count`).toBe('exact')
     }
@@ -206,5 +212,215 @@ describe('getLedgerSummary', () => {
     const s = await getLedgerSummary(NOW)
     expect(s.clients.map((r) => `${r.client_name}/${r.charge_type}`))
       .toEqual(['Alpha/pick', 'Alpha/ship', 'Beta/pick'])
+  })
+
+  it('names labour_variance_inputs when IT is the view that failed', async () => {
+    h.db.failOn = (call) =>
+      call.table === 'labour_variance_inputs' ? { message: 'relation does not exist' } : null
+    const s = await getLedgerSummary(NOW)
+    expect(s.errors).toEqual(['labour_variance_inputs: relation does not exist'])
+    // An empty variance section must be the consequence of a NAMED error, not
+    // a silent one that reads as "no variance to report".
+    expect(s.variance).toEqual([])
+  })
+
+  it('maps the variance rows it reads rather than returning them raw', async () => {
+    seed({
+      labour_variance_inputs: [
+        { ...varianceInput({ period_month: '2026-09-01', direct_labor: 260, standard_rate: 0.23, units_picked: 1000 }) },
+      ],
+    })
+    const s = await getLedgerSummary(NOW)
+    expect(s.variance).toHaveLength(1)
+    expect(s.variance[0].absorbed).toBeCloseTo(230, 10)
+    expect(s.variance[0].variance).toBeCloseTo(30, 10)
+    expect(s.counts.variance).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The labour variance, §5.3.2. The single defect this whole section exists to
+// prevent: a missing payroll figure rendered as $0.00, which reports the entire
+// standard cost as a favourable variance -- a large fictitious saving.
+// ---------------------------------------------------------------------------
+
+const varianceInput = (over: Partial<VarianceInputRow> = {}): VarianceInputRow => ({
+  period_month: '2026-09-01',
+  units_picked: 1000,
+  unattributable_pick_charges: 0,
+  direct_labor: 260,
+  standard_rate: 0.23,
+  standard_rate_basis: 'estimated',
+  implied_actual_rate: 0.26,
+  variant_breakdown: [
+    { variant: 'device', units: 1000, standard_rate: 0.23, basis: 'estimated' },
+  ],
+  ...over,
+})
+
+describe('mapVarianceRows', () => {
+  it('reports a missing payroll figure as UNKNOWN, never as a zero-dollar variance', () => {
+    // The defect this guards: direct_labor null coalesced to 0 gives
+    // variance = 0 - 230 = -230, a $230 "saving" that never happened, sitting
+    // in green beside a month nobody has entered payroll for.
+    const [row] = mapVarianceRows([varianceInput({ direct_labor: null, implied_actual_rate: null })])
+
+    expect(row.basis).toBe('unavailable')
+    expect(row.variance).toBeNull()
+    expect(row.direct_labor).toBeNull()
+    // absorbed is still knowable -- the standard rate and the units are both
+    // present -- and reporting it is how the reader sees what the payroll will
+    // be compared against.
+    expect(row.absorbed).toBeCloseTo(230, 10)
+  })
+
+  it('renders that month as the not-computable text and not as a dollar figure', () => {
+    // This is the string Step 4 of the brief demands the screen show today,
+    // asserted here because vitest cannot reach the .tsx page.
+    const [row] = mapVarianceRows([varianceInput({ direct_labor: null })])
+
+    expect(varianceUnavailableText(row)).toBe('not computable — payroll not entered')
+    expect(varianceUnavailableText(row)).not.toContain('$')
+    expect(varianceUnavailableText(row)).not.toContain('0.00')
+  })
+
+  it('does NOT suppress a genuine zero payroll, which means FREE and not UNKNOWN', () => {
+    // The mirror of the test above, and the reason `== null` rather than
+    // falsiness is used throughout. A month that genuinely cost nothing in
+    // direct labour has a computable, fully favourable variance.
+    const [row] = mapVarianceRows([varianceInput({ direct_labor: 0 })])
+
+    expect(row.basis).toBe('measured')
+    expect(row.variance).toBeCloseTo(-230, 10)
+    expect(varianceUnavailableText(row)).toBeNull()
+  })
+
+  it('reports an overspend as POSITIVE, so the sign convention cannot be inverted', () => {
+    // variance = actualCost - absorbed. Positive is unfavourable. A screen that
+    // painted this green would show an overspend as a gain.
+    const [over] = mapVarianceRows([varianceInput({ direct_labor: 300 })])
+    const [under] = mapVarianceRows([varianceInput({ direct_labor: 200 })])
+
+    expect(over.variance).toBeGreaterThan(0)
+    expect(under.variance).toBeLessThan(0)
+  })
+
+  it('leaves the variance uncomputable when the month has no standard rate', () => {
+    // R25: a variant with picks and no rate in effect nulls the whole month's
+    // rate in the view. Averaging over the covered variants only would
+    // understate absorbed and invent an unfavourable variance.
+    const [row] = mapVarianceRows([varianceInput({
+      standard_rate: null, standard_rate_basis: null,
+      variant_breakdown: [
+        { variant: 'device', units: 600, standard_rate: 0.23, basis: 'estimated' },
+        { variant: 'component', units: 400, standard_rate: null, basis: null },
+      ],
+    })])
+
+    expect(row.basis).toBe('unavailable')
+    expect(row.absorbed).toBeNull()
+    expect(row.variance).toBeNull()
+    expect(varianceUnavailableText(row))
+      .toBe('not computable — no standard pick rate in effect for every variant picked')
+  })
+
+  it('survives a payroll-only month instead of throwing on its zero quantity', () => {
+    // R22: payroll entered before the charge calculator has run. The view emits
+    // units_picked = 0 rather than dropping the month, and this must not throw.
+    const [row] = mapVarianceRows([varianceInput({
+      units_picked: 0, standard_rate: null, standard_rate_basis: null,
+      implied_actual_rate: null, variant_breakdown: null,
+    })])
+
+    expect(row.units_picked).toBe(0)
+    expect(row.basis).toBe('unavailable')
+    expect(varianceUnavailableText(row)).toContain('none of the payroll was absorbed')
+  })
+
+  it('never throws on a quantity labourVariance would reject', () => {
+    // labourVariance raises a RangeError on a negative or non-finite quantity,
+    // and this runs inside a Server Component render -- an uncaught throw takes
+    // the whole /ledger screen down, losing the leaks table over one bad row.
+    for (const units of [-5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const [row] = mapVarianceRows([varianceInput({ units_picked: units })])
+      expect(row.basis, `units_picked=${units}`).toBe('unavailable')
+      expect(row.variance).toBeNull()
+      // And it must NOT collapse to a measured zero, which would claim nothing
+      // was picked and report the entire payroll as unabsorbed.
+      expect(row.units_picked, `units_picked=${units}`).toBeNull()
+      expect(varianceUnavailableText(row))
+        .toBe('not computable — the units picked figure for this month is not a usable count')
+    }
+  })
+
+  it('names both causes when payroll AND the standard rate are missing', () => {
+    const [row] = mapVarianceRows([varianceInput({
+      direct_labor: null, standard_rate: null, standard_rate_basis: null,
+      implied_actual_rate: null,
+    })])
+
+    const reason = varianceUnavailableReason(row)
+    expect(reason).toContain('payroll not entered')
+    expect(reason).toContain('standard pick rate')
+  })
+
+  it('names unattributable pick charges as the cause rather than blaming the rate card', () => {
+    // R21: a pick charge with a null rate_id is COUNTED and nulls the month's
+    // rate. Dropping it would shrink units_picked and invent an overspend.
+    const [row] = mapVarianceRows([varianceInput({
+      unattributable_pick_charges: 3, standard_rate: null, standard_rate_basis: null,
+    })])
+
+    expect(row.unattributable_pick_charges).toBe(3)
+    expect(varianceUnavailableReason(row)).toContain('3 pick charges carry no rate-card variant')
+  })
+
+  it('keeps standard_rate_basis from the VIEW, not from labourVariance', () => {
+    // R24: variance.ts returns basis 'measured' whenever both inputs are
+    // present, because it has no way to know the rate is a placeholder. Every
+    // pick rate is 'estimated' today, so reading VarianceResult.basis for the
+    // caveat would label a placeholder-derived figure measured.
+    const [row] = mapVarianceRows([varianceInput()])
+
+    expect(row.basis).toBe('measured')
+    expect(row.standard_rate_basis).toBe('estimated')
+  })
+
+  it('never returns an empty reason on any shape that produces "unavailable"', () => {
+    // Same contract as netProfitUnavailableReason: the screen prints this after
+    // "not computable — " and a blank leaves a dangling dash.
+    const shapes: VarianceInputRow[] = [
+      varianceInput({ direct_labor: null }),
+      varianceInput({ standard_rate: null }),
+      varianceInput({ direct_labor: null, standard_rate: null }),
+      varianceInput({ units_picked: 0, standard_rate: null }),
+      varianceInput({ units_picked: 0, standard_rate: null, direct_labor: null }),
+      varianceInput({ unattributable_pick_charges: 1, standard_rate: null }),
+      varianceInput({ units_picked: -1 }),
+      varianceInput({ units_picked: Number.NaN, direct_labor: null }),
+      varianceInput({ units_picked: null, standard_rate: null }),
+    ]
+    for (const shape of shapes) {
+      const [row] = mapVarianceRows([shape])
+      expect(row.basis, JSON.stringify(shape)).toBe('unavailable')
+      const text = varianceUnavailableText(row)
+      expect(text, JSON.stringify(shape)).toBeTruthy()
+      expect(text!.endsWith('— ')).toBe(false)
+    }
+  })
+
+  it('coerces numeric strings without turning a null into a zero', () => {
+    // PostgREST may hand numerics back as strings depending on client version.
+    // The conversion must not be a blanket Number(), which maps null to 0.
+    const [row] = mapVarianceRows([{
+      ...varianceInput(),
+      units_picked: '1000' as unknown as number,
+      direct_labor: '260.00' as unknown as number,
+      standard_rate: '0.2300' as unknown as number,
+    }])
+
+    expect(row.units_picked).toBe(1000)
+    expect(row.absorbed).toBeCloseTo(230, 10)
+    expect(row.variance).toBeCloseTo(30, 10)
   })
 })

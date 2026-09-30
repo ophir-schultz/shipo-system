@@ -1,4 +1,4 @@
-// The four ledger views, read once, shared by the two things that read them:
+// The five ledger views, read once, shared by the two things that read them:
 // the /ledger screen (a Server Component, which imports this function directly)
 // and GET /api/ledger/summary (kept because a later piece of this programme
 // mails a daily digest from it).
@@ -19,6 +19,7 @@
 // exist so the screen can never present a truncated table as a complete one.
 
 import { supabaseAdmin } from '@/lib/supabase'
+import { labourVariance } from '@/lib/ledger/variance'
 
 /**
  * How many pick_days rows we ask for. Explicit, so the screen can say "capped
@@ -90,6 +91,62 @@ export interface PickRow {
   confidence: number | null
 }
 
+/** One variant's contribution to a month, straight off the view's jsonb column. */
+export interface VarianceVariant {
+  /** null = pick charges whose rate_id resolved to no rate-card variant. */
+  variant: string | null
+  units: number | null
+  /** null = no cost_rates row covers this variant in this month. */
+  standard_rate: number | null
+  basis: string | null
+}
+
+/** A row of labour_variance_inputs, as the view emits it. */
+export interface VarianceInputRow {
+  period_month: string
+  units_picked: number | null
+  /** Pick charges with no resolvable rate-card variant. > 0 nulls standard_rate. */
+  unattributable_pick_charges: number | null
+  /** null = payroll for this month has not been entered. NEVER read as zero. */
+  direct_labor: number | null
+  /**
+   * The UNITS-WEIGHTED standard rate across the variants picked this month, or
+   * null if any variant picked has no rate in effect. See the long comment on
+   * the view: an average over only the covered subset understates absorbed and
+   * invents an unfavourable variance.
+   */
+  standard_rate: number | null
+  /**
+   * The weakest basis among the contributing rates. Read this, NOT
+   * VarianceResult.basis, to decide whether to caveat the figure as estimated:
+   * variance.ts:39 returns 'measured' whenever both inputs are present, because
+   * it cannot know the rate it was handed is a placeholder. Every pick rate is
+   * 'estimated' today (ledger_06_seed_cost_rates.sql).
+   */
+  standard_rate_basis: 'measured' | 'derived' | 'estimated' | null
+  implied_actual_rate: number | null
+  variant_breakdown: VarianceVariant[] | null
+}
+
+/** A view row with labourVariance() applied. */
+export interface VarianceRow extends VarianceInputRow {
+  /**
+   * 0 means a measured zero — the view coalesces a month with no pick charges
+   * to it. null means the view handed back something that is not a usable
+   * count, which is UNKNOWN and is not silently read as "nothing was picked".
+   */
+  units_picked: number | null
+  unattributable_pick_charges: number
+  absorbed: number | null
+  /**
+   * actualCost - absorbed, so POSITIVE IS UNFAVOURABLE: we spent more than
+   * standard. Do not colour it with the margin palette, which paints positive
+   * green.
+   */
+  variance: number | null
+  basis: 'measured' | 'estimated' | 'unavailable'
+}
+
 /**
  * Total rows matching each query on the server, independent of how many came
  * back. `null` means the count itself failed. Where a count exceeds the rows
@@ -103,6 +160,7 @@ export interface LedgerCounts {
   monthly: number | null
   clients: number | null
   picks: number | null
+  variance: number | null
 }
 
 export interface LedgerSummary {
@@ -117,6 +175,12 @@ export interface LedgerSummary {
   monthly: MonthlyRow[]
   clients: ClientRow[]
   picks: PickRow[]
+  /**
+   * The §5.3.2 held-standard labour variance, one row per month, with the
+   * components it was computed from. A SECONDARY signal: the standard rate it
+   * rests on is itself an estimate until piece 2 reconciles against actual bills.
+   */
+  variance: VarianceRow[]
   counts: LedgerCounts
   errors: string[]
 }
@@ -226,11 +290,137 @@ export function confidenceLabel(n: number | null): string {
 }
 
 // ---------------------------------------------------------------------------
+// The labour variance mapping. Pure, exported and kept in this .ts module on
+// purpose: vitest only collects src/**/*.test.ts, so nothing inside the .tsx
+// page is reachable by a test. The one thing this feature must never get wrong
+// -- rendering a missing payroll figure as $0.00 -- is therefore only provable
+// if the decision lives here.
+// ---------------------------------------------------------------------------
+
+/**
+ * `numeric` columns arrive from PostgREST as JSON numbers, but the conversion
+ * is asserted rather than assumed. null and undefined stay null: this is the
+ * one function in the chain where coalescing to 0 would turn UNKNOWN into FREE.
+ */
+function num(v: unknown): number | null {
+  if (v === null || v === undefined) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * Run each view row through labourVariance(). The subtraction itself is NOT
+ * duplicated here -- variance.ts stays the only implementation of it.
+ *
+ * Total, never throws. labourVariance() raises a RangeError on a negative or
+ * non-finite quantity, and this runs inside a Server Component's render: an
+ * uncaught throw would take the whole /ledger screen down, losing the leaks
+ * table over one malformed charge. A bad quantity becomes 'unavailable' with a
+ * named cause instead.
+ */
+export function mapVarianceRows(rows: VarianceInputRow[]): VarianceRow[] {
+  return (rows ?? []).map((r) => {
+    const standardRate = num(r.standard_rate)
+    const actualCost = num(r.direct_labor)
+
+    // An ABSENT units_picked becomes 0, because the view emits a measured zero
+    // for a month with no pick charges (`coalesce(p.units_picked, 0)`) and a
+    // null can only arrive if every pick charge in the month carried a null
+    // quantity, which no writer in this codebase produces. A PRESENT but
+    // unusable value -- NaN, Infinity, negative -- is a different thing and
+    // must not collapse to the same 0: that would claim nothing was picked and
+    // report the whole payroll as unabsorbed.
+    const raw = r.units_picked
+    const parsed = raw === null || raw === undefined ? 0 : Number(raw)
+    const quantity = Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+
+    const v =
+      quantity === null
+        ? { absorbed: null, variance: null, basis: 'unavailable' as const }
+        : labourVariance({ actualCost, standardRate, quantity })
+
+    return {
+      ...r,
+      units_picked: quantity,
+      unattributable_pick_charges: num(r.unattributable_pick_charges) ?? 0,
+      direct_labor: actualCost,
+      standard_rate: standardRate,
+      implied_actual_rate: num(r.implied_actual_rate),
+      variant_breakdown: r.variant_breakdown ?? null,
+      absorbed: v.absorbed,
+      variance: v.variance,
+      basis: v.basis,
+    }
+  })
+}
+
+/**
+ * Why the variance could not be computed, in words that are TRUE on every path
+ * that produces `basis: 'unavailable'`. Same contract as
+ * netProfitUnavailableReason: call only when the variance is unavailable, and
+ * it never returns empty, because the screen prints it after "not computable —"
+ * and a blank would leave a dangling dash.
+ *
+ * There are two independent families of cause and they can co-occur, so both
+ * are named rather than the first one found. The previous generation of this
+ * mistake on this screen was a tooltip asserting a cause the row contradicted.
+ */
+export function varianceUnavailableReason(row: VarianceRow): string {
+  const causes: string[] = []
+
+  if (row.direct_labor === null) causes.push('payroll not entered')
+
+  if (row.units_picked === null) {
+    causes.push('the units picked figure for this month is not a usable count')
+  }
+
+  if (row.standard_rate === null) {
+    if (row.unattributable_pick_charges > 0) {
+      const n = row.unattributable_pick_charges
+      causes.push(
+        `${n} pick ${n === 1 ? 'charge carries' : 'charges carry'} no rate-card variant, `
+        + 'so no standard rate can be chosen',
+      )
+    } else if (row.units_picked === 0) {
+      causes.push(
+        row.direct_labor === null
+          ? 'no pick charges this month, so there is no standard rate to weight'
+          : 'no pick charges this month, so none of the payroll was absorbed — '
+            + 'the whole amount is unfavourable',
+      )
+    } else {
+      causes.push('no standard pick rate in effect for every variant picked')
+    }
+  }
+
+  if (causes.length === 0) {
+    // Unreachable against the view as written: every path to 'unavailable' runs
+    // through a null payroll, a null standard rate or an unusable unit count,
+    // all three of which are named above. Kept, and kept truthful, because the
+    // alternative is printing "not computable — " with nothing after it.
+    return 'the cause is not one this screen can name'
+  }
+
+  return causes.join('; ')
+}
+
+/**
+ * The full text for a variance cell that has no figure, or null when a figure
+ * should be rendered instead. Composed here rather than in the page so the
+ * exact string a reader sees is covered by a test — a zero variance and an
+ * unknown variance look identical on a screen and mean opposite things.
+ */
+export function varianceUnavailableText(row: VarianceRow): string | null {
+  if (row.basis !== 'unavailable') return null
+  return `not computable — ${varianceUnavailableReason(row)}`
+}
+
+// ---------------------------------------------------------------------------
 // The query
 // ---------------------------------------------------------------------------
 
 /**
- * Read the four views for the last three months, plus the undated leak bucket.
+ * Read the five views for the last three months, plus the undated leak bucket.
  *
  * Every query asks for an exact count so the caller can tell a short table from
  * a truncated one. Every query carries a stable secondary sort: ordering on the
@@ -244,7 +434,7 @@ export function confidenceLabel(n: number | null): string {
 export async function getLedgerSummary(now: Date = new Date()): Promise<LedgerSummary> {
   const from = threeMonthWindowStart(now)
 
-  const [leaks, leaksUndated, monthly, clients, picks] = await Promise.all([
+  const [leaks, leaksUndated, monthly, clients, picks, variance] = await Promise.all([
     // leaks_monthly, dated. Grouped by (period_month, client_id, leak), so
     // those three together are a stable total order.
     supabaseAdmin.from('leaks_monthly').select('*', { count: 'exact' })
@@ -293,9 +483,25 @@ export async function getLedgerSummary(now: Date = new Date()): Promise<LedgerSu
       .order('sku', { ascending: true })
       .order('client_id', { ascending: true, nullsFirst: false })
       .limit(PICK_ROW_LIMIT),
+
+    // labour_variance_inputs is one row per period_month (the `months` union it
+    // joins onto is distinct), so period_month alone is already a total order.
+    //
+    // NO UNDATED COMPANION ARRAY IS NEEDED HERE, and that is a checked claim
+    // rather than an oversight -- contrast leaksUndated above, which exists
+    // because `null >= from` is null and a gte filter silently drops a whole
+    // null bucket. Both sides of this view are NOT NULL at the source:
+    // order_charges.charge_date is `date not null` (ledger_03_charges.sql:74)
+    // and operating_costs.period_month is `date not null`
+    // (ledger_02_cost.sql:81). date_trunc of a non-null date is non-null, and
+    // the `months` union draws from nothing else, so no row of this view can
+    // carry a null period_month for the filter to drop.
+    supabaseAdmin.from('labour_variance_inputs').select('*', { count: 'exact' })
+      .gte('period_month', from)
+      .order('period_month', { ascending: false }),
   ])
 
-  // Name the view beside the message. With five queries, a bare Postgres error
+  // Name the view beside the message. With six queries, a bare Postgres error
   // string does not say which table went missing.
   const errors: string[] = []
   const named: Array<[string, { error: { message: string } | null }]> = [
@@ -304,6 +510,7 @@ export async function getLedgerSummary(now: Date = new Date()): Promise<LedgerSu
     ['pnl_monthly', monthly],
     ['pnl_client_monthly', clients],
     ['pick_days', picks],
+    ['labour_variance_inputs', variance],
   ]
   for (const [name, res] of named) {
     if (res.error) errors.push(`${name}: ${res.error.message}`)
@@ -315,12 +522,14 @@ export async function getLedgerSummary(now: Date = new Date()): Promise<LedgerSu
     monthly: (monthly.data ?? []) as MonthlyRow[],
     clients: (clients.data ?? []) as ClientRow[],
     picks: (picks.data ?? []) as PickRow[],
+    variance: mapVarianceRows((variance.data ?? []) as VarianceInputRow[]),
     counts: {
       leaks: leaks.count ?? null,
       leaksUndated: leaksUndated.count ?? null,
       monthly: monthly.count ?? null,
       clients: clients.count ?? null,
       picks: picks.count ?? null,
+      variance: variance.count ?? null,
     },
     errors,
   }
