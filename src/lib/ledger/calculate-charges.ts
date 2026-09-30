@@ -189,8 +189,25 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // nothing to match an empty string against.
     if (!s.shipDate) continue
 
+    // NO `continue` HERE. `if (!rate) continue` dropped the whole row, and with
+    // it `s.actualCost` — money that genuinely left the bank. The charge never
+    // reached order_charges, so the P&L was flattered by exactly that freight,
+    // and nothing downstream could notice: all six branches of leaks_monthly
+    // detect under-billing or negative margin, none detects a cost that is
+    // simply absent from the table. A flattering error with no detector is
+    // silent forever, which is the one kind this ledger cannot tolerate.
+    //
+    // Spec §7, Pricing: "No rate card line for a charge — charge recorded with
+    // amount = null and flagged, never silently zero. Zero revenue and unknown
+    // revenue are different facts." So the row is raised with the cost intact
+    // and the REVENUE null, which is the truth: we paid this, and nobody has
+    // yet told us what to bill for it. It is treated the same way the at-cost
+    // branch below already treats an unreported carrier cost.
+    //
+    // This also fires for a card whose shipping line has EXPIRED, which is the
+    // likelier production trigger — `rateFor` is dated, so an effective_to that
+    // has passed silently unpriced every label from that day on.
     const rate = rateFor('shipping', null, s.shipDate)
-    if (!rate) continue
 
     // shipstation_shipment_id is nullable in the database, and String(null) is
     // the string 'null'. Every unidentified label on one order would therefore
@@ -212,6 +229,20 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // have no evidence we paid anything — but it is a blind spot, not coverage.
     if (!Number.isFinite(s.shipmentId)) continue
 
+    // Named here rather than beside the lookup so that one warning corresponds
+    // to one row actually written: a shipment with no stable id has already
+    // `continue`d above for a different and more serious reason, and reporting
+    // it as unpriced as well would send someone to fix the rate card when the
+    // problem is the shipment id. `onWarn` is the same channel the ambiguous
+    // rate card uses, and persist-charges.ts funnels it into sync_runs.errors.
+    if (!rate) {
+      onWarn?.('unpriced shipment', `client ${clientId ?? 'unattributed'}: `
+        + `no shipping rate is in effect on ${s.shipDate} for shipment `
+        + `${s.shipmentId}; the carrier cost `
+        + `${s.actualCost === null ? '(unreported)' : s.actualCost.toFixed(2)} is `
+        + `recorded and the amount left null (unknown, not zero)`)
+    }
+
     // A voided label was refunded, so it contributes nothing to measured cost.
     // It is counted in the voided-label leak line instead; leaving it in here
     // would overstate spend by the amount that came back.
@@ -224,7 +255,15 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // already refuses to make, and it understates revenue on every screen that
     // sums this table. A flat rate is unaffected: its amount is known whatever
     // the carrier eventually reports.
+    //
+    // `!rate` sits BELOW the voided test on purpose. A voided label is a known
+    // zero on both sides — the carrier refunded it, so we paid nothing and we
+    // bill nothing — and that is true whether or not the card prices shipping.
+    // Nulling it because the card is silent would manufacture an unknown out of
+    // a fact we have. Above the voided test, null is the only honest answer:
+    // nobody has agreed a price, so the revenue is not zero, it is unknown.
     const amount = s.voided ? 0
+                 : !rate ? null
                  : rate.rateType === 'at_cost' ? s.actualCost
                  : (rate.rate ?? 0)
 
@@ -235,11 +274,16 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
       charge_type: 'shipping',
       label: s.voided ? 'Shipping (voided)' : 'Shipping',
       quantity: 1,
-      unit_rate: rate.rate,
+      // `?? null` on both, not a fabricated stand-in. rate_id is a nullable FK
+      // to client_warehouse_rates (ledger_03_charges.sql:59), so "no rate card
+      // line" is representable — and it is exactly what makes this row
+      // recognisable later as one to go and price, rather than one that was
+      // priced at nothing.
+      unit_rate: rate?.rate ?? null,
       amount: amount === null ? null : cents(amount),
       cost: cost === null ? null : cents(cost),
       cost_basis: cost === null ? null : 'measured',
-      rate_id: rate.id,
+      rate_id: rate?.id ?? null,
       cost_rate_id: null,
       charge_date: s.shipDate,
       charge_date_source: 'ship_date',

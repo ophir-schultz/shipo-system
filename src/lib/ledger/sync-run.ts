@@ -61,7 +61,12 @@ export function collectErrors() {
 }
 
 export interface SyncRunHandle {
-  id: string | null
+  // Non-nullable. openSyncRun now throws rather than handing back a handle with
+  // no row behind it, so anything holding a SyncRunHandle holds a real
+  // 'running' row — which for source='charges' is the run LOCK itself. Nothing
+  // in the codebase reads this field; it is kept because a run id is the one
+  // thing you need to find the row in sync_runs while debugging.
+  id: string
   seen(n?: number): void
   wrote(n?: number): void
   fail(context: string, err: unknown): void
@@ -87,9 +92,26 @@ export async function openSyncRun(input: {
   // collectErrors() is the testable unit; openSyncRun() is exercised manually.
   const { supabaseAdmin } = await import('@/lib/supabase')
 
-  // If the bookkeeping row cannot be written, the sync still runs. Losing the
-  // audit trail is bad; refusing to sync because of it is worse. We log the
-  // error rather than silently eating it; the sync_runs row will just be absent.
+  // THE ROW IS NOT ONLY AN AUDIT TRAIL. For source='charges' the 'running' row
+  // IS the run lock: recalculateCharges gates on `select ... where source =
+  // 'charges' and status = 'running'` (persist-charges.ts:155-159) before it
+  // starts, and the charge run finishes by deleting every charge whose
+  // calculated_at predates its own cutoff. So a failed insert here did not cost
+  // us a log line — it left the lock SILENTLY ABSENT while the caller carried
+  // on believing it held one, and AutoSync polls this route every five minutes
+  // from every open browser tab. A second run starting in that window has a
+  // later cutoff than the first run's fresh rows and deletes them.
+  //
+  // Hence the throw. The earlier reasoning ("losing the audit trail is bad;
+  // refusing to sync because of it is worse") is sound for a pure audit row and
+  // wrong for a lock, and openSyncRun cannot tell from here which one it is
+  // writing. Throwing is the fail-safe default: a caller that genuinely does
+  // not need the row has to catch and say so, which zenventory.ts does per
+  // client, rather than a caller that needs the lock silently not getting one.
+  //
+  // It also keeps the error object alive. The old shape logged it and dropped
+  // it; close() then returned early on the null id and discarded errors.list()
+  // as well, so the run's entire error record went nowhere.
   const { data, error: openError } = await supabaseAdmin
     .from('sync_runs')
     .insert({
@@ -103,9 +125,25 @@ export async function openSyncRun(input: {
     .select('id')
     .maybeSingle()
 
-  if (openError) console.error('[openSyncRun] could not create sync_runs row:', openError)
+  if (openError) {
+    console.error('[openSyncRun] could not create sync_runs row:', openError)
+    throw new Error(
+      `openSyncRun(${input.source}): could not create the sync_runs row, so this `
+      + `run holds no lock and must not proceed: ${messageOf(openError)}`,
+      { cause: openError })
+  }
 
-  const id: string | null = data?.id ?? null
+  // A successful insert with no row back is the same hazard wearing different
+  // clothes: `data?.id ?? null` used to turn it into a null id, which is
+  // indistinguishable from the error case above and just as unlocked. PostgREST
+  // can return this when the insert is filtered out of the representation, so
+  // it is not merely theoretical.
+  const id: string | undefined = data?.id ?? undefined
+  if (!id) {
+    throw new Error(
+      `openSyncRun(${input.source}): the sync_runs insert reported no error but `
+      + `returned no id, so this run holds no lock and must not proceed.`)
+  }
 
   return {
     id,
@@ -117,7 +155,11 @@ export async function openSyncRun(input: {
       const resolved =
         status ?? (errors.count() === 0 ? 'ok'
                  : rowsWritten > 0 ? 'partial' : 'failed')
-      if (!id) return
+      // No `if (!id) return` any more. That early return was the second half of
+      // the same defect: with no row, close() threw away errors.list() -- every
+      // failure the run had recorded -- and reported nothing. `id` is now
+      // guaranteed by openSyncRun, which throws rather than returning a handle
+      // without one.
       const { supabaseAdmin: db } = await import('@/lib/supabase')
       const { error: closeError } = await db.from('sync_runs').update({
         finished_at: new Date().toISOString(),

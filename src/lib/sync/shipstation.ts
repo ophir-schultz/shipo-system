@@ -9,6 +9,13 @@ export async function syncShipments(daysBack = 30) {
   dateFrom.setDate(dateFrom.getDate() - daysBack)
   const dateStr = dateFrom.toISOString().split('T')[0]
 
+  // Deliberately NOT caught. openSyncRun throws if the sync_runs row cannot be
+  // written, and this sync is the one that writes shipment cost rows -- running
+  // it with no record of the run is how a partial ingest becomes invisible. All
+  // three callers already wrap this function in try/catch and surface the
+  // message (agent/monitor, api/sync/shipments, api/sync/all), so the throw is
+  // reported rather than lost. Contrast zenventory.ts, which catches at its
+  // per-client boundary so one client cannot abandon the others.
   const run = await openSyncRun({
     source: 'shipstation',
     mode: 'live',

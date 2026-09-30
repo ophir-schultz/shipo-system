@@ -45,13 +45,29 @@ export async function syncClientAssignments(daysBack = 30) {
     // (Nayax and Creative Pea) currently return 401 while their Zenventory 2.0
     // credentials are being restored; their rows will resolve to 'failed' while
     // the other clients' rows resolve to 'ok'.
-    const run = await openSyncRun({
-      source: 'zenventory',
-      clientId: client.id,
-      mode: 'live',
-      windowStart: modifiedFromISO.split('T')[0],
-      windowEnd: new Date().toISOString().split('T')[0],
-    })
+    //
+    // openSyncRun now THROWS if it cannot write that row. Here the row is audit
+    // only -- nothing gates on a 'zenventory' run being live, unlike the
+    // 'charges' run whose row is the lock itself -- but a client whose run
+    // cannot be recorded must not be silently skipped either, since attributable
+    // failure is the entire reason for the per-client rows. So it is caught at
+    // the same per-client boundary the 401s use: this client is named in
+    // clientErrors and the rest still sync. Letting it propagate would abandon
+    // every client after the first failure.
+    let run: Awaited<ReturnType<typeof openSyncRun>>
+    try {
+      run = await openSyncRun({
+        source: 'zenventory',
+        clientId: client.id,
+        mode: 'live',
+        windowStart: modifiedFromISO.split('T')[0],
+        windowEnd: new Date().toISOString().split('T')[0],
+      })
+    } catch (err: any) {
+      clientErrors.push(`${client.name}: could not open a sync_runs row, so this `
+        + `client was not synced (${err?.message ?? String(err)})`)
+      continue
+    }
 
     let page = 1
     let hasMore = true

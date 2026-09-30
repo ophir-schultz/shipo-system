@@ -215,6 +215,59 @@ describe('buildCharges', () => {
     ]})).toEqual([])
   })
 
+  // A shipment whose ship date falls outside every shipping line on the card —
+  // or a client whose card carries no shipping line at all — used to be dropped
+  // entirely, and with it the carrier cost we actually paid. The freight never
+  // reached order_charges, so the P&L was flattered by exactly that amount and
+  // nothing downstream could see it: every one of the six leaks in
+  // leaks_monthly detects under-billing or negative margin, none detects a cost
+  // that is simply absent. Spec §7 requires the opposite treatment — "charge
+  // recorded with amount = null and flagged, never silently zero".
+  //
+  // `toBeNull()`, NOT `toBeCloseTo(0, 2)`. `expect(null).toBeCloseTo(0, 2)`
+  // PASSES, so the tolerance form would assert nothing at all here and would go
+  // on passing against the very bug it was written to catch.
+  it('keeps the carrier cost and nulls the revenue when no shipping rate covers the date', () => {
+    const warnings: string[] = []
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-ship-expired', chargeType: 'shipping', variant: null,
+                        rate: null, rateType: 'at_cost',
+                        effectiveFrom: '2025-01-01', effectiveTo: '2026-01-01' })],
+      shipments: [{ id: 's3e', shipmentId: 561, shipDate: '2026-09-02', actualCost: 8.20, voided: false }],
+    }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+
+    expect(out).toHaveLength(1)
+    expect(out[0].charge_type).toBe('shipping')
+    expect(out[0].charge_key).toBe('shipment:561')
+    // The money we genuinely paid survives.
+    expect(out[0].cost).toBeCloseTo(8.20, 2)
+    expect(out[0].cost_basis).toBe('measured')
+    // The money we will bill is UNKNOWN, not zero.
+    expect(out[0].amount).toBeNull()
+    expect(out[0].unit_rate).toBeNull()
+    expect(out[0].rate_id).toBeNull()
+    // Measured carrier cost, so nothing here is an estimate.
+    expect(out[0].is_estimate).toBe(false)
+    // And it is named, so it reaches sync_runs.errors rather than dying here.
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('unpriced shipment')
+  })
+
+  // The same gap on a VOIDED label is not unknown revenue. The carrier refunded
+  // it, so we paid nothing and we bill nothing: both figures are a known zero,
+  // and nulling the amount here would invent a mystery where there is none.
+  it('bills a voided label at a known zero even with no shipping rate', () => {
+    const out = buildCharges({
+      ...base,
+      rateCard: [],
+      shipments: [{ id: 's3f', shipmentId: 562, shipDate: '2026-09-02', actualCost: 9.10, voided: true }],
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0].amount).toBeCloseTo(0, 2)
+    expect(out[0].cost).toBeCloseTo(0, 2)
+  })
+
   it('leaves cost null and flags an estimate when no cost rate covers the date', () => {
     const out = buildCharges({
       ...base,

@@ -96,12 +96,19 @@ const UPSERT_CHUNK = 500
 const DELETE_CHUNK = 200
 
 export type RecalculateResult =
-  | { skipped: true; cause: 'lock' | 'gate-unreadable' | 'throttled'; reason: string }
+  | { skipped: true; cause: 'lock' | 'gate-unreadable' | 'throttled' | 'no-run-row'; reason: string }
   | {
       skipped: false
       orders: number
       upserted: number
       deleted: number
+      /**
+       * Charges the stale-delete DECLINED to remove because the sweep failed the
+       * blast-radius floor (see DEFENCE 3 below). Zero on a healthy run. Any
+       * non-zero value means billing history was left in place that the
+       * calculator no longer produces, and someone has to look at why.
+       */
+      staleDeleteRefused: number
       failedOrders: number
       unknownCostCharges: number
       unknownCarrierCharges: number
@@ -179,7 +186,28 @@ export async function recalculateCharges(
   // Captured BEFORE the run row is opened, so that no charge this run writes
   // can ever carry a calculated_at earlier than the stale-delete cutoff.
   const runStartedAt = new Date().toISOString()
-  const run = await openSyncRun({ source: 'charges', mode: 'live' })
+
+  // DEFENCE 1, second half. The 'running' row openSyncRun writes is not
+  // bookkeeping for this caller -- it IS the lock the gate above reads. If it
+  // cannot be written we do not hold the lock, and proceeding would mean this
+  // run's stale-delete competing with any other run that starts while it works.
+  // So a failure here is a SKIP, in the same vocabulary as the lock and the
+  // gate: nothing was deleted, nothing was written, and the monitor's
+  // "Charge calculation did NOT run" branch reports it (monitor/route.ts:113).
+  // A skipped cycle costs eight hours of staleness; an unlocked one can delete
+  // a concurrent run's fresh charges, which is not recoverable from the app.
+  let run: Awaited<ReturnType<typeof openSyncRun>>
+  try {
+    run = await openSyncRun({ source: 'charges', mode: 'live' })
+  } catch (err) {
+    return {
+      skipped: true,
+      cause: 'no-run-row',
+      reason: `Could not open the sync_runs row that serves as this run's lock `
+            + `(${err instanceof Error ? err.message : String(err)}). Skipping `
+            + `rather than recalculating without one.`,
+    }
+  }
 
   if (lastFinishedError) {
     run.warn('throttle gate unreadable', `Could not read the last successful charge `
@@ -189,6 +217,7 @@ export async function recalculateCharges(
   let orders = 0
   let upserted = 0
   let deleted = 0
+  let staleDeleteRefused = 0
   let failedOrders = 0
   let unknownCostCharges = 0
   let unknownCarrierCharges = 0
@@ -300,16 +329,96 @@ export async function recalculateCharges(
     // Orders whose build or upsert failed are excluded, so a failed order keeps
     // the charges it already has.
     const deletable = builtOk.filter((id) => !failedOrderIds.has(id))
-    for (let i = 0; i < deletable.length; i += DELETE_CHUNK) {
+
+    // ---- DEFENCE 3: the blast-radius floor ----------------------------------
+    // Count what the sweep WOULD remove before removing any of it, and refuse
+    // the whole sweep if that number is implausible.
+    //
+    // WHY THIS IS NEEDED. The order-id scope above bounds the damage to the
+    // orders this run touched, but on a live run that is EVERY order in the
+    // window — so on the one failure mode that matters the scope bounds nothing.
+    // buildCharges emits a charge only where a rate-card line covers the charge
+    // date, and rate-card lines expire. A client whose lines lapsed at midnight,
+    // an effective_to typed a year early, a bad rate-card edit: in all three the
+    // calculator cheerfully builds ZERO charges, the upsert writes nothing, and
+    // the sweep then deletes every charge in the window because none of them got
+    // a fresh calculated_at. That is the business's billing history, and nothing
+    // in this app can put it back — order_charges is the record, not a cache of
+    // one. Re-running does not restore it, because the calculator that produces
+    // nothing is exactly why it went.
+    //
+    // THE THRESHOLD, and why this one. Refuse when the run would delete MORE
+    // rows than it just built. After the upsert, the deletable orders hold
+    // roughly `rows.length` charges carrying this run's calculated_at, so
+    // candidates > rows.length means the sweep would leave those orders with
+    // less than half the charges they had. A rate card that genuinely stopped
+    // covering a charge type shrinks the ledger by a fraction and passes; a rate
+    // card that stopped covering ANYTHING zeroes rows.length and is caught by
+    // the same comparison without needing a separate zero case. Picking a
+    // percentage instead would have meant inventing a number; this one is
+    // derived from the run itself and states a property worth holding — a single
+    // recalculation should not be able to halve the ledger unattended.
+    //
+    // WHICH WAY IT ERRS. A false refusal leaves charges the calculator no longer
+    // produces sitting in the table: visible, loud (run.fail below forces the
+    // run non-'ok', which also stops the throttle from silencing the next
+    // attempt), and removable by hand once someone has confirmed it is right. A
+    // false deletion is unrecoverable. Given that asymmetry the guard is set to
+    // trip early and the operator is asked to confirm, rather than the reverse.
+    //
+    // An unreadable count refuses too, for the same reason the lock read does:
+    // "I could not check" is not "it is fine".
+    let staleCandidates = 0
+    let candidatesCounted = true
+    for (let i = 0; i < deletable.length && candidatesCounted; i += DELETE_CHUNK) {
       const ids = deletable.slice(i, i + DELETE_CHUNK)
-      const { data: removed, error: delError } = await supabaseAdmin
+      // count:'exact' with limit(1): PostgREST reports the full number of
+      // matching rows in the count regardless of how many it returns, so this
+      // cannot be understated by the server's row cap the way a bare
+      // .select('id').length could be. Understating it is the dangerous
+      // direction — it would let the guard wave through the sweep it exists to
+      // stop — so the count must come from the database's own tally.
+      const { count, error: countError } = await supabaseAdmin
         .from('order_charges')
-        .delete()
+        .select('id', { count: 'exact' })
         .in('order_id', ids)
         .lt('calculated_at', runStartedAt)
-        .select('id')
-      if (delError) run.fail(`stale-delete ${ids.length} orders`, delError)
-      else deleted += removed?.length ?? 0
+        .limit(1)
+      if (countError) {
+        candidatesCounted = false
+        run.fail(`stale-delete blast-radius count (${ids.length} orders)`, countError)
+      } else {
+        staleCandidates += count ?? 0
+      }
+    }
+
+    const refuseSweep = !candidatesCounted || staleCandidates > rows.length
+    if (refuseSweep && staleCandidates > 0) staleDeleteRefused = staleCandidates
+
+    if (!candidatesCounted) {
+      run.fail('stale-delete refused', new Error(
+        `Could not count the charges this run's stale-delete would remove, so the `
+        + `sweep was skipped. Charges the calculator no longer produces remain in `
+        + `order_charges for ${deletable.length} orders.`))
+    } else if (staleCandidates > rows.length) {
+      run.fail('stale-delete refused', new Error(
+        `The stale-delete would have removed ${staleCandidates} charges across `
+        + `${deletable.length} orders while this run built only ${rows.length}. `
+        + `That is a net loss of billing history, not a correction, so nothing was `
+        + `deleted. Check the rate cards for expired or mis-dated effective_to `
+        + `values before re-running.`))
+    } else {
+      for (let i = 0; i < deletable.length; i += DELETE_CHUNK) {
+        const ids = deletable.slice(i, i + DELETE_CHUNK)
+        const { data: removed, error: delError } = await supabaseAdmin
+          .from('order_charges')
+          .delete()
+          .in('order_id', ids)
+          .lt('calculated_at', runStartedAt)
+          .select('id')
+        if (delError) run.fail(`stale-delete ${ids.length} orders`, delError)
+        else deleted += removed?.length ?? 0
+      }
     }
 
     // warn(), not fail(): these are findings someone should act on, not
@@ -343,7 +452,7 @@ export async function recalculateCharges(
 
   return {
     skipped: false,
-    orders, upserted, deleted, failedOrders,
+    orders, upserted, deleted, staleDeleteRefused, failedOrders,
     unknownCostCharges, unknownCarrierCharges, unpricedOrders,
   }
 }
