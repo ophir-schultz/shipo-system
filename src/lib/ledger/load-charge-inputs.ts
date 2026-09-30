@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { classifySku } from '@/lib/billing/classify-sku'
+import { warehouseParts } from '@/lib/ledger/pick-date'
 import type { ChargeInput } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
 
@@ -21,9 +22,12 @@ import type { CostRateRow } from '@/lib/ledger/cost-rate'
 const PAGE_SIZE = 1000
 const IN_CHUNK = 200
 
-interface PageResult<T> { data: T[] | null; error: { message: string } | null }
+interface PageResult<T> {
+  data: T[] | null
+  error: { message: string; code?: string } | null
+}
 
-async function fetchAllPages<T>(
+export async function fetchAllPages<T>(
   what: string,
   page: (from: number, to: number) => PromiseLike<PageResult<T>>,
 ): Promise<T[]> {
@@ -31,6 +35,13 @@ async function fetchAllPages<T>(
   let from = 0
   for (;;) {
     const { data, error } = await page(from, from + PAGE_SIZE - 1)
+    // A table whose row count is an exact multiple of PAGE_SIZE gets one more
+    // request past the end, because an empty page is the only reliable stop
+    // condition (see below). PostgREST answers that request with PGRST103,
+    // "requested range not satisfiable", rather than 200 []. That is end of
+    // table, not a failure, and treating it as one would fail the entire run on
+    // a row count nobody controls.
+    if (error?.code === 'PGRST103') return rows
     // Wrapped rather than rethrown so the message says which read failed, with
     // the original kept on `cause`. Without the table name, every one of these
     // reads produces the same opaque PostgREST string.
@@ -59,12 +70,28 @@ const norm = (v: unknown) => String(v ?? '').trim().toUpperCase()
 const num = (v: unknown): number | null =>
   v === null || v === undefined ? null : Number(v)
 
+/**
+ * The warehouse calendar day of a timestamptz, as 'YYYY-MM-DD'.
+ *
+ * Returns '' for anything unparseable, which buildCharges reads as "no date"
+ * and declines to charge — the same outcome as a null column, and better than
+ * inventing today's date for a shipment nobody can date.
+ */
+const warehouseDate = (v: unknown): string => {
+  const raw = String(v ?? '').trim()
+  if (raw === '') return ''
+  const at = new Date(raw)
+  if (!Number.isFinite(at.getTime())) return ''
+  return warehouseParts(at).date
+}
+
 interface OrderRow {
   id: string
   client_id: string | null
   order_key: string
   order_number: string | null
   cancelled: boolean | null
+  order_date?: string | null
 }
 interface ItemRow {
   id: string
@@ -90,14 +117,31 @@ interface RateRow {
   variant: string | null
   rate: number | string | null
   rate_type: string | null
+  effective_from: string | null
+  effective_to: string | null
 }
 
-export async function loadChargeInputs(windowStart: string): Promise<ChargeInput[]> {
+/** Records a finding for the caller's sync_runs row. */
+export type LoadWarn = (context: string, detail: string) => void
+
+export async function loadChargeInputs(
+  windowStart: string,
+  warn?: LoadWarn,
+): Promise<ChargeInput[]> {
   const orders = await fetchAllPages<OrderRow>('orders', (from, to) =>
     supabaseAdmin
       .from('orders')
-      .select('id, client_id, order_key, order_number, cancelled')
-      .gte('order_date', windowStart)
+      .select('id, client_id, order_key, order_number, cancelled, order_date')
+      // Null order_date rows are INCLUDED, and the `.or` is the only way to get
+      // them: `.gte` is SQL `>=`, and `null >= '2026-08-31'` is NULL, not TRUE.
+      // Excluded, such an order is invisible for ever — no future window would
+      // ever pick it up either — so every pick and every label on it is unbilled
+      // revenue with no trace in any counter. They are chargeable regardless:
+      // charge_date derives from pick_date and ship_date, never from order_date,
+      // so their charges are dated correctly. The count is warned on below,
+      // because a missing order date is still a data-quality defect to fix in
+      // the Zenventory sync.
+      .or(`order_date.gte.${windowStart},order_date.is.null`)
       // Paging is only stable under an explicit order. Without it Postgres may
       // return rows in a different order per page and a row can be both
       // duplicated and skipped across the page boundary.
@@ -105,6 +149,13 @@ export async function loadChargeInputs(windowStart: string): Promise<ChargeInput
       .range(from, to))
 
   if (orders.length === 0) return []
+
+  const undated = orders.filter((o) => o.order_date == null).length
+  if (undated > 0) {
+    warn?.('orders with no order_date', `${undated} orders have a null order_date. `
+      + `They are charged (charge_date comes from pick and ship dates) but they `
+      + `are outside every date window, so fix the source in sync/zenventory.ts.`)
+  }
 
   const items: ItemRow[] = []
   for (const ids of chunk(orders.map((o) => o.id), IN_CHUNK)) {
@@ -123,14 +174,21 @@ export async function loadChargeInputs(windowStart: string): Promise<ChargeInput
   // reported by leaks_monthly.unattributed_label_spend, not guessed onto an
   // order.
   //
-  // Both spellings are queried, and matching is case-insensitive, because
+  // Both spellings are collected, and matching is case-insensitive, because
   // orders.order_key is upper-cased at write time while shipments.order_number
   // is whatever the carrier sent. Matching order_key against order_number
   // directly loses every order whose number is not already upper case, and
   // loses it as missing shipping revenue rather than as an error.
+  //
+  // The numbers are NORMALISED here, not after the fetch, and the query below
+  // filters on shipments.order_number_key — the stored generated
+  // upper(btrim(order_number)) added by ledger_03_charges.sql. PostgREST's
+  // `.in()` is a case-SENSITIVE SQL `IN`, so normalising only in memory left the
+  // fetch and the join disagreeing: a label in a third casing was never
+  // retrieved and the revenue was lost silently.
   const numbers = Array.from(new Set(
     orders.flatMap((o) => [o.order_key, o.order_number])
-      .map((v) => String(v ?? '').trim())
+      .map(norm)
       .filter((v) => v !== ''),
   ))
 
@@ -140,7 +198,29 @@ export async function loadChargeInputs(windowStart: string): Promise<ChargeInput
       supabaseAdmin
         .from('shipments')
         .select('id, client_id, shipstation_shipment_id, order_number, ship_date, actual_cost, raw_data')
-        .in('order_number', batch)
+        .in('order_number_key', batch)
+        .order('id', { ascending: true })
+        .range(from, to)))
+  }
+
+  // Every order that claims one of these numbers, WHATEVER ITS DATE. Detecting
+  // ambiguity only among windowed orders is not a weaker check, it is a wrong
+  // one: order #1001 for client A dated 45 days ago and order #1001 for client B
+  // dated 3 days ago both exist happily under unique (client_id, order_key), and
+  // with only B loaded the claimant set has size 1 and A's label is billed to B.
+  // A charge on the wrong client is worse than a missing charge — it is
+  // invisible in both clients' numbers and it corrupts the per-client margins
+  // the whole system exists to produce.
+  //
+  // orders.order_key is the normalised spelling by construction: sync/zenventory
+  // writes orderNumber.toUpperCase() and is the only writer of this table.
+  const claimantOrders: OrderRow[] = []
+  for (const batch of chunk(numbers, IN_CHUNK)) {
+    claimantOrders.push(...await fetchAllPages<OrderRow>('orders (claimants)', (from, to) =>
+      supabaseAdmin
+        .from('orders')
+        .select('id, client_id, order_key, order_number, cancelled')
+        .in('order_key', batch)
         .order('id', { ascending: true })
         .range(from, to)))
   }
@@ -148,7 +228,11 @@ export async function loadChargeInputs(windowStart: string): Promise<ChargeInput
   const rates = await fetchAllPages<RateRow>('client_warehouse_rates', (from, to) =>
     supabaseAdmin
       .from('client_warehouse_rates')
-      .select('id, client_id, charge_type, variant, rate, rate_type')
+      // effective_from / effective_to are added by ALTER TABLE in
+      // ledger_03_charges.sql rather than appearing in a CREATE TABLE, which is
+      // how they came to be dropped from this select. Without them the rate
+      // lookup is a bare .find() and a superseded rate wins by array order.
+      .select('id, client_id, charge_type, variant, rate, rate_type, effective_from, effective_to')
       .not('charge_type', 'is', null)
       .order('id', { ascending: true })
       .range(from, to))
@@ -184,12 +268,14 @@ export async function loadChargeInputs(windowStart: string): Promise<ChargeInput
     ratesByClient.set(r.client_id, list)
   }
 
-  // A shipment is attached to an order only when EXACTLY ONE order in the
-  // window claims it. orders is unique on (client_id, order_key), so two
-  // clients can hold the same order number; attaching the label to whichever
-  // order was seen first would put one client's carrier cost in another
-  // client's P&L, and it would look entirely plausible. An unclaimed label is
-  // already accounted for by leaks_monthly.unattributed_label_spend.
+  // A shipment is attached to an order only when EXACTLY ONE order ANYWHERE
+  // claims it. orders is unique on (client_id, order_key), so two clients can
+  // hold the same order number; attaching the label to whichever order was seen
+  // first would put one client's carrier cost in another client's P&L, and it
+  // would look entirely plausible. When attribution is not provably unique we
+  // do not attribute: the label is left off every order and warned about, and
+  // the spend is already accounted for by
+  // leaks_monthly.unattributed_label_spend.
   const orderNumberKeys = (o: OrderRow) =>
     Array.from(new Set([norm(o.order_key), norm(o.order_number)])).filter((k) => k !== '')
 
@@ -197,7 +283,14 @@ export async function loadChargeInputs(windowStart: string): Promise<ChargeInput
   const shipmentById = new Map<string, ShipmentRow>()
   for (const s of shipments) shipmentById.set(s.id, s)
 
-  for (const o of orders) {
+  // The claimant pool is every order sharing the number, in the window or not.
+  // Windowed orders are unioned in so that an order whose order_key spelling
+  // differs from the claimant query's (a hypothetical non-normalised writer)
+  // still claims its own label.
+  const byId = new Map<string, OrderRow>()
+  for (const o of [...claimantOrders, ...orders]) byId.set(o.id, o)
+
+  for (const o of byId.values()) {
     for (const key of orderNumberKeys(o)) {
       for (const s of shipmentsByNumber.get(key) ?? []) {
         // Client attribution, where both sides have it, settles the ambiguity
@@ -211,15 +304,27 @@ export async function loadChargeInputs(windowStart: string): Promise<ChargeInput
     }
   }
 
+  const windowedOrderIds = new Set(orders.map((o) => o.id))
   const shipmentsForOrder = new Map<string, ShipmentRow[]>()
+  let ambiguousShipments = 0
   for (const [shipmentId, orderIds] of claimants) {
-    if (orderIds.size !== 1) continue
+    if (orderIds.size !== 1) { ambiguousShipments++; continue }
     const orderId = [...orderIds][0]
+    // The sole claimant may be outside the window, in which case there is
+    // nothing to attach the label to on this run — and, importantly, nothing to
+    // MISattach it to either. That is the point of the wider pool.
+    if (!windowedOrderIds.has(orderId)) continue
     const s = shipmentById.get(shipmentId)
     if (!s) continue
     const list = shipmentsForOrder.get(orderId) ?? []
     list.push(s)
     shipmentsForOrder.set(orderId, list)
+  }
+  if (ambiguousShipments > 0) {
+    warn?.('ambiguous shipment attribution', `${ambiguousShipments} shipments are `
+      + `claimed by more than one order and were left unattributed. Their carrier `
+      + `spend is reported as unattributed label spend rather than guessed onto a `
+      + `client.`)
   }
 
   return orders.map((o) => {
@@ -257,7 +362,12 @@ export async function loadChargeInputs(windowStart: string): Promise<ChargeInput
         // NaN when the column is null. buildCharges refuses it rather than
         // keying the charge on the string 'null'; see the comment there.
         shipmentId: Number(s.shipstation_shipment_id),
-        shipDate: String(s.ship_date ?? '').slice(0, 10),
+        // ship_date is timestamptz, so slicing the first ten characters would
+        // read the UTC calendar day. charge_date is what every monthly boundary
+        // in Task 15 groups on, and a label bought at 20:00 ET on the 31st
+        // belongs to that month, not the next. Resolved through Intl in
+        // America/New_York, never a hardcoded offset.
+        shipDate: warehouseDate(s.ship_date),
         actualCost: num(s.actual_cost),
         // ShipStation reports a void on the shipment payload. There is no
         // column for it yet, so it is read from raw_data. Presence, not
@@ -275,6 +385,12 @@ export async function loadChargeInputs(windowStart: string): Promise<ChargeInput
         variant: r.variant,
         rate: num(r.rate),
         rateType: String(r.rate_type ?? ''),
+        // Passed through as null when null. buildCharges reads a null
+        // effective_from as "has always been in effect", which is what every
+        // row in the table today needs: the columns were added by ALTER TABLE
+        // after the rows existed.
+        effectiveFrom: r.effective_from ?? null,
+        effectiveTo: r.effective_to ?? null,
       })),
       costRates: costRates as CostRateRow[],
       peakSurchargePct: num(peak?.rate) ?? 0,

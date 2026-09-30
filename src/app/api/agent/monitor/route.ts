@@ -28,6 +28,16 @@ import { loadChargeInputs } from '@/lib/ledger/load-charge-inputs'
 
 const ALERT_TO = process.env.ALERT_EMAIL || 'ophir@shipousa.com'
 
+// Four syncs run in sequence here, and step 3b recalculates thirty days of
+// charges. Vercel's default Node function budget is 10-15 seconds, which this
+// route cannot finish inside; the kill left the charge run's sync_runs row
+// 'running', which held the lock for STALE_RUN_MINUTES, and the resulting skip
+// was logged but never alerted — so the ledger stayed empty behind an email
+// whose subject said "All clear". 300s is the Pro plan's ceiling and is the
+// budget this route is now written against; the charge recalculation is also
+// throttled (CHARGE_THROTTLE_MINUTES) so browser polling cannot drive it.
+export const maxDuration = 300
+
 export async function GET(req: Request) {
   // Two callers, both legitimate: the Vercel cron (see vercel.json) and
   // the AutoSync widget on the staff dashboard, which polls this every
@@ -88,17 +98,19 @@ export async function GET(req: Request) {
   let chargeResult: RecalculateResult | null = null
   try {
     const windowStart = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
-    chargeResult = await recalculateCharges(() => loadChargeInputs(windowStart))
+    chargeResult = await recalculateCharges((warn) => loadChargeInputs(windowStart, warn))
 
     if (chargeResult.skipped) {
-      // Logged either way, because a skip that looks like a run with nothing to
-      // do is how a permanently-stuck lock would stay invisible. Only the
-      // unreadable-gate case is an issue: this route is also polled every five
-      // minutes by the AutoSync widget, so losing that race is routine and
-      // must not raise an alert every time it happens.
       log.push(`⏭ Charges: skipped — ${chargeResult.reason}`)
-      if (chargeResult.cause === 'gate-unreadable') {
-        errors.push(`⚠ Charge calculation skipped: ${chargeResult.reason}`)
+      // A throttled skip is the healthy case: the recalculation ran recently
+      // and this invocation is a browser tab polling. Everything else means
+      // charges did NOT run, and a monitor that reports "All clear" because it
+      // never ran is worse than no monitor. A stuck lock self-heals after
+      // STALE_RUN_MINUTES, but for those thirty minutes the ledger is not being
+      // updated and nobody would otherwise be told.
+      if (chargeResult.cause !== 'throttled') {
+        errors.push(`⚠ Charge calculation did NOT run: ${chargeResult.reason} `
+          + `Charges are not up to date until a run completes.`)
       }
     } else {
       log.push(`✓ Charges: ${chargeResult.orders} orders · ${chargeResult.upserted} written · ${chargeResult.deleted} stale removed`)
@@ -106,10 +118,13 @@ export async function GET(req: Request) {
         errors.push(`⚠ ${chargeResult.failedOrders} orders failed charge calculation (see the latest sync_runs row for source = 'charges')`)
       }
       if (chargeResult.unpricedOrders > 0) {
-        errors.push(`⚠ ${chargeResult.unpricedOrders} orders had picked lines but produced no charge — most likely a client with no rate card line`)
+        errors.push(`⚠ ${chargeResult.unpricedOrders} orders had picked lines but produced no pick charge — most likely a client with no rate card line`)
       }
       if (chargeResult.unknownCostCharges > 0) {
-        log.push(`⚠ ${chargeResult.unknownCostCharges} charges have no known cost (flagged as estimates, cost left null)`)
+        log.push(`⚠ ${chargeResult.unknownCostCharges} charges have no known cost rate (flagged as estimates, cost left null)`)
+      }
+      if (chargeResult.unknownCarrierCharges > 0) {
+        log.push(`⚠ ${chargeResult.unknownCarrierCharges} shipping charges have no carrier cost reported yet (cost left null, not zero)`)
       }
     }
   } catch (err) {
