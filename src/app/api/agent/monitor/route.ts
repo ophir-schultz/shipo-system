@@ -102,12 +102,15 @@ export async function GET(req: Request) {
 
     if (chargeResult.skipped) {
       log.push(`⏭ Charges: skipped — ${chargeResult.reason}`)
-      // A throttled skip is the healthy case: the recalculation ran recently
-      // and this invocation is a browser tab polling. Everything else means
-      // charges did NOT run, and a monitor that reports "All clear" because it
-      // never ran is worse than no monitor. A stuck lock self-heals after
-      // STALE_RUN_MINUTES, but for those thirty minutes the ledger is not being
-      // updated and nobody would otherwise be told.
+      // A throttled skip is the healthy case, but ONLY because of the two
+      // properties CHARGE_THROTTLE_MINUTES documents: the throttle can be
+      // satisfied only by a run that SUCCEEDED, and never by one that a cron
+      // was due to make. Without both, this branch is "All clear because it
+      // never ran" wearing a green tick — a failed run would buy the next hour
+      // of silence right here. Everything else means charges did NOT run. A
+      // stuck lock self-heals after STALE_RUN_MINUTES, but for those thirty
+      // minutes the ledger is not being updated and nobody would otherwise be
+      // told.
       if (chargeResult.cause !== 'throttled') {
         errors.push(`⚠ Charge calculation did NOT run: ${chargeResult.reason} `
           + `Charges are not up to date until a run completes.`)

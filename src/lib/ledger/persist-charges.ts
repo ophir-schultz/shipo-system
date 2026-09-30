@@ -4,23 +4,91 @@ import { openSyncRun } from '@/lib/ledger/sync-run'
 import { buildCharges, type BuiltCharge, type ChargeInput } from '@/lib/ledger/calculate-charges'
 
 /**
- * How recently a charge run must have FINISHED for this one to be skipped.
+ * How recently a charge run must have SUCCEEDED for this one to be skipped.
  *
  * This route is not called three times a day. AutoSync.tsx calls it on mount
  * and then every five minutes, from every open browser tab, so a 30-day
  * recalculation was being driven ~288 times a day per tab and overlapping
- * routinely. One hour is well inside the thrice-daily cadence the design
- * targets — no cron run is ever throttled out, because the crons are eight
- * hours apart — while cutting browser-driven recalculations to at most 24 a
- * day. The throttle keys off the last FINISHED run rather than sniffing a
- * Vercel cron header, because a throttle is robust to how the route gets
- * called and a header check is not: a manual curl, a second cron, or a
- * renamed header all bypass the header and none of them bypass this.
+ * routinely. One hour cuts browser-driven recalculations to at most 24 a day.
+ * The throttle keys off the last successful run rather than sniffing a Vercel
+ * cron header, because a throttle is robust to how the route gets called and a
+ * header check is not: a manual curl, a second cron, or a renamed header all
+ * bypass a header and none of them bypass this.
  *
  * The syncs and issue checks in the monitor route are unaffected and keep
  * their five-minute cadence; only the charge recalculation is throttled.
+ *
+ * TWO PROPERTIES THE THROTTLE MUST HOLD, neither of which an earlier version of
+ * this file had despite the comment claiming both:
+ *
+ *   1. ONLY A RUN THAT SUCCEEDED MAY SATISFY IT. The read below filters
+ *      `status = 'ok'`, not "the newest row carrying a finished_at" —
+ *      sync-run.ts stamps finished_at on every close, including 'failed' and
+ *      'partial'. A failed run therefore used to buy the next hour of silence,
+ *      and monitor/route.ts treats a `throttled` skip as the healthy case, so
+ *      up to eleven consecutive emails could read "✅ All clear" while nothing
+ *      was being written. A monitor that reports success because it never ran
+ *      is worse than no monitor. A failure makes the next attempt more urgent,
+ *      not less.
+ *
+ *   2. A SCHEDULED RUN IS NEVER THROTTLED OUT. The earlier comment argued this
+ *      from cron spacing — the crons are 6-10 hours apart — but the crons are
+ *      not the only caller: a browser-driven run at 13:30 leaves the 14:00 cron
+ *      inside the window, and that scheduled run then silently does not happen.
+ *      chargeRunIsDue() defeats the throttle whenever a scheduled firing has
+ *      elapsed since the last success. That is a statement about the SCHEDULE
+ *      rather than about the caller, so it cannot be bypassed — or accidentally
+ *      claimed — by whoever happens to make the request.
  */
 export const CHARGE_THROTTLE_MINUTES = 60
+
+/**
+ * The UTC hours at which vercel.json fires /api/agent/monitor.
+ *
+ * CRON COUPLING: this list must match vercel.json's `crons` entries.
+ * src/app/api/agent/monitor/route.ts and src/lib/ledger/pick-date.ts document
+ * the same coupling. Being wrong here is bounded but real: an hour missing from
+ * the list is an hour whose scheduled run can be throttled out again, which is
+ * exactly the defect property 2 exists to close.
+ */
+export const CHARGE_CRON_HOURS_UTC = [6, 14, 20] as const
+
+/**
+ * The most recent scheduled firing at or before `now`, in epoch milliseconds.
+ * Derived from the schedule rather than from a request header, so it is true
+ * whoever called.
+ */
+export function lastScheduledFiring(
+  now: Date,
+  hours: readonly number[] = CHARGE_CRON_HOURS_UTC,
+): number {
+  let best = Number.NEGATIVE_INFINITY
+  for (const hour of hours) {
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour)
+    // Yesterday's firing when today's has not come round yet, so the answer is
+    // always in the past and the first cron of a day is still a real boundary.
+    const at = today <= now.getTime() ? today : today - 86_400_000
+    if (at > best) best = at
+  }
+  return best
+}
+
+/**
+ * Whether a charge run is due in spite of the throttle.
+ *
+ * `lastOkAt` is when the last SUCCESSFUL run finished; null means there has
+ * never been one, which is always due.
+ */
+export function chargeRunIsDue(lastOkAt: Date | null, now: Date): boolean {
+  if (!lastOkAt) return true
+  const ageMinutes = (now.getTime() - lastOkAt.getTime()) / 60_000
+  // An unparseable or future timestamp is a clock or data defect. Running is
+  // the safe answer to both: its cost is redundant work, where the cost of not
+  // running is a ledger nobody is updating and an email that says All clear.
+  if (!Number.isFinite(ageMinutes) || ageMinutes < 0) return true
+  if (ageMinutes >= CHARGE_THROTTLE_MINUTES) return true
+  return lastOkAt.getTime() < lastScheduledFiring(now)
+}
 
 /** Charges per upsert round trip. */
 const UPSERT_CHUNK = 500
@@ -45,29 +113,39 @@ export async function recalculateCharges(
 ): Promise<RecalculateResult> {
   // THROTTLE. Checked before the lock because it is the common case: most
   // invocations of this route are a browser tab polling, and the cheapest
-  // correct answer to those is "we did this recently".
-  const { data: lastFinished, error: lastFinishedError } = await supabaseAdmin
+  // correct answer to those is "we did this successfully, recently".
+  //
+  // `status = 'ok'` is load-bearing, not tidiness. A 'failed' or 'partial' run
+  // also carries a finished_at, and letting one satisfy the throttle means a
+  // run that wrote nothing silences the next hour of attempts while the monitor
+  // email reports the skip as healthy. See property 1 on CHARGE_THROTTLE_MINUTES.
+  const { data: lastOk, error: lastFinishedError } = await supabaseAdmin
     .from('sync_runs')
     .select('finished_at')
     .eq('source', 'charges')
+    .eq('status', 'ok')
     .not('finished_at', 'is', null)
     .order('finished_at', { ascending: false })
     .limit(1)
 
   // An unreadable throttle gate is NOT a reason to skip. Unlike the lock read
-  // below, being unable to tell how long ago the last run finished risks only
+  // below, being unable to tell how long ago the last run succeeded risks only
   // doing redundant work; skipping on it would let one broken read stop charges
   // being calculated at all. So the error is kept and reported, and the run
   // proceeds to the lock, which is the defence that actually protects data.
-  const lastFinishedAt = lastFinished?.[0]?.finished_at
-  if (!lastFinishedError && lastFinishedAt) {
-    const ageMinutes = (Date.now() - new Date(lastFinishedAt).getTime()) / 60_000
-    if (Number.isFinite(ageMinutes) && ageMinutes >= 0 && ageMinutes < CHARGE_THROTTLE_MINUTES) {
+  const lastOkAtRaw = lastOk?.[0]?.finished_at
+  const now = new Date()
+  if (!lastFinishedError && lastOkAtRaw) {
+    const lastOkAt = new Date(lastOkAtRaw)
+    if (!chargeRunIsDue(lastOkAt, now)) {
+      const ageMinutes = (now.getTime() - lastOkAt.getTime()) / 60_000
       return {
         skipped: true,
         cause: 'throttled',
-        reason: `A charge run finished ${ageMinutes.toFixed(0)} minutes ago; the `
-              + `next one is due in ${(CHARGE_THROTTLE_MINUTES - ageMinutes).toFixed(0)}.`,
+        reason: `A charge run succeeded ${ageMinutes.toFixed(0)} minutes ago and no `
+              + `scheduled run has come round since; the next one is due in `
+              + `${(CHARGE_THROTTLE_MINUTES - ageMinutes).toFixed(0)} minutes or at the `
+              + `next cron, whichever is sooner.`,
       }
     }
   }
@@ -104,7 +182,7 @@ export async function recalculateCharges(
   const run = await openSyncRun({ source: 'charges', mode: 'live' })
 
   if (lastFinishedError) {
-    run.warn('throttle gate unreadable', `Could not read the last finished charge `
+    run.warn('throttle gate unreadable', `Could not read the last successful charge `
       + `run (${lastFinishedError.message}); proceeding without the throttle.`)
   }
 

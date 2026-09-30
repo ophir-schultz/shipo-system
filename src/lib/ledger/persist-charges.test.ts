@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createFakeSupabase, type FakeDb, type FakeRow } from '@/lib/ledger/fake-supabase'
 import type { ChargeInput, RateCardLine } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
@@ -10,7 +10,7 @@ vi.mock('@/lib/supabase', () => ({
   get supabaseAdmin() { return h.db.client },
 }))
 
-const { recalculateCharges, CHARGE_THROTTLE_MINUTES } =
+const { recalculateCharges, CHARGE_THROTTLE_MINUTES, CHARGE_CRON_HOURS_UTC, chargeRunIsDue } =
   await import('@/lib/ledger/persist-charges')
 
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString()
@@ -48,6 +48,17 @@ const chargeKeysFor = (orderId: string) =>
 
 beforeEach(() => {
   h.db = createFakeSupabase({ sync_runs: [], order_charges: [] })
+  // The clock is pinned for every test, not only the ones about the schedule.
+  // The throttle is now defeated by a scheduled firing having elapsed since the
+  // last success, so on a real clock a test asserting "this is throttled" would
+  // pass or fail depending on whether it happened to run in the ten minutes
+  // after 06:00, 14:00 or 20:00 UTC. 10:00 is deliberately mid-gap.
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-09-30T10:00:00.000Z'))
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('recalculateCharges — the stale-delete', () => {
@@ -164,6 +175,74 @@ describe('recalculateCharges — the gates', () => {
     expect(result.skipped).toBe(false)
   })
 
+  it.each(['failed', 'partial'] as const)(
+    'is not throttled by a charge run that finished %s', async (status) => {
+      // THE PROPERTY: only a run that SUCCEEDED may satisfy the throttle.
+      // sync-run.ts stamps finished_at on every close, so keying the throttle
+      // off finished_at alone let a run that wrote nothing silence the next
+      // hour of attempts — and monitor/route.ts reports a `throttled` skip as
+      // healthy, so the email said "All clear" while the ledger stood still.
+      // A failure makes the next attempt more urgent, not less.
+      h.db.tables.sync_runs = [
+        { id: 'r1', source: 'charges', status, finished_at: minutesAgo(10) },
+      ]
+
+      const result = await recalculateCharges(async () => [order('order-a')])
+
+      expect(result.skipped).toBe(false)
+      expect(chargeKeysFor('order-a')).toEqual(['item:order-a-item:pick'])
+    })
+
+  it('is not throttled by a failed run even when an older run succeeded', async () => {
+    // The read must not simply take the newest 'ok' row and ignore what came
+    // after it either: here the last success is two hours old, so the run is
+    // due on age alone. The point of the fixture is that the intervening
+    // failure neither satisfies the throttle nor hides the older success.
+    h.db.tables.sync_runs = [
+      { id: 'r1', source: 'charges', status: 'ok', finished_at: minutesAgo(120) },
+      { id: 'r2', source: 'charges', status: 'failed', finished_at: minutesAgo(5) },
+    ]
+
+    const result = await recalculateCharges(async () => [order('order-a')])
+
+    expect(result.skipped).toBe(false)
+  })
+
+  it('never throttles a scheduled cron run out', async () => {
+    // THE PROPERTY: a browser-driven run must not consume the window a cron
+    // was going to use. AutoSync polls every five minutes from every open tab,
+    // so a 13:30 run sits comfortably inside the 60-minute window that the
+    // 14:00 cron then falls in — and that scheduled run silently did not
+    // happen. The crons are the system of record; they are never skipped.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-30T14:00:00.000Z'))   // a cron firing
+    h.db.tables.sync_runs = [
+      { id: 'r1', source: 'charges', status: 'ok',
+        finished_at: '2026-09-30T13:30:00.000Z' },            // a browser poll
+    ]
+
+    const result = await recalculateCharges(async () => [order('order-a')])
+
+    expect(result.skipped).toBe(false)
+    expect(chargeKeysFor('order-a')).toEqual(['item:order-a-item:pick'])
+  })
+
+  it('still throttles when no scheduled firing has come round', async () => {
+    // The control for the test above. Without it, "never throttled" could be
+    // satisfied by a throttle that never throttles anything.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-30T14:30:00.000Z'))
+    h.db.tables.sync_runs = [
+      { id: 'r1', source: 'charges', status: 'ok',
+        finished_at: '2026-09-30T14:10:00.000Z' },
+    ]
+
+    const result = await recalculateCharges(async () => [order('order-a')])
+
+    expect(result).toMatchObject({ skipped: true, cause: 'throttled' })
+    expect(charges()).toHaveLength(0)
+  })
+
   it('skips while another charge run is live', async () => {
     h.db.tables.sync_runs = [
       { id: 'r1', source: 'charges', status: 'running',
@@ -177,9 +256,12 @@ describe('recalculateCharges — the gates', () => {
   })
 
   it('skips rather than risk a concurrent delete when the lock cannot be read', async () => {
+    // Matched on status = 'running' specifically: the throttle read now also
+    // filters on status, and failing both reads would prove the skip for the
+    // wrong reason.
     h.db.failOn = (call) =>
       call.table === 'sync_runs' && call.verb === 'select'
-        && call.filters.some((f) => f.op === 'eq' && f.column === 'status')
+        && call.filters.some((f) => f.op === 'eq' && f.column === 'status' && f.value === 'running')
         ? { message: 'connection reset' }
         : null
 
@@ -269,5 +351,53 @@ describe('recalculateCharges — bookkeeping', () => {
     expect(upserts).toHaveLength(1)
     expect(upserts[0].payload).toHaveLength(40)
     expect(upserts[0].onConflict).toBe('order_id,charge_key')
+  })
+})
+
+describe('chargeRunIsDue', () => {
+  const at = (iso: string) => new Date(iso)
+
+  it('is due when nothing has ever succeeded', () => {
+    expect(chargeRunIsDue(null, at('2026-09-30T09:00:00.000Z'))).toBe(true)
+  })
+
+  it('is due once the throttle window has elapsed', () => {
+    expect(chargeRunIsDue(at('2026-09-30T08:00:00.000Z'), at('2026-09-30T09:00:00.000Z'))).toBe(true)
+    expect(chargeRunIsDue(at('2026-09-30T08:01:00.000Z'), at('2026-09-30T09:00:00.000Z'))).toBe(false)
+  })
+
+  it('is due on a scheduled firing regardless of how recent the last success was', () => {
+    // One minute apart, which no age-based throttle would ever let through.
+    expect(chargeRunIsDue(at('2026-09-30T13:59:00.000Z'), at('2026-09-30T14:00:00.000Z'))).toBe(true)
+  })
+
+  it('crosses midnight — the 06:00 firing is a boundary against a 05:50 success', () => {
+    // lastScheduledFiring must fall back to yesterday's last hour when today's
+    // first has not come round, or the first cron of the day would be the one
+    // firing that a late-night browser poll could always throttle out.
+    expect(chargeRunIsDue(at('2026-09-30T05:50:00.000Z'), at('2026-09-30T06:00:00.000Z'))).toBe(true)
+    expect(chargeRunIsDue(at('2026-09-30T04:00:00.000Z'), at('2026-09-30T04:30:00.000Z'))).toBe(false)
+  })
+
+  it('treats a future or unparseable last-success as due', () => {
+    expect(chargeRunIsDue(at('2026-09-30T10:00:00.000Z'), at('2026-09-30T09:00:00.000Z'))).toBe(true)
+    expect(chargeRunIsDue(at('not a date'), at('2026-09-30T09:00:00.000Z'))).toBe(true)
+  })
+
+  it('matches the schedule in vercel.json', async () => {
+    // CRON COUPLING. An hour missing from CHARGE_CRON_HOURS_UTC is an hour
+    // whose scheduled run can be throttled out by browser polling again, which
+    // is the whole defect the schedule clause exists to close. Read from the
+    // file rather than restated, so editing vercel.json alone fails here.
+    const { readFile } = await import('node:fs/promises')
+    const vercel = JSON.parse(await readFile('vercel.json', 'utf8')) as {
+      crons: Array<{ path: string; schedule: string }>
+    }
+    const hours = vercel.crons
+      .filter((c) => c.path === '/api/agent/monitor')
+      .map((c) => Number(c.schedule.split(' ')[1]))
+      .sort((a, b) => a - b)
+
+    expect(hours).toEqual([...CHARGE_CRON_HOURS_UTC].sort((a, b) => a - b))
   })
 })
