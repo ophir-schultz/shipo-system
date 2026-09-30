@@ -30,6 +30,15 @@ describe('labourVariance', () => {
       standardRate: 0.23,
       quantity: 20000,
     })
+    // `not.toBeNull()` first, and it is load-bearing. `expect(null)
+    // .toBeCloseTo(0, 6)` PASSES in vitest — null coerces to 0 in the
+    // difference. `absorbed` and `variance` are `number | null` and the
+    // 'unavailable' basis makes null a genuinely reachable result, so without
+    // this guard the assertion would stay green against an implementation that
+    // returned "we could not work it out" and let it be read as "zero
+    // variance". Those two must never look alike: one is a clean month, the
+    // other is a month nobody has costed.
+    expect(r.variance).not.toBeNull()
     expect(r.variance).toBeCloseTo(0, 6)
     expect(r.basis).toBe('measured')
   })
@@ -69,6 +78,9 @@ describe('labourVariance', () => {
       standardRate: 0,
       quantity: 20000,
     })
+    // See the note above on null and toBeCloseTo: the guard is what stops this
+    // passing against an unavailable result reported as zero absorbed cost.
+    expect(r.absorbed).not.toBeNull()
     expect(r.absorbed).toBeCloseTo(0, 6)
     expect(r.variance).toBeCloseTo(500, 6)
     expect(r.basis).toBe('measured')
@@ -82,6 +94,9 @@ describe('labourVariance', () => {
       standardRate: 0.23,
       quantity: 0,
     })
+    // See the note above on null and toBeCloseTo: the guard is what stops this
+    // passing against an unavailable result reported as zero absorbed cost.
+    expect(r.absorbed).not.toBeNull()
     expect(r.absorbed).toBeCloseTo(0, 6)
     expect(r.variance).toBeCloseTo(5000, 6)
   })

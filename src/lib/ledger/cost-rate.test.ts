@@ -67,9 +67,17 @@ describe('findCostRate', () => {
   it('returns known for a rate of zero', () => {
     const r = findCostRate(rates, { costType: 'receiving', chargeDate: '2026-03-01' })
     expect(r.known).toBe(true)
+    // The `not.toBeNull()` lines are the whole test, not ceremony.
+    // `expect(null).toBeCloseTo(0, 2)` PASSES in vitest -- null coerces to 0 in
+    // the subtraction, so the difference is 0. (`undefined` fails; null does
+    // not.) Without the null guard, every assertion below would stay green
+    // against an implementation that returned null for a zero rate -- which is
+    // precisely the unknown-vs-free confusion this module exists to prevent.
+    // An earlier edit of this file swapped `toBe(0)` for `toBeCloseTo(0, 2)`
+    // and claimed in a comment that it still separated 0 from null. It did not.
+    expect(r.rate).not.toBeNull()
     expect(r.rate).toBeCloseTo(0, 6)
-    // toBeCloseTo, not toBe, per the house rule on money. It still separates
-    // 0 from null: toBeCloseTo rejects a non-number outright.
+    expect(costOf(r, 10)).not.toBeNull()
     expect(costOf(r, 10)).toBeCloseTo(0, 2)
   })
 
