@@ -88,13 +88,14 @@ export async function openSyncRun(input: {
                  : rowsWritten > 0 ? 'partial' : 'failed')
       if (!id) return
       const { supabaseAdmin: db } = await import('@/lib/supabase')
-      await db.from('sync_runs').update({
+      const { error: closeError } = await db.from('sync_runs').update({
         finished_at: new Date().toISOString(),
         status: resolved,
         rows_seen: rowsSeen,
         rows_written: rowsWritten,
         errors: errors.list(),
       }).eq('id', id)
+      if (closeError) console.error('[close] could not update sync_runs row:', closeError)
     },
   }
 }

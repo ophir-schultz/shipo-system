@@ -135,6 +135,7 @@ export async function syncShipments(daysBack = 30) {
 
             if (adjError) {
               run.fail(`adjustment lookup ${shipmentId}`, adjError)
+              results.errors++
             } else if (!existingAdj) {
               const { error: insError } = await supabaseAdmin
                 .from('rate_adjustments').insert({
