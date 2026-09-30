@@ -1,5 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCustomerOrders } from '@/lib/api/zenventory'
+import { normaliseLines, NegativeQuantityError } from '@/lib/ledger/order-line'
+import { watermarkPickDate } from '@/lib/ledger/pick-date'
+import { openSyncRun } from '@/lib/ledger/sync-run'
 
 /**
  * Each client has their own Zenventory account.
@@ -29,6 +32,19 @@ export async function syncClientAssignments(daysBack = 30) {
   const clientErrors: string[] = []
 
   for (const client of clients) {
+    // Each client gets its own sync_runs row so a 401 on one client is
+    // recordable without condemning or absolving the whole run. Two clients
+    // (Nayax and Creative Pea) currently return 401 while their Zenventory 2.0
+    // credentials are being restored; their rows will resolve to 'failed' while
+    // the other clients' rows resolve to 'ok'.
+    const run = await openSyncRun({
+      source: 'zenventory',
+      clientId: client.id,
+      mode: 'live',
+      windowStart: modifiedFromISO.split('T')[0],
+      windowEnd: new Date().toISOString().split('T')[0],
+    })
+
     let page = 1
     let hasMore = true
     const orderNumbers: string[] = []
@@ -44,6 +60,7 @@ export async function syncClientAssignments(daysBack = 30) {
         })
       } catch (err: any) {
         clientErrors.push(`${client.name}: ${err.message}`)
+        run.fail(`pagination page ${page}`, err)
         hasMore = false
         break
       }
@@ -52,8 +69,89 @@ export async function syncClientAssignments(daysBack = 30) {
       const meta = data.meta ?? {}
 
       for (const order of orders) {
-        const orderNumber = String(order.orderNumber ?? order.order_number ?? '')
-        if (orderNumber) orderNumbers.push(orderNumber)
+        const orderNumber = String(order.orderNumber ?? order.order_number ?? '').trim()
+        if (!orderNumber) { run.fail('blank order number', order); continue }
+        orderNumbers.push(orderNumber)
+
+        run.seen()
+        try {
+          const { data: orderRow, error: orderErr } = await supabaseAdmin
+            .from('orders')
+            .upsert({
+              client_id: client.id,
+              order_key: orderNumber.toUpperCase(),
+              order_number: orderNumber,
+              source: 'zenventory',
+              order_date: order.orderDate ?? order.order_date ?? null,
+              cancelled: Boolean(order.cancelled ?? false),
+            }, { onConflict: 'client_id,order_key' })
+            .select('id')
+            .single()
+
+          if (orderErr || !orderRow) {
+            run.fail(`order ${orderNumber}`, orderErr ?? 'no row returned')
+            continue
+          }
+
+          const lines = normaliseLines(
+            order.items ?? order.orderItems ?? order.lineItems ?? []
+          )
+
+          for (const line of lines) {
+            // pick_date is set ONCE and never moved. Read the existing row
+            // first so an established date survives a re-sync.
+            const { data: existing, error: existingErr } = await supabaseAdmin
+              .from('order_items')
+              .select('id, pick_date, pick_date_source, quantity_picked')
+              .eq('order_id', orderRow.id)
+              .eq('source', 'zenventory')
+              .eq('line_ordinal', line.line_ordinal)
+              .maybeSingle()
+
+            if (existingErr) {
+              run.fail(`item lookup ${orderNumber}:${line.line_ordinal}`, existingErr)
+              continue
+            }
+
+            let pickDate = existing?.pick_date ?? null
+            let pickSource = existing?.pick_date_source ?? null
+
+            if (line.picked && !pickDate) {
+              pickDate = watermarkPickDate(new Date())
+              pickSource = 'watermark'
+            }
+            if (!line.picked && pickDate) {
+              pickDate = null
+              pickSource = null
+            }
+
+            const { error: itemErr } = await supabaseAdmin
+              .from('order_items')
+              .upsert({
+                order_id: orderRow.id,
+                source: 'zenventory',
+                line_ordinal: line.line_ordinal,
+                sku: line.sku,
+                description: line.description,
+                quantity_ordered: line.quantity_ordered,
+                quantity_picked: line.quantity_picked,
+                is_component: line.is_component,
+                classification_source: line.classification_source,
+                pick_date: pickDate,
+                pick_date_source: pickSource,
+                is_estimate: pickSource === 'watermark',
+              }, { onConflict: 'order_id,source,line_ordinal' })
+
+            if (itemErr) run.fail(`item ${orderNumber}:${line.line_ordinal}`, itemErr)
+            else run.wrote()
+          }
+        } catch (err) {
+          if (err instanceof NegativeQuantityError) {
+            run.fail(`order ${orderNumber}: bad quantity`, err)
+          } else {
+            run.fail(`order ${orderNumber}`, err)
+          }
+        }
       }
 
       hasMore = page < (meta.totalPages ?? meta.total_pages ?? 1)
@@ -80,15 +178,24 @@ export async function syncClientAssignments(daysBack = 30) {
 
       totalUpdated++
     }
+
+    await run.close()
   }
 
-  // If every client with credentials failed, surface errors
+  // WAS: if (clientErrors.length === clients.length) throw ...
+  //
+  // That reported seven successes and one 401 as a clean run. Two clients
+  // return 401 today — Nayax and Creative Pea, both awaiting Zenventory 2.0
+  // credentials — so a partial failure is the normal state, not an edge case.
+  // Each client's outcome is now its own sync_runs row; the throw only remains
+  // for the case where nothing at all worked.
   if (clientErrors.length === clients.length) {
-    throw new Error(`Zenventory sync failed for all clients:\n${clientErrors.join('\n')}`)
+    throw new Error(`Zenventory sync failed for every client:\n${clientErrors.join('\n')}`)
   }
 
   return {
     clients_synced: clients.length - clientErrors.length,
+    clients_failed: clientErrors.length,
     mapped: totalMapped,
     updated: totalUpdated,
     skipped: totalSkipped,
