@@ -250,10 +250,14 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
               - `unit` is nullable-with-default (schema.sql:32) and decorative;
                 `rate_type` is the truth column.
 
-              Every other service_type consumer already guards it (BillingView
-              .tsx:198, ReportsTabs.tsx:363, warehouse/page.tsx:206,
-              lib/billing/download.ts:45, api/reports/download/route.ts:163);
-              this was the lone outlier.
+              Every other service_type consumer already guards it — paths from
+              the repo root so they can be opened directly:
+              src/components/billing/BillingView.tsx:198,
+              src/components/reports/ReportsTabs.tsx:363,
+              src/app/warehouse/page.tsx:206,
+              src/lib/billing/download.ts:45,
+              src/app/api/reports/download/route.ts:163.
+              This was the lone outlier.
             */}
             <tbody>
               {warehouseRates.map((r: any) => (
