@@ -84,7 +84,7 @@ begin
   if c is null then
     raise exception 'FAIL: pick_days reported no row for the confidence fixture';
   end if;
-  if c <> 2 then
+  if c is distinct from 2 then
     raise exception 'FAIL: confidence is %, expected 2 (weakest line wins)', c;
   end if;
   raise notice 'PASS: confidence takes the weakest line';
@@ -154,7 +154,12 @@ begin
     where leak = 'negative_margin_lines' and client_id = cid
       and period_month = '2026-10-01';
   if n = 0 then raise exception 'FAIL: a real negative margin was not reported'; end if;
-  if recs <> 1 then
+  -- `is distinct from`, not `<>`: if recs were NULL (max() over zero rows), `<>`
+  -- would evaluate to NULL, take no branch, and silently print PASS. NULL here
+  -- would mean the `n = 0` guard above failed to raise, which is impossible today
+  -- but is exactly the kind of ordering dependency that bites later. Use
+  -- `is distinct from` throughout assertions where either side could be NULL.
+  if recs is distinct from 1 then
     raise exception 'FAIL: negative-margin leak reports % records, expected exactly 1', recs;
   end if;
   raise notice 'PASS: a real negative margin is reported';
@@ -194,10 +199,12 @@ begin
   if rev is null then
     raise exception 'FAIL: pnl_client_monthly reported no row for the fixture charge';
   end if;
-  if rev <> 7.50 then
+  if rev is distinct from 7.50 then
     raise exception 'FAIL: pnl_client_monthly revenue is %, expected 7.50', rev;
   end if;
-  if unknown_costs <> 1 then
+  -- `is distinct from` for the same reason as the `recs` check above: `<>` is
+  -- NULL-blind and would print PASS if unknown_costs were NULL.
+  if unknown_costs is distinct from 1 then
     raise exception 'FAIL: cost_unknown_charges is %, expected 1', unknown_costs;
   end if;
   if ck is not null then
@@ -243,11 +250,15 @@ end $$;
 --            unavailable: no direct_storage cost recorded" instead of rendering
 --            an empty cell -- and until now nothing exercised it.
 --
--- Phase 2's direct_labor row is dated mid-month on purpose. operating_costs
+-- Phase 2's BOTH rows are dated mid-month on purpose. operating_costs
 -- imposes no first-of-month constraint (ledger_02_cost.sql:44), so if the
--- overhead CTE ever loses its date_trunc, that row stops joining to 2099-01-01
--- and direct_labor_rows comes back NULL instead of 1 -- which the assertion
--- below names.
+-- overhead CTE ever loses its date_trunc, neither row joins to 2099-01-01 and
+-- both overhead_rows and direct_labor_rows come back NULL -- which the
+-- assertions below name. If only direct_labor were mid-month, the overhead row
+-- would still land on 2099-01-01 and overhead_rows would return 1, so the
+-- date_trunc regression would produce `direct_labor_rows = NULL` while
+-- `oh_rows = 1` appeared fine; dating both mid-month makes the detector fire
+-- on overhead_rows first and removes that false-partial-pass.
 do $$
 declare cid uuid; oid uuid; np numeric; gm numeric;
         oh_rows bigint; dl_rows bigint; ds_rows bigint;
@@ -278,7 +289,7 @@ begin
   -- default (ledger_02_cost.sql:42-51); vendor and note are nullable, and
   -- allocation has a default we override explicitly.
   insert into operating_costs (period_month, category, amount, allocation)
-    values ('2099-01-01', 'VERIFY-rent',  1000.00, 'overhead'),
+    values ('2099-01-10', 'VERIFY-rent',  1000.00, 'overhead'),
            ('2099-01-20', 'VERIFY-wages', 2000.00, 'direct_labor');
 
   select net_profit, gross_margin,
@@ -290,7 +301,9 @@ begin
   -- plain `<>` would take no branch and print PASS for the exact case these
   -- assertions exist to catch -- a NULL where a count was expected.
   if oh_rows is distinct from 1 then
-    raise exception 'FAIL: overhead_rows is %, expected 1', oh_rows;
+    raise exception 'FAIL: overhead_rows is %, expected 1. A NULL here means the '
+                    'mid-month operating_costs row did not join to the 1st, i.e. '
+                    'the overhead CTE has lost its date_trunc', oh_rows;
   end if;
   if dl_rows is distinct from 1 then
     raise exception 'FAIL: direct_labor_rows is %, expected 1. A NULL here means '

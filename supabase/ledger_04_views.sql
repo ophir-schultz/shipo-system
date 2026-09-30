@@ -31,17 +31,26 @@
 -- comments), so a plain drop is sufficient. Should something come to depend on
 -- one of them later, a plain drop fails loudly and the next reader gets to
 -- decide; `cascade` would silently delete their object instead.
+--
+-- PASTE CONTRACT. Run this file as ONE batch — paste it whole into the Supabase
+-- SQL editor and execute in a single submission. The editor wraps a whole paste
+-- in one implicit transaction, so a failure anywhere rolls the drops back and
+-- leaves the old views intact rather than none. If you must run it in pieces
+-- (e.g. to debug a single statement), run it to the end: between a `create` and
+-- the `revoke` block at the bottom, the newly recreated view is readable by the
+-- `anon` role at the Supabase schema default. The revoke is not a tidying step —
+-- it is the other half of the create.
 -- ---------------------------------------------------------------------------
-drop view if exists pnl_monthly;
-drop view if exists pnl_client_monthly;
-drop view if exists leaks_monthly;
-drop view if exists pick_days;
+drop view if exists public.pnl_monthly;
+drop view if exists public.pnl_client_monthly;
+drop view if exists public.leaks_monthly;
+drop view if exists public.pick_days;
 
 -- ---------------------------------------------------------------------------
 -- pick_days: what was picked, per client per day per SKU.
 -- A view, not a table, so it cannot drift from the lines it summarises.
 -- ---------------------------------------------------------------------------
-create or replace view pick_days as
+create or replace view public.pick_days as
 with usable as (          -- only lines carrying real pick evidence
   select oi.*
   from order_items oi
@@ -97,7 +106,7 @@ group by o.client_id, u.pick_date, u.sku;
 -- "total leaked" that is inflated by an unknown amount. Read one leak at a
 -- time; there is no correct total here.
 -- ---------------------------------------------------------------------------
-create or replace view leaks_monthly as
+create or replace view public.leaks_monthly as
 
 -- 1. Label spend attributable to no order or no client.
 --
@@ -246,7 +255,7 @@ group by 1, 2;
 -- pnl_client_monthly: revenue and direct cost per client per month.
 -- GROSS margin only. Overheads are not allocated across clients.
 -- ---------------------------------------------------------------------------
-create or replace view pnl_client_monthly as
+create or replace view public.pnl_client_monthly as
 select date_trunc('month', c.charge_date)::date as period_month,
        c.client_id,
        cl.name                                  as client_name,
@@ -295,7 +304,7 @@ group by 1, 2, 3, 4;
 -- ---------------------------------------------------------------------------
 -- pnl_monthly: the business total, with overheads subtracted at the top.
 -- ---------------------------------------------------------------------------
-create or replace view pnl_monthly as
+create or replace view public.pnl_monthly as
 with revenue as (
   select date_trunc('month', charge_date)::date as period_month,
          sum(amount)                            as revenue,
@@ -448,10 +457,10 @@ full outer join overhead o on o.period_month = r.period_month;
 -- at; the verification block below closes that gap from the other end instead.
 do $$
 begin
-  alter view pick_days          set (security_invoker = true);
-  alter view leaks_monthly      set (security_invoker = true);
-  alter view pnl_client_monthly set (security_invoker = true);
-  alter view pnl_monthly        set (security_invoker = true);
+  alter view public.pick_days          set (security_invoker = true);
+  alter view public.leaks_monthly      set (security_invoker = true);
+  alter view public.pnl_client_monthly set (security_invoker = true);
+  alter view public.pnl_monthly        set (security_invoker = true);
   raise notice 'security_invoker set on all four views.';
 exception when others then
   raise notice 'security_invoker could NOT be set. SQLSTATE %: %. '
@@ -469,10 +478,18 @@ end $$;
 -- reloptions back and names the views that are missing the setting, whatever
 -- SQLSTATE the server chose. A view absent from pg_class entirely is also
 -- reported, since the left join leaves it with no options at all.
+--
+-- NOTE: `c.relnamespace = 'public'::regnamespace` hard-codes the `public`
+-- schema. The DDL above uses the same schema (`public.pick_days` etc.), so the
+-- two agree. If the views were ever moved to a different schema the check would
+-- report all four missing while the `alter`s had in fact succeeded -- a false
+-- alarm. Keep the DDL and this check in the same schema.
 do $$
 declare missing text;
 begin
-  select string_agg(v.name, ', ' order by v.name) into missing
+  select string_agg(v.name || ' (reloptions=' ||
+                    coalesce(c.reloptions::text, 'NULL') || ')',
+                    ', ' order by v.name) into missing
   from unnest(array['pick_days', 'leaks_monthly',
                     'pnl_client_monthly', 'pnl_monthly']) as v(name)
   left join pg_class c on c.relname = v.name
@@ -489,7 +506,10 @@ begin
                  'below keeps them closed to anon and authenticated, so nothing '
                  'is exposed TODAY -- but they are not RLS-safe, and granting '
                  'select on them back to any role would publish every client''s '
-                 'data to that role. Do not grant them back on this server.',
+                 'data to that role. Do not grant them back on this server. '
+                 '(reloptions=NULL means the option is absent; reloptions showing '
+                 'security_invoker=false means it was explicitly disabled; a view '
+                 'not appearing in pg_class at all means the create failed.)',
                  missing;
   else
     raise notice 'Verified: security_invoker is set on all four views.';
@@ -500,12 +520,47 @@ exception when others then
                'authenticated.', sqlstate, sqlerrm;
 end $$;
 
-revoke all on pick_days          from anon, authenticated;
-revoke all on leaks_monthly      from anon, authenticated;
-revoke all on pnl_client_monthly from anon, authenticated;
-revoke all on pnl_monthly        from anon, authenticated;
+revoke all on public.pick_days          from anon, authenticated;
+revoke all on public.leaks_monthly      from anon, authenticated;
+revoke all on public.pnl_client_monthly from anon, authenticated;
+revoke all on public.pnl_monthly        from anon, authenticated;
 
-grant select on pick_days          to service_role;
-grant select on leaks_monthly      to service_role;
-grant select on pnl_client_monthly to service_role;
-grant select on pnl_monthly        to service_role;
+grant select on public.pick_days          to service_role;
+grant select on public.leaks_monthly      to service_role;
+grant select on public.pnl_client_monthly to service_role;
+grant select on public.pnl_monthly        to service_role;
+
+-- Third guard: confirm the revoke actually closed the exposure. `security_invoker`
+-- is the RLS guard; `revoke` is the guard that closes the ledger tables that have
+-- no RLS of their own (orders, order_items, order_charges, cost_rates,
+-- operating_costs). The `alter view` failure was swallowed, which is why it
+-- needed a read-back; the `revoke` above is unconditional and aborts the paste on
+-- failure, so a silent miss is less likely -- but `alter default privileges` or a
+-- `grant` elsewhere can re-open a view without touching this file. This block
+-- checks the result rather than the statement. Guarded the same way as the
+-- `reloptions` block: if the `anon` role does not exist (non-Supabase server) the
+-- function raises and we fall through to a notice rather than aborting the paste.
+do $$
+declare still_open text;
+begin
+  select string_agg(v.name, ', ' order by v.name) into still_open
+  from unnest(array['public.pick_days', 'public.leaks_monthly',
+                    'public.pnl_client_monthly', 'public.pnl_monthly']) as v(name)
+  where has_table_privilege('anon', v.name, 'SELECT');
+
+  if still_open is not null then
+    raise notice 'WARNING: anon can still SELECT from: %. The revoke did not '
+                 'close the exposure. Check whether `alter default privileges` '
+                 'or an explicit grant elsewhere re-opened these views. Until '
+                 'this is resolved every client''s margin is readable via the '
+                 'public anon key.',
+                 still_open;
+  else
+    raise notice 'Verified: anon cannot SELECT from any of the four views.';
+  end if;
+exception when others then
+  raise notice 'Could not verify anon privilege (SQLSTATE %: %). The `anon` '
+               'role may not exist on this server. Confirm manually that anon '
+               'cannot select from the four views before treating the file as '
+               'applied.', sqlstate, sqlerrm;
+end $$;
