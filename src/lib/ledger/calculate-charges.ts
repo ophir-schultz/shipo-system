@@ -194,8 +194,20 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // the string 'null'. Every unidentified label on one order would therefore
     // key to 'shipment:null', and because (order_id, charge_key) is unique they
     // would collapse into a single row — shipping revenue disappearing quietly
-    // rather than loudly. Unidentified labels are reported by
-    // leaks_monthly.unattributed_label_spend (Task 15) instead.
+    // rather than loudly.
+    //
+    // The label skipped here is reported by `leaks_monthly.unpriced_shipments`,
+    // NOT by `unattributed_label_spend` as this comment used to claim. Leak 1's
+    // predicate is about a blank order number or a null client_id, and a
+    // shipment with a good order number, a good client and a null shipment id
+    // satisfies neither disjunct — it never appears there. It lands in leak 3
+    // because `'shipment:' || null::text` is NULL and `charge_key = NULL` is
+    // never true, so leak 3's `not exists` is always satisfied for it.
+    //
+    // That only holds while `actual_cost is not null`, which is leak 3's own
+    // precondition: a shipment with both a null shipment id and a null
+    // actual_cost is invisible to all six leaks. Arguably that is right — we
+    // have no evidence we paid anything — but it is a blind spot, not coverage.
     if (!Number.isFinite(s.shipmentId)) continue
 
     // A voided label was refunded, so it contributes nothing to measured cost.
