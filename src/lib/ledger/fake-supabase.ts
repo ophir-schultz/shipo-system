@@ -17,10 +17,19 @@ export type FakeRow = Record<string, unknown>
 
 export interface FakeError { message: string; code?: string }
 
+/**
+ * What awaiting a builder yields. `count` mirrors supabase-js: it is null
+ * unless `.select(cols, { count: 'exact' })` asked for it, and when asked for
+ * it is the number of rows matching the FILTERS — before range or limit. That
+ * ordering is the entire value of the field: it is how a caller distinguishes
+ * a table that is short from one that was truncated.
+ */
+export type FakeResult = { data: unknown; error: FakeError | null; count: number | null }
+
 type Verb = 'select' | 'insert' | 'update' | 'upsert' | 'delete'
 
 interface Filter {
-  op: 'eq' | 'in' | 'lt' | 'gte' | 'not-is-null' | 'or'
+  op: 'eq' | 'in' | 'lt' | 'gte' | 'is-null' | 'not-is-null' | 'or'
   column: string
   value: unknown
 }
@@ -40,6 +49,8 @@ export interface FakeCall {
   onConflict?: string
   range?: [number, number]
   limit?: number
+  /** The `count` option passed to .select(), if any. */
+  count?: string
 }
 
 export interface FakeDb {
@@ -94,17 +105,19 @@ function matches(row: FakeRow, filters: Filter[]): boolean {
       case 'gte':
         if (actual === null || actual === undefined) return false
         return String(actual) >= String(f.value)
+      case 'is-null': return actual === null || actual === undefined
       case 'not-is-null': return actual !== null && actual !== undefined
       case 'or': return matchesOr(row, f.value as string)
     }
   })
 }
 
-class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }> {
+class Builder implements PromiseLike<FakeResult> {
   private call: FakeCall
   private returning = false
   private single = false
   private sort: Array<{ column: string; ascending: boolean }> = []
+  private matched: number | null = null
 
   constructor(private db: FakeDb, table: string) {
     this.call = { table, verb: 'select', filters: [], payload: [] }
@@ -114,12 +127,17 @@ class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }>
     return (this.db.tables[this.call.table] ??= [])
   }
 
-  select(_columns?: string): this {
+  select(_columns?: string, options?: { count?: 'exact' | 'planned' | 'estimated' }): this {
     // After a write, .select() means "return the affected rows"; on its own it
     // is the read verb. Column projection is not modelled: these modules never
     // depend on a column being absent from the result.
     if (this.call.verb === 'select') this.call.verb = 'select'
     this.returning = true
+    // `count` is the number of rows matching the FILTERS, before range/limit.
+    // That is the whole point of asking for it — it is how a caller tells a
+    // short table from a truncated one — so the double must compute it before
+    // slicing, not after.
+    if (options?.count) this.call.count = options.count
     return this
   }
 
@@ -164,6 +182,13 @@ class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }>
   or(expression: string): this {
     this.call.filters.push({ op: 'or', column: '', value: expression }); return this
   }
+  is(column: string, value: unknown): this {
+    if (value !== null) {
+      throw new Error(`fake-supabase: unimplemented .is('${column}', ${String(value)}) — only null is modelled`)
+    }
+    this.call.filters.push({ op: 'is-null', column, value: null })
+    return this
+  }
   not(column: string, operator: string, value: unknown): this {
     if (operator !== 'is' || value !== null) {
       throw new Error(`fake-supabase: unimplemented .not('${column}', '${operator}', …)`)
@@ -172,7 +197,12 @@ class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }>
     return this
   }
 
-  order(column: string, options?: { ascending?: boolean }): this {
+  /**
+   * `nullsFirst` is accepted and ignored: `sorted()` below always places nulls
+   * last, which is Postgres's ascending default and the only setting this
+   * codebase asks for.
+   */
+  order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }): this {
     this.sort.push({ column, ascending: options?.ascending !== false })
     return this
   }
@@ -208,11 +238,11 @@ class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }>
     })
   }
 
-  private [RESULT](): { data: unknown; error: FakeError | null } {
+  private [RESULT](): FakeResult {
     this.db.calls.push(this.call)
 
     const injected = this.db.failOn?.(this.call)
-    if (injected) return { data: null, error: injected }
+    if (injected) return { data: null, error: injected, count: null }
 
     const table = this.rows()
     let affected: FakeRow[] = []
@@ -220,13 +250,14 @@ class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }>
     switch (this.call.verb) {
       case 'select': {
         affected = this.sorted(table.filter((r) => matches(r, this.call.filters)))
+        if (this.call.count) this.matched = affected.length
         const [from, to] = this.call.range ?? [0, affected.length - 1]
         // PostgREST answers a range that starts past the end with PGRST103
         // rather than an empty 200. fetchAllPages depends on treating that as
         // end-of-table, and a double that returned [] instead would leave that
         // branch untested.
         if (from > 0 && from >= affected.length) {
-          return { data: null, error: { message: 'Requested range not satisfiable', code: 'PGRST103' } }
+          return { data: null, error: { message: 'Requested range not satisfiable', code: 'PGRST103' }, count: null }
         }
         affected = affected.slice(from, to + 1)
         if (this.call.limit !== undefined) affected = affected.slice(0, this.call.limit)
@@ -265,7 +296,7 @@ class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }>
       }
     }
 
-    if (!this.returning) return { data: null, error: null }
+    if (!this.returning) return { data: null, error: null, count: null }
 
     if (this.single) {
       // supabase-js does NOT throw when maybeSingle() matches more than one
@@ -284,19 +315,20 @@ class Builder implements PromiseLike<{ data: unknown; error: FakeError | null }>
             message: 'JSON object requested, multiple (or no) rows returned',
             code: 'PGRST116',
           },
+          count: null,
         }
       }
-      return { data: affected[0] ?? null, error: null }
+      return { data: affected[0] ?? null, error: null, count: this.matched }
     }
 
-    return { data: affected, error: null }
+    return { data: affected, error: null, count: this.matched }
   }
 
-  then<R1 = { data: unknown; error: FakeError | null }, R2 = never>(
-    onFulfilled?: ((v: { data: unknown; error: FakeError | null }) => R1 | PromiseLike<R1>) | null,
+  then<R1 = FakeResult, R2 = never>(
+    onFulfilled?: ((v: FakeResult) => R1 | PromiseLike<R1>) | null,
     onRejected?: ((reason: unknown) => R2 | PromiseLike<R2>) | null,
   ): PromiseLike<R1 | R2> {
-    let result: { data: unknown; error: FakeError | null }
+    let result: FakeResult
     try { result = this[RESULT]() } catch (err) { return Promise.reject(err).then(onFulfilled, onRejected) }
     return Promise.resolve(result).then(onFulfilled, onRejected)
   }
