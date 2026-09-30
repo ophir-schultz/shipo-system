@@ -28,9 +28,11 @@ export async function syncShipments(daysBack = 30) {
       shipDateStart: dateStr,
       page,
       pageSize: 100,
-      // Task 11 removes this line. It stays here so that the fixes in this
-      // task can be proven against traffic we already handle.
-      carrierCode: 'stamps_com',
+      // DO NOT re-add carrierCode. Filtering to 'stamps_com' hid 776 of 1,095
+      // shipments in a 30-day window — about $12,500/month of UPS label cost,
+      // roughly 80% of the largest variable cost in the business. Every P&L
+      // figure depends on this call returning all carriers.
+      // Spec: docs/superpowers/specs/2026-09-29-complete-the-ledger-design.md §3.1
     })
 
     const shipments = data.shipments ?? []
