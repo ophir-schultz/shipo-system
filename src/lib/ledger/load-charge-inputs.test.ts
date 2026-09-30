@@ -62,6 +62,44 @@ describe('fetchAllPages', () => {
         cause: original,
       })
   })
+
+  // There is no migration runner in this project: the ledger_0*.sql files are
+  // pasted into the Supabase SQL editor by a human, so code deployed ahead of
+  // schema is a normal state. The bare PostgREST string for it —
+  // "column shipments.order_number_key does not exist" — reads like a code
+  // defect and gives the person on call no idea that the remedy is one file
+  // they can paste. These pin that the remedy is named.
+  it.each([
+    ['42703', 'column shipments.order_number_key does not exist',
+     'supabase/ledger_03_charges.sql'],
+    ['42703', 'column client_warehouse_rates.effective_from does not exist',
+     'supabase/ledger_03_charges.sql'],
+    ['42P01', 'relation "public.cost_rates" does not exist',
+     'supabase/ledger_02_cost.sql'],
+  ])('names the migration to run when %s reports %s', async (code, message, file) => {
+    const original = { message, code }
+    await expect(fetchAllPages('shipments', async () => ({ data: null, error: original })))
+      .rejects.toMatchObject({
+        message: expect.stringContaining(file),
+        cause: original,
+      })
+    await expect(fetchAllPages('shipments', async () => ({ data: null, error: original })))
+      .rejects.toThrow(/no migration runner/i)
+  })
+
+  // A 42703 this loader has no mapping for must still fail, and must still
+  // carry the original error. Guessing a migration file for an unknown column
+  // would send the operator to paste a file that does not fix anything.
+  it('falls back to the plain message for an unrecognised missing column', async () => {
+    const original = { message: 'column orders.nonsense does not exist', code: '42703' }
+    await expect(fetchAllPages('orders', async () => ({ data: null, error: original })))
+      .rejects.toMatchObject({
+        message: expect.stringContaining('column orders.nonsense does not exist'),
+        cause: original,
+      })
+    await expect(fetchAllPages('orders', async () => ({ data: null, error: original })))
+      .rejects.not.toThrow(/ledger_0/)
+  })
 })
 
 describe('loadChargeInputs — the window', () => {

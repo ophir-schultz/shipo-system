@@ -27,6 +27,42 @@ interface PageResult<T> {
   error: { message: string; code?: string } | null
 }
 
+// Which hand-applied file introduces each thing this loader reads. There is no
+// migration runner in this project (docs/superpowers/global-constraints.md):
+// the files are pasted into the Supabase SQL editor by a human, so "the code is
+// deployed" and "the schema exists" are independent facts and the gap between
+// them is a normal state, not a corrupt one.
+//
+// Ordered longest-key-first at the point of use, so `order_number_key` is not
+// matched by a shorter key that happens to be its prefix.
+const MIGRATION_FOR: ReadonlyArray<readonly [string, string]> = [
+  ['shipstation_shipment_id', 'supabase/ledger_03_charges.sql'],
+  ['order_number_key',        'supabase/ledger_03_charges.sql'],
+  ['effective_from',          'supabase/ledger_03_charges.sql'],
+  ['effective_to',            'supabase/ledger_03_charges.sql'],
+  ['charge_type',             'supabase/ledger_03_charges.sql'],
+  ['cost_rates',              'supabase/ledger_02_cost.sql'],
+  ['order_key',               'supabase/ledger_01_orders.sql'],
+]
+
+// 42703 undefined_column, 42P01 undefined_table. Both mean the same thing here:
+// the migration has not been pasted in yet.
+//
+// Left to the generic wrapper below, this surfaces as
+// `loadChargeInputs: shipments: column shipments.order_number_key does not
+// exist` inside a failed sync_run — true, but it reads like a code defect, and
+// the person on call has no way to know the remedy is a file they can paste. So
+// the one case where the fix is a single known action says so.
+function migrationHint(message: string): string | null {
+  const hit = MIGRATION_FOR.find(([needle]) => message.includes(needle))
+  if (!hit) return null
+  return `The charge calculator is running against a database that has not had `
+       + `its migration applied: ${message}. There is no migration runner in this `
+       + `project — open the Supabase SQL editor and run ${hit[1]} (and any `
+       + `earlier ledger_0*.sql it depends on), then re-run the charge sync. No `
+       + `charges were written and nothing was deleted.`
+}
+
 export async function fetchAllPages<T>(
   what: string,
   page: (from: number, to: number) => PromiseLike<PageResult<T>>,
@@ -42,6 +78,14 @@ export async function fetchAllPages<T>(
     // table, not a failure, and treating it as one would fail the entire run on
     // a row count nobody controls.
     if (error?.code === 'PGRST103') return rows
+    // A missing column or table is not a transient read failure and it is not a
+    // bug in this file — it is a migration that has not been pasted in. Said
+    // plainly, with the file to run, because the alternative is an operator
+    // reading "column does not exist" and concluding the ledger is broken.
+    if (error && (error.code === '42703' || error.code === '42P01')) {
+      const hint = migrationHint(error.message)
+      if (hint) throw new Error(`loadChargeInputs: ${what}: ${hint}`, { cause: error })
+    }
     // Wrapped rather than rethrown so the message says which read failed, with
     // the original kept on `cause`. Without the table name, every one of these
     // reads produces the same opaque PostgREST string.
