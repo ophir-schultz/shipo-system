@@ -317,9 +317,22 @@ export async function loadChargeInputs(
   // hold the same order number; attaching the label to whichever order was seen
   // first would put one client's carrier cost in another client's P&L, and it
   // would look entirely plausible. When attribution is not provably unique we
-  // do not attribute: the label is left off every order and warned about, and
-  // the spend is already accounted for by
-  // leaks_monthly.unattributed_label_spend.
+  // do not attribute: the label is left off every order and warned about.
+  //
+  // The spend is then reported by `leaks_monthly.unpriced_shipments`, NOT by
+  // `unattributed_label_spend` as this comment used to claim. Leak 1's predicate
+  // is a blank order number OR a null client_id, and an ambiguously-claimed
+  // shipment has neither -- it has a perfectly good order number (that is what
+  // made it ambiguous) and, where the loader had one, a populated client_id. It
+  // satisfies no disjunct of leak 1 and never appears there. It lands in leak 3
+  // instead, because no charge is ever keyed for it and leak 3 looks for a
+  // carrier cost with no matching shipping charge.
+  //
+  // That only holds while `actual_cost is not null`, which is leak 3's own
+  // precondition: an ambiguous shipment whose carrier cost has not been reported
+  // is invisible to all six leaks. Dropping it here is still right -- guessing
+  // the claimant would put one client's freight in another's P&L -- but it is
+  // dropped into a blind spot, not into coverage.
   const orderNumberKeys = (o: OrderRow) =>
     Array.from(new Set([norm(o.order_key), norm(o.order_number)])).filter((k) => k !== '')
 
