@@ -324,7 +324,10 @@ export async function recalculateCharges(
     if (unknownCarrierCharges > 0) {
       run.warn('unknown carrier cost', `${unknownCarrierCharges} shipping charges `
         + `have no carrier cost reported yet; cost is null, not zero, so they are `
-        + `absent from margin rather than counted as pure profit.`)
+        + `absent from margin rather than counted as pure profit. On an at-cost `
+        + `rate the REVENUE is unknown for the same reason and amount is null `
+        + `too, so billable revenue is understated until the carrier reports — `
+        + `these are labels to chase, not labels that shipped free.`)
     }
     if (unpricedOrders > 0) {
       run.warn('unpriced orders', `${unpricedOrders} orders had picked lines but `

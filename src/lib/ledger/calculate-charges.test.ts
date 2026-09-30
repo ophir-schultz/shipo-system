@@ -135,25 +135,64 @@ describe('buildCharges', () => {
   // A voided label contributes $0 to measured cost. Leaving it in would
   // overstate spend by the amount that was refunded; it is counted instead in
   // the voided-label leak line (Task 15).
+  //
+  // The two `not.toBeNull()` lines look redundant next to the closeTo matchers
+  // and are not: `expect(null).toBeCloseTo(0, 2)` PASSES in vitest, because the
+  // matcher coerces. Every zero-versus-null assertion in this file therefore
+  // needs an explicit null check beside it or it asserts nothing at all — which
+  // is exactly how the stale `amount` expectation below survived unnoticed.
   it('gives a voided shipment zero amount and zero cost', () => {
     const out = buildCharges({ ...base, shipments: [
       { id: 's2', shipmentId: 556, shipDate: '2026-09-02', actualCost: 9.10, voided: true },
     ]})
+    expect(out[0].amount).not.toBeNull()
+    expect(out[0].cost).not.toBeNull()
     expect(out[0]).toMatchObject({
       amount: expect.closeTo(0, 2),
       cost: expect.closeTo(0, 2),
     })
   })
 
-  // An unknown carrier cost must stay unknown. Writing 0 here would report a
-  // free shipment, which is the null-versus-zero error from Task 13 arriving
-  // by a different route.
-  it('leaves cost null when the carrier cost is unknown', () => {
+  // An unknown carrier cost must stay unknown — in BOTH columns. On an at-cost
+  // rate the client is invoiced whatever the carrier charged, so a cost that has
+  // not been reported makes the revenue equally unknown. Writing 0 to `amount`
+  // reports a label we gave away free and understates revenue everywhere this
+  // table is summed; writing 0 to `cost` reports pure profit. Same
+  // null-versus-zero error from Task 13, arriving by two different routes.
+  it('leaves both cost and amount null when an at-cost carrier cost is unknown', () => {
     const out = buildCharges({ ...base, shipments: [
       { id: 's3', shipmentId: 557, shipDate: '2026-09-02', actualCost: null, voided: false },
     ]})
     expect(out[0].cost).toBeNull()
+    expect(out[0].amount).toBeNull()
+  })
+
+  // A voided label is the one case where zero is the honest answer even with no
+  // carrier cost: the label was refunded, so we bill nothing and paid nothing.
+  // Null here would push a known-free shipment into the "chase the carrier" pile.
+  it('still gives a voided shipment zero amount when the carrier cost is unknown', () => {
+    const out = buildCharges({ ...base, shipments: [
+      { id: 's3a', shipmentId: 559, shipDate: '2026-09-02', actualCost: null, voided: true },
+    ]})
+    expect(out[0].amount).not.toBeNull()
     expect(out[0].amount).toBeCloseTo(0, 2)
+    expect(out[0].cost).not.toBeNull()
+    expect(out[0].cost).toBeCloseTo(0, 2)
+  })
+
+  // A flat shipping rate is priced by the rate card, not by the carrier, so an
+  // unreported carrier cost leaves the revenue perfectly well known. Only the
+  // at-cost path may produce a null amount.
+  it('keeps a flat shipping amount known when the carrier cost is unknown', () => {
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-ship-flat', chargeType: 'shipping', variant: null,
+                       rate: 12.50, rateType: 'flat' })],
+      shipments: [{ id: 's3d', shipmentId: 560, shipDate: '2026-09-02', actualCost: null, voided: false }],
+    })
+    expect(out[0].amount).not.toBeNull()
+    expect(out[0].amount).toBeCloseTo(12.50, 2)
+    expect(out[0].cost).toBeNull()
   })
 
   // charge_date is `not null` in order_charges, so an undated shipment cannot
@@ -221,6 +260,26 @@ describe('buildCharges', () => {
     // A constant key, not a chargeKey() call: the surcharge is levied on the
     // order, not on a shipment, and (order_id, charge_key) is the unique index.
     expect(sur[0].charge_key).toBe('surcharge:peak')
+  })
+
+  // Shipping is excluded from the basis anyway, so an at-cost freight line with
+  // a null amount must not reach the reduce — but if the exclusion ever changes,
+  // `sum + null` is NaN, and numeric(10,2) rejects NaN, failing the entire
+  // order's batch rather than the one line. Pinned so a null amount can never
+  // take the surcharge down with it.
+  it('keeps the surcharge basis on picks when an at-cost shipping amount is null', () => {
+    const out = buildCharges({
+      ...base,
+      peakSurchargePct: 8,
+      items: [{ id: 'i9b', sku: 'R1', quantityPicked: 10, isComponent: false, pickDate: '2026-09-01' }],
+      shipments: [{ id: 's4b', shipmentId: 561, shipDate: '2026-09-01', actualCost: null, voided: false }],
+    })
+    expect(out.find((c) => c.charge_type === 'shipping')?.amount).toBeNull()
+    const sur = out.filter((c) => c.charge_type === 'surcharge')
+    expect(sur).toHaveLength(1)
+    expect(sur[0].amount).not.toBeNull()
+    expect(Number.isNaN(sur[0].amount)).toBe(false)
+    expect(sur[0].amount).toBeCloseTo(0.26, 2)
   })
 
   it('raises no surcharge when the percentage is zero', () => {

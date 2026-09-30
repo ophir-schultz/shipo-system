@@ -127,7 +127,7 @@ export async function GET(req: Request) {
         log.push(`⚠ ${chargeResult.unknownCostCharges} charges have no known cost rate (flagged as estimates, cost left null)`)
       }
       if (chargeResult.unknownCarrierCharges > 0) {
-        log.push(`⚠ ${chargeResult.unknownCarrierCharges} shipping charges have no carrier cost reported yet (cost left null, not zero)`)
+        log.push(`⚠ ${chargeResult.unknownCarrierCharges} shipping charges have no carrier cost reported yet (cost left null, not zero — and on an at-cost rate the revenue is null too, so billable revenue is understated until the carrier reports)`)
       }
     }
   } catch (err) {

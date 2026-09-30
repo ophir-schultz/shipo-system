@@ -41,7 +41,13 @@ export type ChargeWarn = (context: string, detail: string) => void
 export interface BuiltCharge {
   order_id: string; client_id: string | null; charge_key: string
   charge_type: string; label: string; quantity: number | null
-  unit_rate: number | null; amount: number; cost: number | null
+  // `amount` is nullable for exactly the reason `cost` is, and it carries
+  // exactly the same distinction: null is "we do not know yet", 0 is "we billed
+  // nothing". The only path producing a null today is an at-cost freight line
+  // whose carrier cost has not been reported — the client WILL be invoiced that
+  // figure once it arrives, so 0 understates revenue and reads in every
+  // downstream view as a label we gave away free.
+  unit_rate: number | null; amount: number | null; cost: number | null
   cost_basis: string | null; rate_id: string | null; cost_rate_id: string | null
   charge_date: string; charge_date_source: string; source: string
   is_estimate: boolean
@@ -196,11 +202,16 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // It is counted in the voided-label leak line instead; leaving it in here
     // would overstate spend by the amount that came back.
     const cost = s.voided ? 0 : s.actualCost
-    // at_cost means the client pays exactly what we paid. An unknown cost
-    // cannot be billed, so the amount is 0 and the cost stays null — the two
-    // are different claims and both are true.
+    // at_cost means the client pays exactly what we paid, so an unreported
+    // carrier cost makes the REVENUE unknown too — not zero. `?? 0` here wrote
+    // a real charge of nothing: it says we billed this label at $0, when the
+    // truth is that the figure has not arrived and the client will be invoiced
+    // it. That is the identical null-versus-zero confusion the cost column
+    // already refuses to make, and it understates revenue on every screen that
+    // sums this table. A flat rate is unaffected: its amount is known whatever
+    // the carrier eventually reports.
     const amount = s.voided ? 0
-                 : rate.rateType === 'at_cost' ? (s.actualCost ?? 0)
+                 : rate.rateType === 'at_cost' ? s.actualCost
                  : (rate.rate ?? 0)
 
     out.push({
@@ -211,7 +222,7 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
       label: s.voided ? 'Shipping (voided)' : 'Shipping',
       quantity: 1,
       unit_rate: rate.rate,
-      amount: cents(amount),
+      amount: amount === null ? null : cents(amount),
       cost: cost === null ? null : cents(cost),
       cost_basis: cost === null ? null : 'measured',
       rate_id: rate.id,
@@ -231,8 +242,11 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
   // The percentage is checked for finiteness, not just for `> 0`: it arrives
   // from a numeric column via Number(), and an Infinity would pass `> 0` and
   // produce an amount that numeric(10,2) rejects, failing the whole order.
+  // Pick and pack amounts are never null — only at-cost freight can be unknown,
+  // and freight is excluded from the basis anyway — but the `?? 0` keeps a
+  // future nullable amount from silently turning the whole basis into NaN.
   const eligible = out.filter((c) => c.charge_type === 'pick' || c.charge_type === 'pack')
-  const basis = eligible.reduce((sum, c) => sum + c.amount, 0)
+  const basis = eligible.reduce((sum, c) => sum + (c.amount ?? 0), 0)
   if (basis > 0) {
     const first = eligible[0]
 
