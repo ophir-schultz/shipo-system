@@ -230,12 +230,39 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                 <th className="pb-3 text-right">Rate</th>
               </tr>
             </thead>
+            {/*
+              All three cells are guarded, because a seeded rate card can hold
+              nulls that were structurally impossible before ledger_03:
+
+              - `rate` is nullable now, and `at_cost` lines (carrier freight)
+                have it null BY DESIGN — the price is unknowable until the
+                carrier bills us. `Number(null)` is 0, so the old
+                `$${Number(r.rate).toFixed(2)}` printed "$0.00" in green: it
+                stated that we ship this client's freight free. That is the
+                null-versus-zero confusion this whole ledger exists to stop
+                (src/lib/ledger/cost-rate.ts:5-10). Render "At cost" instead,
+                unstyled by the green that means "a real agreed amount".
+              - `service_type` is the SUPERSEDED legacy column, kept only so
+                older readers are not broken (ledger_03_charges.sql:229-237).
+                Seeded rows omit it and land null. Prefer `label` — the quote's
+                own words, which is what a human reading this screen wants —
+                then the legacy bucket, then an em dash.
+              - `unit` is nullable-with-default (schema.sql:32) and decorative;
+                `rate_type` is the truth column.
+
+              Every other service_type consumer already guards it (BillingView
+              .tsx:198, ReportsTabs.tsx:363, warehouse/page.tsx:206,
+              lib/billing/download.ts:45, api/reports/download/route.ts:163);
+              this was the lone outlier.
+            */}
             <tbody>
               {warehouseRates.map((r: any) => (
                 <tr key={r.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
-                  <td className="py-3 font-medium capitalize">{r.service_type.replace(/_/g, ' ')}</td>
-                  <td className="py-3 text-gray-400 capitalize">{r.unit.replace(/_/g, ' ')}</td>
-                  <td className="py-3 text-right text-green-400 font-semibold">${Number(r.rate).toFixed(2)}</td>
+                  <td className="py-3 font-medium capitalize">{r.label ?? r.service_type?.replace(/_/g, ' ') ?? '—'}</td>
+                  <td className="py-3 text-gray-400 capitalize">{r.unit?.replace(/_/g, ' ') ?? '—'}</td>
+                  <td className={`py-3 text-right font-semibold ${r.rate === null ? 'text-gray-400' : 'text-green-400'}`}>
+                    {r.rate === null ? 'At cost' : `$${Number(r.rate).toFixed(2)}`}
+                  </td>
                 </tr>
               ))}
             </tbody>
