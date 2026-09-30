@@ -297,3 +297,71 @@ select coalesce(r.period_month, o.period_month) as period_month,
        r.has_estimates
 from revenue r
 full outer join overhead o on o.period_month = r.period_month;
+
+-- ---------------------------------------------------------------------------
+-- Lock the four views to the service role.
+--
+-- Without this block, applying this file PUBLISHES every client's name,
+-- monthly label spend, cost and gross margin to anyone who opens devtools on
+-- the deployed site. Three facts combine:
+--
+--   1. `schema.sql:141-145` enables row level security on clients, shipments,
+--      rate_adjustments and client_warehouse_rates, and there is not one
+--      `create policy` statement anywhere in supabase/. RLS on with zero
+--      policies is deny-all, which is why nobody has noticed: those tables are
+--      genuinely locked today.
+--   2. A view created WITHOUT security_invoker executes with the privileges and
+--      RLS context of its OWNER. In the Supabase SQL editor that owner is
+--      `postgres`, which owns those tables, and a table owner is exempt from
+--      its own RLS unless FORCE ROW LEVEL SECURITY is set -- it is not, here or
+--      anywhere. So these four views would read the base tables with RLS
+--      switched off and hand the result to whoever asked.
+--   3. Supabase's bootstrap runs ALTER DEFAULT PRIVILEGES IN SCHEMA public
+--      GRANT ALL ON TABLES TO anon, authenticated, service_role, and that
+--      covers views. PostgREST auto-exposes every relation in `public`. The
+--      anon key is a NEXT_PUBLIC_ variable (src/lib/supabase.ts:3-6), so Next
+--      inlines it into the browser bundle -- it is a public string, not a
+--      secret.
+--
+-- Nothing is lost by locking them down. Every reader of these views is a
+-- server-side route holding the service-role key: all dashboard data reads go
+-- through `supabaseAdmin` (src/lib/supabase.ts:8-11), never the anon client.
+-- If a screen ever comes back empty after this, the fix is to move that read
+-- onto the service-role path -- NOT to grant anon back.
+--
+-- Both halves are needed. security_invoker closes the RLS-protected tables
+-- (clients, shipments, rate_adjustments); the revoke is what closes the ledger
+-- tables from migrations 1-3 (orders, order_items, order_charges, cost_rates,
+-- operating_costs), which have no RLS of their own, so under security_invoker
+-- the anon role would read them as itself and still see everything.
+--
+-- The security_invoker setting is guarded by a `do` block with an exception
+-- handler rather than a `current_setting('server_version_num')` test. The
+-- option does not exist before Postgres 15, and an unguarded `alter view` on
+-- an older server aborts the whole paste -- taking the revoke, the part that
+-- actually guarantees closure, with it. The exception-handler form is the
+-- idiom this migration set already uses twice for exactly this kind of "the
+-- object may not accept this yet" guard (ledger_03_charges.sql:95-100 and
+-- :220-225), and unlike a version test it also survives any other reason the
+-- setting cannot be applied. Every statement below is idempotent.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  alter view pick_days          set (security_invoker = true);
+  alter view leaks_monthly      set (security_invoker = true);
+  alter view pnl_client_monthly set (security_invoker = true);
+  alter view pnl_monthly        set (security_invoker = true);
+exception when others then
+  raise notice 'security_invoker could not be set (%); Postgres 15+ is required. '
+               'The revoke below still applies and is what closes the exposure.', sqlerrm;
+end $$;
+
+revoke all on pick_days          from anon, authenticated;
+revoke all on leaks_monthly      from anon, authenticated;
+revoke all on pnl_client_monthly from anon, authenticated;
+revoke all on pnl_monthly        from anon, authenticated;
+
+grant select on pick_days          to service_role;
+grant select on leaks_monthly      to service_role;
+grant select on pnl_client_monthly to service_role;
+grant select on pnl_monthly        to service_role;
