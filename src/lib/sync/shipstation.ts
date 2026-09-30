@@ -96,7 +96,24 @@ export async function syncShipments(daysBack = 30) {
           run.warn(`unknown carrier ${s.carrierCode}`, { shipmentId })
         }
 
-        const newCost = parseFloat(String(s.shipmentCost ?? 0))
+        // A cost ShipStation has not reported is UNKNOWN, not zero. `?? 0` made
+        // the null branch in calculate-charges unreachable, so every label that
+        // has not been rated yet was recorded as free — and a free label reads
+        // downstream as pure profit, overstating margin by exactly the carrier
+        // spend we have not been told about yet. parseFloat is also replaced:
+        // it returns NaN on a non-numeric string, and NaN is rejected by
+        // numeric(10,2), which would fail the whole shipment.
+        const rawCost = s.shipmentCost
+        const parsedCost = rawCost === null || rawCost === undefined || rawCost === ''
+          ? NaN
+          : Number(rawCost)
+        const newCost = Number.isFinite(parsedCost) ? parsedCost : null
+
+        // A value that was sent but could not be read is a different finding
+        // from one that was never sent, and only the first needs a person.
+        if (newCost === null && rawCost !== null && rawCost !== undefined && rawCost !== '') {
+          run.warn('unreadable shipment cost', { shipmentId, shipmentCost: rawCost })
+        }
 
         const shipmentData = {
           shipstation_shipment_id: shipmentId,
@@ -118,20 +135,37 @@ export async function syncShipments(daysBack = 30) {
           dim_unit: dims.units ?? 'inches',
           dim_weight: dimWeightOz,
           billed_weight: parseFloat(billedWeightOz.toFixed(2)),
-          actual_cost: newCost,
+          // Never overwrite a cost we have with one we no longer know. An
+          // unknown cost is an absence of information; letting it replace a
+          // measured figure would delete carrier spend that was already
+          // reported. On an insert there is nothing to preserve, so it is null.
+          actual_cost: newCost ?? existingShipment?.actual_cost ?? null,
           source,
           raw_data: s,
         }
 
         if (existingShipment) {
-          const prevCost = parseFloat(String(existingShipment.actual_cost ?? 0))
-          const diff = parseFloat((newCost - prevCost).toFixed(2))
+          const prevParsed = existingShipment.actual_cost === null
+            || existingShipment.actual_cost === undefined
+            ? NaN
+            : Number(existingShipment.actual_cost)
+          const prevCost = Number.isFinite(prevParsed) ? prevParsed : null
 
+          // A rate adjustment is the difference between two costs we KNOW.
+          // `?? 0` on either side invented one: a cost arriving for the first
+          // time looked like an increase of the entire label price, and a cost
+          // going unknown looked like a full refund. Neither is money moving,
+          // so neither is recorded.
+          //
           // DEFECT 2, FIXED. The old guard was `diff > 0.01`, so only cost
           // INCREASES were recorded. A void or a refund is a decrease and was
           // structurally invisible: we could see money leave and never see it
           // come back.
-          if (Math.abs(diff) > 0.01 && existingShipment.client_id) {
+          const diff = prevCost !== null && newCost !== null
+            ? parseFloat((newCost - prevCost).toFixed(2))
+            : null
+
+          if (diff !== null && Math.abs(diff) > 0.01 && existingShipment.client_id) {
             const { data: existingAdj, error: adjError } = await supabaseAdmin
               .from('rate_adjustments')
               .select('id')
