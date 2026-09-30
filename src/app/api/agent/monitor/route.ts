@@ -184,6 +184,12 @@ export async function GET(req: Request) {
             + `with no counts in it — nobody has answered, which is not the same as `
             + `a client who stored nothing`)
         }
+        if (s.orphanedCharges > 0) {
+          errors.push(`⚠ ${s.orphanedCharges} storage charge${s.orphanedCharges > 1 ? 's' : ''} `
+            + `have no declaration row — the declaration was deleted rather than zeroed, `
+            + `so these charges can never be corrected automatically. Zero the counts `
+            + `instead of deleting the row, or delete these charges by hand.`)
+        }
         for (const w of s.warnings) log.push(w)
         for (const e of s.errors) errors.push(e)
       }

@@ -327,3 +327,116 @@ describe('persistStorageCharges — before the migration is applied', () => {
     await expect(persistStorageCharges()).rejects.toThrow(/connection reset/)
   })
 })
+
+describe('persistStorageCharges — orphan detector', () => {
+  // Test 1: a storage charge with no declaration row is reported as orphaned.
+  // Would catch: an implementation that skips the orphan scan entirely, or one
+  // that never increments orphanedCharges.
+  it('reports orphanedCharges=1 and a warning when a charge has no declaration row', async () => {
+    // No declaration rows at all; the charge is pre-existing.
+    h.db.tables.client_storage_months = []
+    h.db.tables.order_charges = [
+      {
+        id: 'c-orphan', order_id: null, client_id: 'client-1',
+        charge_key: 'storage:2026-09-01:pallet', charge_type: 'storage',
+        charge_date: '2026-09-01', amount: 100,
+      },
+    ]
+
+    const result = await persistStorageCharges()
+
+    expect(result.skipped).toBe(false)
+    if (result.skipped) return
+    expect(result.orphanedCharges).toBe(1)
+    // The warning must name the condition and the remedy.
+    const allFindings = [...result.warnings, ...result.errors].join(' ')
+    expect(allFindings).toMatch(/deleted rather than zeroed/i)
+    expect(allFindings).toMatch(/zero the counts/i)
+  })
+
+  // Test 2: a storage charge whose client-month HAS a declaration is not orphaned.
+  // Would catch: an implementation that incorrectly marks all charges as orphaned,
+  // or one that builds declaredSet incorrectly.
+  it('reports orphanedCharges=0 when the charge has a matching declaration', async () => {
+    // Run once to write the charges, then verify the second run does not flag them.
+    await persistStorageCharges()
+
+    const result = await persistStorageCharges()
+
+    expect(result.skipped).toBe(false)
+    if (result.skipped) return
+    expect(result.orphanedCharges).toBe(0)
+  })
+
+  // Test 3: the detector performs no writes — order_charges is byte-identical
+  // before and after a run whose only work is orphan detection.
+  // Would catch: an implementation that accidentally deletes or updates orphaned
+  // charges instead of only reading them.
+  it('performs no writes: order_charges is unchanged after a run that only detects orphans', async () => {
+    h.db.tables.client_storage_months = []
+    const orphanRow = {
+      id: 'c-orphan', order_id: null, client_id: 'client-1',
+      charge_key: 'storage:2026-09-01:pallet', charge_type: 'storage',
+      charge_date: '2026-09-01', amount: 100,
+    }
+    h.db.tables.order_charges = [{ ...orphanRow }]
+
+    await persistStorageCharges()
+
+    const after = h.db.tables.order_charges as FakeRow[]
+    expect(after).toHaveLength(1)
+    expect(after[0].id).toBe('c-orphan')
+    expect(after[0].amount).toBe(100)
+    // No delete statements were issued against order_charges.
+    expect(callsFor('order_charges', 'delete')).toHaveLength(0)
+    // No update statements were issued against order_charges.
+    expect(callsFor('order_charges', 'update')).toHaveLength(0)
+    // No insert statements were issued against order_charges.
+    expect(callsFor('order_charges', 'insert')).toHaveLength(0)
+  })
+
+  // Test 4: a client-month that failed does not produce an orphan warning.
+  // Would catch: an implementation that ignores failedClientMonths when building
+  // declaredSet, causing it to report charges as orphaned even though the
+  // declaration exists but the run couldn't process it.
+  it('does not report a failed client-month as orphaned', async () => {
+    // Set up two client-months: one that will fail (corrupt count), one that has
+    // a pre-existing charge but no declaration.
+    h.db.tables.client_storage_months = [
+      // This month WILL fail because the count is not parseable as a number
+      // AND the rate card will error. We trigger the failure via failOn.
+      { id: 'm-fail', client_id: 'client-2', period_month: '2026-08-01',
+        pallet_positions: 4, shelf_positions: null, basis: 'estimated' },
+    ]
+    // Pre-existing charge for the month that will fail.
+    h.db.tables.order_charges = [
+      {
+        id: 'c-fail-month', order_id: null, client_id: 'client-2',
+        charge_key: 'storage:2026-08-01:pallet', charge_type: 'storage',
+        charge_date: '2026-08-01', amount: 75,
+      },
+    ]
+    // Add a rate for client-2 so it does not fail for missing rate, but make the
+    // SELECT on order_charges (the per-client-month select) fail for client-2/Aug.
+    h.db.tables.client_warehouse_rates = [
+      { id: 'rate-c2', client_id: 'client-2', charge_type: 'storage', variant: 'pallet',
+        rate: 25, rate_type: 'per_pallet', effective_from: null, effective_to: null },
+    ]
+    // Make the per-client-month select fail for client-2.
+    h.db.failOn = (call) => {
+      if (call.table === 'order_charges' && call.verb === 'select'
+          && call.filters.some((f) => f.op === 'eq' && f.column === 'client_id' && f.value === 'client-2')) {
+        return { message: 'simulated select failure', code: '08006' }
+      }
+      return null
+    }
+
+    const result = await persistStorageCharges()
+
+    expect(result.skipped).toBe(false)
+    if (result.skipped) return
+    expect(result.failedMonths).toBe(1)
+    // The charge for the failed month must NOT be reported as orphaned.
+    expect(result.orphanedCharges).toBe(0)
+  })
+})

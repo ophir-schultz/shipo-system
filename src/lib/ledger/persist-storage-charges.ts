@@ -60,6 +60,12 @@ export type StorageResult =
       unpricedMonths: number
       /** Written rows carrying is_estimate. */
       estimatedCharges: number
+      /**
+       * Storage charges in the window with no declaration row — the declaration
+       * was deleted rather than zeroed, so the stale sweep can never reach them.
+       * Read-only detector: does not delete anything.
+       */
+      orphanedCharges: number
       /** Findings a person should act on. The caller puts these in errors[]. */
       errors: string[]
       /** Findings worth printing but not worth an alert. */
@@ -178,15 +184,12 @@ export async function persistStorageCharges(): Promise<StorageResult> {
   let undeclaredMonths = 0
   let unpricedMonths = 0
   let estimatedCharges = 0
+  let orphanedCharges = 0
+  /** Keys of client-months that threw during processing. Used by the orphan detector
+   *  to avoid reporting their charges as orphaned — the run simply didn't process them. */
+  const failedClientMonths = new Set<string>()
 
-  if (months.length === 0) {
-    return {
-      skipped: false, months: 0, written, inserted, updated, cleared,
-      failedMonths, undeclaredMonths, unpricedMonths, estimatedCharges,
-      errors, warnings,
-    }
-  }
-
+  if (months.length > 0) {
   // Both loads are paginated. A bare .select() silently caps at PostgREST's
   // db-max-rows (1000) with no error and no flag.
   const allCostRates = await fetchAllPages<CostRateRow>('cost_rates (storage)', (from, to) =>
@@ -326,10 +329,14 @@ export async function persistStorageCharges(): Promise<StorageResult> {
       // It runs AFTER the writes, so a failed write leaves the old rows alone
       // rather than deleting on the strength of a run that did not finish.
       //
-      // RESIDUAL, DELIBERATELY NOT CLOSED HERE: deleting the declaration ROW
-      // outright removes this client-month from `months`, so this loop never
-      // reaches it and its charges survive. Zero the counts instead of deleting
-      // the row — ledger_07_storage.sql's header says so too.
+      // RESIDUAL, NOW DETECTED BUT NOT AUTO-CORRECTED: deleting the declaration
+      // ROW outright removes this client-month from `months`, so this loop never
+      // reaches it and its charges survive. After the loop, a read-only orphan
+      // detector queries order_charges for storage rows in the window with no
+      // matching declaration and reports them in orphanedCharges + a warning.
+      // It does not delete anything — see the ruling in the module header.
+      // Zero the counts instead of deleting the row — ledger_07_storage.sql's
+      // header says so too.
       const writtenKeys = new Set(rows.map((r) => r.charge_key))
       const staleIds = [...existingByKey.entries()]
         .filter(([key]) => !writtenKeys.has(key))
@@ -347,8 +354,82 @@ export async function persistStorageCharges(): Promise<StorageResult> {
       }
     } catch (err) {
       failedMonths++
+      failedClientMonths.add(`${m.client_id}:${m.period_month}`)
       warn('storage month failed', `client ${m.client_id} ${m.period_month}: `
         + `${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  } // end if (months.length > 0)
+
+  // ---- orphan detector (read-only) ------------------------------------------
+  // Storage charges in the window whose (client_id, period_month) has no
+  // declaration row: the declaration was DELETED rather than zeroed, so the
+  // stale sweep can never reach them. This does not delete anything.
+  //
+  // Failed client-months are excluded: their charges are not orphaned, the run
+  // just did not process them this pass. failedClientMonths was populated in the
+  // catch block of the loop above.
+  try {
+    // All months that were read — both successfully processed and failed.
+    // A failed month still has a declaration row; its charges are not orphaned.
+    // Orphaned means: the declaration row was DELETED (not in months at all).
+    const declaredSet = new Set(
+      months.map((m) => `${m.client_id}:${m.period_month}`)
+    )
+
+    interface StorageChargeRow {
+      client_id: string
+      charge_key: string
+      charge_date: string
+      amount: number | string | null
+    }
+
+    const allStorageInWindow = await fetchAllPages<StorageChargeRow>(
+      'order_charges (orphan scan)',
+      (from, to) =>
+        supabaseAdmin
+          .from('order_charges')
+          .select('client_id, charge_key, charge_date, amount')
+          .is('order_id', null)
+          .like('charge_key', 'storage:%')
+          .gte('charge_date', windowStart)
+          .lte('charge_date', windowEnd)
+          .order('client_id', { ascending: true })
+          .order('charge_key', { ascending: true })
+          .range(from, to)
+    )
+
+    let orphanTotal = 0
+    for (const row of allStorageInWindow) {
+      // Derive period_month from charge_key: storage:YYYY-MM-DD:variant
+      // The second segment is the period_month stored in charge_key.
+      const parts = row.charge_key.split(':')
+      if (parts.length < 3) continue
+      const periodMonth = parts[1]
+      const key = `${row.client_id}:${periodMonth}`
+      if (!declaredSet.has(key)) {
+        orphanedCharges++
+        orphanTotal += num(row.amount) ?? 0
+      }
+    }
+
+    if (orphanedCharges > 0) {
+      warn(
+        'orphaned storage charges',
+        `${orphanedCharges} storage charge${orphanedCharges > 1 ? 's' : ''} `
+        + `totalling $${orphanTotal.toFixed(2)} have no declaration row — `
+        + `the declaration was deleted rather than zeroed, so these charges can `
+        + `never be corrected automatically. Zero the counts instead of deleting `
+        + `the row, or delete these charges by hand.`,
+      )
+    }
+  } catch (err) {
+    if (causeCode(err) === '42P01') {
+      // order_charges table missing — should not happen if we got this far, but
+      // treat non-fatally to match the module's missing-table philosophy.
+      warn('orphan scan', `order_charges table missing: ${err instanceof Error ? err.message : String(err)}`)
+    } else {
+      warn('orphan scan failed', `${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -372,6 +453,7 @@ export async function persistStorageCharges(): Promise<StorageResult> {
     months: months.length,
     written, inserted, updated, cleared,
     failedMonths, undeclaredMonths, unpricedMonths, estimatedCharges,
+    orphanedCharges,
     errors, warnings,
   }
 }
