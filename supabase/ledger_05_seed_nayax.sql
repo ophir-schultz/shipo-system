@@ -10,17 +10,48 @@
 -- because ledger_03 added effective_from with no backfill — all pre-existing
 -- rows have effective_from = null and the predicate never matches them.
 --
+-- RATES ARE CHANGED BY EDITING THIS FILE, NEVER THE TABLE. The delete
+-- identifies seeded rows by effective_from = '2026-01-01'. Any row whose
+-- effective_from is hand-edited in the database escapes that delete, and a
+-- re-run of this file inserts a duplicate beside it — two rows for the same
+-- (charge_type, variant), which is the self-overlapping card the dated lookup
+-- exists to prevent (calculate-charges.ts:91-98 calls it a data error and
+-- resolves it by sort order). "Safe to run more than once" holds only while
+-- this file is the single source of these eighteen rows.
+--
+-- Warning: POST /api/clients/[id]/warehouse-rates deletes ALL of a client's
+-- rates before inserting, and the UI that calls it is on the client detail
+-- page. If anyone uses the rate-upload flow for Nayax, all eighteen rows below
+-- are gone and the replacements carry no charge_type — the loader drops them
+-- and the client silently stops being billed. Re-apply this file.
+--
+-- Note: `unit` is omitted from the insert, so all eighteen rows take the column
+-- default 'per_unit' (schema.sql:32) regardless of what they actually measure.
+-- That is harmless: `rate_type` is the truth column and nothing in the ledger
+-- path reads `unit`. It is legacy display metadata only.
+--
 -- Note: description stays null throughout. The brief's Step 3 asks for
 -- verbatim qualifying conditions from the quote text; that text is not in this
 -- repository. Null is visible and harmless; a paraphrase would not be.
 
 do $$
-declare cid uuid;
+declare
+  cid uuid;
+  n   int;
 begin
-  select id into cid from clients where name ilike '%nayax%' limit 1;
-  if cid is null then
+  -- ilike '%nayax%' is a substring match: "Nayax", "Nayax EU" and an archived
+  -- "Nayax (old)" all qualify. A bare `limit 1` with no order by takes whichever
+  -- row the planner returns first — not stable between runs — so the whole
+  -- eighteen-line card could attach to the wrong client_id and report success.
+  -- Count first and refuse to guess.
+  select count(*) into n from clients where name ilike '%nayax%';
+  if n = 0 then
     raise exception 'No client matching "nayax" found. Check the client name first.';
+  elsif n > 1 then
+    raise exception '% clients match "nayax". Narrow the predicate before seeding '
+                    'a rate card onto one of them.', n;
   end if;
+  select id into cid from clients where name ilike '%nayax%';
 
   delete from client_warehouse_rates
    where client_id = cid and effective_from = '2026-01-01';
@@ -94,8 +125,12 @@ begin
     -- every date d, so this rate is on record but raises zero charges.
     --
     -- The peak window from the Nayax quote is not yet known. To activate this
-    -- line, set effective_from to the real start of the peak window and
-    -- effective_to to its real end, once Ophir supplies those dates.
+    -- line, edit the two date literals in THIS FILE's peak tuple below — set
+    -- effective_from to the real start of the peak window and effective_to to
+    -- its real end — and re-run the file. Do NOT edit the row in the table:
+    -- the delete above identifies seeded rows by effective_from = '2026-01-01',
+    -- so a hand-edited row escapes it and the next re-run inserts a second peak
+    -- line beside it. See the header.
     --
     -- Leaving effective_to = null (open-ended) would bill 8% on every
     -- pick-and-pack total all year round — that is an overbilling error the
@@ -103,7 +138,7 @@ begin
     --
     -- The line must NOT simply be deleted instead. load-charge-inputs.ts:392
     -- finds this line with a bare .find() that ignores dates and passes the 8%
-    -- through as peakSurchargePct. The calculator at calculate-charges.ts:272
+    -- through as peakSurchargePct. The calculator at calculate-charges.ts:271-272
     -- checks hasPeakLine — whether a ('surcharge','peak') row EXISTS on the
     -- card at all — before deciding whether to honour the dated lookup or fall
     -- back to that undated percentage. Deleting the row removes hasPeakLine,
@@ -133,7 +168,46 @@ begin
     (cid, 'returns',  'Packing materials',                 15.00, 'cost_plus',
      'material',  'packing',            '2026-01-01', null);
 
-  raise notice 'Seeded 18 Nayax rate lines';
+  -- Report the MEASURED number, not the expected one. A hard-coded
+  -- 'Seeded 18 rate lines' fires identically if a values tuple was dropped by
+  -- an edit or a partial paste, and a missing rate line is otherwise invisible
+  -- at apply time — the comment block below teaches the reader to expect
+  -- unbilled services, so a silent omission has been pre-explained away.
+  get diagnostics n = row_count;
+  if n is distinct from 18 then
+    raise exception 'Expected to seed 18 Nayax rate lines, wrote %', n;
+  end if;
+  raise notice 'Seeded % Nayax rate lines', n;
+
+  -- The two pick variants are the only lines that carry meaningful billable
+  -- volume, and they must read exactly 'device' and 'component'
+  -- (calculate-charges.ts:117). Assert them here, scoped to THIS client and
+  -- THIS effective_from: a trailing query grouped by variant across the whole
+  -- table returns two rows as soon as any client has one of each, so from the
+  -- second rate card onward a mistyped Nayax 'device' hides behind another
+  -- client's correct one. Also assert effective_to is null, because an empty
+  -- date range is a deliberate off-switch in this very file (see the peak line)
+  -- and a mistyped effective_to would disable the largest revenue line silently.
+  --
+  -- `is distinct from` rather than `<>`: count(*) cannot be null here, but
+  -- `<>` against anything nullable yields NULL, and PL/pgSQL falls straight
+  -- through a NULL `if` — printing success for exactly the case the assertion
+  -- exists to catch. That trap has bitten this branch four times.
+  select count(*) into n from client_warehouse_rates
+   where client_id = cid and effective_from = '2026-01-01'
+     and charge_type = 'pick' and variant = 'device'
+     and effective_to is null;
+  if n is distinct from 1 then
+    raise exception 'Expected exactly one open-ended pick/device line, found %', n;
+  end if;
+
+  select count(*) into n from client_warehouse_rates
+   where client_id = cid and effective_from = '2026-01-01'
+     and charge_type = 'pick' and variant = 'component'
+     and effective_to is null;
+  if n is distinct from 1 then
+    raise exception 'Expected exactly one open-ended pick/component line, found %', n;
+  end if;
 end $$;
 
 -- =============================================================================
@@ -171,7 +245,12 @@ end $$;
 
 -- Every line must be either priced or explicitly at_cost. This returns rows
 -- only if something was typed wrong.
-select label, rate_type, rate
+--
+-- Deliberately UNSCOPED: this is a whole-table invariant, not a check on this
+-- paste. A hit may therefore belong to another client — for instance a row
+-- created through the rate-upload endpoint with a null rate — so read
+-- client_id before concluding that this file is at fault.
+select client_id, label, rate_type, rate
 from client_warehouse_rates
 where rate is null
   -- NULL IS DISTINCT FROM 'at_cost' is true when rate_type is null, unlike
@@ -186,8 +265,8 @@ where rate is null
 select label from client_warehouse_rates
 where effective_from = '2026-01-01' and charge_type is null;
 
--- The two pick variants must read exactly 'device' and 'component', because
--- that is what classifySku returns. Expect exactly 2 rows.
-select variant, count(*) from client_warehouse_rates
-where charge_type = 'pick' and variant in ('device', 'component')
-group by 1;
+-- The check on the two billable pick variants used to live here as a third
+-- trailing query grouped by variant across the whole table. It now lives inside
+-- the DO block above, scoped to this client and this effective_from, because
+-- the unscoped form returns a clean-looking two rows as soon as a second client
+-- is seeded with correct variants — on the lines that carry the revenue.
