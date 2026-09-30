@@ -149,7 +149,7 @@ export async function syncShipments(daysBack = 30) {
                   adjustment_date: new Date().toISOString(),
                   status: 'pending',
                 })
-              if (insError) run.fail(`adjustment insert ${shipmentId}`, insError)
+              if (insError) { run.fail(`adjustment insert ${shipmentId}`, insError); results.errors++ }
               else if (diff > 0) results.adjustments++
               else results.refunds++
             }

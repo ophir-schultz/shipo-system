@@ -1,7 +1,9 @@
 -- Complete the ledger, migration 3b: backfill rate_adjustments.shipment_id.
 -- Spec: docs/superpowers/specs/2026-09-29-complete-the-ledger-design.md §3.2
--- Requires ledger_03_charges.sql to have been applied (shipstation_shipment_id
--- column must exist on shipments).
+-- Depends only on the base schema: rate_adjustments.shipment_id,
+-- rate_adjustments.order_number, shipments.id and shipments.order_number all
+-- exist in supabase/schema.sql. It does NOT need ledger_03_charges.sql — the
+-- join below goes through order_number, not shipstation_shipment_id.
 -- Safe to run more than once.
 
 -- ---------------------------------------------------------------------------

@@ -52,6 +52,7 @@ describe('chargeKey', () => {
     // @ts-expect-error deliberately passing a bad value the DB could yield
     expect(() => chargeKey({ chargeType: 'pick', orderItemId: null }))
       .toThrow(BlankIdentifierError)
+    // @ts-expect-error deliberately passing a bad value the DB could yield
     expect(() => chargeKey({ chargeType: 'pick', orderItemId: undefined }))
       .toThrow(BlankIdentifierError)
   })
