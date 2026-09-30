@@ -3,6 +3,41 @@
 -- Requires migrations 1-3. Safe to run more than once.
 
 -- ---------------------------------------------------------------------------
+-- Drop first. This is what makes "safe to run more than once" true, and it is
+-- not defensive habit -- this file has already broken that promise once.
+--
+-- `create or replace view` may only APPEND columns. Renaming, reordering or
+-- removing an existing output column raises 42P16 ("cannot change name of view
+-- column"), and Postgres compares by ORDINAL, so inserting a column mid-list
+-- renames every column after it as far as that check is concerned. This
+-- migration did exactly that: `revenue_unknown_charges` went in between
+-- `revenue` and `cost_known` in pnl_client_monthly, and `revenue_unknown_charges`
+-- plus the three `*_rows` counts went into the middle of pnl_monthly. Against a
+-- database already carrying the first version of this file, a re-paste got
+-- through pick_days and leaks_monthly and then died at pnl_client_monthly --
+-- leaving both P&L views on their old, buggy definitions while the operator saw
+-- an error easy to wave off as "already applied".
+--
+-- DELIBERATE SIDE EFFECT, and the two blocks must stay together in this file
+-- forever: dropping a view discards its ACLs, so every recreated view comes back
+-- at the schema defaults -- which on Supabase means granted to anon (see the
+-- long comment above the revoke/grant block at the bottom). That block is
+-- therefore not merely idempotent, it is REQUIRED on every single run. Never
+-- move it to a separate file, never make it conditional, and never add a view
+-- here without adding it there.
+--
+-- No `cascade`, on purpose. Nothing in supabase/ or src/ selects from these four
+-- today (verified: the only references are this file, the verify script, and
+-- comments), so a plain drop is sufficient. Should something come to depend on
+-- one of them later, a plain drop fails loudly and the next reader gets to
+-- decide; `cascade` would silently delete their object instead.
+-- ---------------------------------------------------------------------------
+drop view if exists pnl_monthly;
+drop view if exists pnl_client_monthly;
+drop view if exists leaks_monthly;
+drop view if exists pick_days;
+
+-- ---------------------------------------------------------------------------
 -- pick_days: what was picked, per client per day per SKU.
 -- A view, not a table, so it cannot drift from the lines it summarises.
 -- ---------------------------------------------------------------------------
@@ -87,6 +122,19 @@ select date_trunc('month', s.ship_date at time zone 'America/New_York')::date
        'unattributed_label_spend'             as leak,
        'Labels with no order number or no client' as detail,
        count(*)                               as records,
+       -- `amount` is the KNOWN spend, not the spend. `shipments.actual_cost` is
+       -- nullable, sum() skips those, and the coalesce turns an all-null group
+       -- into 0 -- so a month of unattributed labels whose carrier costs have
+       -- not been reported yet renders as "$0 leaked" when the true figure is
+       -- simply not in yet. `records` beside it is the honest count and does not
+       -- move, so read the two together: records high with amount low or zero
+       -- means unreported carrier cost, not an absence of leakage.
+       --
+       -- The coalesce stays. Every branch of the union all must agree on column
+       -- types, and a null here would be indistinguishable from leak 2's null
+       -- `amount`, which deliberately means "this leak has no dollar figure by
+       -- construction". Leak 3's identical coalesce is a genuine no-op, guarded
+       -- by its own `actual_cost is not null` predicate.
        coalesce(sum(s.actual_cost), 0)        as amount
 from shipments s
 where nullif(trim(s.order_number), '') is null
@@ -216,9 +264,28 @@ select date_trunc('month', c.charge_date)::date as period_month,
        -- while `cost_unknown_charges: 0` actively asserted nothing was
        -- missing. Task 16 must display this wherever it displays revenue.
        count(*) filter (where c.amount is null) as revenue_unknown_charges,
-       -- sum() already skips nulls, so unknown costs do not become zeros.
+       -- THIS COLUMN ONLY: sum() skips nulls, so an unknown cost does not
+       -- become a zero here -- which is why it is named cost_known and not
+       -- cost. The guarantee stops at this line; gross_margin below does NOT
+       -- have it.
        sum(c.cost)                              as cost_known,
        count(*) filter (where c.cost is null)   as cost_unknown_charges,
+       -- READ THE coalesce. It treats every unpriced charge as FREE, so this is
+       -- the margin over the priced subset only, and it reads HIGH by whatever
+       -- the unknown costs turn out to be -- by the full billed amount of those
+       -- charges in the worst case, and by everything when no cost in the group
+       -- is known at all (the coalesce then returns 0 and the figure equals
+       -- revenue). It is not "gross margin"; it is "gross margin so far".
+       --
+       -- That is a deliberate ruling, not an oversight. Null-propagating this
+       -- the way net_profit does would blank the column in essentially every
+       -- real month -- one unpriced charge anywhere in a client-month is enough
+       -- -- which destroys the view's purpose. The caveat is carried by
+       -- cost_unknown_charges sitting immediately beside it instead.
+       --
+       -- SO: Task 16 must never render gross_margin without
+       -- cost_unknown_charges beside it. Alone, this number is an
+       -- overstatement presented as a fact.
        sum(c.amount) - coalesce(sum(c.cost), 0) as gross_margin,
        bool_or(c.is_estimate)                   as has_estimates
 from order_charges c
@@ -262,6 +329,14 @@ overhead as (
          -- below: without these, a permanently null net_profit is
          -- indistinguishable from the system working as intended, and there is
          -- no way to tell a reader WHICH row they still owe us.
+         -- NULL and 0 differ, and the difference is the useful part. These read
+         -- 0 only when the month HAS operating_costs rows and none of them
+         -- carry this allocation -- "we have September's book and there is no
+         -- direct_storage line in it". They read NULL when the month has no
+         -- operating_costs rows at all, because the full outer join below has
+         -- no right-hand row to count -- "September's costs have not been
+         -- entered". Neither can be misread as "checked and zero dollars":
+         -- net_profit is null in both cases.
          count(*) filter (where allocation = 'overhead')       as overhead_rows,
          count(*) filter (where allocation = 'direct_labor')   as direct_labor_rows,
          count(*) filter (where allocation = 'direct_storage') as direct_storage_rows
@@ -272,6 +347,17 @@ select coalesce(r.period_month, o.period_month) as period_month,
        r.direct_cost,
        r.revenue_unknown_charges,
        r.cost_unknown_charges,
+       -- Same coalesce, same caveat as pnl_client_monthly.gross_margin: an
+       -- unpriced charge is treated as FREE, so this is the margin over the
+       -- priced subset and it reads HIGH by however much the unknown costs turn
+       -- out to be -- equal to revenue outright in a month where no cost is
+       -- known. Deliberate: the alternative is a permanently blank column,
+       -- since one unpriced charge anywhere in the business-month would null it.
+       -- cost_unknown_charges above carries the caveat, and Task 16 must never
+       -- render gross_margin without it -- alone this is an overstatement
+       -- presented as a fact. Contrast net_profit below, which DOES propagate
+       -- null, because there the missing input is a whole category of cost
+       -- rather than a countable handful of charges.
        r.revenue - coalesce(r.direct_cost, 0)   as gross_margin,
        o.overhead, o.direct_labor, o.direct_storage,
        o.overhead_rows, o.direct_labor_rows, o.direct_storage_rows,
@@ -344,16 +430,74 @@ full outer join overhead o on o.period_month = r.period_month;
 -- object may not accept this yet" guard (ledger_03_charges.sql:95-100 and
 -- :220-225), and unlike a version test it also survives any other reason the
 -- setting cannot be applied. Every statement below is idempotent.
+--
+-- AND IT IS NOT OPTIONAL ON A RE-RUN. The drop block at the top of this file
+-- destroys these views' ACLs along with the views, so each run recreates them
+-- at the Supabase schema defaults -- i.e. granted to anon. This block is what
+-- takes them back. It must stay in this file, below those creates, and it must
+-- stay unconditional.
 -- ---------------------------------------------------------------------------
+-- The handler reports WHAT failed, not why. `when others` catches a mistyped
+-- view name (42P01) and an ownership failure (42501) just as readily as an
+-- unrecognized parameter, and the previous wording announced "Postgres 15+ is
+-- required" for all of them -- on a Postgres 17 server, that is a notice nobody
+-- investigates. The SQLSTATE is printed so the actual cause is one lookup away,
+-- and the version explanation is offered as the likely case rather than
+-- asserted. The block is not narrowed to specific SQLSTATEs because the code
+-- Postgres raises for an unrecognized relation option is not something to guess
+-- at; the verification block below closes that gap from the other end instead.
 do $$
 begin
   alter view pick_days          set (security_invoker = true);
   alter view leaks_monthly      set (security_invoker = true);
   alter view pnl_client_monthly set (security_invoker = true);
   alter view pnl_monthly        set (security_invoker = true);
+  raise notice 'security_invoker set on all four views.';
 exception when others then
-  raise notice 'security_invoker could not be set (%); Postgres 15+ is required. '
-               'The revoke below still applies and is what closes the exposure.', sqlerrm;
+  raise notice 'security_invoker could NOT be set. SQLSTATE %: %. '
+               'Most likely this server predates Postgres 15, which is where the '
+               'option was introduced -- but check the SQLSTATE before assuming '
+               'that. The revoke below still applies and is what closes the '
+               'exposure. See the verification notice that follows.',
+               sqlstate, sqlerrm;
+end $$;
+
+-- Second guard: confirm the setting actually TOOK. Without this, the only
+-- evidence that a view runs as its invoker is that an `alter` did not throw --
+-- and the handler above deliberately swallows everything, so a silent failure
+-- would otherwise be indistinguishable from success. This reads the stored
+-- reloptions back and names the views that are missing the setting, whatever
+-- SQLSTATE the server chose. A view absent from pg_class entirely is also
+-- reported, since the left join leaves it with no options at all.
+do $$
+declare missing text;
+begin
+  select string_agg(v.name, ', ' order by v.name) into missing
+  from unnest(array['pick_days', 'leaks_monthly',
+                    'pnl_client_monthly', 'pnl_monthly']) as v(name)
+  left join pg_class c on c.relname = v.name
+                      and c.relnamespace = 'public'::regnamespace
+  where coalesce((select o.option_value::boolean
+                    from pg_options_to_table(c.reloptions) o
+                   where o.option_name = 'security_invoker'), false) is not true;
+
+  if missing is not null then
+    raise notice 'WARNING: security_invoker is NOT set on: %. These views still '
+                 'run with their OWNER''s privileges, which on Supabase means '
+                 'they read the RLS-protected base tables (clients, shipments, '
+                 'rate_adjustments) with row level security bypassed. The revoke '
+                 'below keeps them closed to anon and authenticated, so nothing '
+                 'is exposed TODAY -- but they are not RLS-safe, and granting '
+                 'select on them back to any role would publish every client''s '
+                 'data to that role. Do not grant them back on this server.',
+                 missing;
+  else
+    raise notice 'Verified: security_invoker is set on all four views.';
+  end if;
+exception when others then
+  raise notice 'Could not verify security_invoker (SQLSTATE %: %). Treat the '
+               'setting as UNCONFIRMED and do not grant these views to anon or '
+               'authenticated.', sqlstate, sqlerrm;
 end $$;
 
 revoke all on pick_days          from anon, authenticated;
