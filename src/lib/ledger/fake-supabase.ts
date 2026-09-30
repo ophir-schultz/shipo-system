@@ -29,9 +29,26 @@ export type FakeResult = { data: unknown; error: FakeError | null; count: number
 type Verb = 'select' | 'insert' | 'update' | 'upsert' | 'delete'
 
 interface Filter {
-  op: 'eq' | 'in' | 'lt' | 'gte' | 'is-null' | 'not-is-null' | 'or'
+  op: 'eq' | 'in' | 'lt' | 'lte' | 'gte' | 'like' | 'is-null' | 'not-is-null' | 'or'
   column: string
   value: unknown
+}
+
+/**
+ * SQL LIKE, as a regex. `%` is any run of characters and `_` any one; every
+ * other character is literal, including the regex metacharacters that appear in
+ * the patterns this codebase actually issues — a storage charge key prefix is
+ * `storage:2026-09-01:%`, whose dashes and colons must not be read as a range
+ * or a class. Anchored at both ends, because SQL LIKE matches the WHOLE value.
+ */
+function likeToRegExp(pattern: string): RegExp {
+  let body = ''
+  for (const ch of pattern) {
+    if (ch === '%') body += '[\\s\\S]*'
+    else if (ch === '_') body += '[\\s\\S]'
+    else body += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  }
+  return new RegExp(`^${body}$`)
 }
 
 /**
@@ -102,9 +119,17 @@ function matches(row: FakeRow, filters: Filter[]): boolean {
       case 'lt':
         if (actual === null || actual === undefined) return false
         return String(actual) < String(f.value)
+      case 'lte':
+        // A null is not <= anything in SQL. Same hazard as gte below: the row
+        // is DROPPED, silently, rather than compared.
+        if (actual === null || actual === undefined) return false
+        return String(actual) <= String(f.value)
       case 'gte':
         if (actual === null || actual === undefined) return false
         return String(actual) >= String(f.value)
+      case 'like':
+        if (actual === null || actual === undefined) return false
+        return likeToRegExp(String(f.value)).test(String(actual))
       case 'is-null': return actual === null || actual === undefined
       case 'not-is-null': return actual !== null && actual !== undefined
       case 'or': return matchesOr(row, f.value as string)
@@ -176,8 +201,14 @@ class Builder implements PromiseLike<FakeResult> {
   lt(column: string, value: unknown): this {
     this.call.filters.push({ op: 'lt', column, value }); return this
   }
+  lte(column: string, value: unknown): this {
+    this.call.filters.push({ op: 'lte', column, value }); return this
+  }
   gte(column: string, value: unknown): this {
     this.call.filters.push({ op: 'gte', column, value }); return this
+  }
+  like(column: string, pattern: string): this {
+    this.call.filters.push({ op: 'like', column, value: pattern }); return this
   }
   or(expression: string): this {
     this.call.filters.push({ op: 'or', column: '', value: expression }); return this

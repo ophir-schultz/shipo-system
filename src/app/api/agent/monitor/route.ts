@@ -24,10 +24,8 @@ import { sendEmail } from '@/lib/email'
 import { requireStaffOrCron } from '@/lib/require-staff'
 import { recalculateShipments } from '@/lib/billing/recalculate'
 import { recalculateCharges, type RecalculateResult } from '@/lib/ledger/persist-charges'
-import { loadChargeInputs, fetchAllPages } from '@/lib/ledger/load-charge-inputs'
-import { buildStorageCharges } from '@/lib/ledger/storage-charges'
-import type { RateCardLine } from '@/lib/ledger/calculate-charges'
-import type { CostRateRow } from '@/lib/ledger/cost-rate'
+import { loadChargeInputs } from '@/lib/ledger/load-charge-inputs'
+import { persistStorageCharges, type StorageResult } from '@/lib/ledger/persist-storage-charges'
 
 const ALERT_TO = process.env.ALERT_EMAIL || 'ophir@shipousa.com'
 
@@ -142,136 +140,64 @@ export async function GET(req: Request) {
 
   // ── 3c. Persist monthly storage charges ───────────────────────────────────
   // Storage is the only charge type whose input is a person rather than an API.
-  // We read client_storage_months for the last three months, build StorageCharge
-  // rows per client-month, then select-then-write each one against the
-  // client-keyed partial unique index (order_charges_client_key). Upsert with
-  // onConflict is not used because the index is partial and PostgREST cannot
-  // emit the predicate, causing Postgres error 42P10 at runtime (see
-  // ledger_03_charges.sql:155-170 and Ruling 9).
-  try {
-    // monthStart(n): first day of the month n months ago, computed arithmetically.
-    // Never via Date.setMonth() — on the 31st, setMonth(m-3) overflows to a
-    // different month. Follow the pattern in src/lib/ledger/summary.ts:threeMonthWindowStart.
-    const monthStart = (monthsBack: number): string => {
-      const now = new Date()
-      const y = now.getFullYear()
-      const m = now.getMonth() + 1 // 1-based
-      const shifted = m - monthsBack
-      const fromMonth = shifted <= 0 ? shifted + 12 : shifted
-      const fromYear = shifted <= 0 ? y - 1 : y
-      return `${fromYear}-${String(fromMonth).padStart(2, '0')}-01`
-    }
-
-    // Load all cost rates (paginated — bare .select() silently caps at 1000 rows).
-    const allCostRates = await fetchAllPages<CostRateRow>('cost_rates (storage)', (from, to) =>
-      supabaseAdmin
-        .from('cost_rates')
-        .select('id, cost_type, variant, unit, rate, effective_from, effective_to, basis')
-        .order('id', { ascending: true })
-        .range(from, to))
-
-    // Load all rate card lines (paginated for the same reason).
-    interface RateRow {
-      id: string; client_id: string | null; charge_type: string | null
-      variant: string | null; rate: number | string | null; rate_type: string | null
-      effective_from: string | null; effective_to: string | null
-    }
-    const allRateRows = await fetchAllPages<RateRow>('client_warehouse_rates (storage)', (from, to) =>
-      supabaseAdmin
-        .from('client_warehouse_rates')
-        .select('id, client_id, charge_type, variant, rate, rate_type, effective_from, effective_to')
-        .not('charge_type', 'is', null)
-        .order('id', { ascending: true })
-        .range(from, to))
-
-    // cardFor(clientId): all RateCardLine rows for a given client, in the same
-    // shape that load-charge-inputs.ts:441-449 produces.
-    const ratesByClient = new Map<string, RateCardLine[]>()
-    for (const r of allRateRows) {
-      if (!r.client_id) continue
-      const line: RateCardLine = {
-        id: r.id,
-        chargeType: String(r.charge_type ?? ''),
-        variant: r.variant,
-        rate: r.rate === null || r.rate === undefined ? null : Number(r.rate),
-        rateType: String(r.rate_type ?? ''),
-        effectiveFrom: r.effective_from ?? null,
-        effectiveTo: r.effective_to ?? null,
-      }
-      const list = ratesByClient.get(r.client_id) ?? []
-      list.push(line)
-      ratesByClient.set(r.client_id, list)
-    }
-    const cardFor = (clientId: string): RateCardLine[] =>
-      ratesByClient.get(clientId) ?? []
-
-    // Read declared storage for the last three months.
-    interface StorageMonthRow {
-      client_id: string
-      period_month: string
-      pallet_positions: number | string | null
-      shelf_positions: number | string | null
-    }
-    const { data: months, error: monthsError } = await supabaseAdmin
-      .from('client_storage_months')
-      .select('client_id, period_month, pallet_positions, shelf_positions')
-      .gte('period_month', monthStart(3))
-    if (monthsError) throw new Error(`storage months: ${monthsError.message}`, { cause: monthsError })
-
-    let storageWritten = 0
-    for (const m of (months as StorageMonthRow[] | null) ?? []) {
-      const rows = buildStorageCharges({
-        clientId: m.client_id,
-        periodMonth: m.period_month,
-        palletPositions: m.pallet_positions === null ? null : Number(m.pallet_positions),
-        shelfPositions: m.shelf_positions === null ? null : Number(m.shelf_positions),
-        rateCard: cardFor(m.client_id),
-        costRates: allCostRates,
-      })
-      if (rows.length === 0) continue
-
-      // Select-then-write (Ruling 9): the partial unique index cannot be used
-      // in a PostgREST onConflict clause, so we read existing ids first, then
-      // UPDATE matching keys and INSERT new ones. This has no absence window
-      // between a delete and a re-insert, so two overlapping cron runs cannot
-      // produce a moment with zero storage charges.
-      const keys = rows.map((r) => r.charge_key)
-      const { data: existing, error: selErr } = await supabaseAdmin
-        .from('order_charges')
-        .select('id, charge_key')
-        .eq('client_id', m.client_id)
-        .in('charge_key', keys)
-        .is('order_id', null)
-      if (selErr) throw new Error(`storage select: ${selErr.message}`, { cause: selErr })
-
-      const existingByKey = new Map<string, string>()
-      for (const row of existing ?? []) existingByKey.set(row.charge_key, row.id)
-
-      const now = new Date().toISOString()
-      for (const r of rows) {
-        const payload = { ...r, calculated_at: now }
-        const existingId = existingByKey.get(r.charge_key)
-        if (existingId) {
-          const { error: updErr } = await supabaseAdmin
-            .from('order_charges')
-            .update(payload)
-            .eq('id', existingId)
-          if (updErr) throw new Error(`storage update: ${updErr.message}`, { cause: updErr })
+  // The work itself lives in src/lib/ledger/persist-storage-charges.ts — see the
+  // header there for why it is a module and not a block in this handler.
+  //
+  // GATED ON THE CHARGE RUN HAVING ACTUALLY RUN. AutoSync.tsx polls this route
+  // every five minutes from every open browser tab, and an ungated storage block
+  // ran on all of them — including while another run held the lock and was
+  // mid-write, where both would SELECT, find nothing, both INSERT, and the
+  // client-keyed unique index would raise 23505. Piggybacking on
+  // recalculateCharges' lock and throttle costs nothing: storage is declared
+  // monthly, so there is no version of this that needs to run more often than
+  // charges do.
+  let storageResult: StorageResult | null = null
+  if (chargeResult && !chargeResult.skipped) {
+    try {
+      storageResult = await persistStorageCharges()
+      if (storageResult.skipped) {
+        // A missing client_storage_months table before ledger_07_storage.sql has
+        // been pasted in is the EXPECTED day-one state, not an incident. It goes
+        // in the log, never in errors[] — otherwise all three crons send a
+        // 🚨 subject line and every dashboard toasts every five minutes until
+        // somebody runs the file.
+        log.push(`⏭ Storage charges: skipped — ${storageResult.reason}`)
+      } else {
+        const s = storageResult
+        // No ✓ for a zero write. This is the route whose header is a post-mortem
+        // on an "All clear" email that actually meant "it never ran"; a green
+        // tick beside `0 written` is the same claim in miniature.
+        if (s.written > 0 || s.cleared > 0) {
+          log.push(`✓ Storage charges: ${s.written} written (${s.inserted} new · `
+            + `${s.updated} updated) · ${s.cleared} stale removed · `
+            + `${s.months} client-months`)
         } else {
-          const { error: insErr } = await supabaseAdmin
-            .from('order_charges')
-            .insert(payload)
-          if (insErr) throw new Error(`storage insert: ${insErr.message}`, { cause: insErr })
+          log.push(`· Storage charges: nothing written — ${s.months} client-months read, `
+            + `${s.undeclaredMonths} with no counts declared`)
         }
-        storageWritten++
+        if (s.estimatedCharges > 0) {
+          log.push(`⚠ ${s.estimatedCharges} storage charges are estimates (the count was `
+            + `declared rather than counted, or the cost rate is itself an estimate)`)
+        }
+        if (s.undeclaredMonths > 0) {
+          log.push(`⚠ ${s.undeclaredMonths} client-months have a storage declaration row `
+            + `with no counts in it — nobody has answered, which is not the same as `
+            + `a client who stored nothing`)
+        }
+        for (const w of s.warnings) log.push(w)
+        for (const e of s.errors) errors.push(e)
       }
+    } catch (err) {
+      const msg = `✗ Storage charge sync FAILED: `
+        + `${err instanceof Error ? err.message : String(err)}`
+      log.push(msg)
+      errors.push(msg)
     }
-    log.push(`✓ Storage charges: ${storageWritten} written`)
-  } catch (err) {
-    const msg = `✗ Storage charge sync FAILED: `
-      + `${err instanceof Error ? err.message : String(err)}`
-    log.push(msg)
-    errors.push(msg)
+  } else {
+    // Not an error of its own. When the charge run was skipped for any reason
+    // other than the throttle, the block above has already put that in errors[],
+    // and saying it twice would double every alert.
+    log.push(`⏭ Storage charges: skipped — the charge run did not execute this pass`)
   }
 
   // ── 4. Scan for problems ───────────────────────────────────────────────────
@@ -430,6 +356,7 @@ export async function GET(req: Request) {
       sync: syncResult,
       recalc: recalcStats,
       charges: chargeResult,
+      storage: storageResult,
       losses: { count: lossCount, total: totalLoss },
       adjustments: { count: adjCount, total: adjTotal },
       unassigned: unassignedCount,

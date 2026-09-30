@@ -20,9 +20,22 @@ describe('chargeKey', () => {
       .not.toBe(chargeKey({ chargeType: 'material', orderItemId: 'a1', variant: 'box_small' }))
   })
 
-  it('keys storage on the month, because storage has no order', () => {
-    expect(chargeKey({ chargeType: 'storage', periodMonth: '2026-09-01' }))
-      .toBe('storage:2026-09-01')
+  // Storage has no order, so it keys on the month -- AND on the variant. A
+  // month-only key collides pallet onto shelf: both rows carry the same
+  // (client_id, charge_key), the partial unique index keeps only one, and half
+  // the storage revenue vanishes with no error anywhere.
+  it('keys storage on the month AND the variant, so pallet does not collide with shelf', () => {
+    expect(chargeKey({ chargeType: 'storage', periodMonth: '2026-09-01', variant: 'pallet' }))
+      .toBe('storage:2026-09-01:pallet')
+    expect(chargeKey({ chargeType: 'storage', periodMonth: '2026-09-01', variant: 'shelf' }))
+      .toBe('storage:2026-09-01:shelf')
+    expect(chargeKey({ chargeType: 'storage', periodMonth: '2026-09-01', variant: 'shelf' }))
+      .not.toBe(chargeKey({ chargeType: 'storage', periodMonth: '2026-09-01', variant: 'pallet' }))
+  })
+
+  it('refuses a storage key with a blank variant', () => {
+    expect(() => chargeKey({ chargeType: 'storage', periodMonth: '2026-09-01', variant: '' }))
+      .toThrow(/variant/)
   })
 
   it('keys a surcharge on the shipment and the surcharge code', () => {
@@ -58,7 +71,7 @@ describe('chargeKey', () => {
   })
 
   it('names the offending field in the error, so the log is actionable', () => {
-    expect(() => chargeKey({ chargeType: 'storage', periodMonth: '' }))
+    expect(() => chargeKey({ chargeType: 'storage', periodMonth: '', variant: 'pallet' }))
       .toThrow(/periodMonth/)
   })
 })

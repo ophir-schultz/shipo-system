@@ -36,6 +36,7 @@ interface PageResult<T> {
 // Ordered longest-key-first at the point of use, so `order_number_key` is not
 // matched by a shorter key that happens to be its prefix.
 const MIGRATION_FOR: ReadonlyArray<readonly [string, string]> = [
+  ['client_storage_months',   'supabase/ledger_07_storage.sql'],
   ['shipstation_shipment_id', 'supabase/ledger_03_charges.sql'],
   ['order_number_key',        'supabase/ledger_03_charges.sql'],
   ['effective_from',          'supabase/ledger_03_charges.sql'],

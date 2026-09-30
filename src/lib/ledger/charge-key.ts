@@ -25,7 +25,15 @@ export type ChargeKeyInput =
   | { chargeType: 'surcharge'; shipmentId: string; surchargeCode: string }
   | { chargeType: 'pick' | 'pack' | 'receiving'; orderItemId: string }
   | { chargeType: 'material'; orderItemId: string; variant: string }
-  | { chargeType: 'storage'; periodMonth: string }
+  // The variant is REQUIRED. Storage is billed as pallet positions and shelf
+  // positions separately, and this shape used to key on the month alone: both
+  // variants produced 'storage:2026-09-01', the (client_id, charge_key) partial
+  // unique index took only the second write, and half the storage revenue
+  // disappeared with no error. storage-charges.ts built its key inline to avoid
+  // that, which left the trap armed for the next caller to reach for the shared
+  // helper. It is now impossible to build a storage key without saying which
+  // variant it is.
+  | { chargeType: 'storage'; periodMonth: string; variant: string }
 
 /** Blank, whitespace, null and undefined are all refused. */
 function require_(value: unknown, field: string, chargeType: ChargeType): string {
@@ -58,7 +66,10 @@ export function chargeKey(input: ChargeKeyInput): string {
       return `item:${id}:material:${variant}`
     }
 
-    case 'storage':
-      return `storage:${require_(input.periodMonth, 'periodMonth', input.chargeType)}`
+    case 'storage': {
+      const month = require_(input.periodMonth, 'periodMonth', input.chargeType)
+      const variant = require_(input.variant, 'variant', input.chargeType)
+      return `storage:${month}:${variant}`
+    }
   }
 }
