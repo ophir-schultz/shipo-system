@@ -89,7 +89,11 @@ export async function syncShipments(daysBack = 30) {
         const { source, known } = sourceForCarrier(s.carrierCode ?? '')
         if (!known) {
           results.unknownCarrier++
-          run.fail(`unknown carrier ${s.carrierCode}`, { shipmentId })
+          // warn(), not fail(): an unknown carrier is a reportable finding, not
+          // a failure. The shipment is still written with source stored verbatim;
+          // piece 4 reads kind:'warning' entries to surface carrier codes that
+          // need adding to the carrier map. Spec line 963.
+          run.warn(`unknown carrier ${s.carrierCode}`, { shipmentId })
         }
 
         const newCost = parseFloat(String(s.shipmentCost ?? 0))

@@ -3,6 +3,7 @@
 // keeps what went wrong rather than only how often.
 
 const MAX_STORED_ERRORS = 50
+const MAX_STORED_WARNINGS = 50
 
 function messageOf(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -19,18 +20,43 @@ function messageOf(err: unknown): string {
   return String(err)
 }
 
+// Entries stored in the sync_runs.errors jsonb column carry a `kind` field so
+// that piece 4 (the monitoring agent) can count error kinds without parsing
+// prose strings — see spec §4 and the errors column design note at line 429.
+export type StoredEntry =
+  | { kind: 'error'; context: string; message: string }
+  | { kind: 'warning'; context: string; message: string }
+
 export function collectErrors() {
-  const stored: Array<{ context: string; message: string }> = []
-  let n = 0
+  // Errors and warnings have independent caps so a flood of warnings (e.g.
+  // an unknown carrier code appearing on every shipment) cannot displace a
+  // single stored error. Without independent caps one flood fills the shared
+  // budget and real insert/update failures are silently dropped.
+  const storedErrors: Array<StoredEntry> = []
+  const storedWarnings: Array<StoredEntry> = []
+  let errorCount = 0
+  let warnCount = 0
   return {
     push(context: string, err: unknown) {
-      n++
-      if (stored.length < MAX_STORED_ERRORS) {
-        stored.push({ context, message: messageOf(err) })
+      errorCount++
+      if (storedErrors.length < MAX_STORED_ERRORS) {
+        storedErrors.push({ kind: 'error', context, message: messageOf(err) })
       }
     },
-    list() { return stored },
-    count() { return n },
+    warn(context: string, detail: unknown) {
+      warnCount++
+      if (storedWarnings.length < MAX_STORED_WARNINGS) {
+        storedWarnings.push({ kind: 'warning', context, message: messageOf(detail) })
+      }
+    },
+    // count() returns errors only. Warnings are not failures; they must not
+    // affect the close() status formula that distinguishes 'ok' / 'partial' /
+    // 'failed'. Piece 4 can read warnCount() separately.
+    count() { return errorCount },
+    warnCount() { return warnCount },
+    // list() returns both errors and warnings together so sync_runs.errors
+    // contains the complete diagnostic picture in one column.
+    list(): StoredEntry[] { return [...storedErrors, ...storedWarnings] },
   }
 }
 
@@ -39,6 +65,10 @@ export interface SyncRunHandle {
   seen(n?: number): void
   wrote(n?: number): void
   fail(context: string, err: unknown): void
+  // warn() records a notable but non-failure finding (e.g. an unknown carrier
+  // code). It is stored in sync_runs.errors with kind:'warning' so piece 4 can
+  // distinguish it from kind:'error' entries without parsing prose.
+  warn(context: string, detail: unknown): void
   close(status?: 'ok' | 'partial' | 'failed'): Promise<void>
 }
 
@@ -82,6 +112,7 @@ export async function openSyncRun(input: {
     seen(n = 1) { rowsSeen += n },
     wrote(n = 1) { rowsWritten += n },
     fail(context, err) { errors.push(context, err) },
+    warn(context, detail) { errors.warn(context, detail) },
     async close(status) {
       const resolved =
         status ?? (errors.count() === 0 ? 'ok'
