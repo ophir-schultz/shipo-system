@@ -138,41 +138,69 @@ export async function GET(req: Request) {
   }
 
   // ── 4. Scan for problems ───────────────────────────────────────────────────
+  //
+  // Every read below keeps its `error`. These five used to discard it, which is
+  // the global constraint's banned pattern sitting in the one route whose whole
+  // job is to report whether the system is healthy: a failed count destructures
+  // to undefined, `(count ?? 0) > 0` is false, and the email prints "✓ No loss
+  // shipments" and "✓ No pending adjustments" on the strength of a query that
+  // never answered. An error discarded HERE is an error nobody will ever learn
+  // about, because this is the thing that would have told them. Same precedent
+  // as sync/shipstation.ts.
+  //
+  // A failed scan goes into errors[] rather than throwing: one unreadable count
+  // must not cost the other three, nor the email itself.
+  const scanFailed = (what: string, err: { message: string }) => {
+    const msg = `✗ Could not read ${what}: ${err.message}`
+    log.push(msg)
+    errors.push(msg)
+  }
 
   // 4a. Unpriced shipments (has a client but client_rate is 0)
-  const { data: unpriced, count: unpricedCount } = await supabaseAdmin
+  const { count: unpricedCount, error: unpricedError } = await supabaseAdmin
     .from('shipments')
     .select('order_number, clients(name)', { count: 'exact' })
     .not('client_id', 'is', null)
     .eq('client_rate', 0)
     .limit(20)
 
-  if (unpricedCount && unpricedCount > 0) {
+  if (unpricedError) {
+    scanFailed('unpriced shipments', unpricedError)
+  } else if (unpricedCount && unpricedCount > 0) {
     errors.push(`⚠ ${unpricedCount} shipments have a client assigned but NO rate (client_rate = $0)`)
     log.push(`⚠ ${unpricedCount} unpriced shipments`)
   }
 
   // 4b. Current loss shipments
-  const { count: lossCount } = await supabaseAdmin
+  const { count: lossCount, error: lossCountError } = await supabaseAdmin
     .from('shipments')
     .select('*', { count: 'exact', head: true })
     .eq('is_loss', true)
 
-  const { data: lossSum } = await supabaseAdmin
+  const { data: lossSum, error: lossSumError } = await supabaseAdmin
     .from('shipments')
     .select('profit_loss')
     .eq('is_loss', true)
 
   const totalLoss = (lossSum ?? []).reduce((s, r) => s + Math.abs(r.profit_loss ?? 0), 0)
 
+  if (lossCountError) scanFailed('the loss shipment count', lossCountError)
+  // Reported separately from the count: the two reads can disagree, and a
+  // total of $0.00 printed beside a non-zero count is a worse lie than saying
+  // the total is unknown.
+  if (lossSumError) scanFailed('the loss shipment total', lossSumError)
+
   if ((lossCount ?? 0) > 0) {
     log.push(`⚠ ${lossCount} loss shipments · total -$${totalLoss.toFixed(2)}`)
-  } else {
+  } else if (!lossCountError) {
+    // Only claimed when the read succeeded. "No loss shipments" derived from a
+    // query that errored is the false all-clear this whole section exists to
+    // stop.
     log.push(`✓ No loss shipments`)
   }
 
   // 4c. Pending carrier adjustments
-  const { data: adjustments, count: adjCount } = await supabaseAdmin
+  const { data: adjustments, count: adjCount, error: adjError } = await supabaseAdmin
     .from('rate_adjustments')
     .select('adjustment_amount, clients(name)', { count: 'exact' })
     .eq('status', 'pending')
@@ -180,23 +208,33 @@ export async function GET(req: Request) {
 
   const adjTotal = (adjustments ?? []).reduce((s, r) => s + (r.adjustment_amount ?? 0), 0)
 
-  if ((adjCount ?? 0) > 0) {
+  if (adjError) {
+    scanFailed('pending carrier adjustments', adjError)
+  } else if ((adjCount ?? 0) > 0) {
     log.push(`🔔 ${adjCount} pending carrier adjustments · +$${adjTotal.toFixed(2)} to recover`)
   } else {
     log.push(`✓ No pending adjustments`)
   }
 
   // 4d. Shipments with no client assigned
-  const { count: unassignedCount } = await supabaseAdmin
+  const { count: unassignedCount, error: unassignedError } = await supabaseAdmin
     .from('shipments')
     .select('*', { count: 'exact', head: true })
     .is('client_id', null)
 
-  if ((unassignedCount ?? 0) > 0) {
+  if (unassignedError) {
+    scanFailed('the unassigned shipment count', unassignedError)
+  } else if ((unassignedCount ?? 0) > 0) {
     log.push(`⚠ ${unassignedCount} shipments have no client assigned`)
   }
 
   // ── 5. Send email report ───────────────────────────────────────────────────
+  // `?? 0` in the stats block would render an unreadable count as a confident
+  // zero — the same null-versus-unknown confusion the ledger exists to stop,
+  // in the one place a person actually looks.
+  const stat = (err: unknown, n: number | null) => (err ? 'unknown' : String(n ?? 0))
+  const money = (err: unknown, n: number) => (err ? '?' : n.toFixed(2))
+
   const hasErrors = errors.length > 0
   const subject = hasErrors
     ? `🚨 Shipo Monitor — ${errors.length} issue${errors.length > 1 ? 's' : ''} need attention`
@@ -227,9 +265,9 @@ export async function GET(req: Request) {
       <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:12px 16px;font-size:13px;">
         <p style="margin:0;"><strong>Quick stats:</strong></p>
         <p style="margin:4px 0 0;color:#0369a1;">
-          Loss shipments: ${lossCount ?? 0} (-$${totalLoss.toFixed(2)}) &nbsp;·&nbsp;
-          Pending adjustments: ${adjCount ?? 0} (+$${adjTotal.toFixed(2)}) &nbsp;·&nbsp;
-          Unassigned: ${unassignedCount ?? 0}
+          Loss shipments: ${stat(lossCountError, lossCount)} (-$${money(lossSumError, totalLoss)}) &nbsp;·&nbsp;
+          Pending adjustments: ${stat(adjError, adjCount)} (+$${money(adjError, adjTotal)}) &nbsp;·&nbsp;
+          Unassigned: ${stat(unassignedError, unassignedCount)}
         </p>
       </div>
 
