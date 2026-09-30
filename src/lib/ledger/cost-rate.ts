@@ -55,7 +55,18 @@ export function findCostRate(
   return { known: true, rateId: match.id, rate: match.rate, basis: match.basis }
 }
 
+// The quantity guard matters more here than it looks. This module's whole job
+// is stopping an unknown cost from being counted as zero, and `NaN` walks
+// straight past that defence from the other side: `costOf(known, NaN)` is a
+// number by type, so it is not null, so sumKnownCosts adds it -- and one NaN
+// turns the whole total into NaN. That is a worse outcome than the null it was
+// protecting against, because it destroys the known costs too. Quantities reach
+// here from parsed database columns and API payloads, so the input is real.
+// Throwing matches labourVariance() in variance.ts, which guards identically.
 export function costOf(lookup: CostLookup, quantity: number): number | null {
+  if (!Number.isFinite(quantity) || quantity < 0) {
+    throw new RangeError(`costOf: quantity must be >= 0 and finite, got ${quantity}`)
+  }
   if (!lookup.known) return null
   return lookup.rate * quantity
 }
@@ -67,7 +78,13 @@ export function sumKnownCosts(values: Array<number | null>): {
   let total = 0
   let unknownCount = 0
   for (const v of values ?? []) {
-    if (v === null || v === undefined) unknownCount++
+    // A non-finite value counts as unknown rather than throwing. costOf() has
+    // already refused to produce one, so a NaN here came from somewhere else --
+    // a null numeric column, a bad cast. This is an aggregate over many rows
+    // feeding a report, and one corrupt row should show up in unknownCount, not
+    // take the other rows' totals down with it: `total += NaN` makes every
+    // known cost in the batch vanish into NaN.
+    if (v === null || v === undefined || !Number.isFinite(v)) unknownCount++
     else total += v
   }
   return { total, unknownCount }

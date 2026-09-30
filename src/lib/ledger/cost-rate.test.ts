@@ -68,7 +68,9 @@ describe('findCostRate', () => {
     const r = findCostRate(rates, { costType: 'receiving', chargeDate: '2026-03-01' })
     expect(r.known).toBe(true)
     expect(r.rate).toBeCloseTo(0, 6)
-    expect(costOf(r, 10)).toBe(0)
+    // toBeCloseTo, not toBe, per the house rule on money. It still separates
+    // 0 from null: toBeCloseTo rejects a non-number outright.
+    expect(costOf(r, 10)).toBeCloseTo(0, 2)
   })
 
   // REVIEW FOCUS 4, second half. No rate at all is unknown, and unknown is
@@ -113,6 +115,31 @@ describe('costOf', () => {
     expect(costOf(r, 0)).toBeNull()
     expect(costOf(r, 1000)).toBeNull()
   })
+
+  // A NaN quantity defeats the null defence from the other side: NaN is a
+  // number, so it passes as a known cost, and one of them turns a whole
+  // batch total into NaN. Refused at the door instead.
+  it('refuses a non-finite quantity rather than returning NaN', () => {
+    const r = findCostRate(rates, {
+      costType: 'pick', variant: 'device', chargeDate: '2026-03-01' })
+    expect(() => costOf(r, NaN)).toThrow(RangeError)
+    expect(() => costOf(r, Infinity)).toThrow(RangeError)
+  })
+
+  it('refuses a negative quantity', () => {
+    const r = findCostRate(rates, {
+      costType: 'pick', variant: 'device', chargeDate: '2026-03-01' })
+    expect(() => costOf(r, -1)).toThrow(RangeError)
+  })
+
+  // The quantity is checked before the rate is. A bad quantity is a data
+  // error whether or not we happen to know the rate, and returning null for
+  // it would file that error under 'unknown cost', where it would be waited
+  // on rather than fixed.
+  it('refuses a bad quantity even when the rate is unknown', () => {
+    const r = findCostRate(rates, { costType: 'nope', chargeDate: '2026-03-01' })
+    expect(() => costOf(r, NaN)).toThrow(RangeError)
+  })
 })
 
 describe('sumKnownCosts', () => {
@@ -133,5 +160,14 @@ describe('sumKnownCosts', () => {
 
   it('handles an empty set', () => {
     expect(sumKnownCosts([])).toEqual({ total: 0, unknownCount: 0 })
+  })
+
+  // Here the aggregate counts a NaN as unknown rather than throwing: it runs
+  // over many rows for a report, and `total += NaN` would erase the known
+  // costs alongside the corrupt one. `unknownCount` is what surfaces it.
+  it('counts a non-finite value as unknown instead of poisoning the total', () => {
+    const out = sumKnownCosts([5, NaN, 3])
+    expect(out.total).toBeCloseTo(8, 2)
+    expect(out.unknownCount).toBe(1)
   })
 })
