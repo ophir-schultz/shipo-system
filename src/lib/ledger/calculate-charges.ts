@@ -5,17 +5,38 @@ import { findCostRate, costOf, type CostRateRow } from '@/lib/ledger/cost-rate'
 // Everything the calculation needs is passed in, which is what makes the
 // idempotency of charge_key testable at all.
 
+export interface RateCardLine {
+  id: string
+  chargeType: string
+  variant: string | null
+  rate: number | null
+  rateType: string
+  // Effective dates, inclusive/exclusive, exactly as cost_rates uses them.
+  // null effective_from means "has always been in effect": the columns were
+  // added by ALTER TABLE after the rows existed, so every rate card in the
+  // database today carries nulls, and treating null as "no match" would unbill
+  // every client the moment this shipped.
+  effectiveFrom: string | null
+  effectiveTo: string | null
+}
+
 export interface ChargeInput {
   order:     { id: string; clientId: string | null; cancelled: boolean }
   items:     Array<{ id: string; sku: string | null; quantityPicked: number | null
                      isComponent: boolean; pickDate: string | null }>
   shipments: Array<{ id: string; shipmentId: number; shipDate: string
                      actualCost: number | null; voided: boolean }>
-  rateCard:  Array<{ id: string; chargeType: string; variant: string | null
-                     rate: number | null; rateType: string }>
+  rateCard:  RateCardLine[]
   costRates: CostRateRow[]
   peakSurchargePct: number
 }
+
+/**
+ * Reports a finding that is not a failure — currently only an ambiguous rate
+ * card. Optional, so `buildCharges(input)` keeps working and the module stays
+ * pure for callers that do not pass one.
+ */
+export type ChargeWarn = (context: string, detail: string) => void
 
 export interface BuiltCharge {
   order_id: string; client_id: string | null; charge_key: string
@@ -26,9 +47,14 @@ export interface BuiltCharge {
   is_estimate: boolean
 }
 
-const cents = (n: number) => Math.round(n * 100) / 100
+// toPrecision(12) collapses the float representation error before rounding, so
+// an exact half-cent rounds up rather than down: 1.005 * 100 is
+// 100.49999999999999, which Math.round would take to 100 (i.e. 1.00) and
+// underbill. `+ 0` normalises -0, which Postgres accepts but which renders as
+// "-0.00" and reads as a mistake.
+const cents = (n: number) => Math.round(Number((n * 100).toPrecision(12))) / 100 + 0
 
-export function buildCharges(input: ChargeInput): BuiltCharge[] {
+export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltCharge[] {
   // A cancelled order earns nothing and costs nothing. Returning early is
   // simpler than filtering each branch and leaves no path that could miss it.
   if (input.order.cancelled) return []
@@ -36,9 +62,36 @@ export function buildCharges(input: ChargeInput): BuiltCharge[] {
   const out: BuiltCharge[] = []
   const clientId = input.order.clientId
 
-  const rateFor = (chargeType: string, variant: string | null) =>
-    input.rateCard.find((r) =>
-      r.chargeType === chargeType && (r.variant ?? null) === variant)
+  // The billing rate is dated exactly as findCostRate dates the cost rate:
+  // effective_from inclusive, effective_to exclusive, matched against the
+  // CHARGE's own date and never against now(). A rate change must not rewrite
+  // last month's invoice any more than it rewrites last month's margin, and a
+  // bare .find() lets a superseded rate beat its replacement by array order.
+  const inEffect = (r: RateCardLine, onDate: string) =>
+    (r.effectiveFrom === null || r.effectiveFrom <= onDate)
+    && (r.effectiveTo === null || onDate < r.effectiveTo)
+
+  const rateFor = (chargeType: string, variant: string | null, onDate: string) => {
+    const candidates = input.rateCard.filter((r) =>
+      r.chargeType === chargeType && (r.variant ?? null) === variant && inEffect(r, onDate))
+    if (candidates.length === 0) return undefined
+
+    // More than one rate in effect on the same day for the same service is a
+    // data error — the rate card should never overlap itself. Picking one
+    // arbitrarily and silently is the failure mode this whole task exists to
+    // stop, so it is named. The sort makes the choice deterministic (latest
+    // start wins, ties broken by id) so at least the number does not flap
+    // between runs while someone fixes the card.
+    if (candidates.length > 1) {
+      candidates.sort((a, b) =>
+        (b.effectiveFrom ?? '').localeCompare(a.effectiveFrom ?? '')
+        || a.id.localeCompare(b.id))
+      onWarn?.('ambiguous rate', `client ${clientId ?? 'unattributed'}: `
+        + `${candidates.length} rates for ${chargeType}/${variant ?? 'none'} are in `
+        + `effect on ${onDate}; using ${candidates[0].id}`)
+    }
+    return candidates[0]
+  }
 
   // ---- picks -------------------------------------------------------------
   for (const item of input.items) {
@@ -56,7 +109,7 @@ export function buildCharges(input: ChargeInput): BuiltCharge[] {
     if (!item.pickDate) continue
 
     const variant = item.isComponent ? 'component' : 'device'
-    const rate = rateFor('pick', variant)
+    const rate = rateFor('pick', variant, item.pickDate)
     // No rate card line means we have not agreed a price. Inventing one would
     // be worse than the gap; the gap shows up as "picked but never billed".
     if (!rate || rate.rate === null) continue
@@ -92,7 +145,7 @@ export function buildCharges(input: ChargeInput): BuiltCharge[] {
     // with a separately-priced pack, their charges appear without anyone
     // editing this file. A branch that is dormant for one client and load-
     // bearing for the next three is cheaper than the rework of adding it later.
-    const packRate = rateFor('pack', variant)
+    const packRate = rateFor('pack', variant, item.pickDate)
     if (packRate && packRate.rate !== null) {
       const packLookup = findCostRate(input.costRates, {
         costType: 'pack', variant, chargeDate: item.pickDate,
@@ -122,7 +175,13 @@ export function buildCharges(input: ChargeInput): BuiltCharge[] {
 
   // ---- shipping ----------------------------------------------------------
   for (const s of input.shipments) {
-    const rate = rateFor('shipping', null)
+    // charge_date is `not null`. An undated shipment included here would fail
+    // the batch upsert and take every other charge on the order with it. The
+    // check moved above the rate lookup because the lookup is now dated and has
+    // nothing to match an empty string against.
+    if (!s.shipDate) continue
+
+    const rate = rateFor('shipping', null, s.shipDate)
     if (!rate) continue
 
     // shipstation_shipment_id is nullable in the database, and String(null) is
@@ -132,9 +191,6 @@ export function buildCharges(input: ChargeInput): BuiltCharge[] {
     // rather than loudly. Unidentified labels are reported by
     // leaks_monthly.unattributed_label_spend (Task 15) instead.
     if (!Number.isFinite(s.shipmentId)) continue
-    // charge_date is `not null`. An undated shipment included here would fail
-    // the batch upsert and take every other charge on the order with it.
-    if (!s.shipDate) continue
 
     // A voided label was refunded, so it contributes nothing to measured cost.
     // It is counted in the voided-label leak line instead; leaving it in here
@@ -175,12 +231,23 @@ export function buildCharges(input: ChargeInput): BuiltCharge[] {
   // The percentage is checked for finiteness, not just for `> 0`: it arrives
   // from a numeric column via Number(), and an Infinity would pass `> 0` and
   // produce an amount that numeric(10,2) rejects, failing the whole order.
-  const pct = input.peakSurchargePct
-  if (Number.isFinite(pct) && pct > 0) {
-    const eligible = out.filter((c) => c.charge_type === 'pick' || c.charge_type === 'pack')
-    const basis = eligible.reduce((sum, c) => sum + c.amount, 0)
-    if (basis > 0) {
-      const first = eligible[0]
+  const eligible = out.filter((c) => c.charge_type === 'pick' || c.charge_type === 'pack')
+  const basis = eligible.reduce((sum, c) => sum + c.amount, 0)
+  if (basis > 0) {
+    const first = eligible[0]
+
+    // The percentage is dated like every other rate. input.peakSurchargePct is
+    // the loader's undated reading of the same line and is used ONLY when the
+    // card carries no ('surcharge', 'peak') line at all. If the card does carry
+    // one, the dated lookup is authoritative in both directions — including
+    // "none in effect on this date", which must mean no surcharge rather than
+    // falling back to a figure that ignores the dates.
+    const hasPeakLine = input.rateCard.some(
+      (r) => r.chargeType === 'surcharge' && (r.variant ?? null) === 'peak')
+    const dated = rateFor('surcharge', 'peak', first.charge_date)
+    const pct = hasPeakLine ? (dated?.rate ?? 0) : input.peakSurchargePct
+
+    if (Number.isFinite(pct) && pct > 0) {
       out.push({
         order_id: input.order.id,
         client_id: clientId,
@@ -201,7 +268,9 @@ export function buildCharges(input: ChargeInput): BuiltCharge[] {
         // be a claim that it was free to provide.
         cost: null,
         cost_basis: null,
-        rate_id: null,
+        // The dated line, when the card has one, so the surcharge is traceable
+        // to the rate that produced it rather than being an unattributed number.
+        rate_id: dated?.id ?? null,
         cost_rate_id: null,
         charge_date: first.charge_date,
         charge_date_source: first.charge_date_source,

@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { buildCharges, type ChargeInput } from '@/lib/ledger/calculate-charges'
+import { buildCharges, type ChargeInput, type RateCardLine } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
+
+// Every rate card in the database today has null effective dates: the columns
+// were added by ALTER TABLE after the rows existed. `line()` defaults to that
+// state so the suite exercises the path production is actually on, and the
+// dating tests below pass the dates explicitly.
+const line = (l: Omit<RateCardLine, 'effectiveFrom' | 'effectiveTo'>
+                & Partial<Pick<RateCardLine, 'effectiveFrom' | 'effectiveTo'>>): RateCardLine =>
+  ({ effectiveFrom: null, effectiveTo: null, ...l })
 
 const costRates: CostRateRow[] = [
   { id: 'cr-pick-d', cost_type: 'pick', variant: 'device', unit: 'per_unit',
@@ -14,9 +22,9 @@ const base: ChargeInput = {
   items: [],
   shipments: [],
   rateCard: [
-    { id: 'rc-pick-d', chargeType: 'pick', variant: 'device',    rate: 0.32, rateType: 'per_unit' },
-    { id: 'rc-pick-c', chargeType: 'pick', variant: 'component', rate: 0.20, rateType: 'per_unit' },
-    { id: 'rc-ship',   chargeType: 'shipping', variant: null,    rate: null, rateType: 'at_cost' },
+    line({ id: 'rc-pick-d', chargeType: 'pick', variant: 'device',    rate: 0.32, rateType: 'per_unit' }),
+    line({ id: 'rc-pick-c', chargeType: 'pick', variant: 'component', rate: 0.20, rateType: 'per_unit' }),
+    line({ id: 'rc-ship',   chargeType: 'shipping', variant: null,    rate: null, rateType: 'at_cost' }),
   ],
   costRates,
   peakSurchargePct: 0,
@@ -37,8 +45,11 @@ describe('buildCharges', () => {
       charge_type: 'pick',
       quantity: 4,
       unit_rate: 0.32,
-      amount: 1.28,
-      cost: expect.closeTo(0.92, 6),
+      // Currency is compared with a tolerance, never with ===. toMatchObject
+      // uses Object.is on primitives, so a bare `amount: 1.28` is an assertion
+      // on float identity rather than on money.
+      amount: expect.closeTo(1.28, 2),
+      cost: expect.closeTo(0.92, 2),
       cost_basis: 'derived',
       cost_rate_id: 'cr-pick-d',
       rate_id: 'rc-pick-d',
@@ -50,7 +61,11 @@ describe('buildCharges', () => {
     const out = buildCharges({ ...base, items: [
       { id: 'i2', sku: 'CABLE-01', quantityPicked: 5, isComponent: true, pickDate: '2026-09-01' },
     ]})
-    expect(out[0]).toMatchObject({ unit_rate: 0.20, amount: 1.00, cost: expect.closeTo(1.00, 6) })
+    expect(out[0]).toMatchObject({
+      unit_rate: 0.20,
+      amount: expect.closeTo(1.00, 2),
+      cost: expect.closeTo(1.00, 2),
+    })
   })
 
   // REVIEW FOCUS 5, at the charge layer. Task 12 stops a zero-picked line at
@@ -109,8 +124,8 @@ describe('buildCharges', () => {
     expect(out[0]).toMatchObject({
       charge_key: 'shipment:555',
       charge_type: 'shipping',
-      amount: 8.20,
-      cost: 8.20,
+      amount: expect.closeTo(8.20, 2),
+      cost: expect.closeTo(8.20, 2),
       cost_basis: 'measured',
       charge_date: '2026-09-02',
       charge_date_source: 'ship_date',
@@ -124,7 +139,10 @@ describe('buildCharges', () => {
     const out = buildCharges({ ...base, shipments: [
       { id: 's2', shipmentId: 556, shipDate: '2026-09-02', actualCost: 9.10, voided: true },
     ]})
-    expect(out[0]).toMatchObject({ amount: 0, cost: 0 })
+    expect(out[0]).toMatchObject({
+      amount: expect.closeTo(0, 2),
+      cost: expect.closeTo(0, 2),
+    })
   })
 
   // An unknown carrier cost must stay unknown. Writing 0 here would report a
@@ -135,7 +153,7 @@ describe('buildCharges', () => {
       { id: 's3', shipmentId: 557, shipDate: '2026-09-02', actualCost: null, voided: false },
     ]})
     expect(out[0].cost).toBeNull()
-    expect(out[0].amount).toBe(0)
+    expect(out[0].amount).toBeCloseTo(0, 2)
   })
 
   // charge_date is `not null` in order_charges, so an undated shipment cannot
@@ -226,7 +244,20 @@ describe('buildCharges', () => {
     const out = buildCharges({ ...base, items: [
       { id: 'i12', sku: 'R1', quantityPicked: 3, isComponent: false, pickDate: '2026-09-01' },
     ]})
-    expect(out[0].amount).toBe(0.96)
+    expect(out[0].amount).toBeCloseTo(0.96, 2)
+  })
+
+  // Math.round(1.005 * 100) is 100, because 1.005 * 100 is 100.49999999999999.
+  // Rounding a half-cent DOWN underbills, quietly and for ever. Unreachable at
+  // today's per-unit rates; reachable the moment a percentage-based rate lands.
+  it('rounds an exact half-cent up rather than down', () => {
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-half', chargeType: 'pick', variant: 'device',
+                        rate: 1.005, rateType: 'per_unit' })],
+      items: [{ id: 'i-half', sku: 'R1', quantityPicked: 1, isComponent: false, pickDate: '2026-09-01' }],
+    })
+    expect(out[0].amount).toBeCloseTo(1.01, 2)
   })
 
   // Nayax's quote folds packing into the pick rate, so their card has no
@@ -246,7 +277,7 @@ describe('buildCharges', () => {
     const out = buildCharges({
       ...base,
       rateCard: [...base.rateCard,
-        { id: 'rp', chargeType: 'pack', variant: 'device', rate: 0.15, rateType: 'per_unit' }],
+        line({ id: 'rp', chargeType: 'pack', variant: 'device', rate: 0.15, rateType: 'per_unit' })],
       items: [{ id: 'i14', sku: 'R1', quantityPicked: 4, isComponent: false, pickDate: '2026-09-01' }],
     })
     const pack = out.filter((c) => c.charge_type === 'pack')
@@ -262,7 +293,7 @@ describe('buildCharges', () => {
       ...base,
       peakSurchargePct: 8,
       rateCard: [...base.rateCard,
-        { id: 'rp', chargeType: 'pack', variant: 'device', rate: 0.15, rateType: 'per_unit' }],
+        line({ id: 'rp', chargeType: 'pack', variant: 'device', rate: 0.15, rateType: 'per_unit' })],
       items: [{ id: 'i15', sku: 'R1', quantityPicked: 10, isComponent: false, pickDate: '2026-09-01' }],
     })
     // pick 10 * 0.32 = 3.20, pack 10 * 0.15 = 1.50, base 4.70, 8% = 0.376 -> 0.38
@@ -281,5 +312,126 @@ describe('buildCharges', () => {
       ]})
       expect(out.some((c) => c.charge_type === 'surcharge')).toBe(false)
     }
+  })
+
+  // ---- effective dating ----------------------------------------------------
+  // The cost side has always been dated (findCostRate). Having the cost dated
+  // and the revenue not is the worst of the three states: margin moves for a
+  // reason that is visible in neither column.
+
+  const dated = (from: string | null, to: string | null, id: string, rate: number) =>
+    line({ id, chargeType: 'pick', variant: 'device', rate, rateType: 'per_unit',
+           effectiveFrom: from, effectiveTo: to })
+
+  it('prices a pick with the rate in effect on the pick date, not the newest one', () => {
+    const out = buildCharges({
+      ...base,
+      // Deliberately ordered newest-first, which is what a UUID sort can produce.
+      // A bare .find() would take the 0.50 and rewrite an August invoice.
+      rateCard: [dated('2026-09-01', null, 'rc-new', 0.50),
+                 dated('2026-01-01', '2026-09-01', 'rc-old', 0.32)],
+      items: [{ id: 'i-aug', sku: 'R1', quantityPicked: 10, isComponent: false, pickDate: '2026-08-15' }],
+    })
+    expect(out[0].rate_id).toBe('rc-old')
+    expect(out[0].amount).toBeCloseTo(3.20, 2)
+  })
+
+  // effective_to is EXCLUSIVE, matching the '[)' daterange the cost rates use.
+  // An inclusive upper bound makes the changeover day ambiguous by construction.
+  it('treats effective_to as exclusive on the changeover day', () => {
+    const out = buildCharges({
+      ...base,
+      rateCard: [dated('2026-01-01', '2026-09-01', 'rc-old', 0.32),
+                 dated('2026-09-01', null, 'rc-new', 0.50)],
+      items: [{ id: 'i-cut', sku: 'R1', quantityPicked: 10, isComponent: false, pickDate: '2026-09-01' }],
+    })
+    expect(out[0].rate_id).toBe('rc-new')
+    expect(out[0].amount).toBeCloseTo(5.00, 2)
+  })
+
+  // Every rate card row in the database today has null effective dates: the
+  // columns were added by ALTER TABLE after the rows existed. Reading null as
+  // "no match" would unbill every client the moment this shipped.
+  it('treats a null effective_from as having always been in effect', () => {
+    const out = buildCharges({ ...base, items: [
+      { id: 'i-null', sku: 'R1', quantityPicked: 10, isComponent: false, pickDate: '2019-01-01' },
+    ]})
+    expect(out[0].rate_id).toBe('rc-pick-d')
+  })
+
+  it('raises no charge when every rate for it expired before the pick date', () => {
+    const out = buildCharges({
+      ...base,
+      rateCard: [dated('2026-01-01', '2026-06-01', 'rc-gone', 0.32)],
+      items: [{ id: 'i-gap', sku: 'R1', quantityPicked: 10, isComponent: false, pickDate: '2026-09-01' }],
+    })
+    expect(out).toEqual([])
+  })
+
+  // Two rates in effect on the same day is a data error in the card. The result
+  // must be named and it must be stable, so the number does not flap between
+  // runs while someone fixes it.
+  it('warns and picks deterministically when two rates overlap', () => {
+    const warnings: string[] = []
+    const input: ChargeInput = {
+      ...base,
+      rateCard: [dated('2026-01-01', null, 'rc-b', 0.40),
+                 dated('2026-06-01', null, 'rc-a', 0.32)],
+      items: [{ id: 'i-dup', sku: 'R1', quantityPicked: 10, isComponent: false, pickDate: '2026-09-01' }],
+    }
+    const first = buildCharges(input, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+    const second = buildCharges(input)
+
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('ambiguous rate')
+    // Latest start wins, so the same row is chosen every run.
+    expect(first[0].rate_id).toBe('rc-a')
+    expect(second[0].rate_id).toBe('rc-a')
+  })
+
+  // The shipping rate is dated too. An at-cost line replaced by a flat line
+  // must not retroactively reprice labels bought under the old terms.
+  it('dates the shipping rate against the ship date', () => {
+    const out = buildCharges({
+      ...base,
+      rateCard: [
+        line({ id: 'rc-ship-old', chargeType: 'shipping', variant: null, rate: null,
+               rateType: 'at_cost', effectiveFrom: '2026-01-01', effectiveTo: '2026-09-01' }),
+        line({ id: 'rc-ship-new', chargeType: 'shipping', variant: null, rate: 12,
+               rateType: 'flat', effectiveFrom: '2026-09-01', effectiveTo: null }),
+      ],
+      shipments: [{ id: 's-aug', shipmentId: 900, shipDate: '2026-08-20', actualCost: 8.20, voided: false }],
+    })
+    expect(out[0].rate_id).toBe('rc-ship-old')
+    expect(out[0].amount).toBeCloseTo(8.20, 2)
+  })
+
+  // The peak percentage is a rate card line like any other and must be dated
+  // like one. A surcharge that ended in January must not be levied in September.
+  it('does not levy a peak surcharge whose rate card line has expired', () => {
+    const out = buildCharges({
+      ...base,
+      // The undated fallback still says 8. The card's dated line must win.
+      peakSurchargePct: 8,
+      rateCard: [...base.rateCard,
+        line({ id: 'rc-peak', chargeType: 'surcharge', variant: 'peak', rate: 8,
+               rateType: 'percent', effectiveFrom: '2026-01-01', effectiveTo: '2026-02-01' })],
+      items: [{ id: 'i-peak', sku: 'R1', quantityPicked: 10, isComponent: false, pickDate: '2026-09-01' }],
+    })
+    expect(out.some((c) => c.charge_type === 'surcharge')).toBe(false)
+  })
+
+  it('levies a peak surcharge from the dated card line when one is in effect', () => {
+    const out = buildCharges({
+      ...base,
+      peakSurchargePct: 0,
+      rateCard: [...base.rateCard,
+        line({ id: 'rc-peak', chargeType: 'surcharge', variant: 'peak', rate: 8,
+               rateType: 'percent', effectiveFrom: '2026-01-01', effectiveTo: null })],
+      items: [{ id: 'i-peak2', sku: 'R1', quantityPicked: 10, isComponent: false, pickDate: '2026-09-01' }],
+    })
+    const sur = out.find((c) => c.charge_type === 'surcharge')!
+    expect(sur.amount).toBeCloseTo(0.26, 2)
+    expect(sur.rate_id).toBe('rc-peak')
   })
 })
