@@ -33,6 +33,11 @@ insert into clients (name) values ('VERIFY-ONLY ledger_04');
 -- The pick_days ordering bug: an order with dateless Zenventory rows and good
 -- ShipStation rows must still appear. If `usable` were applied after
 -- `preferred`, this order would vanish entirely.
+--
+-- This block is scoped by SKU, not by month: pick_days groups on
+-- (client_id, pick_date, sku), and 'SKU-PD' is written nowhere else. That is why
+-- it can share September 2026 with VERIFY-CONF without either disturbing the
+-- other. Any new assertion here must stay SKU-scoped or take its own month.
 do $$
 declare cid uuid; oid uuid; n int;
 begin
@@ -59,6 +64,11 @@ end $$;
 
 -- Confidence must rank watermark BELOW pickprintdate. Alphabetically it does
 -- not, which is why the view maps to integers first.
+--
+-- Scoped by SKU ('SKU-CONF'), same as VERIFY-PD above -- and it has to be, since
+-- `select confidence into c` would take an arbitrary row if the predicate
+-- matched more than one. Both lines share one pick_date so the view yields
+-- exactly one row.
 do $$
 declare oid uuid; cid uuid; c int;
 begin
@@ -81,8 +91,19 @@ begin
 end $$;
 
 -- A charge with an UNKNOWN cost must not be reported as a negative-margin leak.
--- September 2026 is this block's own month and nothing else writes to it, so
--- the expected count of zero cannot be disturbed by another block's fixture.
+--
+-- This block owns SEPTEMBER 2026 for order_charges, and that is what makes an
+-- expected count of ZERO meaningful: a zero-assertion is only as good as the
+-- guarantee that no other block could have put a row in the same bucket. It was
+-- not true when this comment was first written -- VERIFY-PNLC also wrote a
+-- September charge for this same client, and the assertion survived only because
+-- that charge's cost happened to be null, i.e. by the very property under test
+-- rather than by isolation. VERIFY-PNLC now owns November 2026. Keep it that
+-- way: no other block may write an order_charges row dated September 2026.
+--
+-- VERIFY-PD and VERIFY-CONF do write September 2026 ORDER_ITEMS for this client,
+-- which is fine and must stay fine -- those feed leak 2 (picked_never_billed),
+-- and this assertion names leak 4 explicitly.
 do $$
 declare cid uuid; oid uuid; n int;
 begin
@@ -112,11 +133,13 @@ end $$;
 -- INSERT raised 23514, aborted the block, and took the two assertions after it
 -- with it -- including the net_profit check the brief calls the one worth
 -- keeping. 'measured' is the basis the calculator itself writes for a carrier
--- cost (calculate-charges.ts:227).
+-- cost (calculate-charges.ts:239).
 --
--- And the month is OCTOBER, not September, so this block and the one above are
--- order-independent: a positive count here can only come from this block's own
--- insert, and the zero count above cannot be broken by this one.
+-- This block owns OCTOBER 2026, so it and the one above are order-independent:
+-- a positive count here can only come from this block's own insert, and the
+-- zero count above cannot be broken by this one. `records = 1` depends on that
+-- ownership too -- a second negative-margin charge for this client in October
+-- would make it 2 and fail.
 do $$
 declare cid uuid; oid uuid; n int; recs bigint;
 begin
@@ -144,6 +167,12 @@ end $$;
 -- group, since the view groups by (period_month, client_id, client_name,
 -- charge_type) and two other blocks write 'pick' charges for this client.
 -- charge_date is the 5th, so the row also proves period_month truncates.
+--
+-- This block owns NOVEMBER 2026. It used to write September and so sat inside
+-- VERIFY-LEAK's month, silently weakening that block's zero-assertion; giving
+-- it its own month is the property worth having, not the corrected comment.
+-- Note that a future edit giving this fixture a cost BELOW its amount is now
+-- harmless -- that was the trap.
 do $$
 declare cid uuid; oid uuid;
         rev numeric; ck numeric; unknown_costs bigint;
@@ -154,13 +183,13 @@ begin
   insert into order_charges (order_id, client_id, charge_key, charge_type,
                              label, amount, cost, charge_date, source)
     values (oid, cid, 'item:z:verify_pnl', 'verify_pnl', 'Verify', 7.50, null,
-            '2026-09-05', 'verify');
+            '2026-11-05', 'verify');
 
   select revenue, cost_known, cost_unknown_charges
     into rev, ck, unknown_costs
   from pnl_client_monthly
   where client_id = cid and charge_type = 'verify_pnl'
-    and period_month = '2026-09-01';
+    and period_month = '2026-11-01';
 
   if rev is null then
     raise exception 'FAIL: pnl_client_monthly reported no row for the fixture charge';
@@ -193,10 +222,35 @@ end $$;
 -- business-wide, so a real month would make `net_profit is null` depend on
 -- whether operating_costs happens to hold all three allocation categories for
 -- it -- an assertion about the state of the bookkeeping rather than about the
--- view. A sentinel month makes the overhead side of the full outer join empty
--- by construction.
+-- view. A sentinel month puts the overhead side of the full outer join entirely
+-- under this block's control: it starts empty by construction, and only this
+-- block ever fills it. It owns 2099-01 for both order_charges and
+-- operating_costs.
+--
+-- It runs TWO phases, because the no-operating-costs case is not the case the
+-- *_rows counts were added for:
+--
+--   Phase 1, no operating_costs rows at all -- all three allocation sums NULL
+--            because the full outer join has no right-hand row, so net_profit
+--            is NULL and the *_rows columns are NULL too.
+--   Phase 2, operating_costs rows for TWO of the three allocations -- the
+--            partial-category state a real business actually sits in. Here
+--            direct_storage_rows is 0 rather than NULL (the month HAS a book,
+--            and there is genuinely no direct_storage line in it), and
+--            net_profit is still NULL because o.direct_storage is NULL and one
+--            NULL poisons the subtraction. That combination is the whole reason
+--            the three counts exist -- it is what lets Task 16 say "net profit
+--            unavailable: no direct_storage cost recorded" instead of rendering
+--            an empty cell -- and until now nothing exercised it.
+--
+-- Phase 2's direct_labor row is dated mid-month on purpose. operating_costs
+-- imposes no first-of-month constraint (ledger_02_cost.sql:44), so if the
+-- overhead CTE ever loses its date_trunc, that row stops joining to 2099-01-01
+-- and direct_labor_rows comes back NULL instead of 1 -- which the assertion
+-- below names.
 do $$
 declare cid uuid; oid uuid; np numeric; gm numeric;
+        oh_rows bigint; dl_rows bigint; ds_rows bigint;
 begin
   select id into strict cid from clients where name = 'VERIFY-ONLY ledger_04';
   insert into orders (client_id, order_key, order_number, source)
@@ -218,6 +272,45 @@ begin
                     'overheads are being treated as zero', np;
   end if;
   raise notice 'PASS: gross margin is reported and net profit is honestly null';
+
+  -- Phase 2: two of the three allocations entered, direct_storage missing.
+  -- period_month, category and amount are the NOT NULL columns without a
+  -- default (ledger_02_cost.sql:42-51); vendor and note are nullable, and
+  -- allocation has a default we override explicitly.
+  insert into operating_costs (period_month, category, amount, allocation)
+    values ('2099-01-01', 'VERIFY-rent',  1000.00, 'overhead'),
+           ('2099-01-20', 'VERIFY-wages', 2000.00, 'direct_labor');
+
+  select net_profit, gross_margin,
+         overhead_rows, direct_labor_rows, direct_storage_rows
+    into np, gm, oh_rows, dl_rows, ds_rows
+  from pnl_monthly where period_month = '2099-01-01';
+
+  -- `is distinct from` throughout, not `<>`: NULL <> 1 is NULL, not true, so a
+  -- plain `<>` would take no branch and print PASS for the exact case these
+  -- assertions exist to catch -- a NULL where a count was expected.
+  if oh_rows is distinct from 1 then
+    raise exception 'FAIL: overhead_rows is %, expected 1', oh_rows;
+  end if;
+  if dl_rows is distinct from 1 then
+    raise exception 'FAIL: direct_labor_rows is %, expected 1. A NULL here means '
+                    'the mid-month operating_costs row did not join to the 1st, '
+                    'i.e. the overhead CTE has lost its date_trunc', dl_rows;
+  end if;
+  if ds_rows is distinct from 0 then
+    raise exception 'FAIL: direct_storage_rows is %, expected 0. It must be 0 and '
+                    'not NULL: the month HAS operating_costs rows, and this '
+                    'category is genuinely absent from them', ds_rows;
+  end if;
+  if gm is null then
+    raise exception 'FAIL: gross margin went null once operating costs existed';
+  end if;
+  if np is not null then
+    raise exception 'FAIL: net profit is % with direct_storage missing; a missing '
+                    'allocation category is being coalesced to zero', np;
+  end if;
+  raise notice 'PASS: a missing allocation category nulls net_profit and is '
+               'named by direct_storage_rows = 0';
 end $$;
 
 rollback;
