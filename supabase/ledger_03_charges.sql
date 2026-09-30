@@ -26,6 +26,29 @@ create unique index if not exists shipments_shipstation_id_key
   where shipstation_shipment_id is not null;
 
 -- ---------------------------------------------------------------------------
+-- A normalised order number to join shipments to orders on.
+-- ---------------------------------------------------------------------------
+-- orders.order_key is upper-cased and trimmed at write time (sync/zenventory.ts)
+-- while shipments.order_number is whatever the carrier sent. Task 14 therefore
+-- has to match them case-insensitively -- but a case-insensitive match done only
+-- in memory is a trap: the rows still have to be FETCHED first, and PostgREST's
+-- `.in()` is a case-SENSITIVE SQL `IN`. A label whose order number arrives in a
+-- third casing is never retrieved, so the in-memory normalisation never sees it
+-- and the shipping revenue is lost silently rather than loudly.
+--
+-- A stored generated column makes the fetch and the join agree by construction,
+-- and is indexable, which `upper(order_number)` in a predicate would not be
+-- without a matching expression index anyway.
+--
+-- NOTE: adding a stored generated column rewrites the table. On a shipments
+-- table of this size that is seconds, but it is not instantaneous -- do not run
+-- it in the middle of a sync.
+alter table shipments add column if not exists order_number_key text
+  generated always as (upper(btrim(order_number))) stored;
+create index if not exists shipments_order_number_key_idx
+  on shipments (order_number_key);
+
+-- ---------------------------------------------------------------------------
 -- The margin record: the one table carrying both what we charged and what it
 -- cost.
 -- ---------------------------------------------------------------------------
@@ -58,14 +81,43 @@ create table if not exists order_charges (
     check (cost is null or cost_basis is not null)
 );
 
--- Two partial unique indexes, for the same reason `orders` needed two. Not
--- every charge belongs to an order: storage is billed monthly against a client,
--- and unattributed label spend belongs to neither. A single
+-- Two unique indexes, for the same reason `orders` needed two. Not every charge
+-- belongs to an order: storage is billed monthly against a client, and
+-- unattributed label spend belongs to neither. A single
 -- unique (order_id, charge_key) would not constrain those rows at all, so the
 -- one category of charge that CANNOT be re-derived from an order document would
 -- be the one silently duplicated three times a day.
+--
+-- The FIRST index is deliberately NOT partial, and must stay that way.
+-- A `where order_id is not null` predicate on it would be semantically free --
+-- it only excludes rows that NULL-distinctness leaves unconstrained anyway --
+-- but it breaks the charge calculator outright. PostgREST's on_conflict
+-- parameter emits only a column list, never an index predicate, so supabase-js
+-- `.upsert(..., { onConflict: 'order_id,charge_key' })` produces
+-- `on conflict (order_id, charge_key)` with no where clause. Postgres cannot
+-- infer a PARTIAL index from that and raises 42P10, "no unique or exclusion
+-- constraint matching the ON CONFLICT specification" -- on every single batch,
+-- so ZERO charges are ever written. This is the identical trap that
+-- ledger_01_orders.sql documents for orders_client_order_key. The drop below
+-- exists because an earlier draft of this file created it partial; re-running
+-- this migration converts it.
+drop index if exists order_charges_order_key;
 create unique index if not exists order_charges_order_key
-  on order_charges (order_id, charge_key) where order_id is not null;
+  on order_charges (order_id, charge_key);
+
+-- This one stays partial, and it is exactly what still covers the rows the
+-- index above stops constraining once its predicate is gone: order-less charges
+-- (storage, billed monthly against a client). NULLs are distinct in SQL, so
+-- `unique (order_id, charge_key)` never constrained an order_id-null row,
+-- partial predicate or not -- dropping the predicate moves no coverage. Nothing
+-- upserts these rows by ON CONFLICT inference, so the 42P10 problem above does
+-- not apply to it. Same division of labour as
+-- orders_client_order_key / orders_source_order_key.
+--
+-- TASK 18 WARNING: because this index IS partial, a storage charge written with
+-- `.upsert(..., { onConflict: 'client_id,charge_key' })` will hit the same
+-- 42P10. Storage must use a different write strategy (read-then-insert/update,
+-- or a plain insert guarded by a prior delete of the period's rows).
 create unique index if not exists order_charges_client_key
   on order_charges (client_id, charge_key) where order_id is null and client_id is not null;
 
