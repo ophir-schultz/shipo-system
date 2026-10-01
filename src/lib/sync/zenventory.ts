@@ -103,208 +103,227 @@ export async function syncClientAssignments(daysBack = 30) {
       continue
     }
 
-    let page = 1
-    let hasMore = true
-    const orderNumbers: string[] = []
+    // Everything this client's run does is inside the try, so that close()
+    // runs whether it finishes, errors or throws. close() is what writes the
+    // fail() and warn() records to the row; a row left at 'running' keeps all
+    // of them out of sync_runs, and the 'undated picks' warn() below is the
+    // ONLY place a fortnight of unbillable picks is ever announced.
+    try {
+      let page = 1
+      let hasMore = true
+      const orderNumbers: string[] = []
 
-    // Pull all orders from this client's Zenventory account
-    while (hasMore) {
-      let data: any
-      try {
-        data = await getCustomerOrders(client.zenventory_api_key, client.zenventory_api_secret, {
-          page,
-          perPage: 100,
-          modifiedSince: modifiedFromISO,
-        })
-      } catch (err: any) {
-        clientErrors.push(`${client.name}: ${err.message}`)
-        run.fail(`pagination page ${page}`, err)
-        hasMore = false
-        break
-      }
-
-      const orders = data.customerOrders ?? data.orders ?? []
-      const meta = data.meta ?? {}
-
-      for (const order of orders) {
-        const orderNumber = String(order.orderNumber ?? order.order_number ?? '').trim()
-        if (!orderNumber) { run.fail('blank order number', order); continue }
-        orderNumbers.push(orderNumber)
-
-        run.seen()
+      // Pull all orders from this client's Zenventory account
+      while (hasMore) {
+        let data: any
         try {
-          const { data: orderRow, error: orderErr } = await supabaseAdmin
-            .from('orders')
-            .upsert({
-              client_id: client.id,
-              order_key: orderNumber.toUpperCase(),
-              order_number: orderNumber,
-              source: 'zenventory',
-              order_date: order.orderDate ?? order.order_date ?? null,
-              cancelled: Boolean(order.cancelled ?? false),
-            }, { onConflict: 'client_id,order_key' })
-            .select('id')
-            .single()
+          data = await getCustomerOrders(client.zenventory_api_key, client.zenventory_api_secret, {
+            page,
+            perPage: 100,
+            modifiedSince: modifiedFromISO,
+          })
+        } catch (err: any) {
+          clientErrors.push(`${client.name}: ${err.message}`)
+          run.fail(`pagination page ${page}`, err)
+          hasMore = false
+          break
+        }
 
-          if (orderErr || !orderRow) {
-            run.fail(`order ${orderNumber}`, orderErr ?? 'no row returned')
-            continue
-          }
+        const orders = data.customerOrders ?? data.orders ?? []
+        const meta = data.meta ?? {}
 
-          const lines = normaliseLines(
-            order.items ?? order.orderItems ?? order.lineItems ?? []
-          )
+        for (const order of orders) {
+          const orderNumber = String(order.orderNumber ?? order.order_number ?? '').trim()
+          if (!orderNumber) { run.fail('blank order number', order); continue }
+          orderNumbers.push(orderNumber)
 
-          for (const line of lines) {
-            // pick_date is set ONCE and never moved. Read the existing row
-            // first so an established date survives a re-sync.
-            const { data: existing, error: existingErr } = await supabaseAdmin
-              .from('order_items')
-              .select('id, pick_date, pick_date_source, quantity_picked')
-              .eq('order_id', orderRow.id)
-              .eq('source', 'zenventory')
-              .eq('line_ordinal', line.line_ordinal)
-              .maybeSingle()
+          run.seen()
+          try {
+            const { data: orderRow, error: orderErr } = await supabaseAdmin
+              .from('orders')
+              .upsert({
+                client_id: client.id,
+                order_key: orderNumber.toUpperCase(),
+                order_number: orderNumber,
+                source: 'zenventory',
+                order_date: order.orderDate ?? order.order_date ?? null,
+                cancelled: Boolean(order.cancelled ?? false),
+              }, { onConflict: 'client_id,order_key' })
+              .select('id')
+              .single()
 
-            if (existingErr) {
-              run.fail(`item lookup ${orderNumber}:${line.line_ordinal}`, existingErr)
+            if (orderErr || !orderRow) {
+              run.fail(`order ${orderNumber}`, orderErr ?? 'no row returned')
               continue
             }
 
-            let pickDate = existing?.pick_date ?? null
-            let pickSource = existing?.pick_date_source ?? null
+            const lines = normaliseLines(
+              order.items ?? order.orderItems ?? order.lineItems ?? []
+            )
 
-            // `pickSource !== 'unknown'` is what makes the null STICKY, and it
-            // is the whole point. Without it, a line left undated during an
-            // outage re-enters this branch on the next healthy run and gets
-            // stamped with THAT day's date -- later, and so more wrong, than the
-            // date we declined to write in the first place. 'unknown' records
-            // that we have already looked at this line and found its date
-            // unknowable, so no later run will guess at it. A real observation
-            // (pickprintdate, modified_date) or a manual backfill can still
-            // fill it; nothing automatic will invent it.
-            if (line.picked && !pickDate && pickSource !== 'unknown') {
-              if (watermarkUsable) {
-                pickDate = watermarkPickDate(now)
-                pickSource = 'watermark'
-              } else {
-                // NULL, not today. See watermarkIsEvidence() in
-                // src/lib/ledger/pick-date.ts for why, and note the cost this
-                // accepts: calculate-charges.ts skips an item with no pickDate,
-                // so this line produces no pick charge until it is dated. That
-                // is the recoverable direction -- unknown revenue can be found
-                // and billed later; a fabricated pick date silently misstates
-                // the daily labour cost forever, in the one report that exists
-                // to make daily labour cost legible.
-                pickDate = null
-                pickSource = 'unknown'
-                undatedPicks++
+            for (const line of lines) {
+              // pick_date is set ONCE and never moved. Read the existing row
+              // first so an established date survives a re-sync.
+              const { data: existing, error: existingErr } = await supabaseAdmin
+                .from('order_items')
+                .select('id, pick_date, pick_date_source, quantity_picked')
+                .eq('order_id', orderRow.id)
+                .eq('source', 'zenventory')
+                .eq('line_ordinal', line.line_ordinal)
+                .maybeSingle()
+
+              if (existingErr) {
+                run.fail(`item lookup ${orderNumber}:${line.line_ordinal}`, existingErr)
+                continue
               }
-            }
-            // `|| pickSource` so an unpick also clears the 'unknown' marker.
-            // Testing pickDate alone would leave the sticky flag behind on a
-            // line that is no longer picked, and if it were picked again during
-            // a healthy run the flag would block the watermark that run had
-            // every right to write.
-            if (!line.picked && (pickDate || pickSource)) {
-              pickDate = null
-              pickSource = null
-            }
 
-            const { error: itemErr } = await supabaseAdmin
-              .from('order_items')
-              .upsert({
-                order_id: orderRow.id,
-                source: 'zenventory',
-                line_ordinal: line.line_ordinal,
-                sku: line.sku,
-                description: line.description,
-                quantity_ordered: line.quantity_ordered,
-                quantity_picked: line.quantity_picked,
-                is_component: line.is_component,
-                classification_source: line.classification_source,
-                pick_date: pickDate,
-                pick_date_source: pickSource,
-                is_estimate: pickSource === 'watermark',
-              }, { onConflict: 'order_id,source,line_ordinal' })
+              let pickDate = existing?.pick_date ?? null
+              let pickSource = existing?.pick_date_source ?? null
 
-            if (itemErr) run.fail(`item ${orderNumber}:${line.line_ordinal}`, itemErr)
-            else run.wrote()
-          }
-        } catch (err) {
-          if (err instanceof NegativeQuantityError) {
-            run.fail(`order ${orderNumber}: bad quantity`, err)
-          } else {
-            run.fail(`order ${orderNumber}`, err)
+              // `pickSource !== 'unknown'` is what makes the null STICKY, and it
+              // is the whole point. Without it, a line left undated during an
+              // outage re-enters this branch on the next healthy run and gets
+              // stamped with THAT day's date -- later, and so more wrong, than the
+              // date we declined to write in the first place. 'unknown' records
+              // that we have already looked at this line and found its date
+              // unknowable, so no later run will guess at it. A real observation
+              // (pickprintdate, modified_date) or a manual backfill can still
+              // fill it; nothing automatic will invent it.
+              if (line.picked && !pickDate && pickSource !== 'unknown') {
+                if (watermarkUsable) {
+                  pickDate = watermarkPickDate(now)
+                  pickSource = 'watermark'
+                } else {
+                  // NULL, not today. See watermarkIsEvidence() in
+                  // src/lib/ledger/pick-date.ts for why, and note the cost this
+                  // accepts: calculate-charges.ts skips an item with no pickDate,
+                  // so this line produces no pick charge until it is dated. That
+                  // is the recoverable direction -- unknown revenue can be found
+                  // and billed later; a fabricated pick date silently misstates
+                  // the daily labour cost forever, in the one report that exists
+                  // to make daily labour cost legible.
+                  pickDate = null
+                  pickSource = 'unknown'
+                  undatedPicks++
+                }
+              }
+              // `|| pickSource` so an unpick also clears the 'unknown' marker.
+              // Testing pickDate alone would leave the sticky flag behind on a
+              // line that is no longer picked, and if it were picked again during
+              // a healthy run the flag would block the watermark that run had
+              // every right to write.
+              if (!line.picked && (pickDate || pickSource)) {
+                pickDate = null
+                pickSource = null
+              }
+
+              const { error: itemErr } = await supabaseAdmin
+                .from('order_items')
+                .upsert({
+                  order_id: orderRow.id,
+                  source: 'zenventory',
+                  line_ordinal: line.line_ordinal,
+                  sku: line.sku,
+                  description: line.description,
+                  quantity_ordered: line.quantity_ordered,
+                  quantity_picked: line.quantity_picked,
+                  is_component: line.is_component,
+                  classification_source: line.classification_source,
+                  pick_date: pickDate,
+                  pick_date_source: pickSource,
+                  is_estimate: pickSource === 'watermark',
+                }, { onConflict: 'order_id,source,line_ordinal' })
+
+              if (itemErr) run.fail(`item ${orderNumber}:${line.line_ordinal}`, itemErr)
+              else run.wrote()
+            }
+          } catch (err) {
+            if (err instanceof NegativeQuantityError) {
+              run.fail(`order ${orderNumber}: bad quantity`, err)
+            } else {
+              run.fail(`order ${orderNumber}`, err)
+            }
           }
         }
+
+        hasMore = page < (meta.totalPages ?? meta.total_pages ?? 1)
+        page++
       }
 
-      hasMore = page < (meta.totalPages ?? meta.total_pages ?? 1)
-      page++
-    }
+      totalMapped += orderNumbers.length
 
-    totalMapped += orderNumbers.length
+      // Assign each order's shipment to this client.
+      //
+      // Still one order number at a time. That is slow but correct, and widening
+      // it is out of scope here. What is NOT out of scope is that both calls used
+      // to throw their error away. Client attribution is what makes every
+      // per-client revenue and cost figure land on the right client, so a failure
+      // here is not cosmetic: the shipment keeps its old client_id -- or none --
+      // while totalUpdated counts an update that never happened, and the run
+      // reports a clean pass over a ledger that now attributes money to the wrong
+      // business. Spec: "Nothing in this design may discard an error object."
+      for (const orderNumber of orderNumbers) {
+        const { data: shipment, error: shipErr } = await supabaseAdmin
+          .from('shipments')
+          .select('id, client_id')
+          .eq('order_number', orderNumber)
+          .maybeSingle()
 
-    // Assign each order's shipment to this client.
-    //
-    // Still one order number at a time. That is slow but correct, and widening
-    // it is out of scope here. What is NOT out of scope is that both calls used
-    // to throw their error away. Client attribution is what makes every
-    // per-client revenue and cost figure land on the right client, so a failure
-    // here is not cosmetic: the shipment keeps its old client_id -- or none --
-    // while totalUpdated counts an update that never happened, and the run
-    // reports a clean pass over a ledger that now attributes money to the wrong
-    // business. Spec: "Nothing in this design may discard an error object."
-    for (const orderNumber of orderNumbers) {
-      const { data: shipment, error: shipErr } = await supabaseAdmin
-        .from('shipments')
-        .select('id, client_id')
-        .eq('order_number', orderNumber)
-        .maybeSingle()
+        if (shipErr) {
+          run.fail(`shipment lookup ${orderNumber}`, shipErr)
+          continue
+        }
 
-      if (shipErr) {
-        run.fail(`shipment lookup ${orderNumber}`, shipErr)
-        continue
+        if (!shipment) { totalSkipped++; continue }
+        if (shipment.client_id === client.id) { totalSkipped++; continue }
+
+        const { error: assignErr } = await supabaseAdmin
+          .from('shipments')
+          .update({ client_id: client.id })
+          .eq('id', shipment.id)
+
+        if (assignErr) {
+          run.fail(`assign shipment ${orderNumber} to ${client.name ?? client.id}`, assignErr)
+          continue
+        }
+
+        totalUpdated++
+        run.wrote()
       }
 
-      if (!shipment) { totalSkipped++; continue }
-      if (shipment.client_id === client.id) { totalSkipped++; continue }
-
-      const { error: assignErr } = await supabaseAdmin
-        .from('shipments')
-        .update({ client_id: client.id })
-        .eq('id', shipment.id)
-
-      if (assignErr) {
-        run.fail(`assign shipment ${orderNumber} to ${client.name ?? client.id}`, assignErr)
-        continue
+      // warn(), not fail(): this is a correct outcome, not a broken one, and it
+      // must not push the run to 'partial'. But it is recorded against the run so
+      // that the client and the count are findable later, when somebody asks why
+      // a fortnight of picks carries no pick revenue.
+      if (previousRunErr) {
+        run.warn('pick date continuity unknown', `could not read the previous `
+          + `zenventory sync_runs row for this client, so the pick-date watermark `
+          + `was not trusted: ${previousRunErr.message}`)
       }
-
-      totalUpdated++
-      run.wrote()
+      if (undatedPicks > 0) {
+        run.warn('undated picks', `${undatedPicks} picked line`
+          + `${undatedPicks > 1 ? 's were' : ' was'} seen for the first time with no `
+          + `continuous sync to date ${undatedPicks > 1 ? 'them' : 'it'} from `
+          + `(previous finished run: ${previousRun?.finished_at ?? 'none'}). `
+          + `pick_date left null rather than stamped with today. These lines `
+          + `produce no pick charge until a real pick date is supplied.`)
+        totalUndatedPicks += undatedPicks
+      }
+    } catch (err: any) {
+      // Whatever the per-page and per-order handlers did not already catch --
+      // a fetch that rejects rather than returning a PostgREST error, most
+      // likely. Caught at the per-client boundary for the same reason
+      // openSyncRun's failure is, forty lines up: one client's bad minute must
+      // not abandon every client after it in the list. The function still
+      // throws below if EVERY client failed.
+      //
+      // fail() before close(), not after: close() picks the status from the
+      // error list, so an unrecorded throw would close this row 'ok'.
+      run.fail(`zenventory sync for ${client.name ?? client.id}`, err)
+      clientErrors.push(`${client.name}: ${err?.message ?? String(err)}`)
+    } finally {
+      await run.close()
     }
-
-    // warn(), not fail(): this is a correct outcome, not a broken one, and it
-    // must not push the run to 'partial'. But it is recorded against the run so
-    // that the client and the count are findable later, when somebody asks why
-    // a fortnight of picks carries no pick revenue.
-    if (previousRunErr) {
-      run.warn('pick date continuity unknown', `could not read the previous `
-        + `zenventory sync_runs row for this client, so the pick-date watermark `
-        + `was not trusted: ${previousRunErr.message}`)
-    }
-    if (undatedPicks > 0) {
-      run.warn('undated picks', `${undatedPicks} picked line`
-        + `${undatedPicks > 1 ? 's were' : ' was'} seen for the first time with no `
-        + `continuous sync to date ${undatedPicks > 1 ? 'them' : 'it'} from `
-        + `(previous finished run: ${previousRun?.finished_at ?? 'none'}). `
-        + `pick_date left null rather than stamped with today. These lines `
-        + `produce no pick charge until a real pick date is supplied.`)
-      totalUndatedPicks += undatedPicks
-    }
-
-    await run.close()
   }
 
   // WAS: if (clientErrors.length === clients.length) throw ...

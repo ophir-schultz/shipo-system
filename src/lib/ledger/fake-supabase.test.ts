@@ -74,6 +74,45 @@ describe('fake-supabase — maybeSingle()', () => {
   })
 })
 
+describe('fake-supabase — single()', () => {
+  it('returns the row when exactly one matches', async () => {
+    const db = createFakeSupabase({ orders: [] })
+
+    const { data, error } = await db.client
+      .from('orders')
+      .upsert({ order_key: 'A-1' }, { onConflict: 'client_id,order_key' })
+      .select('id').single()
+
+    expect(error).toBeNull()
+    expect(data).toMatchObject({ order_key: 'A-1' })
+  })
+
+  it('errors on ZERO rows, where maybeSingle() would answer null', async () => {
+    // The whole reason the double needs both. zenventory.ts branches on
+    // `if (orderErr || !orderRow)` after an upsert...single(); if the double
+    // answered null-with-no-error for the empty case, the test would exercise
+    // the `!orderRow` half while production took the `orderErr` half.
+    const db = createFakeSupabase({ orders: [] })
+
+    const { data, error } = await db.client
+      .from('orders').select('id').eq('order_key', 'nope').single()
+
+    expect(data).toBeNull()
+    expect(error).toMatchObject({ code: 'PGRST116' })
+  })
+
+  it('errors on multiple rows, as maybeSingle() does', async () => {
+    const db = createFakeSupabase({
+      orders: [{ id: 'o1', order_key: 'A-1' }, { id: 'o2', order_key: 'A-1' }],
+    })
+
+    const { error } = await db.client
+      .from('orders').select('id').eq('order_key', 'A-1').single()
+
+    expect(error).toMatchObject({ code: 'PGRST116' })
+  })
+})
+
 describe('fake-supabase — unimplemented operators fail loudly', () => {
   it('throws rather than silently matching everything', () => {
     // The default that matters most. A double that quietly ignored an operator

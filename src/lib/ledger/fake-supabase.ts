@@ -146,7 +146,9 @@ function matches(row: FakeRow, filters: Filter[]): boolean {
 class Builder implements PromiseLike<FakeResult> {
   private call: FakeCall
   private returning = false
-  private single = false
+  private singleRow = false
+  /** Set by single(), not by maybeSingle(): zero rows is then an error. */
+  private requireOne = false
   private matched: number | null = null
 
   constructor(private db: FakeDb, table: string) {
@@ -255,7 +257,18 @@ class Builder implements PromiseLike<FakeResult> {
    * double must not be kinder than that.
    */
   maybeSingle(): this {
-    this.returning = true; this.single = true; return this
+    this.returning = true; this.singleRow = true; return this
+  }
+
+  /**
+   * As supabase-js, and NOT as maybeSingle(): zero rows is an ERROR here, not
+   * a null. That difference is the reason both exist. zenventory.ts upserts an
+   * order with `.select('id').single()` and then branches on
+   * `if (orderErr || !orderRow)`, so a double that answered null-with-no-error
+   * for the empty case would exercise the wrong half of that condition.
+   */
+  single(): this {
+    this.returning = true; this.singleRow = true; this.requireOne = true; return this
   }
 
   private sorted(rows: FakeRow[]): FakeRow[] {
@@ -334,7 +347,7 @@ class Builder implements PromiseLike<FakeResult> {
 
     if (!this.returning) return { data: null, error: null, count: null }
 
-    if (this.single) {
+    if (this.singleRow) {
       // supabase-js does NOT throw when maybeSingle() matches more than one
       // row: it returns `{ data: null, error: { code: 'PGRST116' } }`. Code
       // that destructures only `data` therefore sees null and reads it as "no
@@ -344,7 +357,11 @@ class Builder implements PromiseLike<FakeResult> {
       // instead would make every test written against it useless as evidence
       // about exactly the code path that keeps breaking, so the double is held
       // to the real client's behaviour rather than to a more convenient one.
-      if (affected.length > 1) {
+      //
+      // single() additionally errors on ZERO rows, where maybeSingle() answers
+      // null. PGRST116's own message says "multiple (or no) rows returned"
+      // because PostgREST uses one code for both.
+      if (affected.length > 1 || (this.requireOne && affected.length === 0)) {
         return {
           data: null,
           error: {

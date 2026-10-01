@@ -30,199 +30,217 @@ export async function syncShipments(daysBack = 30) {
     errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
   }
 
-  while (hasMore) {
-    const data = await getShipments({
-      shipDateStart: dateStr,
-      page,
-      pageSize: 100,
-      // DO NOT re-add carrierCode. Filtering to 'stamps_com' hid 776 of 1,095
-      // shipments in a 30-day window — about $12,500/month of UPS label cost,
-      // roughly 80% of the largest variable cost in the business. Every P&L
-      // figure depends on this call returning all carriers.
-      // Spec: docs/superpowers/specs/2026-09-29-complete-the-ledger-design.md §3.1
-    })
+  // The whole pull lives in a try/finally so the 'running' row cannot outlive
+  // the function. getShipments() throws on a 401, a timeout or a rate limit,
+  // and that throw is MEANT to propagate -- see the note on openSyncRun above:
+  // all three callers surface it. What must not escape with it is an open run
+  // row. close() is the only thing that writes the fail() and wrote() records
+  // this run accumulated, so a pull that died on page 6 of 11 used to leave a
+  // row that said 'running' and nothing else: no trace that it had already
+  // ingested half the window, and no trace of the shipments it failed on.
+  try {
+    while (hasMore) {
+      const data = await getShipments({
+        shipDateStart: dateStr,
+        page,
+        pageSize: 100,
+        // DO NOT re-add carrierCode. Filtering to 'stamps_com' hid 776 of 1,095
+        // shipments in a 30-day window — about $12,500/month of UPS label cost,
+        // roughly 80% of the largest variable cost in the business. Every P&L
+        // figure depends on this call returning all carriers.
+        // Spec: docs/superpowers/specs/2026-09-29-complete-the-ledger-design.md §3.1
+      })
 
-    const shipments = data.shipments ?? []
-    if (shipments.length === 0 || page >= (data.pages ?? 1)) hasMore = false
+      const shipments = data.shipments ?? []
+      if (shipments.length === 0 || page >= (data.pages ?? 1)) hasMore = false
 
-    for (const s of shipments) {
-      run.seen()
-      try {
-        // DEFECT 1, FIXED. The old code matched on order_number with
-        // .single() and destructured the error away. .single() returns
-        // {data: null, error: PGRST116} when several rows match — it does not
-        // throw — so a multi-package order fell through to .insert() and
-        // duplicated itself on every run. shipmentId is unique per label.
-        const shipmentId = Number(s.shipmentId)
-        if (!Number.isFinite(shipmentId)) {
-          run.fail('missing shipmentId', { orderNumber: s.orderNumber })
-          results.errors++
-          continue
-        }
-
-        const { data: existingShipment, error: matchError } = await supabaseAdmin
-          .from('shipments')
-          .select('id, actual_cost, client_id')
-          .eq('shipstation_shipment_id', shipmentId)
-          .maybeSingle()
-
-        // DEFECT 4, FIXED. The error is inspected, not discarded.
-        if (matchError) {
-          run.fail(`match shipment ${shipmentId}`, matchError)
-          results.errors++
-          continue
-        }
-
-        const orderNumber = String(s.orderNumber ?? '').trim()
-        if (!orderNumber) results.blankOrderNumber++
-
-        const dims = s.dimensions ?? {}
-        const lengthIn = dims.length ?? 0
-        const widthIn = dims.width ?? 0
-        const heightIn = dims.height ?? 0
-
-        const weightRaw = s.weight?.value ?? 0
-        const weightUnit = s.weight?.units ?? 'ounces'
-        const weightOz = weightUnit === 'pounds' ? weightRaw * 16 : weightRaw
-
-        const carrier = s.carrierCode?.toUpperCase() ?? ''
-        const service = s.serviceCode ?? ''
-        const dimWeightOz = calcDimWeightOz(lengthIn, widthIn, heightIn, carrier, service)
-        const billedWeightOz = calcBilledWeightOz(weightOz, dimWeightOz)
-
-        // DEFECT 3, FIXED. source is derived from the carrier code instead of
-        // being hardcoded to 'stamps'. Unknown carriers are counted, not
-        // guessed at.
-        const { source, known } = sourceForCarrier(s.carrierCode ?? '')
-        if (!known) {
-          results.unknownCarrier++
-          // warn(), not fail(): an unknown carrier is a reportable finding, not
-          // a failure. The shipment is still written with source stored verbatim;
-          // piece 4 reads kind:'warning' entries to surface carrier codes that
-          // need adding to the carrier map. Spec line 963.
-          run.warn(`unknown carrier ${s.carrierCode}`, { shipmentId })
-        }
-
-        // A cost ShipStation has not reported is UNKNOWN, not zero. `?? 0` made
-        // the null branch in calculate-charges unreachable, so every label that
-        // has not been rated yet was recorded as free — and a free label reads
-        // downstream as pure profit, overstating margin by exactly the carrier
-        // spend we have not been told about yet. parseFloat is also replaced:
-        // it returns NaN on a non-numeric string, and NaN is rejected by
-        // numeric(10,2), which would fail the whole shipment.
-        const rawCost = s.shipmentCost
-        const parsedCost = rawCost === null || rawCost === undefined || rawCost === ''
-          ? NaN
-          : Number(rawCost)
-        const newCost = Number.isFinite(parsedCost) ? parsedCost : null
-
-        // A value that was sent but could not be read is a different finding
-        // from one that was never sent, and only the first needs a person.
-        if (newCost === null && rawCost !== null && rawCost !== undefined && rawCost !== '') {
-          run.warn('unreadable shipment cost', { shipmentId, shipmentCost: rawCost })
-        }
-
-        const shipmentData = {
-          shipstation_shipment_id: shipmentId,
-          order_number: orderNumber,
-          order_date: s.orderDate,
-          ship_date: s.shipDate,
-          carrier,
-          service,
-          tracking_number: s.trackingNumber ?? '',
-          recipient_name: s.shipTo?.name ?? '',
-          recipient_city: s.shipTo?.city ?? '',
-          recipient_state: s.shipTo?.state ?? '',
-          recipient_zip: s.shipTo?.postalCode ?? '',
-          weight: parseFloat(weightOz.toFixed(2)),
-          weight_unit: 'ounces',
-          length: lengthIn || null,
-          width: widthIn || null,
-          height: heightIn || null,
-          dim_unit: dims.units ?? 'inches',
-          dim_weight: dimWeightOz,
-          billed_weight: parseFloat(billedWeightOz.toFixed(2)),
-          // Never overwrite a cost we have with one we no longer know. An
-          // unknown cost is an absence of information; letting it replace a
-          // measured figure would delete carrier spend that was already
-          // reported. On an insert there is nothing to preserve, so it is null.
-          actual_cost: newCost ?? existingShipment?.actual_cost ?? null,
-          source,
-          raw_data: s,
-        }
-
-        if (existingShipment) {
-          const prevParsed = existingShipment.actual_cost === null
-            || existingShipment.actual_cost === undefined
-            ? NaN
-            : Number(existingShipment.actual_cost)
-          const prevCost = Number.isFinite(prevParsed) ? prevParsed : null
-
-          // A rate adjustment is the difference between two costs we KNOW.
-          // `?? 0` on either side invented one: a cost arriving for the first
-          // time looked like an increase of the entire label price, and a cost
-          // going unknown looked like a full refund. Neither is money moving,
-          // so neither is recorded.
-          //
-          // DEFECT 2, FIXED. The old guard was `diff > 0.01`, so only cost
-          // INCREASES were recorded. A void or a refund is a decrease and was
-          // structurally invisible: we could see money leave and never see it
-          // come back.
-          const diff = prevCost !== null && newCost !== null
-            ? parseFloat((newCost - prevCost).toFixed(2))
-            : null
-
-          if (diff !== null && Math.abs(diff) > 0.01 && existingShipment.client_id) {
-            const { data: existingAdj, error: adjError } = await supabaseAdmin
-              .from('rate_adjustments')
-              .select('id')
-              .eq('shipment_id', existingShipment.id)
-              .eq('adjustment_amount', diff)
-              .maybeSingle()
-
-            if (adjError) {
-              run.fail(`adjustment lookup ${shipmentId}`, adjError)
-              results.errors++
-            } else if (!existingAdj) {
-              const { error: insError } = await supabaseAdmin
-                .from('rate_adjustments').insert({
-                  shipment_id: existingShipment.id,
-                  client_id: existingShipment.client_id,
-                  order_number: orderNumber,
-                  original_cost: prevCost,
-                  adjusted_cost: newCost,
-                  adjustment_amount: diff,
-                  reason: diff > 0 ? 'Carrier rate adjustment' : 'Refund or void',
-                  adjustment_date: new Date().toISOString(),
-                  status: 'pending',
-                })
-              if (insError) { run.fail(`adjustment insert ${shipmentId}`, insError); results.errors++ }
-              else if (diff > 0) results.adjustments++
-              else results.refunds++
-            }
+      for (const s of shipments) {
+        run.seen()
+        try {
+          // DEFECT 1, FIXED. The old code matched on order_number with
+          // .single() and destructured the error away. .single() returns
+          // {data: null, error: PGRST116} when several rows match — it does not
+          // throw — so a multi-package order fell through to .insert() and
+          // duplicated itself on every run. shipmentId is unique per label.
+          const shipmentId = Number(s.shipmentId)
+          if (!Number.isFinite(shipmentId)) {
+            run.fail('missing shipmentId', { orderNumber: s.orderNumber })
+            results.errors++
+            continue
           }
 
-          const { error: updError } = await supabaseAdmin
-            .from('shipments').update(shipmentData).eq('id', existingShipment.id)
-          if (updError) { run.fail(`update ${shipmentId}`, updError); results.errors++ }
-          else { results.updated++; run.wrote() }
-        } else {
-          const { error: insError } = await supabaseAdmin
-            .from('shipments').insert(shipmentData)
-          if (insError) { run.fail(`insert ${shipmentId}`, insError); results.errors++ }
-          else { results.created++; run.wrote() }
-        }
-      } catch (err) {
-        // Still a catch, but it keeps what it caught.
-        run.fail(`shipment ${s?.shipmentId ?? 'unknown'}`, err)
-        results.errors++
-      }
-    }
+          const { data: existingShipment, error: matchError } = await supabaseAdmin
+            .from('shipments')
+            .select('id, actual_cost, client_id')
+            .eq('shipstation_shipment_id', shipmentId)
+            .maybeSingle()
 
-    page++
+          // DEFECT 4, FIXED. The error is inspected, not discarded.
+          if (matchError) {
+            run.fail(`match shipment ${shipmentId}`, matchError)
+            results.errors++
+            continue
+          }
+
+          const orderNumber = String(s.orderNumber ?? '').trim()
+          if (!orderNumber) results.blankOrderNumber++
+
+          const dims = s.dimensions ?? {}
+          const lengthIn = dims.length ?? 0
+          const widthIn = dims.width ?? 0
+          const heightIn = dims.height ?? 0
+
+          const weightRaw = s.weight?.value ?? 0
+          const weightUnit = s.weight?.units ?? 'ounces'
+          const weightOz = weightUnit === 'pounds' ? weightRaw * 16 : weightRaw
+
+          const carrier = s.carrierCode?.toUpperCase() ?? ''
+          const service = s.serviceCode ?? ''
+          const dimWeightOz = calcDimWeightOz(lengthIn, widthIn, heightIn, carrier, service)
+          const billedWeightOz = calcBilledWeightOz(weightOz, dimWeightOz)
+
+          // DEFECT 3, FIXED. source is derived from the carrier code instead of
+          // being hardcoded to 'stamps'. Unknown carriers are counted, not
+          // guessed at.
+          const { source, known } = sourceForCarrier(s.carrierCode ?? '')
+          if (!known) {
+            results.unknownCarrier++
+            // warn(), not fail(): an unknown carrier is a reportable finding, not
+            // a failure. The shipment is still written with source stored verbatim;
+            // piece 4 reads kind:'warning' entries to surface carrier codes that
+            // need adding to the carrier map. Spec line 963.
+            run.warn(`unknown carrier ${s.carrierCode}`, { shipmentId })
+          }
+
+          // A cost ShipStation has not reported is UNKNOWN, not zero. `?? 0` made
+          // the null branch in calculate-charges unreachable, so every label that
+          // has not been rated yet was recorded as free — and a free label reads
+          // downstream as pure profit, overstating margin by exactly the carrier
+          // spend we have not been told about yet. parseFloat is also replaced:
+          // it returns NaN on a non-numeric string, and NaN is rejected by
+          // numeric(10,2), which would fail the whole shipment.
+          const rawCost = s.shipmentCost
+          const parsedCost = rawCost === null || rawCost === undefined || rawCost === ''
+            ? NaN
+            : Number(rawCost)
+          const newCost = Number.isFinite(parsedCost) ? parsedCost : null
+
+          // A value that was sent but could not be read is a different finding
+          // from one that was never sent, and only the first needs a person.
+          if (newCost === null && rawCost !== null && rawCost !== undefined && rawCost !== '') {
+            run.warn('unreadable shipment cost', { shipmentId, shipmentCost: rawCost })
+          }
+
+          const shipmentData = {
+            shipstation_shipment_id: shipmentId,
+            order_number: orderNumber,
+            order_date: s.orderDate,
+            ship_date: s.shipDate,
+            carrier,
+            service,
+            tracking_number: s.trackingNumber ?? '',
+            recipient_name: s.shipTo?.name ?? '',
+            recipient_city: s.shipTo?.city ?? '',
+            recipient_state: s.shipTo?.state ?? '',
+            recipient_zip: s.shipTo?.postalCode ?? '',
+            weight: parseFloat(weightOz.toFixed(2)),
+            weight_unit: 'ounces',
+            length: lengthIn || null,
+            width: widthIn || null,
+            height: heightIn || null,
+            dim_unit: dims.units ?? 'inches',
+            dim_weight: dimWeightOz,
+            billed_weight: parseFloat(billedWeightOz.toFixed(2)),
+            // Never overwrite a cost we have with one we no longer know. An
+            // unknown cost is an absence of information; letting it replace a
+            // measured figure would delete carrier spend that was already
+            // reported. On an insert there is nothing to preserve, so it is null.
+            actual_cost: newCost ?? existingShipment?.actual_cost ?? null,
+            source,
+            raw_data: s,
+          }
+
+          if (existingShipment) {
+            const prevParsed = existingShipment.actual_cost === null
+              || existingShipment.actual_cost === undefined
+              ? NaN
+              : Number(existingShipment.actual_cost)
+            const prevCost = Number.isFinite(prevParsed) ? prevParsed : null
+
+            // A rate adjustment is the difference between two costs we KNOW.
+            // `?? 0` on either side invented one: a cost arriving for the first
+            // time looked like an increase of the entire label price, and a cost
+            // going unknown looked like a full refund. Neither is money moving,
+            // so neither is recorded.
+            //
+            // DEFECT 2, FIXED. The old guard was `diff > 0.01`, so only cost
+            // INCREASES were recorded. A void or a refund is a decrease and was
+            // structurally invisible: we could see money leave and never see it
+            // come back.
+            const diff = prevCost !== null && newCost !== null
+              ? parseFloat((newCost - prevCost).toFixed(2))
+              : null
+
+            if (diff !== null && Math.abs(diff) > 0.01 && existingShipment.client_id) {
+              const { data: existingAdj, error: adjError } = await supabaseAdmin
+                .from('rate_adjustments')
+                .select('id')
+                .eq('shipment_id', existingShipment.id)
+                .eq('adjustment_amount', diff)
+                .maybeSingle()
+
+              if (adjError) {
+                run.fail(`adjustment lookup ${shipmentId}`, adjError)
+                results.errors++
+              } else if (!existingAdj) {
+                const { error: insError } = await supabaseAdmin
+                  .from('rate_adjustments').insert({
+                    shipment_id: existingShipment.id,
+                    client_id: existingShipment.client_id,
+                    order_number: orderNumber,
+                    original_cost: prevCost,
+                    adjusted_cost: newCost,
+                    adjustment_amount: diff,
+                    reason: diff > 0 ? 'Carrier rate adjustment' : 'Refund or void',
+                    adjustment_date: new Date().toISOString(),
+                    status: 'pending',
+                  })
+                if (insError) { run.fail(`adjustment insert ${shipmentId}`, insError); results.errors++ }
+                else if (diff > 0) results.adjustments++
+                else results.refunds++
+              }
+            }
+
+            const { error: updError } = await supabaseAdmin
+              .from('shipments').update(shipmentData).eq('id', existingShipment.id)
+            if (updError) { run.fail(`update ${shipmentId}`, updError); results.errors++ }
+            else { results.updated++; run.wrote() }
+          } else {
+            const { error: insError } = await supabaseAdmin
+              .from('shipments').insert(shipmentData)
+            if (insError) { run.fail(`insert ${shipmentId}`, insError); results.errors++ }
+            else { results.created++; run.wrote() }
+          }
+        } catch (err) {
+          // Still a catch, but it keeps what it caught.
+          run.fail(`shipment ${s?.shipmentId ?? 'unknown'}`, err)
+          results.errors++
+        }
+      }
+
+      page++
+    }
+  } catch (err) {
+    // Recorded BEFORE close(), because close() derives the status from the
+    // error list. An unrecorded throw would close this row 'ok' -- a clean-
+    // looking row sitting on top of a half-finished ingest, which is the one
+    // outcome worse than no row at all.
+    run.fail('shipstation pull', err)
+    throw err
+  } finally {
+    await run.close()
   }
 
-  await run.close()
   return results
 }
 
