@@ -442,6 +442,76 @@ describe('recalculateCharges — the leak counters', () => {
   })
 })
 
+describe('recalculateCharges — running it twice', () => {
+  /**
+   * SPEC §8 CALLS THIS THE SINGLE MOST IMPORTANT TEST IN THIS FILE, because
+   * three crons a day make non-idempotency compound: a charge path that writes
+   * a second row instead of updating the first inflates every margin figure by
+   * a factor of however many times the cron has run since the order landed, and
+   * it inflates them — the direction nobody reports, since this system detects
+   * under-billing and negative margin but has no branch that detects
+   * over-billing. Storage has had the equivalent test since it was written
+   * (persist-storage-charges.test.ts); charges had the ingredients, in
+   * charge_key determinism and the onConflict target, but never composed them.
+   *
+   * The second run has to get past the throttle, which is what kept this test
+   * from existing: a naive second call returns `skipped`. Time is advanced past
+   * CHARGE_THROTTLE_MINUTES rather than by a fixed number, so the test tracks
+   * the constant instead of pinning a guess about it, and lands at 11:01 UTC —
+   * still inside the 10:00-14:00 cron gap, so the scheduled-firing escape
+   * hatch is not what is being exercised here.
+   *
+   * WHAT THE MUTATION CHECK ESTABLISHED, AND WHAT IT DID NOT. Making chargeKey
+   * non-deterministic turns this test red, so it does detect the failure it is
+   * named for. The OTHER route to the same bug — a typo in the `onConflict`
+   * target — was NOT verified, because fake-supabase's valuesEqual treats
+   * undefined as equal to undefined, which makes a misspelled conflict column
+   * match the first row and the upsert still behave. That is a harness blind
+   * spot, not a property of the code: against real Postgres a bad target is an
+   * error, not a silent match. Closing it means teaching the fake to reject
+   * conflict targets that name no column. Until then, this test's green is
+   * evidence about charge_key and not about onConflict.
+   */
+  it('writes the same charges, not a second copy of them', async () => {
+    const input = () => order('order-a', {
+      rateCard: [pickRate, shipRate],
+      shipments: [{ id: 's1', shipmentId: 5001, shipDate: '2026-09-02',
+                    actualCost: 7.25, voided: false }],
+    })
+
+    const first = await recalculateCharges(async () => [input()])
+    expect(first).toMatchObject({ skipped: false })
+
+    const keysAfterFirst = chargeKeysFor('order-a')
+    const sumAfterFirst = charges().reduce((s, c) => s + Number(c.amount ?? 0), 0)
+    // Guard the guard: a test that compared two empty sets would pass whatever
+    // the code did. This is the standing rule in its arithmetic dialect — an
+    // assertion about a total is not an assertion until the total exists.
+    expect(keysAfterFirst.length).toBeGreaterThan(0)
+    expect(sumAfterFirst).toBeGreaterThan(0)
+
+    vi.setSystemTime(new Date(Date.now() + (CHARGE_THROTTLE_MINUTES + 1) * 60_000))
+
+    const second = await recalculateCharges(async () => [input()])
+
+    // It actually ran. Without this the three assertions below would hold
+    // trivially for a run that returned `skipped` and touched nothing — the
+    // most likely way for this test to look green while testing nothing.
+    expect(second).toMatchObject({ skipped: false })
+
+    // Identical keys, identical count, identical money.
+    expect(chargeKeysFor('order-a')).toEqual(keysAfterFirst)
+    expect(charges()).toHaveLength(keysAfterFirst.length)
+    expect(charges().reduce((s, c) => s + Number(c.amount ?? 0), 0)).toBe(sumAfterFirst)
+
+    // And nothing was deleted. A non-deterministic charge_key would show up
+    // here first: the second run would write new rows, find the first run's
+    // rows stale, and report a delete. `deleted: 0` is what says the second run
+    // recognised its own work rather than replacing it.
+    expect(second.skipped === false && second.deleted).toBe(0)
+  })
+})
+
 describe('recalculateCharges — bookkeeping', () => {
   it('records the run and closes it', async () => {
     await recalculateCharges(async () => [order('order-a')])
