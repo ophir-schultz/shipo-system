@@ -187,7 +187,110 @@ export interface LedgerSummary {
    */
   variance: VarianceRow[]
   counts: LedgerCounts
+  /**
+   * Why each read has no rows, where that reason is a fault rather than an
+   * absence; null where the read succeeded.
+   *
+   * THE WHOLE POINT: `leaks: []` is what a working view returns for a quiet
+   * three months AND what a view that does not exist returns once its error
+   * has been swallowed into `?? []`. The page cannot tell those apart from the
+   * array, so it used to print "No dated leaks in the last three months" over
+   * a read that never happened -- an absence claim built on an unknown, which
+   * is the one substitution nothing in this ledger is allowed to make. The
+   * section-level banner was not enough: it said empty tables "may" mean an
+   * error, leaving the reader to guess which of the six.
+   */
+  failed: LedgerFailures
+  /**
+   * The same failures as a flat list, for the banner and the API route.
+   * DERIVED from `failed` -- not accumulated beside it -- so the two cannot
+   * drift into disagreeing about which view is broken.
+   */
   errors: string[]
+}
+
+/** The six reads, by the key `counts` and `failed` index them under. */
+export type LedgerViewKey = keyof LedgerCounts
+
+export type LedgerFailures = Record<LedgerViewKey, string | null>
+
+/**
+ * The read order, and the only list of keys. Everything that iterates the six
+ * reads iterates this, so adding a seventh cannot leave one loop behind.
+ */
+export const LEDGER_VIEW_KEYS = [
+  'leaks', 'leaksUndated', 'monthly', 'clients', 'picks', 'variance',
+] as const satisfies readonly LedgerViewKey[]
+
+/** The view behind each key, for messages a reader has to act on. */
+export const LEDGER_VIEW_NAMES: Record<LedgerViewKey, string> = {
+  leaks: 'leaks_monthly',
+  leaksUndated: 'leaks_monthly (undated)',
+  monthly: 'pnl_monthly',
+  clients: 'pnl_client_monthly',
+  picks: 'pick_days',
+  variance: 'labour_variance_inputs',
+}
+
+/**
+ * The columns the screen reads off each view.
+ *
+ * Every query above is `select('*')`, which does not error when a column is
+ * renamed or dropped -- the rows simply arrive without that key. Each read of
+ * it is then `undefined`, `fmt()` renders an em-dash, and a month whose
+ * gross_margin column has gone missing presents as a month with no margin
+ * rather than as a broken view. Worse for the signed figures: `undefined < 0`
+ * is false, so the colour function falls through to the positive branch and
+ * paints the gap GREEN.
+ *
+ * Checked against the first row only. Every row of one read comes from the
+ * same view and so carries the same keys, and a read that returned no rows has
+ * nothing to check -- an empty table is already unambiguous once `failed` is
+ * consulted.
+ */
+const REQUIRED_COLUMNS: Record<LedgerViewKey, readonly string[]> = {
+  leaks: ['period_month', 'client_id', 'leak', 'detail', 'records', 'amount'],
+  leaksUndated: ['period_month', 'client_id', 'leak', 'detail', 'records', 'amount'],
+  monthly: [
+    'period_month', 'revenue', 'direct_cost', 'revenue_unknown_charges',
+    'cost_unknown_charges', 'gross_margin', 'overhead', 'direct_labor',
+    'direct_storage', 'overhead_rows', 'direct_labor_rows',
+    'direct_storage_rows', 'net_profit', 'has_estimates',
+  ],
+  clients: [
+    'period_month', 'client_id', 'client_name', 'charge_type', 'charges',
+    'revenue', 'revenue_unknown_charges', 'cost_known', 'cost_unknown_charges',
+    'gross_margin', 'has_estimates',
+  ],
+  picks: [
+    'client_id', 'pick_date', 'sku', 'description', 'is_component', 'orders',
+    'units_picked', 'has_estimates', 'confidence',
+  ],
+  variance: [
+    'period_month', 'units_picked', 'unattributable_pick_charges',
+    'direct_labor', 'standard_rate', 'standard_rate_basis',
+    'implied_actual_rate', 'variant_breakdown',
+  ],
+}
+
+/** Which of REQUIRED_COLUMNS the first returned row does not carry. */
+export function missingColumns(key: LedgerViewKey, rows: unknown[]): string[] {
+  const first = rows[0]
+  if (!first || typeof first !== 'object') return []
+  const row = first as Record<string, unknown>
+  // A PRESENCE check, not a value check. `row[c] == null` is the version that
+  // writes itself, and it condemns every working view on this page: null means
+  // UNKNOWN throughout this ledger and is the ordinary value for `amount` on
+  // leak 3 and for net_profit on a month with no cost rows. A missing column
+  // must be distinguished from a column holding a missing figure, which is the
+  // same distinction, one level down, that `failed` draws for the view itself.
+  //
+  // `!(c in row)` and `row[c] === undefined` would in fact agree here, because
+  // JSON has no undefined and PostgREST cannot hand back a key holding one.
+  // `in` is used anyway because it asks the question directly rather than
+  // inferring the column's existence from its value, and so cannot be edited
+  // into the `== null` version by someone "simplifying" it.
+  return REQUIRED_COLUMNS[key].filter((c) => !(c in row))
 }
 
 // ---------------------------------------------------------------------------
@@ -524,36 +627,70 @@ export async function getLedgerSummary(now: Date = new Date()): Promise<LedgerSu
       .order('period_month', { ascending: false }),
   ])
 
-  // Name the view beside the message. With six queries, a bare Postgres error
-  // string does not say which table went missing.
-  const errors: string[] = []
-  const named: Array<[string, { error: { message: string } | null }]> = [
-    ['leaks_monthly', leaks],
-    ['leaks_monthly (undated)', leaksUndated],
-    ['pnl_monthly', monthly],
-    ['pnl_client_monthly', clients],
-    ['pick_days', picks],
-    ['labour_variance_inputs', variance],
-  ]
-  for (const [name, res] of named) {
-    if (res.error) errors.push(`${name}: ${res.error.message}`)
+  const results: Record<LedgerViewKey, { data: unknown; error: { message: string } | null; count: number | null }> = {
+    leaks, leaksUndated, monthly, clients, picks, variance,
   }
 
+  // One pass, one source of truth. `failed` is what the screen renders from;
+  // `errors` is derived from it below rather than accumulated alongside it, so
+  // the banner and the per-section states cannot disagree about which view is
+  // broken.
+  const failed: LedgerFailures = {
+    leaks: null, leaksUndated: null, monthly: null,
+    clients: null, picks: null, variance: null,
+  }
+  for (const key of LEDGER_VIEW_KEYS) {
+    const res = results[key]
+    // Name the view beside the message. With six queries, a bare Postgres
+    // error string does not say which table went missing.
+    if (res.error) {
+      failed[key] = `${LEDGER_VIEW_NAMES[key]}: ${res.error.message}`
+      continue
+    }
+    const missing = missingColumns(key, (res.data ?? []) as unknown[])
+    if (missing.length > 0) {
+      failed[key] = `${LEDGER_VIEW_NAMES[key]}: loaded, but without `
+        + `${missing.length === 1 ? 'the column' : 'the columns'} `
+        + `${missing.join(', ')}. The rows are withheld rather than rendered `
+        + `with the missing figures as dashes.`
+    }
+  }
+
+  const errors = LEDGER_VIEW_KEYS
+    .map((k) => failed[k])
+    .filter((m): m is string => m !== null)
+
+  /**
+   * Rows for a read that worked, and NOTHING for one that did not.
+   *
+   * A failed read used to fall through to `?? []`, which is the same value an
+   * empty view returns. The page then printed "No dated leaks in the last
+   * three months" over a view that had not been read at all. Withholding the
+   * rows means the page has to ask `failed[key]` before it can say anything,
+   * and the count goes null for the same reason: "0 of 0" is a claim about the
+   * data, and we have none.
+   */
+  const rowsOf = <T,>(key: LedgerViewKey): T[] =>
+    failed[key] ? [] : ((results[key].data ?? []) as T[])
+  const countOf = (key: LedgerViewKey): number | null =>
+    failed[key] ? null : (results[key].count ?? null)
+
   return {
-    leaks: (leaks.data ?? []) as LeakRow[],
-    leaksUndated: (leaksUndated.data ?? []) as LeakRow[],
-    monthly: (monthly.data ?? []) as MonthlyRow[],
-    clients: (clients.data ?? []) as ClientRow[],
-    picks: (picks.data ?? []) as PickRow[],
-    variance: mapVarianceRows((variance.data ?? []) as VarianceInputRow[]),
+    leaks: rowsOf<LeakRow>('leaks'),
+    leaksUndated: rowsOf<LeakRow>('leaksUndated'),
+    monthly: rowsOf<MonthlyRow>('monthly'),
+    clients: rowsOf<ClientRow>('clients'),
+    picks: rowsOf<PickRow>('picks'),
+    variance: mapVarianceRows(rowsOf<VarianceInputRow>('variance')),
     counts: {
-      leaks: leaks.count ?? null,
-      leaksUndated: leaksUndated.count ?? null,
-      monthly: monthly.count ?? null,
-      clients: clients.count ?? null,
-      picks: picks.count ?? null,
-      variance: variance.count ?? null,
+      leaks: countOf('leaks'),
+      leaksUndated: countOf('leaksUndated'),
+      monthly: countOf('monthly'),
+      clients: countOf('clients'),
+      picks: countOf('picks'),
+      variance: countOf('variance'),
     },
+    failed,
     errors,
   }
 }

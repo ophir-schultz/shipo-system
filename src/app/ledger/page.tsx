@@ -20,6 +20,7 @@ import {
   type LeakRow,
   type VarianceRow,
 } from '@/lib/ledger/summary'
+import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,8 +43,12 @@ function int(n: number | null | undefined): string {
  * neutral colour: defaulting it to the positive green paints a missing number
  * as a good one.
  */
-function marginClass(n: number | null): string {
-  if (n === null) return 'text-slate-400'
+function marginClass(n: number | null | undefined): string {
+  // undefined, not just null: a renamed view column arrives as a missing key,
+  // and `undefined < 0` is false, so the old signature fell through to the
+  // positive branch and painted a vanished figure GREEN. summary.ts now
+  // withholds such rows outright, and this is the belt to that braces.
+  if (n === null || n === undefined) return 'text-slate-400'
   return n < 0 ? 'text-red-400' : 'text-green-400'
 }
 
@@ -80,7 +85,14 @@ function varianceClass(n: number | null): string {
  * cut them is Supabase's project-level max-rows cap — which is silent. A
  * truncated table that does not say it is truncated is a lie about the data.
  */
-function RowCount({ shown, total, cap }: { shown: number; total: number | null; cap?: number }) {
+function RowCount({ shown, total, cap, unreadable }: {
+  shown: number
+  total: number | null
+  cap?: number
+  /** Set when the view failed. "0 rows" is a count, and we do not have one. */
+  unreadable?: boolean
+}) {
+  if (unreadable) return null
   if (total === null) {
     return <span className="text-xs text-slate-500">{int(shown)} rows (total not counted)</span>
   }
@@ -100,6 +112,18 @@ function RowCount({ shown, total, cap }: { shown: number; total: number | null; 
     </span>
   )
 }
+
+// <ViewUnreadable> is what a section shows when its view could not be read. It
+// REPLACES the empty state rather than sitting beside it, because the two
+// statements are mutually exclusive and only one of them is true. The old shape
+// showed "No monthly P&L data found in the last three months" whenever the
+// array was empty — including when pnl_monthly had failed to load, which is not
+// a statement about the last three months at all. One banner at the top of the
+// page saying errors "may" explain an empty table left the reader to work out
+// which of the six tables it meant.
+//
+// It is imported, not defined here, because the client detail page needs the
+// same sentence and a second copy of it would drift.
 
 /** A leak amount. Null means "no dollar figure by design", never $0.00. */
 function LeakAmount({ amount }: { amount: number | null }) {
@@ -239,7 +263,7 @@ function LeakCells({ row }: { row: LeakRow }) {
 // Page
 // ------------------------------------------------------------------
 export default async function LedgerPage() {
-  const { leaks, leaksUndated, monthly, clients, picks, variance, counts, errors } =
+  const { leaks, leaksUndated, monthly, clients, picks, variance, counts, failed, errors } =
     await getLedgerSummary()
 
   // Any month resting on a placeholder rate caveats the whole section. Read
@@ -269,7 +293,8 @@ export default async function LedgerPage() {
             ))}
           </ul>
           <p className="mt-2 text-xs text-red-500/70">
-            Empty tables on this page may mean a view error, not an absence of data.
+            Each failed view says so in its own section below; no section on
+            this page reports an empty table for a view that did not load.
           </p>
         </div>
       )}
@@ -283,14 +308,16 @@ export default async function LedgerPage() {
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
           <h3 className="font-semibold text-white">Leaks</h3>
-          <RowCount shown={leaks.length} total={counts.leaks} />
+          <RowCount shown={leaks.length} total={counts.leaks} unreadable={!!failed.leaks} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
           Each row is a symptom. The same dollar can appear under more than one leak — a shipment with
           no client and a carrier cost satisfies both &quot;unattributed label spend&quot; and
           &quot;unpriced shipments&quot;. There is no correct total row.
         </p>
-        {leaks.length === 0 ? (
+        {failed.leaks ? (
+          <ViewUnreadable message={failed.leaks} />
+        ) : leaks.length === 0 ? (
           <p className="text-sm text-slate-500">No dated leaks in the last three months.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -327,11 +354,21 @@ export default async function LedgerPage() {
             be keyed for them and they can never leave this bucket.
             ledger_04_views.sql:190-198 says to query them separately.
             -------------------------------------------------------------- */}
+        {/* An unreadable undated bucket gets said out loud. Staying silent
+            here would be the original defect in its purest form: this block
+            renders nothing when the array is empty, and a failed read is
+            empty, so the bucket that exists precisely to stop money falling
+            out of every dated figure would vanish without a word. */}
+        {failed.leaksUndated && (
+          <div className="mt-5">
+            <ViewUnreadable message={failed.leaksUndated} />
+          </div>
+        )}
         {leaksUndated.length > 0 && (
           <div className="mt-5 rounded-lg border border-orange-800/40 bg-orange-950/20 p-4">
             <div className="mb-1 flex items-start justify-between">
               <h4 className="text-sm font-medium text-orange-300">Undated — outside every month above</h4>
-              <RowCount shown={leaksUndated.length} total={counts.leaksUndated} />
+              <RowCount shown={leaksUndated.length} total={counts.leaksUndated} unreadable={!!failed.leaksUndated} />
             </div>
             <p className="mb-3 text-xs text-orange-300/80">
               The records behind these rows carry no date, so they fall into no month and every dated figure
@@ -374,7 +411,7 @@ export default async function LedgerPage() {
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
           <h3 className="font-semibold text-white">Monthly P&amp;L</h3>
-          <RowCount shown={monthly.length} total={counts.monthly} />
+          <RowCount shown={monthly.length} total={counts.monthly} unreadable={!!failed.monthly} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
           Gross margin treats every unpriced charge as free — it reads high when costs are unknown.
@@ -382,7 +419,9 @@ export default async function LedgerPage() {
           direct labor and direct storage are the operating costs subtracted from gross margin to reach
           net profit; an &quot;unknown&quot; there is a category with no row for the month, not a zero.
         </p>
-        {monthly.length === 0 ? (
+        {failed.monthly ? (
+          <ViewUnreadable message={failed.monthly} />
+        ) : monthly.length === 0 ? (
           <p className="text-sm text-slate-500">No monthly P&amp;L data found in the last three months.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -474,12 +513,14 @@ export default async function LedgerPage() {
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
           <h3 className="font-semibold text-white">Per-Client P&amp;L</h3>
-          <RowCount shown={clients.length} total={counts.clients} />
+          <RowCount shown={clients.length} total={counts.clients} unreadable={!!failed.clients} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
           Gross margin only — overheads are not allocated to individual clients. Margin treats unpriced charges as free; &quot;? charges&quot; shows how many are unknown.
         </p>
-        {clients.length === 0 ? (
+        {failed.clients ? (
+          <ViewUnreadable message={failed.clients} />
+        ) : clients.length === 0 ? (
           <p className="text-sm text-slate-500">No per-client data found in the last three months.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -559,13 +600,15 @@ export default async function LedgerPage() {
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
           <h3 className="font-semibold text-white">Pick Activity</h3>
-          <RowCount shown={picks.length} total={counts.picks} cap={PICK_ROW_LIMIT} />
+          <RowCount shown={picks.length} total={counts.picks} cap={PICK_ROW_LIMIT} unreadable={!!failed.picks} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
           Units picked per SKU per day. Confidence reflects the quality of the pick-date source:
           high = printdate, medium = watermark, low = modified_date, unknown = no reliable source.
         </p>
-        {picks.length === 0 ? (
+        {failed.picks ? (
+          <ViewUnreadable message={failed.picks} />
+        ) : picks.length === 0 ? (
           <p className="text-sm text-slate-500">No pick activity found in the last three months.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -632,7 +675,7 @@ export default async function LedgerPage() {
               secondary signal
             </span>
           </h3>
-          <RowCount shown={variance.length} total={counts.variance} />
+          <RowCount shown={variance.length} total={counts.variance} unreadable={!!failed.variance} />
         </div>
         <p className="mb-2 text-xs text-slate-500">
           Actual direct-labor payroll against the standard cost of the units picked:
@@ -655,7 +698,9 @@ export default async function LedgerPage() {
             </>
           )}
         </p>
-        {variance.length === 0 ? (
+        {failed.variance ? (
+          <ViewUnreadable message={failed.variance} />
+        ) : variance.length === 0 ? (
           <p className="text-sm text-slate-500">
             No pick charges and no direct-labor cost recorded in the last three months, so there is
             nothing to compare. This is an absence of inputs, not a variance of zero.

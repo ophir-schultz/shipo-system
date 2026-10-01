@@ -7,37 +7,61 @@ import WarehouseRatesUpload from '@/components/billing/WarehouseRatesUpload'
 import DeleteClientButton from '@/components/clients/DeleteClientButton'
 import ZenventoryCredentials from '@/components/clients/ZenventoryCredentials'
 import OriginZipEditor from '@/components/clients/OriginZipEditor'
+import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
+import { read, readOne } from '@/lib/db/read'
 
+// Every getter on this page used to end `return data ?? []` and drop the error
+// on the floor. That turns one bad second against the database into three
+// confident claims:
+//
+//   "No shipping rates yet · Upload a CSV or Excel file with this client's
+//    shipping prices"
+//
+// over a rate card that is sitting in the table intact. The screen then tells
+// you to upload prices you already have, and if you take it at its word you
+// overwrite a negotiated rate card from whatever file you happen to find. Same
+// defect, same direction, as the one already fixed in
+// src/lib/sync/zenventory.ts:21-27: a read that failed must not render as an
+// absence.
+//
+// So each getter hands back the error alongside the rows and each section
+// decides for itself which of the two statements it is entitled to make. The
+// two helpers doing that work live in src/lib/db/read.ts, where they can be
+// given a test -- vitest.config.ts includes only `src/**/*.test.ts`, so nothing
+// decided inside this file is testable.
+
+/**
+ * readOne, not `const { data } = ...`: PGRST116 over a primary key means "no
+ * such client" and justifies notFound(); any other error means we never got an
+ * answer, and must not render as a 404.
+ */
 async function getClient(id: string) {
-  const { data } = await supabaseAdmin.from('clients').select('*').eq('id', id).single()
-  return data
+  return readOne<any>('clients', await supabaseAdmin
+    .from('clients').select('*').eq('id', id).single())
 }
 
 async function getShippingRates(clientId: string) {
-  const { data } = await supabaseAdmin
+  return read('client_shipping_rates', await supabaseAdmin
     .from('client_shipping_rates')
     .select('*')
     .eq('client_id', clientId)
-    .order('carrier')
-  return data ?? []
+    .order('carrier'))
 }
 
 async function getWarehouseRates(clientId: string) {
-  const { data } = await supabaseAdmin
+  return read('client_warehouse_rates', await supabaseAdmin
     .from('client_warehouse_rates')
     .select('*')
     .eq('client_id', clientId)
-    .order('service_type')
-  return data ?? []
+    .order('service_type'))
 }
 
 async function getZoneRates(clientId: string) {
-  const { data } = await supabaseAdmin
+  return read('client_zone_rates', await supabaseAdmin
     .from('client_zone_rates')
     .select('*')
     .eq('client_id', clientId)
-    .order('weight_lb')
-  return data ?? []
+    .order('weight_lb'))
 }
 
 type ZoneMatrix = {
@@ -70,7 +94,25 @@ function buildZoneMatrices(rates: any[]): ZoneMatrix[] {
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const client = await getClient(id)
+  const { row: client, error: clientError } = await getClient(id)
+
+  // Only a clean "no such row" is a 404. A read we could not complete gets its
+  // own page, because the two are different facts and the reader has to be able
+  // to tell "this client is gone" from "ask me again in a minute".
+  if (clientError) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold text-white">Client</h2>
+        <ViewUnreadable message={clientError} />
+        <p className="text-sm text-gray-400">
+          This is not the 404 page. The client may well exist — the database did
+          not answer, so nothing about this client is shown, including its rate
+          cards. Do not re-create or re-upload anything on the strength of this
+          screen.
+        </p>
+      </div>
+    )
+  }
   if (!client) notFound()
 
   const [shippingRates, warehouseRates, zoneRates] = await Promise.all([
@@ -79,8 +121,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
     getZoneRates(id),
   ])
 
-  // Group zone rates into matrices keyed by carrier/service
-  const zoneMatrices = buildZoneMatrices(zoneRates)
+  // Group zone rates into matrices keyed by carrier/service. Built from
+  // zoneRates.rows, which is [] both when there are none and when the read
+  // failed -- hence the three-way render below keyed on zoneRates.error, not on
+  // the matrix count alone.
+  const zoneMatrices = buildZoneMatrices(zoneRates.rows)
 
   return (
     <div className="space-y-8">
@@ -115,7 +160,9 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           <ShippingRatesUpload clientId={id} />
         </div>
 
-        {shippingRates.length === 0 ? (
+        {shippingRates.error ? (
+          <ViewUnreadable message={shippingRates.error} />
+        ) : shippingRates.rows.length === 0 ? (
           <div className="text-center py-10 border-2 border-dashed border-gray-700 rounded-lg">
             <p className="text-gray-500 mb-2">No shipping rates yet</p>
             <p className="text-gray-600 text-sm">Upload a CSV or Excel file with this client's shipping prices</p>
@@ -132,7 +179,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
               </tr>
             </thead>
             <tbody>
-              {shippingRates.map((r: any) => (
+              {shippingRates.rows.map((r: any) => (
                 <tr key={r.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
                   <td className="py-3 font-medium">{r.carrier}</td>
                   <td className="py-3 text-gray-300">{r.service}</td>
@@ -164,7 +211,9 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           </div>
         </div>
 
-        {zoneMatrices.length === 0 ? (
+        {zoneRates.error ? (
+          <ViewUnreadable message={zoneRates.error} />
+        ) : zoneMatrices.length === 0 ? (
           <div className="text-center py-10 border-2 border-dashed border-gray-700 rounded-lg">
             <p className="text-gray-500 mb-2">No zone rates yet</p>
             <p className="text-gray-600 text-sm">Upload a CSV/Excel with a “Weight (LB)” column and “ZONE 1”…“ZONE 8” columns</p>
@@ -216,7 +265,9 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           <WarehouseRatesUpload clientId={id} />
         </div>
 
-        {warehouseRates.length === 0 ? (
+        {warehouseRates.error ? (
+          <ViewUnreadable message={warehouseRates.error} />
+        ) : warehouseRates.rows.length === 0 ? (
           <div className="text-center py-10 border-2 border-dashed border-gray-700 rounded-lg">
             <p className="text-gray-500 mb-2">No warehouse rates yet</p>
             <p className="text-gray-600 text-sm">Upload a CSV or add rates manually</p>
@@ -260,7 +311,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
               This was the lone outlier.
             */}
             <tbody>
-              {warehouseRates.map((r: any) => (
+              {warehouseRates.rows.map((r: any) => (
                 <tr key={r.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
                   <td className="py-3 font-medium capitalize">{r.label ?? r.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                   <td className="py-3 text-gray-400 capitalize">{r.unit?.replace(/_/g, ' ') ?? '—'}</td>

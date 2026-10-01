@@ -15,6 +15,8 @@ const {
   varianceUnavailableReason,
   varianceUnavailableText,
   PICK_ROW_LIMIT,
+  missingColumns,
+  LEDGER_VIEW_KEYS,
 } = await import('@/lib/ledger/summary')
 
 type MonthlyRow = Parameters<typeof netProfitUnavailableReason>[0]
@@ -30,6 +32,52 @@ function seed(over: Partial<Record<string, Record<string, unknown>[]>> = {}) {
 }
 
 beforeEach(() => seed())
+
+// ---------------------------------------------------------------------------
+// Row factories.
+//
+// These carry EVERY column the screen reads off their view, and they are
+// shared rather than inlined per test for a reason that is not tidiness:
+// getLedgerSummary now withholds the rows of a view that came back without a
+// column the page renders (see the "UNREADABLE versus EMPTY" section below).
+// A hand-rolled four-key fixture is indistinguishable from a view whose other
+// seven columns have been renamed away, so a partial fixture makes its own test
+// fail -- correctly, but for a reason that has nothing to do with what that
+// test was asking about.
+// ---------------------------------------------------------------------------
+
+/** A leaks_monthly row carrying every column the screen reads off it. */
+const leakRowFull = (over: Record<string, unknown> = {}) => ({
+  period_month: '2026-09-01', client_id: 'c1', leak: 'unpriced_shipments',
+  detail: 'FedEx Ground', records: 2, amount: 20, ...over,
+})
+
+/** A pnl_monthly row carrying every column the screen reads off it. */
+const monthlyRowFull = (over: Record<string, unknown> = {}) => ({
+  period_month: '2026-09-01', revenue: 1000, direct_cost: 700,
+  revenue_unknown_charges: 0, cost_unknown_charges: 0, gross_margin: 300,
+  overhead: 100, direct_labor: 260, direct_storage: 40, overhead_rows: 1,
+  direct_labor_rows: 1, direct_storage_rows: 1, net_profit: 200,
+  has_estimates: false, ...over,
+})
+
+/** A pnl_client_monthly row carrying every column the screen reads off it. */
+const clientRowFull = (over: Record<string, unknown> = {}) => ({
+  period_month: '2026-09-01', client_id: 'c1', client_name: 'Alpha',
+  charge_type: 'pick', charges: 3, revenue: 100,
+  revenue_unknown_charges: 0, cost_known: 70, cost_unknown_charges: 0,
+  gross_margin: 30, has_estimates: false, ...over,
+})
+
+/** A pick_days row carrying every column the screen reads off it. */
+const pickRowFull = (over: Record<string, unknown> = {}) => ({
+  client_id: 'c1', pick_date: '2026-09-10', sku: 'sku-0000', description: null,
+  is_component: false, orders: 1, units_picked: 1, has_estimates: false,
+  confidence: 3, ...over,
+})
+
+const without = <T extends object>(row: T, keys: string[]) =>
+  Object.fromEntries(Object.entries(row).filter(([k]) => !keys.includes(k)))
 
 // ---------------------------------------------------------------------------
 
@@ -166,8 +214,8 @@ describe('getLedgerSummary', () => {
     // without trace. They are real spend that can never be billed.
     seed({
       leaks_monthly: [
-        { period_month: '2026-09-01', client_id: null, leak: 'unpriced_shipments', detail: 'd', records: 2, amount: 20 },
-        { period_month: null, client_id: null, leak: 'unpriced_shipments', detail: 'd', records: 5, amount: 91.5 },
+        leakRowFull({ client_id: null }),
+        leakRowFull({ period_month: null, client_id: null, records: 5, amount: 91.5 }),
       ],
     })
     const s = await getLedgerSummary(NOW)
@@ -181,11 +229,8 @@ describe('getLedgerSummary', () => {
   })
 
   it('reports the true row count so a truncated table cannot pass as a complete one', async () => {
-    const picks = Array.from({ length: PICK_ROW_LIMIT + 7 }, (_, i) => ({
-      client_id: 'c', pick_date: '2026-09-10', sku: `sku-${String(i).padStart(4, '0')}`,
-      description: null, is_component: false, orders: 1, units_picked: 1,
-      has_estimates: false, confidence: 3,
-    }))
+    const picks = Array.from({ length: PICK_ROW_LIMIT + 7 }, (_, i) =>
+      pickRowFull({ sku: `sku-${String(i).padStart(4, '0')}` }))
     seed({ pick_days: picks })
 
     const s = await getLedgerSummary(NOW)
@@ -204,9 +249,9 @@ describe('getLedgerSummary', () => {
   it('sorts within the month so truncation and page order are deterministic', async () => {
     seed({
       pnl_client_monthly: [
-        { period_month: '2026-09-01', client_id: 'b', client_name: 'Beta', charge_type: 'pick' },
-        { period_month: '2026-09-01', client_id: 'a', client_name: 'Alpha', charge_type: 'ship' },
-        { period_month: '2026-09-01', client_id: 'a', client_name: 'Alpha', charge_type: 'pick' },
+        clientRowFull({ client_id: 'b', client_name: 'Beta', charge_type: 'pick' }),
+        clientRowFull({ client_id: 'a', client_name: 'Alpha', charge_type: 'ship' }),
+        clientRowFull({ client_id: 'a', client_name: 'Alpha', charge_type: 'pick' }),
       ],
     })
     const s = await getLedgerSummary(NOW)
@@ -463,5 +508,130 @@ describe('mapVarianceRows', () => {
     expect(row.units_picked).toBe(1000)
     expect(row.absorbed).toBeCloseTo(230, 10)
     expect(row.variance).toBeCloseTo(30, 10)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// UNREADABLE versus EMPTY.
+//
+// Every query in getLedgerSummary is select('*'), which does NOT error when a
+// column is dropped or renamed -- the rows simply arrive without the key. The
+// page then reads `undefined`, fmt() prints an em-dash, and marginClass sees
+// `undefined < 0` as false and falls through to the positive branch, so the
+// hole where gross_margin used to be renders as a GREEN dash. A view in that
+// state is not a view reporting no margin; it is a view we cannot read, and the
+// two have to be distinguishable on the screen.
+// ---------------------------------------------------------------------------
+
+describe('missingColumns', () => {
+  it('passes a row that carries every column', () => {
+    expect(missingColumns('leaks', [leakRowFull()])).toEqual([])
+  })
+
+  it('treats a column that is PRESENT and null as present', () => {
+    // The mutation this exists to catch is `row[c] !== undefined` written in
+    // place of `c in row`. null means UNKNOWN everywhere in this ledger and is
+    // the ordinary value for `amount` on leak 3 and for net_profit on a month
+    // with no cost rows -- a value check would therefore condemn every working
+    // view and withhold every row on the page.
+    expect(missingColumns('leaks', [{ ...leakRowFull(), amount: null, detail: null }]))
+      .toEqual([])
+  })
+
+  it('names the column a renamed view no longer returns', () => {
+    expect(missingColumns('leaks', [without(leakRowFull(), ['amount'])]))
+      .toEqual(['amount'])
+  })
+
+  it('names the signed figures, which are the ones that render green when absent', () => {
+    expect(missingColumns('monthly', [without(monthlyRowFull(), ['gross_margin', 'net_profit'])]))
+      .toEqual(['gross_margin', 'net_profit'])
+  })
+
+  it('has nothing to say about a view that returned no rows', () => {
+    // An empty read is not a shape failure, and `failed` already separates it
+    // from an unreadable one. Reporting all six columns missing here would make
+    // every quiet quarter look like a broken view -- the exact confusion this
+    // whole mechanism exists to remove, inverted.
+    expect(missingColumns('leaks', [])).toEqual([])
+  })
+})
+
+describe('getLedgerSummary: failed', () => {
+  const NOW = new Date('2026-09-15T12:00:00')
+
+  it('reports a clean read as no failure at all, per view', async () => {
+    const s = await getLedgerSummary(NOW)
+    expect(s.failed).toEqual({
+      leaks: null, leaksUndated: null, monthly: null,
+      clients: null, picks: null, variance: null,
+    })
+  })
+
+  it('marks only the view that failed, and withholds its rows AND its count', async () => {
+    h.db.failOn = (call) =>
+      call.table === 'pnl_monthly' ? { message: 'relation does not exist' } : null
+    const s = await getLedgerSummary(NOW)
+
+    expect(s.failed.monthly).toBe('pnl_monthly: relation does not exist')
+    expect(s.failed.leaks).toBeNull()
+    expect(s.failed.picks).toBeNull()
+    expect(s.monthly).toEqual([])
+    // null, not 0. "0 rows" is a claim about the data, and we have none. On
+    // THIS path the null arrives for free -- a PostgREST error carries no count
+    // -- so the assertion pins the contract rather than the guard; the test
+    // below, where the query succeeded, is the one that exercises the guard.
+    expect(s.counts.monthly).toBeNull()
+  })
+
+  it('separates the undated leaks read from the dated one, though both hit leaks_monthly', async () => {
+    // The two reads differ only by filter, so the page needs two independent
+    // verdicts: a timeout on the undated query must not silence the dated
+    // table, and must not be reported against it either.
+    h.db.failOn = (call) =>
+      call.table === 'leaks_monthly' && call.filters.some((f) => f.op === 'is-null')
+        ? { message: 'canceling statement due to statement timeout' }
+        : null
+    const s = await getLedgerSummary(NOW)
+
+    expect(s.failed.leaksUndated).toContain('leaks_monthly (undated)')
+    expect(s.failed.leaks).toBeNull()
+  })
+
+  it('lists every failure in the banner, in read order, and nothing else', async () => {
+    // Spelled out rather than recomputed from s.failed: `errors` IS derived
+    // from `failed` in the implementation, so comparing the two is a tautology
+    // that would survive any mutation to either. What has to be pinned is that
+    // both failures reach the banner and that the order is LEDGER_VIEW_KEYS,
+    // which is the order the sections appear in on the page.
+    h.db.failOn = (call) =>
+      call.table === 'pnl_monthly' || call.table === 'pick_days'
+        ? { message: 'boom' } : null
+    const s = await getLedgerSummary(NOW)
+
+    expect(s.errors).toEqual(['pnl_monthly: boom', 'pick_days: boom'])
+    expect(LEDGER_VIEW_KEYS.indexOf('monthly')).toBeLessThan(LEDGER_VIEW_KEYS.indexOf('picks'))
+  })
+
+  it('withholds the rows of a view that LOADED but without a column the page renders', async () => {
+    seed({ pnl_monthly: [without(monthlyRowFull(), ['gross_margin'])] })
+    const s = await getLedgerSummary(NOW)
+
+    expect(s.failed.monthly).toContain('gross_margin')
+    // The row is real and the query succeeded; it is still withheld, because
+    // rendering it means printing a green em-dash where the margin was.
+    expect(s.monthly).toEqual([])
+    expect(s.counts.monthly).toBeNull()
+    expect(s.errors).toContain(s.failed.monthly)
+  })
+
+  it('renders a complete row normally, so the shape check is not condemning everything', async () => {
+    // The guard against the above test passing for the wrong reason.
+    seed({ pnl_monthly: [monthlyRowFull()] })
+    const s = await getLedgerSummary(NOW)
+
+    expect(s.failed.monthly).toBeNull()
+    expect(s.monthly).toHaveLength(1)
+    expect(s.counts.monthly).toBe(1)
   })
 })
