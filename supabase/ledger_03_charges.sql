@@ -90,13 +90,81 @@ create table if not exists order_charges (
 -- an earlier draft of this file created `amount` as NOT NULL. Without this, a
 -- database that has already had that draft applied rejects every at-cost
 -- freight charge whose carrier cost has not been reported -- which is a whole
--- order's charges failing, not one row. Guarded and idempotent, in the same
--- shape as the two `client_warehouse_rates` alters further down.
+-- order's charges failing, not one row.
+--
+-- The handler asks the catalog what the column IS, rather than assuming what
+-- the failure meant. It used to be `exception when others then raise notice
+-- 'order_charges.amount was already nullable'`, and that message named the one
+-- cause it could never see: `drop not null` on an already-nullable column does
+-- not raise, it is a no-op. So every condition that handler actually caught was
+-- a broken paste or a missing prerequisite -- 42703 if the column were renamed,
+-- 42501 if the migration is run by a role that does not own the table -- and
+-- each one printed a reassuring notice and let the file finish green. The 42501
+-- case is the expensive one: the column stays NOT NULL, the migration reports
+-- success, and the failure surfaces later and elsewhere as every at-cost
+-- freight charge being rejected.
+--
+-- Checking the post-state rather than the exception also means this block does
+-- not depend on `drop not null` being idempotent. If it ever raises on a column
+-- that is already nullable, the catalog says nullable and the block passes.
 do $$
 begin
   alter table order_charges alter column amount drop not null;
 exception when others then
-  raise notice 'order_charges.amount was already nullable';
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'order_charges'
+       and column_name = 'amount' and is_nullable = 'YES'
+  ) then
+    raise notice 'order_charges.amount is already nullable; the alter raised '
+      'SQLSTATE %: % but the column is in the state this file needs', sqlstate, sqlerrm;
+  else
+    raise exception 'order_charges.amount is still NOT NULL. SQLSTATE %: %. '
+      'Until it is nullable, every at-cost freight charge whose carrier cost '
+      'has not been reported yet is rejected -- and because the calculator '
+      'writes an order''s charges as one batch, that is the whole order''s '
+      'charges failing, not one row. Check the SQLSTATE: 42501 means this is '
+      'running as a role that does not own order_charges.', sqlstate, sqlerrm;
+  end if;
+end $$;
+
+-- order_charges_cost_has_basis is declared inside the `create table if not
+-- exists` above, which means a database created before commit a97d44a (the one
+-- that added it) does not have it, and no amount of re-applying this file ever
+-- will: the create is skipped wholesale. The file's own "safe to run more than
+-- once" header reads as "running it again brings the schema up to date", and
+-- for this constraint it did not.
+--
+-- What is missing when it is missing: a cost figure with no cost_basis is a
+-- number whose provenance nobody can state, and every screen downstream renders
+-- it as measured. There is no second line of defence -- unlike cost null, which
+-- pnl_client_monthly counts as cost_unknown_charges and announces.
+--
+-- Same re-apply-safe shape as order_charges_charge_type_valid above. The
+-- duplicate_object arm is the ordinary case on an up-to-date database.
+do $$
+declare
+  offending bigint;
+begin
+  alter table order_charges add constraint order_charges_cost_has_basis
+    check (cost is null or cost_basis is not null);
+  raise notice 'order_charges_cost_has_basis added (this database did not have it)';
+exception
+  when duplicate_object then
+    raise notice 'order_charges_cost_has_basis already present';
+  when check_violation then
+    select count(*) into offending
+      from order_charges where cost is not null and cost_basis is null;
+    raise exception 'order_charges_cost_has_basis NOT added: % order_charges '
+      'row(s) hold a cost with no cost_basis.', offending
+      using hint = 'Every one of those is rendered as a measured cost on the '
+        || 'ledger and client pages with nothing marking it as unprovenanced. '
+        || 'List them with: select id, client_id, charge_key, charge_type, '
+        || 'charge_date, cost from order_charges where cost is not null and '
+        || 'cost_basis is null; set cost_basis to the truth for each -- '
+        || 'measured, derived or estimated -- or set cost back to null if its '
+        || 'provenance cannot be established, which is the honest value and is '
+        || 'NOT the same as zero. Then re-run this file.';
 end $$;
 
 -- charge_type is an enum that Postgres was never told about.
@@ -383,11 +451,30 @@ end $$;
 -- charged. Without dropping NOT NULL they cannot be expressed at all, and the
 -- workaround — storing 0 — would read as "free", which is the exact
 -- null-versus-zero confusion this project exists to stop.
+--
+-- Handler checks the catalog, not the exception, for the reason given at the
+-- `order_charges.amount` block above: "was already nullable" is the one cause
+-- `drop not null` cannot produce.
 do $$
 begin
   alter table client_warehouse_rates alter column rate drop not null;
 exception when others then
-  raise notice 'client_warehouse_rates.rate was already nullable';
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'client_warehouse_rates'
+       and column_name = 'rate' and is_nullable = 'YES'
+  ) then
+    raise notice 'client_warehouse_rates.rate is already nullable; the alter '
+      'raised SQLSTATE %: % but the column is in the state this file needs',
+      sqlstate, sqlerrm;
+  else
+    raise exception 'client_warehouse_rates.rate is still NOT NULL. '
+      'SQLSTATE %: %. Until it is nullable, an at-cost freight line cannot be '
+      'expressed at all, and the only way to enter one is to store 0 -- which '
+      'reads as "we shipped it free" everywhere downstream. Check the '
+      'SQLSTATE: 42501 means this is running as a role that does not own '
+      'client_warehouse_rates.', sqlstate, sqlerrm;
+  end if;
 end $$;
 
 -- `service_type` is `not null` in the original schema with no default, and its
@@ -395,11 +482,35 @@ end $$;
 -- do not cover the eighteen quote lines. Left as it is, EVERY insert in Task 16
 -- fails on a not-null violation. It is superseded by `charge_type` and kept
 -- only so existing rows, and anything still reading it, are not broken.
+--
+-- The pass condition here is "nullable OR gone", unlike the two blocks above.
+-- service_type is superseded, so a database where someone has finished the job
+-- and dropped the column is in a BETTER state than one where it is merely
+-- nullable -- and 42703 from a dropped column is the one `when others` cause
+-- that genuinely is benign. Spelling that out is the point: it is benign
+-- because the goal is "this column cannot block an insert", which a dropped
+-- column satisfies, not because an exception was caught.
 do $$
 begin
   alter table client_warehouse_rates alter column service_type drop not null;
 exception when others then
-  raise notice 'client_warehouse_rates.service_type was already nullable';
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'client_warehouse_rates'
+       and column_name = 'service_type' and is_nullable = 'NO'
+  ) then
+    raise notice 'client_warehouse_rates.service_type is already nullable or '
+      'no longer exists; the alter raised SQLSTATE %: % but the column cannot '
+      'block an insert either way', sqlstate, sqlerrm;
+  else
+    raise exception 'client_warehouse_rates.service_type is still NOT NULL. '
+      'SQLSTATE %: %. It has no default and its four permitted values do not '
+      'cover the eighteen structured quote lines, so EVERY rate-card insert '
+      'fails on a not-null violation while this stands -- including the whole '
+      'of ledger_05_seed_nayax.sql. Check the SQLSTATE: 42501 means this is '
+      'running as a role that does not own client_warehouse_rates.',
+      sqlstate, sqlerrm;
+  end if;
 end $$;
 
 -- ---------------------------------------------------------------------------
