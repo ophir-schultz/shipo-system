@@ -213,6 +213,91 @@ alter table client_warehouse_rates add column if not exists variant     text;
 create index if not exists client_warehouse_rates_lookup_idx
   on client_warehouse_rates (client_id, charge_type, variant, effective_from);
 
+-- Two rates for the same thing must never cover the same day.
+--
+-- cost_rates has carried this constraint since ledger_02_cost.sql:28-38. This
+-- table did not, and it is the BILLING side: the cost side was better defended
+-- than the side that decides what the client is invoiced.
+--
+-- What it stops, concretely. ledger_05_seed_nayax.sql holds an off-by-design
+-- peak surcharge line and tells you to activate it by editing that file's date
+-- literals and re-running. Until this commit the re-run's delete was keyed on
+-- `effective_from = '2026-01-01'` — the very literal the instructions ask you
+-- to change — so an activated peak row at, say, '2026-11-01' escaped the delete
+-- and the insert put a SECOND one beside it. Two rows, same client, same
+-- (surcharge, peak), same window. calculate-charges.ts:91-98 calls that a data
+-- error and resolves it by sort order, so nothing crashes; it quietly bills
+-- from whichever row sorted first. The seed's row_count assertion counts 18
+-- inserted rows either way and reports success.
+--
+-- The delete is fixed in that file too. This is here because a constraint
+-- cannot be edited around: anything that would arm two overlapping rates now
+-- fails at the statement, which is the only version of this guarantee that
+-- survives the next edit to the seed.
+--
+-- Five things make it fit the data already in this table:
+--   - `charge_type with =` exempts every legacy row. Rows written by
+--     POST /api/clients/[id]/warehouse-rates carry only service_type, rate and
+--     unit (src/components/billing/WarehouseRatesUpload.tsx:74-78), so their
+--     charge_type is null, and a null never conflicts in an exclusion
+--     constraint. Only the structured card the seed files own is covered.
+--   - `coalesce(variant,'')` covers the one line that legitimately has no
+--     variant: 'shipping'/at_cost, where there is one freight line rather than
+--     one per carrier. A bare `variant with =` would let two of those coexist,
+--     which is the same defect in the single highest-value row on the card.
+--   - An EMPTY daterange overlaps nothing, including a copy of itself. The
+--     deliberately-disabled peak line ('2026-01-01','2026-01-01') is therefore
+--     unconstrained while it is switched off — correct, it raises no charges —
+--     and becomes constrained the moment it is given a real window. The
+--     constraint guards exactly the state that can bill.
+--   - effective_to null means open-ended, and daterange(d, null) is [d,), so
+--     the seventeen open rows DO constrain each other. A hand-edited duplicate
+--     of any of them now fails too, which is the hazard this file's own header
+--     could previously only warn about in prose.
+--   - effective_from is nullable here, unlike cost_rates where it is declared
+--     not null, because it was added by `alter table` above with no backfill.
+--     daterange(null, x) is unbounded BELOW, so a structured row with no start
+--     date conflicts with every other row for that service and cannot be
+--     written while one exists. That is the right direction: an undated rate is
+--     one whose lookup by charge_date cannot resolve. It rejects nothing today
+--     — the seed files are the only writers of charge_type and always supply
+--     the date — and a future undated insert fails loudly instead of becoming
+--     a row that silently matches every month.
+--
+-- btree_gist is not created here: this file's header requires ledger_02_cost.sql
+-- first, and that is where it is enabled (ledger_02_cost.sql:7).
+do $$
+begin
+  alter table client_warehouse_rates add constraint client_warehouse_rates_no_overlap
+    exclude using gist (
+      client_id            with =,
+      charge_type          with =,
+      coalesce(variant,'') with =,
+      daterange(effective_from, effective_to, '[)') with &&
+    );
+exception
+  when duplicate_object then
+    raise notice 'client_warehouse_rates_no_overlap already present';
+  when exclusion_violation then
+    -- The duplicate is ALREADY in the table, so adding the constraint cannot
+    -- succeed. Say what to do about it, then let the original error through
+    -- with its own detail line naming the two conflicting rows.
+    --
+    -- Deliberately not a notice-and-continue. A rate card that bills from
+    -- whichever row sorts first is the precise thing this constraint exists to
+    -- make impossible; swallowing the error would leave that card in place and
+    -- report the migration as applied, which is worse than not adding the
+    -- constraint at all because it also removes the reason to look.
+    raise notice 'Two overlapping rates already exist, so the constraint cannot '
+      'be added. List them with: select client_id, charge_type, variant, '
+      'effective_from, effective_to from client_warehouse_rates where '
+      'charge_type is not null order by client_id, charge_type, variant, '
+      'effective_from; delete the duplicate, then re-apply this file. If the '
+      'duplicate is a Nayax seed row, re-applying ledger_05_seed_nayax.sql '
+      'afterwards rewrites the whole card from source.';
+    raise;
+end $$;
+
 -- `at_cost` lines have no rate of their own: the amount is whatever the carrier
 -- charged. Without dropping NOT NULL they cannot be expressed at all, and the
 -- workaround — storing 0 — would read as "free", which is the exact

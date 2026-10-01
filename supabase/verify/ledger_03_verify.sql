@@ -276,6 +276,188 @@ exception when check_violation then
   raise exception 'FAIL: order_charges_cost_has_basis incorrectly rejected cost=null cost_basis=null';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- client_warehouse_rates_no_overlap, in both directions.
+--
+-- This constraint has to reject one specific thing and accept four that look
+-- like it. An over-broad version would be worse than none: it would reject the
+-- at-cost shipping line, or the deliberately-disabled peak surcharge, and the
+-- seed file would stop applying — which is a loud failure, but a loud failure
+-- that teaches whoever hits it to drop the constraint.
+--
+-- Every block below creates its own inactive client and deletes it afterwards,
+-- rather than borrowing one with `select id into cid from clients limit 1` the
+-- way the blocks above this point do. Two reasons, and the second is the one
+-- that matters:
+--
+--   - These rows are BILLABLE in a way the earlier blocks' rows are not. A row
+--     with charge_type set and a live date window is exactly what
+--     load-charge-inputs.ts looks up and calculate-charges.ts bills from. The
+--     first block alone would leave an armed 8% peak surcharge on whichever
+--     client `limit 1` returned. A verification script must not be able to
+--     change what a client is invoiced.
+--
+--   - `limit 1` with no order by returns an arbitrary row, so if it ever
+--     returned Nayax the eighteen seeded rows would already be sitting there
+--     and the SETUP insert of the last three blocks would collide with one of
+--     them. The exception then fires before the assertion is reached, and the
+--     handler prints a FAIL naming a cause that is not the cause — "adjacent
+--     rate periods are treated as overlapping" when the constraint is fine and
+--     the fixture is at fault. A check that reports a false FAIL on some runs
+--     and passes on others is worse than no check: it spends its credibility
+--     the first time it is wrong, and this file is the only thing that will
+--     say whether the constraint works.
+--
+-- Cleanup is a single `delete from clients`, because client_warehouse_rates
+-- is `on delete cascade` (schema.sql:29). It sits on the success path only:
+-- an uncaught exception rolls the whole DO statement back, including the
+-- fixture, so the failure path needs no cleanup and must not be given any —
+-- a cleanup that ran before the FAIL raise would destroy the rows whose
+-- presence is the evidence.
+-- ---------------------------------------------------------------------------
+
+-- The thing it exists to stop: two rates for the same service covering the
+-- same day. This is the shape an activated peak surcharge used to take after
+-- one re-run of ledger_05_seed_nayax.sql.
+do $$
+declare cid uuid;
+begin
+  insert into clients (name, active) values ('zzz-verify-no-overlap-reject', false)
+    returning id into cid;
+  insert into client_warehouse_rates
+    (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+    values (cid, 'percentage', 'Peak', 8.00, 'surcharge', 'peak', '2026-11-01', '2027-01-01');
+  begin
+    insert into client_warehouse_rates
+      (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+      values (cid, 'percentage', 'Peak', 8.00, 'surcharge', 'peak', '2026-12-01', '2027-02-01');
+    raise exception 'FAIL: two overlapping surcharge/peak rates were accepted';
+  exception when exclusion_violation then
+    raise notice 'PASS: client_warehouse_rates_no_overlap rejects an overlapping rate';
+  end;
+  delete from clients where id = cid;
+end $$;
+
+-- Legacy rows must stay legal. Everything written by
+-- POST /api/clients/[id]/warehouse-rates carries no charge_type, and there are
+-- live rows of that shape in this table. If the constraint covered them, this
+-- migration would fail to apply against production data rather than against a
+-- test fixture — and nulls not conflicting is the mechanism, so it is worth a
+-- check rather than a comment.
+do $$
+declare cid uuid;
+begin
+  insert into clients (name, active) values ('zzz-verify-no-overlap-legacy', false)
+    returning id into cid;
+  insert into client_warehouse_rates (client_id, service_type, rate, unit)
+    values (cid, 'storage', 25.00, 'per_unit');
+  insert into client_warehouse_rates (client_id, service_type, rate, unit)
+    values (cid, 'storage', 30.00, 'per_unit');
+  delete from clients where id = cid;
+  raise notice 'PASS: two legacy rows with no charge_type still coexist';
+exception when exclusion_violation then
+  raise exception 'FAIL: the constraint covers legacy charge_type-null rows; '
+                  'applying ledger_03 against real data will abort';
+end $$;
+
+-- The disabled peak line must stay duplicable, and that is not an oversight.
+-- An EMPTY daterange overlaps nothing, including a copy of itself, so a
+-- switched-off surcharge is outside the constraint entirely. It raises no
+-- charges, so there is nothing to protect; the row becomes constrained the
+-- moment it is given a real window, which is the only state that can bill.
+--
+-- Checked explicitly so that nobody later "tightens" the constraint into
+-- something that rejects the off-switch this project depends on
+-- (ledger_05_seed_nayax.sql's peak tuple, and the hasPeakLine fallback at
+-- load-charge-inputs.ts:392 that makes deleting the row the wrong fix).
+do $$
+declare cid uuid;
+begin
+  insert into clients (name, active) values ('zzz-verify-no-overlap-empty', false)
+    returning id into cid;
+  insert into client_warehouse_rates
+    (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+    values (cid, 'percentage', 'Peak off', 8.00, 'surcharge', 'peak', '2026-01-01', '2026-01-01');
+  insert into client_warehouse_rates
+    (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+    values (cid, 'percentage', 'Peak off', 8.00, 'surcharge', 'peak', '2026-01-01', '2026-01-01');
+  delete from clients where id = cid;
+  raise notice 'PASS: an empty-range (disabled) rate is outside the constraint';
+exception when exclusion_violation then
+  raise exception 'FAIL: the constraint rejects the empty-range off-switch, so '
+                  'the peak line can no longer be seeded in its disabled state';
+end $$;
+
+-- coalesce(variant,'') must make the null-variant line singular. There is one
+-- at-cost freight line per client, not one per carrier, so its variant is
+-- null; a bare `variant with =` would let two of them coexist, and that row
+-- carries more money than any other on the card.
+do $$
+declare cid uuid;
+begin
+  insert into clients (name, active) values ('zzz-verify-no-overlap-nullvariant', false)
+    returning id into cid;
+  insert into client_warehouse_rates
+    (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+    values (cid, 'at_cost', 'Carrier freight', null, 'shipping', null, '2026-01-01', null);
+  begin
+    insert into client_warehouse_rates
+      (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+      values (cid, 'at_cost', 'Carrier freight', null, 'shipping', null, '2026-06-01', null);
+    raise exception 'FAIL: two open-ended shipping lines with null variant were accepted';
+  exception when exclusion_violation then
+    raise notice 'PASS: coalesce(variant,'''') makes the null-variant line singular';
+  end;
+  delete from clients where id = cid;
+end $$;
+
+-- ...and it must not be so broad that it collapses distinct services. pick and
+-- pack both have a 'device' variant; receiving and storage both have 'pallet'.
+-- A constraint keyed on variant alone, or on client_id alone, would reject the
+-- seed file's own eighteen rows.
+do $$
+declare cid uuid;
+begin
+  insert into clients (name, active) values ('zzz-verify-no-overlap-distinct', false)
+    returning id into cid;
+  insert into client_warehouse_rates
+    (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+    values (cid, 'per_pallet', 'Pallet receiving', 20.00, 'receiving', 'pallet', '2026-01-01', null);
+  insert into client_warehouse_rates
+    (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+    values (cid, 'per_pallet', 'Pallet position', 25.00, 'storage', 'pallet', '2026-01-01', null);
+  insert into client_warehouse_rates
+    (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+    values (cid, 'per_unit', 'Device pick', 0.32, 'pick', 'device', '2026-01-01', null);
+  delete from clients where id = cid;
+  raise notice 'PASS: same variant under different charge_types still coexist';
+exception when exclusion_violation then
+  raise exception 'FAIL: the constraint is too broad — it rejects two of the '
+                  'eighteen rows ledger_05_seed_nayax.sql inserts';
+end $$;
+
+-- Adjacent, not overlapping: one rate ending the day another begins must be
+-- legal, or no rate can ever be superseded. daterange(,,'[)') is half-open
+-- precisely so that [Jan,Jun) and [Jun,) do not collide — a '[]' bound here
+-- would make every rate change a constraint violation.
+do $$
+declare cid uuid;
+begin
+  insert into clients (name, active) values ('zzz-verify-no-overlap-adjacent', false)
+    returning id into cid;
+  insert into client_warehouse_rates
+    (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+    values (cid, 'per_unit', 'Device pick (old)', 0.30, 'pick', 'device', '2026-01-01', '2026-06-01');
+  insert into client_warehouse_rates
+    (client_id, rate_type, label, rate, charge_type, variant, effective_from, effective_to)
+    values (cid, 'per_unit', 'Device pick (new)', 0.32, 'pick', 'device', '2026-06-01', null);
+  delete from clients where id = cid;
+  raise notice 'PASS: a rate can be superseded on the day the previous one ends';
+exception when exclusion_violation then
+  raise exception 'FAIL: adjacent rate periods are treated as overlapping, so '
+                  'no rate on this card can ever be changed';
+end $$;
+
 -- How much of the shipment backfill actually landed. Not an assertion — a
 -- number to report back, because it sizes the duplicate-row problem.
 select count(*)                                    as shipments_total,
