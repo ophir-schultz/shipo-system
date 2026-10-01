@@ -643,11 +643,17 @@ order by m.period_month desc;
 -- granted to anon -- trading a silent hole for a louder one. Revoking first
 -- costs nothing: it depends on nothing above it, and the verifications that
 -- follow read the result rather than the statement.
-revoke all on public.pick_days              from anon, authenticated;
-revoke all on public.leaks_monthly          from anon, authenticated;
-revoke all on public.pnl_client_monthly     from anon, authenticated;
-revoke all on public.pnl_monthly            from anon, authenticated;
-revoke all on public.labour_variance_inputs from anon, authenticated;
+-- PUBLIC is named alongside the two roles because a grant to PUBLIC reaches
+-- every role there is, including ones nobody has created yet. Supabase's
+-- bootstrap grants to anon/authenticated/service_role rather than to PUBLIC, so
+-- revoking from the two named roles is sufficient TODAY -- and that is exactly
+-- the kind of sufficiency that stops being true without anyone editing this
+-- file. It costs one word per line to stop depending on it.
+revoke all on public.pick_days              from anon, authenticated, public;
+revoke all on public.leaks_monthly          from anon, authenticated, public;
+revoke all on public.pnl_client_monthly     from anon, authenticated, public;
+revoke all on public.pnl_monthly            from anon, authenticated, public;
+revoke all on public.labour_variance_inputs from anon, authenticated, public;
 
 grant select on public.pick_days              to service_role;
 grant select on public.leaks_monthly          to service_role;
@@ -791,30 +797,46 @@ declare
   readable   boolean := true;
 begin
   begin
-    select string_agg(v.name, ', ' order by v.name) into still_open
+    -- BOTH ROLES, not just anon. The revoke above has always named
+    -- `authenticated` as well, but this guard only ever read back `anon` --
+    -- so a grant that re-opened these views to `authenticated` alone would
+    -- have passed verification and printed a green line. That is not a
+    -- hypothetical role in this app: the partner portal (supabase/partner_login.sql,
+    -- supabase/partner_portal.sql) signs people in who are emphatically not
+    -- staff, and `authenticated` is every one of them. A partner reading
+    -- pnl_client_monthly sees every OTHER client's margin.
+    --
+    -- The role is named in the output because "leaks_monthly is still open"
+    -- and "leaks_monthly is still open to partners" send someone to two
+    -- different places.
+    select string_agg(r.role || ' can read ' || v.name, ', ' order by r.role, v.name)
+      into still_open
     from unnest(array['public.pick_days', 'public.leaks_monthly',
                       'public.pnl_client_monthly', 'public.pnl_monthly',
                       'public.labour_variance_inputs']) as v(name)
-    where has_table_privilege('anon', v.name, 'SELECT');
+    cross join unnest(array['anon', 'authenticated']) as r(role)
+    where has_table_privilege(r.role, v.name, 'SELECT');
   exception when others then
     readable := false;
-    raise notice 'Could not verify anon privilege (SQLSTATE %: %). The `anon` '
-                 'role may not exist on this server. Confirm manually that anon '
-                 'cannot select from the five views before treating the file as '
-                 'applied.', sqlstate, sqlerrm;
+    raise notice 'Could not verify anon/authenticated privilege (SQLSTATE %: %). '
+                 'One of those roles may not exist on this server. Confirm '
+                 'manually that neither can select from the five views before '
+                 'treating the file as applied.', sqlstate, sqlerrm;
   end;
 
   if not readable then
     null;  -- already reported above
   elsif still_open is not null then
-    raise exception 'WARNING: anon can still SELECT from: %. The revoke did not '
-                 'close the exposure. Check whether `alter default privileges` '
-                 'or an explicit grant elsewhere re-opened these views. Until '
-                 'this is resolved every client''s margin is readable via the '
-                 'public anon key.',
+    raise exception 'WARNING: these role/view pairs can still SELECT: %. The '
+                 'revoke did not close the exposure. Check whether `alter '
+                 'default privileges` or an explicit grant elsewhere re-opened '
+                 'these views. Until this is resolved every client''s margin is '
+                 'readable -- via the public anon key if the role is anon, or by '
+                 'any signed-in partner if it is authenticated.',
                  still_open;
   else
-    raise notice 'Verified: anon cannot SELECT from any of the five views.';
+    raise notice 'Verified: neither anon nor authenticated can SELECT from any '
+                 'of the five views.';
   end if;
 end $$;
 
