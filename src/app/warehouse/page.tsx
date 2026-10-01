@@ -1,18 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { WAREHOUSE_SERVICE_TYPES } from '@/lib/billing/warehouse-rate-card'
 
-const SERVICE_TYPES = [
-  { value: 'storage', label: 'Storage' },
-  { value: 'receiving', label: 'Receiving' },
-  { value: 'returns', label: 'Returns Processing' },
-  { value: 'labeling', label: 'Labeling / Repackaging' },
-  { value: 'kitting', label: 'Kitting / Assembly' },
-  { value: 'pallet_in', label: 'Pallet In' },
-  { value: 'pallet_out', label: 'Pallet Out' },
-  { value: 'labor_hours', label: 'Labor Hours' },
-  { value: 'special_task', label: 'Special Task' },
-]
+// Imported rather than declared. This list and the rate uploader's had drifted
+// by one entry -- `labor_hours` was loggable here but had no option in the
+// uploader, so no rate for it could be entered through the UI at all and every
+// hour of it priced at nothing. One list means the two screens cannot disagree
+// about which services exist.
+const SERVICE_TYPES = WAREHOUSE_SERVICE_TYPES
 
 type ServiceRow = { service_type: string; label: string; quantity: string; notes: string }
 type ClientEntry = { client_id: string; name: string; rows: ServiceRow[] }

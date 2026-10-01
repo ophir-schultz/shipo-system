@@ -3,9 +3,15 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
+import { WAREHOUSE_SERVICE_TYPES, LEGACY_UNITS } from '@/lib/billing/warehouse-rate-card'
 
-const SERVICE_TYPES = ['storage', 'receiving', 'returns', 'labeling', 'kitting', 'pallet_in', 'pallet_out', 'special_task']
-const UNITS = ['per_unit', 'per_order', 'per_pallet', 'per_hour', 'flat', 'per_lb']
+// Imported rather than declared, because the local copy had drifted from the
+// daily log's list and the missing entry was `labor_hours`: labour could be
+// logged against a service for which no rate could be entered here, so every
+// hour of it was unpriceable. One list means adding a service adds it to both
+// screens.
+const SERVICE_TYPES = WAREHOUSE_SERVICE_TYPES
+const UNITS = LEGACY_UNITS
 
 export default function WarehouseRatesUpload({ clientId }: { clientId: string }) {
   const router = useRouter()
@@ -15,6 +21,10 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
   const [loading, setLoading] = useState(false)
   const [xlsxLoading, setXlsxLoading] = useState(false)
   const [error, setError] = useState('')
+  // Set only after a save that returned warnings. The modal then shows the
+  // warnings instead of closing, because a toast is gone before it is read and
+  // these lines are the ones that will never bill.
+  const [saved, setSaved] = useState<{ count: number; warnings: string[] } | null>(null)
 
   function addRow() {
     setRows(r => [...r, { service_type: 'storage', rate: '', unit: 'per_unit' }])
@@ -55,6 +65,7 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
       }
 
       setRows(parsed)
+      setSaved(null)
       setOpen(true)
     } catch {
       setError('Could not read Excel file. Please use the template.')
@@ -81,16 +92,40 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rates }),
     })
+    const data = await res.json().catch(() => ({} as Record<string, unknown>))
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      showError('Failed to save rates', data.error ?? 'Please try again')
+      const message = typeof data.error === 'string' && data.error
+        ? data.error
+        : `Failed to save (HTTP ${res.status})`
+      // Both a toast and the inline error. The 409 from the route -- new rates
+      // saved, old ones not removed -- carries instructions that take longer to
+      // read than a toast stays on screen, and re-uploading makes it worse.
+      showError('Failed to save rates', message)
+      setError(message)
       setLoading(false)
+      // The 409 DID write. Refresh so the card on the page shows the duplicate
+      // state the message describes rather than the state before the attempt.
+      if (res.status === 409) router.refresh()
+      return
+    }
+
+    const warnings = Array.isArray(data.warnings)
+      ? data.warnings.filter((w: unknown): w is string => typeof w === 'string')
+      : []
+    router.refresh()
+    setLoading(false)
+    if (warnings.length > 0) {
+      setSaved({ count: rates.length, warnings })
       return
     }
     showSuccess('Warehouse rates saved', `${rates.length} rates saved successfully`)
     setOpen(false)
-    router.refresh()
-    setLoading(false)
+  }
+
+  function closeModal() {
+    setOpen(false)
+    setSaved(null)
+    setError('')
   }
 
   return (
@@ -117,7 +152,7 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
 
       {/* Manual entry */}
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => { setSaved(null); setError(''); setOpen(true) }}
         className="text-white px-4 py-2 rounded-lg text-sm font-medium transition"
         style={{ background: '#00AAFF' }}
       >
@@ -128,8 +163,35 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
           <div className="bg-gray-800 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h4 className="font-semibold text-white mb-1">Warehouse Rates</h4>
-            <p className="text-gray-400 text-sm mb-4">Review and edit before saving</p>
+            <p className="text-gray-400 text-sm mb-4">
+              {saved ? `${saved.count} rate(s) saved.` : 'Review and edit before saving'}
+            </p>
 
+            {saved ? (
+              <>
+                {/* Saved, and some lines can never be billed from. Amber rather
+                    than red: nothing failed and nothing needs retrying. Shown
+                    here rather than in a toast because the operator has to
+                    decide whether the spreadsheet named the wrong service. */}
+                <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg p-4 mb-4">
+                  <p className="text-amber-300 text-sm font-medium mb-2">
+                    {saved.warnings.length} rate(s) will never be billed from
+                  </p>
+                  <ul className="space-y-2">
+                    {saved.warnings.map((w, i) => (
+                      <li key={i} className="text-amber-200/90 text-sm">• {w}</li>
+                    ))}
+                  </ul>
+                </div>
+                <button
+                  onClick={closeModal}
+                  className="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition"
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+            <>
             <div className="space-y-2 mb-4">
               <div className="grid grid-cols-3 gap-2 text-xs text-gray-400 px-1">
                 <span>Service</span><span>Rate ($)</span><span>Unit</span>
@@ -141,7 +203,7 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
                     onChange={e => updateRow(i, 'service_type', e.target.value)}
                     className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
                   >
-                    {SERVICE_TYPES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                    {SERVICE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                   <input
                     type="number"
@@ -166,13 +228,15 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
 
             <button onClick={addRow} className="text-[#00AAFF] text-sm hover:text-[#33BBFF] mb-4 block">+ Add row</button>
 
-            {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+            {error && <p className="text-red-400 text-sm mb-3 whitespace-pre-wrap">{error}</p>}
             <div className="flex gap-3">
-              <button onClick={() => setOpen(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition">Cancel</button>
+              <button onClick={closeModal} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition">Cancel</button>
               <button onClick={handleSave} disabled={loading} className="flex-1 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-medium transition" style={{ background: '#00AAFF' }}>
                 {loading ? 'Saving...' : 'Save Rates'}
               </button>
             </div>
+            </>
+            )}
           </div>
         </div>
       )}
