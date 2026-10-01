@@ -66,7 +66,8 @@ export async function GET(req: Request) {
     // claim; this is the same claim, two stages earlier in the same handler.
     const shipFailed = Number(syncResult.errors ?? 0)
     log.push(`${shipFailed > 0 ? '⚠' : '✓'} ShipStation sync: ${syncResult.created} new · `
-      + `${syncResult.updated} updated · ${syncResult.adjustments} adjustments`
+      + `${syncResult.updated} updated · ${syncResult.adjustments} adjustments · `
+      + `${syncResult.refunds ?? 0} refunds`
       + `${shipFailed > 0 ? ` · ${shipFailed} FAILED` : ''}`)
     if (shipFailed > 0) {
       errors.push(`⚠ ${shipFailed} ShipStation shipment${shipFailed > 1 ? 's' : ''} could `
@@ -81,9 +82,22 @@ export async function GET(req: Request) {
       log.push(`⚠ ${syncResult.unknownCarrier} shipments carry a carrier code that maps `
         + `to no cost rate (cost left null, not zero)`)
     }
+    // errors[], unlike unknownCarrier above, and the difference is the point.
+    // An unknown carrier code leaves the COST null on a shipment that is still
+    // billed. A blank order number is worse in kind: client assignment matches
+    // on order_number (src/lib/sync/zenventory.ts:263), so these shipments can
+    // never be given a client, never pick up a client rate, and are therefore
+    // REVENUE THAT WILL NEVER BE INVOICED. Nothing else re-reports them — the
+    // standing unassigned count in section 4d is a log line — so if this pass
+    // does not say it, nobody finds out.
+    //
+    // This is a per-run count of newly arrived shipments, so it is silent on a
+    // healthy day rather than permanent furniture in the subject line.
     if (Number(syncResult.blankOrderNumber ?? 0) > 0) {
-      log.push(`⚠ ${syncResult.blankOrderNumber} shipments arrived with no order number, `
-        + `so they cannot be matched to a Zenventory order`)
+      errors.push(`⚠ ${syncResult.blankOrderNumber} shipments arrived with no order `
+        + `number. They cannot be matched to a Zenventory order, so they can never be `
+        + `assigned a client or billed — this is unrecoverable revenue until someone `
+        + `identifies them by hand in ShipStation.`)
     }
   } catch (err: any) {
     const msg = `✗ ShipStation sync FAILED: ${err.message}`
@@ -180,9 +194,13 @@ export async function GET(req: Request) {
       // the data; it also means order_charges now holds rows from two different
       // runs and the totals may double-count until someone looks.
       if (chargeResult.staleDeleteRefused > 0) {
+        // `built`, not `upserted`: the guard compares the refusal against the
+        // rows the calculator PRODUCED. The two are equal on a clean run and
+        // diverge exactly when upserts failed — the degraded case where naming
+        // the wrong threshold would send someone to the wrong question.
         errors.push(`⚠ The stale-charge sweep REFUSED to delete `
           + `${chargeResult.staleDeleteRefused} old charge rows, because that is more `
-          + `than the ${chargeResult.upserted} rows this run wrote. That pattern means `
+          + `than the ${chargeResult.built} rows this run built. That pattern means `
           + `the run priced far less than it should have — check the rate cards and `
           + `cost_rates effective dates before trusting this month's totals, which `
           + `may now contain charges from two runs.`)
@@ -363,6 +381,45 @@ export async function GET(req: Request) {
     log.push(`⚠ ${unassignedCount} shipments have no client assigned`)
   }
 
+  // 4e. Picked lines carrying no pick date — picked work that is not billed.
+  //
+  // WHY THIS IS A DATABASE SCAN AND NOT A COUNTER ON A SYNC RESULT. Stage 2
+  // reports `undated_picks`, but that is a per-run delta: it counts lines the
+  // sync declined to date ON THIS PASS. The marker it writes is sticky by
+  // design (see watermarkIsEvidence in src/lib/ledger/pick-date.ts), so on the
+  // NEXT pass those same lines are skipped and the counter reads zero. The
+  // money stays unbilled and the alert goes quiet after one run — the exact
+  // shape of silent loss that the rest of this file is a post-mortem on. A
+  // standing count has to come from the rows themselves.
+  //
+  // The predicate is the condition, not the marker: `pick_date is null` with a
+  // picked quantity means "we did this work and cannot bill it", whatever wrote
+  // the row. Keying on pick_date_source = 'unknown' instead would keep alerting
+  // after a human had supplied a date but not also corrected the source, which
+  // is how a true alert becomes furniture. This one clears itself the moment
+  // the date arrives.
+  //
+  // `.gt('quantity_picked', 0)` excludes NULL quantities, which is correct here
+  // — an unpicked line is not unbilled work — but it is the standing rule's
+  // trap and is deliberate rather than incidental.
+  //
+  // No window: an undated line from two months ago is still unbilled today.
+  const { count: undatedPickCount, error: undatedPickError } = await supabaseAdmin
+    .from('order_items')
+    .select('*', { count: 'exact', head: true })
+    .is('pick_date', null)
+    .gt('quantity_picked', 0)
+
+  if (undatedPickError) {
+    scanFailed('the undated picked-line count', undatedPickError)
+  } else if ((undatedPickCount ?? 0) > 0) {
+    errors.push(`⚠ ${undatedPickCount} picked line${undatedPickCount === 1 ? '' : 's'} `
+      + `have no pick date, so NO pick or pack charge exists for them and the work `
+      + `is unbilled. This is the backlog, not today's news: it stays until someone `
+      + `supplies a date. Expected after a Zenventory outage — the sync declines to `
+      + `invent a date rather than stamp today's on weeks of old picks.`)
+  }
+
   // ── 5. Send email report ───────────────────────────────────────────────────
   // `?? 0` in the stats block would render an unreadable count as a confident
   // zero — the same null-versus-unknown confusion the ledger exists to stop,
@@ -433,6 +490,7 @@ export async function GET(req: Request) {
       adjustments: { count: adjCount, total: adjTotal },
       unassigned: unassignedCount,
       unpriced: unpricedCount,
+      undated_picked_lines: undatedPickError ? null : undatedPickCount,
     },
     email: emailResult,
   })

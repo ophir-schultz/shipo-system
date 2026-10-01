@@ -100,6 +100,15 @@ export type RecalculateResult =
   | {
       skipped: false
       orders: number
+      /**
+       * Charge rows the calculator PRODUCED, which is not the same as `upserted`
+       * (rows the database accepted). The blast-radius floor below compares
+       * against this number, so anything reporting that refusal to a human has
+       * to quote this one: on a run with upsert failures the two diverge, and
+       * that is precisely the degraded case where a wrong threshold in the alert
+       * sends someone looking at the wrong thing.
+       */
+      built: number
       upserted: number
       deleted: number
       /**
@@ -215,6 +224,11 @@ export async function recalculateCharges(
   }
 
   let orders = 0
+  // Charge rows the calculator produced. Declared out here, beside the other
+  // counters, because `rows` itself is scoped to the try block below and the
+  // return statement is outside it. See the `built` field on RecalculateResult
+  // for why this and `upserted` must not be used interchangeably.
+  let built = 0
   let upserted = 0
   let deleted = 0
   let staleDeleteRefused = 0
@@ -267,6 +281,20 @@ export async function recalculateCharges(
       // `else` of `charges.length > 0`, so any order carrying a shipping charge
       // — which is almost every order — could never be counted, and the leak
       // detector this project is justified by was inert in the common case.
+      //
+      // `&& i.pickDate` is deliberate and narrows this counter on purpose. A
+      // picked line with no pick date ALSO produces no pick charge, but for an
+      // unrelated reason and with an unrelated fix: this counter means "we know
+      // when it was picked and still could not price it", which points at a
+      // missing rate-card line. Counting undated lines here too would send
+      // someone to read rate cards about a line whose rate card is fine.
+      //
+      // The undated case is not thereby unreported — it would be a new silent
+      // hole, which is the thing this file exists to refuse. It is counted
+      // straight out of the database by section 4e of
+      // src/app/api/agent/monitor/route.ts, which is the right place for it
+      // because the condition persists until a human supplies a date and so
+      // must be re-reported on every run, not just on the run that created it.
       const picked = !input.order.cancelled
         && input.items.some((i) => (i.quantityPicked ?? 0) > 0 && i.pickDate)
       if (picked && !charges.some((c) => c.charge_type === 'pick')) unpricedOrders++
@@ -285,6 +313,12 @@ export async function recalculateCharges(
       unknownCarrierCharges += charges.filter(
         (c) => c.charge_type === 'shipping' && c.cost === null).length
     }
+
+    // Recorded once, here, where `rows` is final and before anything writes.
+    // The blast-radius floor further down compares against rows.length; this is
+    // the same number, carried out to the caller so the alert can quote the
+    // threshold the guard actually used.
+    built = rows.length
 
     // ---- 2. write -------------------------------------------------------
     const failedOrderIds = new Set<string>()
@@ -459,7 +493,7 @@ export async function recalculateCharges(
 
   return {
     skipped: false,
-    orders, upserted, deleted, staleDeleteRefused, failedOrders,
+    orders, built, upserted, deleted, staleDeleteRefused, failedOrders,
     unknownCostCharges, unknownCarrierCharges, unpricedOrders,
   }
 }

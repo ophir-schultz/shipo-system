@@ -228,6 +228,27 @@ describe('recalculateCharges — the stale-delete blast radius', () => {
     expect(result.skipped === false && result.staleDeleteRefused).toBe(0)
     expect(chargeKeysFor('order-a')).toEqual(['item:order-a-item:pick'])
   })
+
+  /**
+   * `built` exists only because it can differ from `upserted`, and the monitor
+   * email quotes it as the threshold the floor compared against. If the two
+   * were interchangeable the field would be noise; this pins the one case that
+   * proves they are not. Reporting `upserted` here instead would have told the
+   * operator the run built 0 rows on a run that built 1 — and sent them to
+   * audit a rate card that was fine.
+   */
+  it('reports rows built separately from rows the database accepted', async () => {
+    h.db.failOn = (call) =>
+      call.table === 'order_charges' && call.verb === 'upsert'
+        ? { message: 'deadlock detected' }
+        : null
+
+    const result = await recalculateCharges(async () => [order('order-a')])
+
+    // One charge was calculated; none landed. Both numbers are reported, and
+    // they disagree — which is the entire point of carrying `built` out.
+    expect(result).toMatchObject({ skipped: false, built: 1, upserted: 0, failedOrders: 1 })
+  })
 })
 
 describe('recalculateCharges — the gates', () => {
