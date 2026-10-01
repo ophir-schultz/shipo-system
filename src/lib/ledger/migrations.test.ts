@@ -185,3 +185,140 @@ describe('exception handlers do not print a reassuring guess', () => {
     })
   }
 })
+
+// ---------------------------------------------------------------------------
+// 3. The verify scripts in supabase/verify/, which nothing covered at all.
+//
+// Those five files hold roughly a hundred assertions about the migrations, and
+// on this machine they are NEVER RUN: there is no psql, no docker and no
+// postgres here, so they are applied by pasting them into the Supabase SQL
+// editor, by hand, occasionally. A verify script with a syntax error does not
+// fail -- it does not get executed in the first place, and the ledger simply
+// stays unverified with nobody aware of it. That is the gap these two checks
+// close: they are the only automated statement anyone makes about these files.
+//
+// WHY THE if/end-if COUNT IS PER FILE AND NOT PER BLOCK. ledger_02_verify.sql
+// writes three of its blocks on one line --
+// `do $$ begin raise notice 'PASS: ...'; end $$;` -- and a non-greedy
+// do/end regex does not fail on that, it MERGES the block with its neighbour
+// and reports a smaller number of larger blocks. The merged totals still
+// balance, so the per-block version of this check passed while silently
+// examining 3 blocks where 6 exist. Found by counting `do $$` separately and
+// getting 6. A per-file total cannot say WHICH block is unbalanced, only that
+// one is; that is the honest limit and it is still the difference between a
+// script that runs and a script that does not.
+//
+// (Those three one-line blocks are not a defect. They are the "reaching this
+// line means the INSERT above did not raise" idiom, where the bare insert is
+// the assertion. A check for "prints PASS but contains no raise exception"
+// would flag all three wrongly, which is why there isn't one.)
+//
+// SCOPED TO verify/ DELIBERATELY. In the migrations themselves `if` is
+// ambiguous: `create index if not exists` is DDL while `if exists (select 1
+// from pg_index ...) then` is a conditional, and no count can separate them
+// without parsing. The verify scripts contain no DDL `if` at all, so there the
+// count is exact -- and the second assertion below pins that premise, so the
+// day someone adds `create table if not exists` to a verify script the test
+// says the count can no longer be trusted instead of quietly going wrong.
+// ---------------------------------------------------------------------------
+const VERIFY_DIR = 'supabase/verify'
+
+function verifyFiles(): string[] {
+  const files = readdirSync(VERIFY_DIR)
+    .filter((f) => /^ledger_.*\.sql$/.test(f))
+    .sort()
+  // Guards the guard, same reason as migrationFiles().
+  if (files.length < 5) {
+    throw new Error(
+      `Expected the verify scripts in ${VERIFY_DIR}/, found ${files.length} `
+      + 'file(s). If they moved or were renamed, update this test.')
+  }
+  return files
+}
+
+const VERIFY = verifyFiles()
+
+/**
+ * Blanks the contents of single-quoted literals, keeping the quotes.
+ *
+ * Required, and the reason is a mistake made while writing these very checks.
+ * The assertions in ledger_04_verify.sql carry prose in their failure
+ * messages -- 'FAIL: direct_labor is %, expected 2000.00. If this holds ...' --
+ * and a case-insensitive `\bif\b` reads that "If" as a conditional opener. The
+ * first run of this count reported two files as unbalanced when both were
+ * fine. Same class of trap as stripFullLineComments above: a check that reads
+ * the file's own English as code.
+ *
+ * `(?:[^']|'')*` consumes doubled quotes as content, which is how these files
+ * escape an apostrophe inside a message ('the month''s rate').
+ */
+function blankStringLiterals(sql: string): string {
+  return sql.replace(/'(?:[^']|'')*'/g, "''")
+}
+
+describe('verify scripts are structurally runnable', () => {
+  const scrubbed = new Map(
+    VERIFY.map((f) => [f, blankStringLiterals(
+      stripFullLineComments(readFileSync(`${VERIFY_DIR}/${f}`, 'utf8')))]))
+
+  const endIfs = (sql: string) => sql.match(/\bend\s+if\b/gi)?.length ?? 0
+  const allIfs = (sql: string) => sql.match(/\bif\b/gi)?.length ?? 0
+
+  it('finds the conditionals it is meant to count', () => {
+    // Not `> 0`. ledger_04_verify.sql alone holds 69 `end if`s, so a regex that
+    // matched a handful would look like it had worked -- the vacuous pass these
+    // scripts' own comments warn about, in the test that checks them.
+    const total = [...scrubbed.values()].reduce((n, s) => n + endIfs(s), 0)
+    expect(total).toBeGreaterThanOrEqual(20)
+  })
+
+  for (const file of VERIFY) {
+    const sql = scrubbed.get(file)!
+
+    it(`${file}: no DDL \`if exists\`, so the conditional count is exact`, () => {
+      const ddl = sql.match(/\bif\s+(?:not\s+)?exists\b/gi) ?? []
+      expect(ddl, `${file} now contains ${ddl.length} \`if [not] exists\` `
+        + 'clause(s). Those are DDL, not conditionals, so the if/end-if balance '
+        + 'assertion below is counting them as openers and will report a false '
+        + 'mismatch. Either keep DDL out of the verify scripts or teach this '
+        + 'test to distinguish `create ... if not exists` from `if exists '
+        + '(select ...) then`.')
+        .toEqual([])
+    })
+
+    it(`${file}: every if is closed by an end if`, () => {
+      const closes = endIfs(sql)
+      // `end if` itself contains an `if`, so subtract the closers to get openers.
+      const opens = allIfs(sql) - closes
+      expect({ opens, closes }, `${file} has ${opens} \`if\` opener(s) and `
+        + `${closes} \`end if\`. PL/pgSQL will refuse the whole block, which on `
+        + 'a machine with no psql means the script is never executed and the '
+        + 'migration it verifies stays unverified with nothing to show that it '
+        + 'is. This count is per FILE, so it cannot tell you which block -- '
+        + 'read the do-blocks from the top.')
+        .toEqual({ opens: closes, closes })
+    })
+
+    it(`${file}: wrapped in begin and rolled back, never committed`, () => {
+      // These scripts insert sentinel clients, orders and charges, future-dated
+      // operating costs, and -- in ledger_04_verify.sql -- a deliberately
+      // absurd 9.0000 pick cost rate placed as a trap for a loosened join. The
+      // `rollback;` is the only thing keeping all of it out of the real tables.
+      // A `commit` here does not fail; it leaves fixtures behind that
+      // pnl_monthly and labour_variance_inputs then report as real money.
+      const raw = readFileSync(`${VERIFY_DIR}/${file}`, 'utf8')
+      const statements = sql.split('\n').map((l) => l.trim()).filter(Boolean)
+      expect(statements[0], `${file} must open with \`begin;\``).toBe('begin;')
+      expect(raw.trimEnd().endsWith('rollback;'),
+        `${file} must end with \`rollback;\` -- its fixtures are written into `
+        + 'the live tables and only the rollback removes them').toBe(true)
+      // Checked against the scrubbed text, so the word inside a comment or a
+      // notice message ('... and commit it ...') does not trip this.
+      expect(sql.match(/\bcommit\b/gi) ?? [],
+        `${file} contains a \`commit\`. Every row these scripts write is a `
+        + 'fixture; committing one persists a VERIFY-ONLY client and its '
+        + 'charges into the tables the P&L views read.')
+        .toEqual([])
+    })
+  }
+})

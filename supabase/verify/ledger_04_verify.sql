@@ -261,6 +261,8 @@ end $$;
 -- on overhead_rows first and removes that false-partial-pass.
 do $$
 declare cid uuid; oid uuid; np numeric; gm numeric;
+        rev numeric; dc numeric;
+        oh numeric; dl numeric; ds numeric;
         oh_rows bigint; dl_rows bigint; ds_rows bigint;
 begin
   select id into strict cid from clients where name = 'VERIFY-ONLY ledger_04';
@@ -324,6 +326,708 @@ begin
   end if;
   raise notice 'PASS: a missing allocation category nulls net_profit and is '
                'named by direct_storage_rows = 0';
+
+  -- Phase 3: all three allocations present, and the NUMBER is asserted.
+  --
+  -- Until this phase existed, every assertion about net_profit in this file
+  -- checked that it was NULL. Nothing anywhere entered all three allocation
+  -- categories, so the arithmetic and the SIGNS of the five terms were
+  -- untested -- in the one figure a human reads before repricing a client.
+  -- `revenue - direct_cost + overhead - labour - storage`, or `+ direct_cost`,
+  -- or the three terms coalesced to 0, would have passed this whole file.
+  --
+  -- WHY EACH TERM IS ASSERTED SEPARATELY AND NOT JUST THE TOTAL. Subtraction
+  -- is commutative in its operands, so `- overhead - direct_labor` and
+  -- `- direct_labor - overhead` give the same total: a net_profit assertion
+  -- alone cannot see the three allocation filters being transposed, which is a
+  -- live risk because they are three near-identical `sum(...) filter (...)`
+  -- lines. Transposed filters would misreport the composition of cost while
+  -- the headline stayed right, and labour_variance_inputs reads direct_labor
+  -- specifically. Asserting the terms also localises a failure: without it, a
+  -- wrong total tells the operator the expression is broken but not which
+  -- limb of it.
+  --
+  -- WHAT PHASE 3 CANNOT SEE, so phases 1 and 2 are not superseded by it: with
+  -- all three categories present, `coalesce(o.overhead, 0)` is
+  -- indistinguishable from `o.overhead`. Only the null-propagation phases
+  -- above catch an unknown cost being claimed as zero. The three phases test
+  -- different properties and all three are load-bearing.
+  insert into operating_costs (period_month, category, amount, allocation)
+    values ('2099-01-05', 'VERIFY-space', 500.00, 'direct_storage');
+
+  select revenue, direct_cost, gross_margin, net_profit,
+         overhead, direct_labor, direct_storage, direct_storage_rows
+    into rev, dc, gm, np, oh, dl, ds, ds_rows
+  from pnl_monthly where period_month = '2099-01-01';
+
+  -- The two revenue-side inputs. 10.00 and 4.00 are the single charge inserted
+  -- at the top of this block; if either is wrong the revenue CTE is summing the
+  -- wrong column, and every figure below it is wrong for that reason rather
+  -- than for an arithmetic one.
+  if rev is distinct from 10.00 then
+    raise exception 'FAIL: revenue is %, expected 10.00. The revenue CTE is not '
+                    'summing order_charges.amount for the fixture month', rev;
+  end if;
+  if dc is distinct from 4.00 then
+    raise exception 'FAIL: direct_cost is %, expected 4.00. The revenue CTE is '
+                    'not summing order_charges.cost', dc;
+  end if;
+
+  -- The three allocation sums, each distinct, so a transposition shows up here
+  -- as two simultaneous failures rather than as a correct total.
+  if oh is distinct from 1000.00 then
+    raise exception 'FAIL: overhead is %, expected 1000.00. Either the '
+                    'allocation filter is wrong or the mid-month row did not '
+                    'truncate to the 1st', oh;
+  end if;
+  if dl is distinct from 2000.00 then
+    raise exception 'FAIL: direct_labor is %, expected 2000.00. If this holds '
+                    '1000.00 or 500.00 the three allocation filters have been '
+                    'transposed, which net_profit alone cannot detect', dl;
+  end if;
+  if ds is distinct from 500.00 then
+    raise exception 'FAIL: direct_storage is %, expected 500.00', ds;
+  end if;
+  if ds_rows is distinct from 1 then
+    raise exception 'FAIL: direct_storage_rows is %, expected 1 now that the '
+                    'category has been entered', ds_rows;
+  end if;
+
+  -- gross_margin, also never asserted numerically before this. It is the figure
+  -- rendered next to net_profit, and it reads HIGH by any unknown cost -- so a
+  -- sign error here is in the flattering direction.
+  if gm is distinct from 6.00 then
+    raise exception 'FAIL: gross_margin is %, expected 6.00 (revenue 10.00 less '
+                    'direct_cost 4.00). A plus sign here would read 14.00', gm;
+  end if;
+
+  -- The headline. Negative on purpose: a positive expected value can be hit by
+  -- several wrong expressions, whereas -3494.00 is reachable only by
+  -- subtracting all four cost terms from revenue. 10 - 4 - 1000 - 2000 - 500.
+  -- For the record, what the near misses look like: +direct_cost gives
+  -- -3486.00, +overhead gives -1494.00, +direct_labor gives 506.00, and
+  -- +direct_storage gives -2494.00 -- all four distinguishable from each other
+  -- and from the truth, which is why the four amounts are different magnitudes.
+  if np is distinct from -3494.00 then
+    raise exception 'FAIL: net_profit is %, expected -3494.00 for revenue 10.00, '
+                    'direct_cost 4.00, overhead 1000.00, direct_labor 2000.00, '
+                    'direct_storage 500.00. A sign is wrong in '
+                    'ledger_04_views.sql pnl_monthly.net_profit. Compare: '
+                    '-3486.00 means direct_cost is added, -1494.00 means '
+                    'overhead is added, 506.00 means direct_labor is added, '
+                    '-2494.00 means direct_storage is added', np;
+  end if;
+  raise notice 'PASS: net_profit is -3494.00 and gross_margin is 6.00 -- all '
+               'five terms carry the right sign and the right allocation';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- labour_variance_inputs. Until this block existed the view had NO automated
+-- verification of any kind -- not one assertion anywhere in supabase/ read a
+-- single column of it -- and it is the view that answers "are we paying more
+-- per pick than we charge for one", i.e. the one that decides whether the pick
+-- price is wrong. Every property its own header argues for at length was
+-- unwitnessed.
+--
+-- IT OWNS 2098-01 AND 2098-02, for both order_charges and operating_costs.
+-- Sentinel months for the same reason the pnl block uses 2099-01: the view is
+-- business-wide, with no client_id to scope by, so any real month would make
+-- these assertions depend on the state of the bookkeeping rather than on the
+-- view. 2099 is already taken; a second block may not reuse 2098.
+--
+-- The fixture also defines its OWN variants and its OWN cost_rates rows rather
+-- than leaning on ledger_06_seed_cost_rates.sql's ('pick','device') at 0.2300
+-- and ('pick','component') at 0.2000. Three reasons: re-baselining those
+-- placeholders is explicitly planned, and a verify script that fails when the
+-- seed is corrected trains the operator to ignore it; 0.2300 and 0.2000 are
+-- close enough that a units-weighted blend and a plain average differ in the
+-- third decimal, which is too fine a margin to assert on; and seeding the rates
+-- here means the assertions below state the arithmetic in full rather than
+-- referring the reader to another file.
+--
+-- THE NUMBERS ARE CHOSEN SO THAT EACH WRONG FORMULA LANDS SOMEWHERE ELSE:
+--
+--   variant VERIFY-A: 1 charge,  1 unit,  cost rate 0.5000, basis estimated
+--   variant VERIFY-B: 2 charges, 9 units, cost rate 0.1000, basis measured
+--
+--   units-weighted (correct)  (1*0.50 + 9*0.10) / 10 = 0.14
+--   plain avg(rate)                 (0.50 + 0.10) / 2  = 0.30
+--
+-- The 1-against-9 split is the point. With equal units the two formulas agree
+-- and the assertion proves nothing; this split makes avg(rate) overstate the
+-- standard by more than double, which reads as a large FAVOURABLE variance --
+-- the direction nobody files a bug about. (The view's own header warns about
+-- the opposite degradation, a cross-variant `limit 1`, which here would give
+-- either 0.50 or 0.10 -- both also excluded by asserting 0.14.)
+--
+-- The basis pair is deliberately mixed. estimated and measured both present
+-- must yield 'estimated': the weakest, because the screen has to caveat the
+-- figure. Were the case arms in `picked` reordered, this month would present a
+-- placeholder rate as measured, and 'estimated' vs 'measured' is the only
+-- assertion that can see it.
+--
+-- Every charge and both operating_costs rows are dated MID-month, so a lost
+-- date_trunc in pick_charges or in payroll shows up as the fixture month not
+-- existing at all rather than as a wrong figure.
+--
+-- SIX PHASES, because the properties are mutually exclusive in one fixture:
+--
+--   B  two priced variants   -> standard_rate 0.14, basis estimated,
+--                               direct_labor NULL (not 0), implied NULL
+--   C  payroll arrives       -> direct_labor 2.00, implied 0.20
+--   D  a charge with rate_id NULL  -> unattributable_pick_charges 1,
+--                               standard_rate NULL, units 16
+--   D2 that charge deleted   -> everything RECOVERS: 0.14 and 0 again
+--   E  a variant with NO cost rate -> standard_rate NULL again, but
+--                               unattributable_pick_charges still 0, units 25
+--   F  a payroll-only month  -> a row exists, units_picked 0
+--
+-- WHY D AND E ARE BOTH HERE. They are two different defects that both null the
+-- standard rate, and the column that distinguishes them is
+-- unattributable_pick_charges. D's charge has no recoverable variant at all;
+-- E's is attributable (its rate card line names VERIFY-C) and merely unpriced.
+-- If the view ever counted `filter (where rate is null)` instead of
+-- `filter (where variant is null)`, E would report 1 and fail here -- and the
+-- operator would be sent to look for a broken rate_id when the actual fix is to
+-- add a cost rate. The pair also gives the counter a control in both
+-- directions: D proves it can reach 1, so E's 0 is a working rule rather than a
+-- dead code path.
+--
+-- WHY D2 EXISTS. Without it, phase E could not prove anything about
+-- standard_rate: D has already nulled it, so a view that latched the null
+-- forever -- or one that ignored E's row entirely -- would still read NULL and
+-- pass. Deleting D's charge and asserting that 0.14 comes BACK establishes that
+-- the null is caused by the offending row and is not sticky, which is what
+-- makes E's null attributable to E. It also catches the opposite defect: a
+-- standard rate that stays null after the data is fixed is an alert that cannot
+-- be cleared, and an alert that cannot be cleared becomes furniture.
+--
+-- D AND E ALSO PIN units_picked MOVING, 10 -> 16 -> 10 -> 25. The view's header
+-- states that an unattributable or unpriced pick charge must be COUNTED and
+-- never dropped, because dropping it shrinks units, shrinks absorbed cost and
+-- reports a fictitious unfavourable variance. An inner join in pick_charges, or
+-- a `where rate is not null`, would leave units at 10 throughout and is caught
+-- twice. And implied_actual_rate is asserted in D and E precisely BECAUSE
+-- standard_rate is null there: the all-or-nothing nulling must not take the
+-- actual rate down with it, or the screen loses both halves of the comparison
+-- at once. Payroll is 2.00 and the three unit totals are 10, 16 and 25 so that
+-- all three quotients -- 0.20, 0.125, 0.08 -- terminate exactly and can be
+-- compared without a tolerance.
+-- ---------------------------------------------------------------------------
+do $$
+declare cid uuid; oid uuid;
+        ra uuid; rb uuid; rc uuid;
+        units numeric; unattrib numeric; dl numeric;
+        sr numeric; srb text; iar numeric;
+        vb jsonb; rows_found bigint;
+begin
+  select id into strict cid from clients where name = 'VERIFY-ONLY ledger_04';
+  insert into orders (client_id, order_key, order_number, source)
+    values (cid, 'VERIFY-LVI', 'VERIFY-LVI', 'zenventory') returning id into oid;
+
+  -- The rate card lines. These carry the VARIANT, which is the only route from
+  -- a pick charge to its cost rate (order_charges.rate_id -> variant). rate is
+  -- nullable since ledger_03_charges.sql:460 but is supplied anyway: a rate
+  -- card line with no price is a separate defect with its own detector, and
+  -- mixing it in here would make a failure ambiguous.
+  --
+  -- `service_type` is deliberately NOT named, even though it is `not null` with
+  -- no default in schema.sql:29. ledger_03_charges.sql:493 drops that not-null,
+  -- and its handler accepts "nullable OR gone" as the pass condition -- a
+  -- database where someone finished the job and dropped the superseded column
+  -- is in a better state, not a worse one. Naming it here would make this block
+  -- fail with 42703 on exactly that better database.
+  insert into client_warehouse_rates (client_id, charge_type, variant, rate,
+                                      effective_from, label)
+    values (cid, 'pick', 'VERIFY-A', 1.00, '2098-01-01', 'Verify pick A')
+    returning id into ra;
+  insert into client_warehouse_rates (client_id, charge_type, variant, rate,
+                                      effective_from, label)
+    values (cid, 'pick', 'VERIFY-B', 1.00, '2098-01-01', 'Verify pick B')
+    returning id into rb;
+  -- VERIFY-C exists on the rate card and deliberately gets NO cost_rates row.
+  insert into client_warehouse_rates (client_id, charge_type, variant, rate,
+                                      effective_from, label)
+    values (cid, 'pick', 'VERIFY-C', 1.00, '2098-01-01', 'Verify pick C')
+    returning id into rc;
+
+  -- What the picks cost US. effective_from is the 1st and effective_to is open,
+  -- so `cr.effective_from <= v.period_month` holds with equality -- the same
+  -- boundary the real seed relies on.
+  --
+  -- THE THIRD ROW IS A TRAP, not a fixture. The view's lateral matches
+  -- `cr.variant = v.variant`, and the whole reason an unattributable pick
+  -- charge nulls the month is that NULL = NULL is NULL, so a null variant
+  -- matches NOTHING -- including a variant-null cost row sitting right there.
+  -- That property cannot be observed against the real seed, because
+  -- ledger_06_seed_cost_rates.sql has variant-null rows for 'pack' and
+  -- 'storage' only and the lateral filters cost_type = 'pick' first. So the
+  -- fixture supplies the row the defect would need. If the join is ever
+  -- loosened to `is not distinct from`, or the variants coalesced to '', phase
+  -- D's null-variant charge picks up 9.0000 and the month reports a standard
+  -- rate of 3.4625 instead of the honest NULL. 9.0000 is absurd on purpose: it
+  -- is 18x the highest real rate here, so the wrong answer is unmistakable in
+  -- the failure message rather than plausible.
+  insert into cost_rates (cost_type, variant, unit, rate, effective_from, basis)
+    values ('pick', 'VERIFY-A', 'per_unit', 0.5000, '2098-01-01', 'estimated'),
+           ('pick', 'VERIFY-B', 'per_unit', 0.1000, '2098-01-01', 'measured'),
+           ('pick', null,       'per_unit', 9.0000, '2098-01-01', 'estimated');
+
+  -- Phase B. Two charges on VERIFY-B, not one, so `charges` is a count and
+  -- `units` a sum of quantity -- a view that confused the two would read 2
+  -- units for B instead of 9 and blend to 0.3666..., not 0.14.
+  -- cost/cost_basis are left null throughout: this view reads quantity and
+  -- rate_id only, and a null cost is the pair order_charges_cost_has_basis
+  -- permits.
+  insert into order_charges (order_id, client_id, rate_id, charge_key,
+                             charge_type, label, quantity, amount,
+                             charge_date, source)
+    values (oid, cid, ra, 'VERIFY-LVI:a1', 'pick', 'Pick A', 1, 1.00,
+            '2098-01-15', 'verify'),
+           (oid, cid, rb, 'VERIFY-LVI:b1', 'pick', 'Pick B', 4, 4.00,
+            '2098-01-15', 'verify'),
+           (oid, cid, rb, 'VERIFY-LVI:b2', 'pick', 'Pick B', 5, 5.00,
+            '2098-01-15', 'verify');
+
+  select units_picked, unattributable_pick_charges, direct_labor,
+         standard_rate, standard_rate_basis, implied_actual_rate,
+         variant_breakdown
+    into units, unattrib, dl, sr, srb, iar, vb
+  from labour_variance_inputs where period_month = '2098-01-01';
+
+  -- `is distinct from` throughout, as everywhere else in this file: a NULL on
+  -- the left of `<>` takes no branch and prints PASS. Here a NULL in `units`
+  -- specifically means the view returned NO ROW for the fixture month, which is
+  -- what a lost date_trunc in pick_charges looks like.
+  if units is distinct from 10 then
+    raise exception 'FAIL: units_picked is %, expected 10 (1 + 4 + 5). NULL '
+                    'means labour_variance_inputs returned no row at all for '
+                    '2098-01, i.e. the mid-month charge_date did not truncate '
+                    'to the 1st. 2 would mean charges are being counted where '
+                    'quantity should be summed.', units;
+  end if;
+  if sr is distinct from 0.14 then
+    raise exception 'FAIL: standard_rate is %, expected 0.14 -- the '
+                    'units-weighted blend (1*0.5000 + 9*0.1000) / 10. Compare: '
+                    '0.30 is a plain avg(rate) over the two variants, which '
+                    'overstates the standard and reports a large FAVOURABLE '
+                    'variance that is not there; 0.50 or 0.10 is a '
+                    'cross-variant rate lookup picking one variant''s rate and '
+                    'applying it to both variants'' units.', sr;
+  end if;
+  if srb is distinct from 'estimated' then
+    raise exception 'FAIL: standard_rate_basis is %, expected estimated. One '
+                    'contributing rate is estimated and one is measured, and '
+                    'the WEAKEST must win -- measured here would present a '
+                    'placeholder cost rate to the operator as a measured one.',
+                    srb;
+  end if;
+  if unattrib is distinct from 0 then
+    raise exception 'FAIL: unattributable_pick_charges is %, expected 0. Every '
+                    'charge in this phase carries a rate_id that resolves to a '
+                    'variant.', unattrib;
+  end if;
+  -- The null-not-zero property, in the direction that flatters. A 0 here would
+  -- report the whole standard cost as a favourable variance.
+  if dl is not null then
+    raise exception 'FAIL: direct_labor is % with no payroll entered for the '
+                    'month; unknown payroll is being reported as zero, which '
+                    'shows the entire absorbed cost as a saving', dl;
+  end if;
+  if iar is not null then
+    raise exception 'FAIL: implied_actual_rate is % with no payroll entered; it '
+                    'is unknown, not zero', iar;
+  end if;
+
+  -- variant_breakdown, the only other column of this view and previously the
+  -- only one with no assertion at all. §5.3.2 asks for the components beside
+  -- the blend "so the cause is visible rather than inferred from one number" --
+  -- which means the breakdown is not decoration, it is the thing an operator
+  -- reads to find out WHICH variant moved. A blend of 0.14 that cannot be
+  -- explained is a number nobody can act on.
+  if jsonb_array_length(vb) is distinct from 2 then
+    raise exception 'FAIL: variant_breakdown holds % entries, expected 2 (one '
+                    'per variant, not one per charge -- there are 3 charges)',
+                    jsonb_array_length(vb);
+  end if;
+  -- First entry, because the agg is `order by variant nulls last` and
+  -- VERIFY-A sorts before VERIFY-B. Asserting the ORDER matters: the null
+  -- entry's position is what phase D checks, and an unordered jsonb_agg is
+  -- non-deterministic rather than merely differently sorted.
+  if vb->0->>'variant' is distinct from 'VERIFY-A' then
+    raise exception 'FAIL: variant_breakdown[0].variant is %, expected '
+                    'VERIFY-A; the agg has lost its ORDER BY and the array is '
+                    'in whatever order the planner emitted', vb->0->>'variant';
+  end if;
+  if (vb->0->>'units')::numeric is distinct from 1
+     or (vb->0->>'standard_rate')::numeric is distinct from 0.5000 then
+    raise exception 'FAIL: variant_breakdown[0] is %, expected 1 unit at '
+                    '0.5000. The breakdown must carry the PER-VARIANT rate, '
+                    'not the blend repeated.', vb->0;
+  end if;
+  if (vb->1->>'units')::numeric is distinct from 9
+     or (vb->1->>'standard_rate')::numeric is distinct from 0.1000 then
+    raise exception 'FAIL: variant_breakdown[1] is %, expected 9 units at '
+                    '0.1000', vb->1;
+  end if;
+  raise notice 'PASS: standard_rate is the units-weighted 0.14, basis is the '
+               'weakest of the two, unentered payroll stays null, and the '
+               'breakdown explains the blend';
+
+  -- Phase C. Payroll arrives, mid-month again so the payroll CTE's own
+  -- date_trunc is exercised independently of pick_charges'.
+  insert into operating_costs (period_month, category, amount, allocation)
+    values ('2098-01-20', 'VERIFY-pickers', 2.00, 'direct_labor');
+
+  select units_picked, direct_labor, standard_rate, implied_actual_rate
+    into units, dl, sr, iar
+  from labour_variance_inputs where period_month = '2098-01-01';
+
+  if dl is distinct from 2.00 then
+    raise exception 'FAIL: direct_labor is %, expected 2.00. NULL means the '
+                    'mid-month operating_costs row did not join to the 1st, '
+                    'i.e. the payroll CTE has lost its date_trunc -- the month '
+                    'would read "payroll not entered" with the payroll sitting '
+                    'in the table. 1000.00, 2000.00 or 500.00 would mean the '
+                    'allocation filter is matching the pnl block''s rows.', dl;
+  end if;
+  if iar is distinct from 0.20 then
+    raise exception 'FAIL: implied_actual_rate is %, expected 0.20 (2.00 over '
+                    '10 units). This is the figure compared against '
+                    'standard_rate, so a wrong denominator here inverts the '
+                    'sign of the variance.', iar;
+  end if;
+  -- Entering payroll must not disturb the pick side. The months CTE is a UNION
+  -- and a mis-written join could duplicate the pick rows against the payroll
+  -- row and double units.
+  if units is distinct from 10 then
+    raise exception 'FAIL: units_picked became % once payroll existed, expected '
+                    '10. The payroll join is multiplying the pick side.', units;
+  end if;
+  if sr is distinct from 0.14 then
+    raise exception 'FAIL: standard_rate became % once payroll existed, '
+                    'expected 0.14', sr;
+  end if;
+  raise notice 'PASS: payroll joins by truncated month and implied_actual_rate '
+               'is 0.20 against a standard of 0.14';
+
+  -- Phase D. A pick charge with no rate_id at all, so no recoverable variant.
+  -- A NULL variant matches no cost_rates row -- NULL = NULL is NULL -- which is
+  -- what makes it null the month's rate rather than quietly borrowing the
+  -- variant-null cost row that ledger_06_seed_cost_rates.sql deliberately
+  -- leaves in the table.
+  insert into order_charges (order_id, client_id, rate_id, charge_key,
+                             charge_type, label, quantity, amount,
+                             charge_date, source)
+    values (oid, cid, null, 'VERIFY-LVI:x1', 'pick', 'Pick unattributed', 6,
+            6.00, '2098-01-15', 'verify');
+
+  select units_picked, unattributable_pick_charges, standard_rate,
+         standard_rate_basis, implied_actual_rate, variant_breakdown
+    into units, unattrib, sr, srb, iar, vb
+  from labour_variance_inputs where period_month = '2098-01-01';
+
+  if unattrib is distinct from 1 then
+    raise exception 'FAIL: unattributable_pick_charges is %, expected 1. A '
+                    'pick charge with a null or dangling rate_id has no '
+                    'recoverable variant, and this column is the only place '
+                    'that says so. 0 here means the row was dropped by the '
+                    'join instead of counted.', unattrib;
+  end if;
+  if units is distinct from 16 then
+    raise exception 'FAIL: units_picked is %, expected 16 (10 + 6). 10 means '
+                    'the unattributable charge was DROPPED rather than '
+                    'counted, which shrinks absorbed cost and reports a '
+                    'fictitious unfavourable variance -- the pick_charges join '
+                    'must stay a LEFT join.', units;
+  end if;
+  if sr is not null then
+    raise exception 'FAIL: standard_rate is % with an unattributable charge '
+                    'present; it must be NULL for the whole month. 0.14 means '
+                    'the charge was excluded from the blend, and 0.0875 means '
+                    'its units stayed in the denominator while its cost was '
+                    'treated as zero. Both understate absorbed cost and report '
+                    'an overspend that never happened. 3.4625 means the null '
+                    'variant MATCHED the variant-null cost row this block '
+                    'seeds as a trap, i.e. the lateral join is no longer an '
+                    'exact equality.', sr;
+  end if;
+  if srb is not null then
+    raise exception 'FAIL: standard_rate_basis is % while standard_rate is '
+                    'null; a basis for a rate that does not exist will be '
+                    'rendered as a caveat on a blank figure. estimated here '
+                    'means the outer gate on any_rate_missing was dropped and '
+                    'only the inner weakest-basis case survives.', srb;
+  end if;
+  if iar is distinct from 0.125 then
+    raise exception 'FAIL: implied_actual_rate is %, expected 0.125 (2.00 over '
+                    '16 units). It must survive standard_rate going null: '
+                    'losing both halves at once leaves the screen with nothing '
+                    'to show and no reason given.', iar;
+  end if;
+
+  -- The breakdown is the ONLY place that says which variant caused the null.
+  -- standard_rate is blank and standard_rate_basis is blank, so without this
+  -- array the month renders as "no standard rate" with no reason attached --
+  -- and the operator's next move, add a cost rate for WHICH variant, is
+  -- unanswerable. `nulls last` is therefore a contract and not a tidiness
+  -- preference: the degraded entry sits at the end where the screen can
+  -- render it as the exception.
+  if jsonb_array_length(vb) is distinct from 3 then
+    raise exception 'FAIL: variant_breakdown holds % entries, expected 3 -- the '
+                    'unattributable charge must appear as its own entry, not '
+                    'be folded into another variant or dropped',
+                    jsonb_array_length(vb);
+  end if;
+  -- `->>` over a JSON null yields SQL NULL, which is what "no variant" has to
+  -- look like here. A non-null value in the last slot means the agg ordered
+  -- the null first, or named the variant something.
+  if vb->2->>'variant' is not null then
+    raise exception 'FAIL: variant_breakdown[2].variant is %, expected the '
+                    'null-variant entry last (`order by variant nulls last`). '
+                    'The degraded entry sorting first pushes a real variant '
+                    'into the slot the screen flags as the exception.',
+                    vb->2->>'variant';
+  end if;
+  if (vb->2->>'units')::numeric is distinct from 6 then
+    raise exception 'FAIL: variant_breakdown[2].units is %, expected 6 -- the '
+                    'units whose cost cannot be stated are the figure that '
+                    'tells the operator how much of the month is affected',
+                    vb->2->>'units';
+  end if;
+  if vb->2->>'standard_rate' is not null then
+    raise exception 'FAIL: variant_breakdown[2].standard_rate is %, expected '
+                    'null. A number here means the null-variant entry found a '
+                    'cost rate, which is the same defect the 3.4625 case above '
+                    'describes.', vb->2->>'standard_rate';
+  end if;
+  raise notice 'PASS: an unattributable pick charge is counted in units, nulls '
+               'the month''s standard rate, is named by its own counter, and '
+               'appears last in the breakdown with its units and a null rate';
+
+  -- Phase D2. Delete the offending charge. Everything must come BACK.
+  --
+  -- This is the phase that makes phase E meaningful, and it is worth having on
+  -- its own account: a standard rate that stays null after the data is fixed is
+  -- an alert nobody can clear, and the operator learns to scroll past it. Same
+  -- reasoning as the per-run delta in the Zenventory sync -- a detector that
+  -- cannot return to the quiet state is not a detector.
+  delete from order_charges where charge_key = 'VERIFY-LVI:x1' and order_id = oid;
+
+  select units_picked, unattributable_pick_charges, standard_rate,
+         standard_rate_basis, implied_actual_rate
+    into units, unattrib, sr, srb, iar
+  from labour_variance_inputs where period_month = '2098-01-01';
+
+  if units is distinct from 10 then
+    raise exception 'FAIL: units_picked is % after deleting the unattributable '
+                    'charge, expected 10', units;
+  end if;
+  if unattrib is distinct from 0 then
+    raise exception 'FAIL: unattributable_pick_charges is % after the offending '
+                    'charge was deleted, expected 0', unattrib;
+  end if;
+  if sr is distinct from 0.14 then
+    raise exception 'FAIL: standard_rate is % after the offending charge was '
+                    'deleted, expected 0.14 again. A null here means the view '
+                    'cannot return to the quiet state once a month has been '
+                    'degraded -- an alert that cannot be cleared stops being '
+                    'read.', sr;
+  end if;
+  if srb is distinct from 'estimated' then
+    raise exception 'FAIL: standard_rate_basis is % after the offending charge '
+                    'was deleted, expected estimated again', srb;
+  end if;
+  if iar is distinct from 0.20 then
+    raise exception 'FAIL: implied_actual_rate is % after the offending charge '
+                    'was deleted, expected 0.20 again', iar;
+  end if;
+  raise notice 'PASS: removing the offending charge restores 0.14 -- the null '
+               'tracks the condition and is not latched';
+
+  -- Phase E. A variant that IS attributable but has no cost rate. The standard
+  -- rate must go null again, for a different reason, and the counter must NOT
+  -- move. ALL-OR-NOTHING: blending over only the covered subset would
+  -- understate absorbed cost and report a leak that is not there.
+  insert into order_charges (order_id, client_id, rate_id, charge_key,
+                             charge_type, label, quantity, amount,
+                             charge_date, source)
+    values (oid, cid, rc, 'VERIFY-LVI:c1', 'pick', 'Pick C', 15, 15.00,
+            '2098-01-15', 'verify');
+
+  select units_picked, unattributable_pick_charges, standard_rate,
+         standard_rate_basis, implied_actual_rate
+    into units, unattrib, sr, srb, iar
+  from labour_variance_inputs where period_month = '2098-01-01';
+
+  if unattrib is distinct from 0 then
+    raise exception 'FAIL: unattributable_pick_charges is %, expected 0. This '
+                    'charge IS attributable -- its rate card line names '
+                    'VERIFY-C -- it simply has no cost rate. Counting it here '
+                    'means the column is filtering on a null RATE rather than '
+                    'a null VARIANT, and it would send the operator to look '
+                    'for a broken rate_id when the fix is to add a cost rate.',
+                    unattrib;
+  end if;
+  if units is distinct from 25 then
+    raise exception 'FAIL: units_picked is %, expected 25 (10 + 15). 10 means '
+                    'the unpriced variant''s units were dropped, which is the '
+                    'same fictitious unfavourable variance as in phase D by a '
+                    'different route -- a `where rate is not null` in priced '
+                    'or per_variant.', units;
+  end if;
+  if sr is not null then
+    raise exception 'FAIL: standard_rate is % with one variant''s cost rate '
+                    'absent; it must be NULL for the whole month. 0.14 means '
+                    'the uncovered variant was excluded from the blend, and '
+                    '0.056 means its units were kept in the denominator while '
+                    'its cost was treated as zero.', sr;
+  end if;
+  if srb is not null then
+    raise exception 'FAIL: standard_rate_basis is % while standard_rate is '
+                    'null', srb;
+  end if;
+  if iar is distinct from 0.08 then
+    raise exception 'FAIL: implied_actual_rate is %, expected 0.08 (2.00 over '
+                    '25 units)', iar;
+  end if;
+  raise notice 'PASS: an unpriced variant nulls the month''s standard rate '
+               'without dropping its units and without being miscounted as '
+               'unattributable';
+
+  -- Phase F, in its own month. Payroll with no picks at all -- a shutdown
+  -- month, or any month where payroll is entered before the charge calculator
+  -- has run. This is 100%-unabsorbed labour, the largest unfavourable variance
+  -- there is, and if `months` were the pick side left-joined to payroll instead
+  -- of a UNION the month would produce NO ROW and be invisible.
+  insert into operating_costs (period_month, category, amount, allocation)
+    values ('2098-02-10', 'VERIFY-pickers-idle', 700.00, 'direct_labor');
+
+  -- Counted first, and separately. units_picked is coalesced to 0 inside the
+  -- view, so it can never be null in a row that exists -- which means "row
+  -- missing" and "row present with no picks" are indistinguishable from the
+  -- column alone, and the assertion below would report the missing-row case as
+  -- a wrong number rather than as the structural failure it is.
+  select count(*) into rows_found
+  from labour_variance_inputs where period_month = '2098-02-01';
+
+  if rows_found is distinct from 1 then
+    raise exception 'FAIL: labour_variance_inputs returns % rows for a month '
+                    'with payroll and no picks, expected 1. 0 means the months '
+                    'CTE is no longer a UNION of both sides, so a fully '
+                    'unabsorbed payroll month -- the largest unfavourable '
+                    'variance there is -- reports nothing at all.', rows_found;
+  end if;
+
+  select units_picked, unattributable_pick_charges, direct_labor,
+         standard_rate, implied_actual_rate
+    into units, unattrib, dl, sr, iar
+  from labour_variance_inputs where period_month = '2098-02-01';
+
+  -- 0, not null, and the distinction is the whole null-versus-zero doctrine:
+  -- order_charges holds no pick charge in this month, which is a MEASURED zero.
+  if units is distinct from 0 then
+    raise exception 'FAIL: units_picked is % for a month with no pick charges, '
+                    'expected 0. NULL means the coalesce was dropped: nobody '
+                    'picked anything is a measured zero, not an unknown.',
+                    units;
+  end if;
+  if unattrib is distinct from 0 then
+    raise exception 'FAIL: unattributable_pick_charges is %, expected 0', unattrib;
+  end if;
+  if dl is distinct from 700.00 then
+    raise exception 'FAIL: direct_labor is %, expected 700.00 for the '
+                    'payroll-only month', dl;
+  end if;
+  -- Both null because there is nothing to divide by. The guards are
+  -- `units_picked > 0`, so losing them is a division by zero, not a wrong
+  -- number -- it would abort the view for every caller.
+  if sr is not null then
+    raise exception 'FAIL: standard_rate is % with zero units picked', sr;
+  end if;
+  if iar is not null then
+    raise exception 'FAIL: implied_actual_rate is % with zero units picked; '
+                    'with no units there is no per-unit rate to state', iar;
+  end if;
+  raise notice 'PASS: a payroll-only month appears, with a measured zero units '
+               'and no fabricated per-unit rates';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- order_charges_unattributed_key: the unique index covering a charge with BOTH
+-- order_id and client_id null. It had no test.
+--
+-- ledger_03_charges.sql:321-331 is explicit that no path in the plan produces
+-- such a row, and that the index exists anyway because "unreachable" is a claim
+-- about code not yet written while the cost of being wrong is asymmetric: with
+-- no constraint, the thrice-daily cron inserts a fresh copy of the same charge
+-- every run and the ledger inflates while still looking plausible. An index
+-- nothing exercises is also an index nobody notices the loss of -- the two
+-- partial indexes beside it were reworked once already (the order_key one was
+-- converted from partial to non-partial in that same file), and a future edit
+-- to this one would be silent.
+--
+-- The duplicate insert is wrapped in its own BEGIN/EXCEPTION, which opens a
+-- savepoint: the failed statement rolls back to it and the outer transaction
+-- survives, so the blocks after this one still run. Same shape as the
+-- constraint-adding blocks in ledger_02 and ledger_03.
+--
+-- Its own month, 2097-01, on the same no-collision grounds as the two blocks
+-- above. These rows have no client_id, so they are invisible to every
+-- client-scoped assertion, but pnl_monthly is business-wide and sums
+-- order_charges.amount for whatever month they land in.
+-- ---------------------------------------------------------------------------
+do $$
+declare dup_rejected boolean := false; n bigint;
+begin
+  insert into order_charges (order_id, client_id, charge_key, charge_type,
+                             label, amount, charge_date, source)
+    values (null, null, 'VERIFY-UNATTRIB-1', 'storage', 'Verify unattributed 1',
+            1.00, '2097-01-01', 'verify');
+
+  -- Positive control, and it has to come before the duplicate attempt. Without
+  -- it, an index defined over the wrong column -- or a check constraint
+  -- rejecting these rows outright -- would make the duplicate fail for the
+  -- wrong reason and this block would report a pass. A second row with a
+  -- DIFFERENT key must be accepted.
+  insert into order_charges (order_id, client_id, charge_key, charge_type,
+                             label, amount, charge_date, source)
+    values (null, null, 'VERIFY-UNATTRIB-2', 'storage', 'Verify unattributed 2',
+            1.00, '2097-01-01', 'verify');
+
+  begin
+    insert into order_charges (order_id, client_id, charge_key, charge_type,
+                               label, amount, charge_date, source)
+      values (null, null, 'VERIFY-UNATTRIB-1', 'storage',
+              'Verify unattributed 1 again', 1.00, '2097-01-01', 'verify');
+  exception when unique_violation then
+    dup_rejected := true;
+  end;
+
+  -- `is not true`, and `dup_rejected` is initialised to false rather than left
+  -- to default to NULL. Either alone would do; both are here because `if not
+  -- dup_rejected` over a NULL takes no branch and prints PASS, which is the
+  -- failure direction this block exists to rule out.
+  if dup_rejected is not true then
+    raise exception 'FAIL: a second order_charges row with the same charge_key '
+                    'and both order_id and client_id null was ACCEPTED. '
+                    'order_charges_unattributed_key is missing or no longer '
+                    'covers these rows, so a repeated calculator run appends '
+                    'a fresh copy of the same charge instead of colliding.';
+  end if;
+
+  select count(*) into n from order_charges
+  where order_id is null and client_id is null
+    and charge_key in ('VERIFY-UNATTRIB-1', 'VERIFY-UNATTRIB-2');
+
+  if n is distinct from 2 then
+    raise exception 'FAIL: % of the 2 distinct-key unattributed charges are '
+                    'present, expected 2. Fewer means the index is rejecting '
+                    'rows it should admit, so the duplicate above was refused '
+                    'for the wrong reason and the assertion proved nothing.', n;
+  end if;
+  raise notice 'PASS: order_charges_unattributed_key admits distinct keys and '
+               'rejects a repeat';
 end $$;
 
 -- ---------------------------------------------------------------------------
