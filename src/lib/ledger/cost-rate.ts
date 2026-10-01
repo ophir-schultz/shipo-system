@@ -16,6 +16,29 @@
 // last month's margin. effective_from is inclusive and effective_to exclusive,
 // matching the '[)' daterange in the cost_rates exclusion constraint.
 
+// cost_type is deliberately NOT constrained, here or in ledger_02_cost.sql,
+// and that is a decision rather than an omission -- `basis` immediately below
+// IS constrained, so the difference needs stating.
+//
+// Two different sets get confused into one when you try. The cost types the
+// CODE looks up are closed and tiny: 'pick' and 'pack' (calculate-charges.ts)
+// and 'storage' (storage-charges.ts). The cost types the TABLE may legitimately
+// hold are open, because the point of this table is to record an agreed cost
+// before anything bills against it -- ledger_06 seeds two 'material' rows that
+// nothing looks up, exactly as ledger_05 seeds twelve rate lines that are not
+// yet billable. A check constraint listing the code's three values would
+// reject those; one listing everything currently seeded would be a list of
+// whatever happens to be in the file, constraining nothing.
+//
+// And the failure it would guard against is already announced. A cost_type
+// nobody can match -- typo'd in a seed file, or typo'd at a call site -- makes
+// findCostRate return `{ known: false }`, which writes cost null, which
+// pnl_client_monthly counts as cost_unknown_charges and pnl_monthly's
+// net_profit refuses to compute a month from at all. The unknown-versus-zero
+// machinery this module exists for IS the guard. Compare charge_type in
+// order_charges, which has no such backstop: a typo there is billed in full
+// and simply vanishes from the leak views, with nothing anywhere saying so.
+// That one is constrained (ledger_03_charges.sql).
 export interface CostRateRow {
   id: string
   cost_type: string

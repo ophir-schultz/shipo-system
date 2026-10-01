@@ -9,9 +9,32 @@
  * See the ledger spec, section 5.2.
  */
 
-export type ChargeType =
-  | 'shipping' | 'pick' | 'pack' | 'material'
-  | 'storage' | 'receiving' | 'surcharge' | 'return'
+/**
+ * Every value `order_charges.charge_type` is allowed to hold.
+ *
+ * A runtime array with the type derived from it, rather than a bare union,
+ * because this list has to exist in two languages. Three views select on exact
+ * literals of it -- leaks_monthly's picked_never_billed and
+ * shipped_never_billed (ledger_04_views.sql:185, :224) and
+ * labour_variance_inputs (:464) -- so the column is really an enum that
+ * Postgres was never told about, and ledger_03_charges.sql now carries the
+ * matching check constraint. SQL cannot import a TypeScript union, so the
+ * second copy is unavoidable; what is avoidable is the two copies drifting
+ * apart silently, and charge-key.test.ts reads the literal list back out of
+ * the .sql file and asserts it equals this array. Adding a charge type in one
+ * language and not the other is then a failing test rather than a leak report
+ * that quietly stops mentioning a category.
+ *
+ * `as const` is what makes the derived type a union of literals instead of
+ * `string`, so dropping the assertion silently turns ChargeType into string
+ * and disarms every use below.
+ */
+export const CHARGE_TYPES = [
+  'shipping', 'pick', 'pack', 'material',
+  'storage', 'receiving', 'surcharge', 'return',
+] as const
+
+export type ChargeType = (typeof CHARGE_TYPES)[number]
 
 export class BlankIdentifierError extends Error {
   constructor(field: string, chargeType: ChargeType) {

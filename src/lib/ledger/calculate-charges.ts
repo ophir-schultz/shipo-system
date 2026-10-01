@@ -1,4 +1,4 @@
-import { chargeKey } from '@/lib/ledger/charge-key'
+import { chargeKey, type ChargeType } from '@/lib/ledger/charge-key'
 import { findCostRate, costOf, type CostRateRow } from '@/lib/ledger/cost-rate'
 
 // Builds order_charges rows. Pure: no database, no clock, no randomness.
@@ -40,7 +40,22 @@ export type ChargeWarn = (context: string, detail: string) => void
 
 export interface BuiltCharge {
   order_id: string; client_id: string | null; charge_key: string
-  charge_type: string; label: string; quantity: number | null
+  // ChargeType, not string, and the distinction is not cosmetic. chargeKey()
+  // below takes a typed ChargeKeyInput, so the KEY side of every charge has
+  // always been typo-proof -- while the charge_type written on the very next
+  // line of the same object literal was plain `string`. `chargeKey({
+  // chargeType: 'pick', ... })` beside `charge_type: 'Pick'` compiled, and the
+  // union in charge-key.ts looked like it was guarding something it was not.
+  //
+  // What that costs is a charge that bills correctly and then disappears from
+  // the instruments: leaks_monthly asks `not exists (... and c.charge_type =
+  // 'pick')` (ledger_04_views.sql:185), so the order reports as picked and
+  // never billed when it was billed, and labour_variance_inputs (:464) loses
+  // the line entirely. The failure is in the conservative direction -- it
+  // invents a leak rather than hiding one -- which is worse than it sounds,
+  // because the leak views are the only instrument here and one that cries
+  // wolf is one that stops being read.
+  charge_type: ChargeType; label: string; quantity: number | null
   // `amount` is nullable for exactly the reason `cost` is, and it carries
   // exactly the same distinction: null is "we do not know yet", 0 is "we billed
   // nothing". Three paths produce one, all three on shipping, and each is a

@@ -99,6 +99,87 @@ exception when others then
   raise notice 'order_charges.amount was already nullable';
 end $$;
 
+-- charge_type is an enum that Postgres was never told about.
+--
+-- Three places select on exact literals of it: leaks_monthly's
+-- picked_never_billed (ledger_04_views.sql:185) and shipped_never_billed
+-- (:224), and labour_variance_inputs (:464). A row written 'Pick' is therefore
+-- billed in full and counted in pnl_client_monthly -- which groups BY
+-- charge_type, so it shows up as its own 'Pick' line and the revenue is not
+-- lost -- while being invisible to all three of those. The order then reports
+-- as picked and never billed when it was billed.
+--
+-- That is the conservative direction: it invents a leak rather than hiding
+-- one. Which is worse than it sounds. The leak views are the only instrument
+-- in this ledger that goes looking for work that was done and not charged for,
+-- and an instrument that reports a leak you can go and disprove is one you
+-- stop reading. The expensive failure is not the false row, it is the habit.
+--
+-- The eight values are the same set charge-key.ts declares as CHARGE_TYPES
+-- (src/lib/ledger/charge-key.ts), which since this commit is a runtime array
+-- rather than a bare type union specifically so that this list can be checked
+-- against it: src/lib/ledger/charge-key.test.ts reads the literals back out of
+-- THIS FILE and asserts set equality. SQL cannot import a TypeScript union, so
+-- a second copy is unavoidable; a second copy that can drift is not. Add a
+-- charge type to one language and not the other and that test fails.
+--
+-- Not an enum TYPE, deliberately. `create type ... as enum` cannot have a
+-- value removed and, before PG12, could not have one added inside a
+-- transaction -- so the next charge type would need its own migration dance.
+-- A check constraint is dropped and re-added by this file on every apply.
+do $$
+declare
+  offending text;
+begin
+  alter table order_charges add constraint order_charges_charge_type_valid
+    check (charge_type in ('shipping','pick','pack','material',
+                           'storage','receiving','surcharge','return'));
+  raise notice 'order_charges_charge_type_valid added';
+exception
+  when duplicate_object then
+    raise notice 'order_charges_charge_type_valid already present';
+  when check_violation then
+    -- The failed ALTER is rolled back to this block's savepoint, so the table
+    -- is readable here. Name the bad values: "some row" does not tell the
+    -- operator which charge to go and look at. Same shape as
+    -- cost_rates_basis_valid (ledger_02_cost.sql:50-75), on purpose -- this is
+    -- the second instance of the pattern and the next one should copy it too.
+    select string_agg(quoted, ', ')
+      into offending
+      from (select distinct quote_literal(charge_type) as quoted
+              from order_charges
+             where charge_type not in ('shipping','pick','pack','material',
+                                       'storage','receiving','surcharge','return')) bad;
+
+    -- `offending` is NULL only if the ALTER raised check_violation while this
+    -- query finds nothing to blame -- a DIFFERENT check constraint on
+    -- order_charges failing. Saying that beats printing an empty value list and
+    -- a hint whose query ends in `in ()`, which reads as "no rows are wrong"
+    -- and sends the operator looking for a problem that is not there.
+    if offending is null then
+      raise exception 'order_charges_charge_type_valid NOT added: the ALTER '
+        'raised check_violation, but no order_charges row holds an invalid '
+        'charge_type. Some OTHER check constraint on order_charges is being '
+        'violated. Run the ALTER by hand to see which one.';
+    end if;
+
+    -- The hint re-uses `offending` rather than re-listing the eight valid
+    -- values, and that is the point: a third copy of the list would sit inside
+    -- a doubled-quoted string that charge-key.test.ts cannot read, so it would
+    -- be the copy that drifts, and the wrong-but-plausible query it produced
+    -- would tell the operator a bad row is fine. Interpolating the values the
+    -- block just found gives a query that is correct by construction and
+    -- narrower than the negated form besides.
+    raise exception
+      'order_charges_charge_type_valid NOT added: order_charges already holds invalid charge_type value(s): %', offending
+      using hint = 'Every one of those rows is billed but missing from '
+        || 'leaks_monthly and labour_variance_inputs. Locate them with: '
+        || 'select id, client_id, charge_key, charge_type, charge_date, amount '
+        || 'from order_charges where charge_type in (' || offending || '); '
+        || 'correct charge_type in place -- do NOT delete them, the revenue is '
+        || 'real -- then re-run this file.';
+end $$;
+
 -- Two unique indexes, for the same reason `orders` needed two. Not every charge
 -- belongs to an order: storage is billed monthly against a client, and
 -- unattributed label spend belongs to neither. A single
