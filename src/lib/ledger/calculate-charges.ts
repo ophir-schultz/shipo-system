@@ -43,10 +43,16 @@ export interface BuiltCharge {
   charge_type: string; label: string; quantity: number | null
   // `amount` is nullable for exactly the reason `cost` is, and it carries
   // exactly the same distinction: null is "we do not know yet", 0 is "we billed
-  // nothing". The only path producing a null today is an at-cost freight line
-  // whose carrier cost has not been reported — the client WILL be invoiced that
-  // figure once it arrives, so 0 understates revenue and reads in every
-  // downstream view as a label we gave away free.
+  // nothing". Three paths produce one, all three on shipping, and each is a
+  // different question for whoever reads the alert:
+  //   - an at-cost freight line whose carrier cost has not been reported yet;
+  //   - no shipping rate line in effect on the ship date at all;
+  //   - a line that IS in effect but whose `rate` cell is empty.
+  // In every case the client WILL be invoiced once the figure exists, so 0
+  // understates revenue and reads in every downstream view as a label we gave
+  // away free. Each path warns separately; pnl_client_monthly counts them all
+  // as revenue_unknown_charges and nulls the month's margin rather than
+  // reporting a flattered one.
   unit_rate: number | null; amount: number | null; cost: number | null
   cost_basis: string | null; rate_id: string | null; cost_rate_id: string | null
   charge_date: string; charge_date_source: string; source: string
@@ -135,7 +141,40 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     const rate = rateFor('pick', variant, item.pickDate)
     // No rate card line means we have not agreed a price. Inventing one would
     // be worse than the gap; the gap shows up as "picked but never billed".
-    if (!rate || rate.rate === null) continue
+    //
+    // THE ROW IS STILL NOT EMITTED, unlike the shipping branch below, and the
+    // difference is the error direction rather than taste. A dropped shipping
+    // charge loses `actualCost` — money that left the bank — and flatters the
+    // P&L with no detector. A dropped pick charge loses UNITS, and
+    // labour_variance_inputs derives units_picked from these very rows
+    // (ledger_04_views.sql), so fewer units means less absorbed labour and a
+    // variance that reads UNFAVOURABLE. It overstates the problem, which is the
+    // recoverable direction, and `unpricedOrders` in persist-charges.ts counts
+    // the order either way.
+    //
+    // What was missing was the NAME. Both conditions `continue`d in silence, so
+    // the order appeared in a count with nothing to say which line or why, and
+    // the two causes need different actions: no line in effect on the pick date
+    // (add one, or extend an effective_to) versus a line whose rate cell is
+    // empty (fill it). A count with no names is a prompt to go and read the
+    // whole rate card, which is how a true alert becomes something people stop
+    // acting on.
+    if (!rate) {
+      onWarn?.('unpriced pick', `client ${clientId ?? 'unattributed'}: order `
+        + `${input.order.id} line ${item.id} (sku ${item.sku ?? 'none'}) picked `
+        + `${qty} ${variant} on ${item.pickDate}, and no pick rate for that `
+        + `variant is in effect on that date, so no pick charge was built and `
+        + `the work is unbilled.`)
+      continue
+    }
+    if (rate.rate === null) {
+      onWarn?.('rate card line with no rate', `client ${clientId ?? 'unattributed'}: `
+        + `the ${rate.rateType} pick/${variant} line in effect on ${item.pickDate} `
+        + `(rate_id ${rate.id}) carries no rate, so order ${input.order.id} line `
+        + `${item.id} (${qty} picked) was not billed. Fill in the rate on that `
+        + `rate card line.`)
+      continue
+    }
 
     const lookup = findCostRate(input.costRates, {
       costType: 'pick', variant, chargeDate: item.pickDate,
@@ -256,6 +295,28 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
         + `${s.shipmentId}; the carrier cost `
         + `${s.actualCost === null ? '(unreported)' : s.actualCost.toFixed(2)} is `
         + `recorded and the amount left null (unknown, not zero)`)
+    // A SECOND WAY TO HAVE NO PRICE, and it used to be the quiet one. The arm
+    // below read `(rate.rate ?? 0)`, so a card that HAS a shipping line whose
+    // `rate` column is null billed the label at exactly $0 — a confident claim
+    // of free freight, on the one charge type where we know money left the bank.
+    // The comment above argues the null-versus-zero case for at_cost and the
+    // fallback then reintroduced it for flat; spec §7 lists a null `rate` on a
+    // type other than at_cost as a data error to report, not a price to use.
+    //
+    // Separate from `!rate` because it sends someone somewhere else: `!rate`
+    // means no line is in effect on this date (add one, or extend an
+    // effective_to), whereas this means the line exists and its rate cell is
+    // empty (fill that cell). Both now produce amount null, which
+    // pnl_client_monthly counts as revenue_unknown_charges and which nulls the
+    // month's margin rather than overstating it.
+    } else if (rate.rateType !== 'at_cost' && rate.rate === null) {
+      onWarn?.('rate card line with no rate', `client ${clientId ?? 'unattributed'}: `
+        + `the ${rate.rateType} shipping line in effect on ${s.shipDate} `
+        + `(rate_id ${rate.id}) carries no rate, so shipment ${s.shipmentId} was `
+        + `recorded with its carrier cost `
+        + `${s.actualCost === null ? '(unreported)' : s.actualCost.toFixed(2)} and `
+        + `the amount left null (unknown, not zero). Fill in the rate on that `
+        + `rate card line to bill it.`)
     }
 
     // A voided label was refunded, so it contributes nothing to measured cost.
@@ -277,10 +338,15 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // Nulling it because the card is silent would manufacture an unknown out of
     // a fact we have. Above the voided test, null is the only honest answer:
     // nobody has agreed a price, so the revenue is not zero, it is unknown.
+    //
+    // `rate.rate` with NO `?? 0`. The fallback was the same mistake one line
+    // up, in the arm that is supposed to be the known-price case: it turned an
+    // empty rate cell into a billed zero. A null here is the honest answer and
+    // is reported by the warning above.
     const amount = s.voided ? 0
                  : !rate ? null
                  : rate.rateType === 'at_cost' ? s.actualCost
-                 : (rate.rate ?? 0)
+                 : rate.rate
 
     out.push({
       order_id: input.order.id,

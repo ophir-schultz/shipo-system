@@ -21,7 +21,10 @@ export class BlankIdentifierError extends Error {
 }
 
 export type ChargeKeyInput =
-  | { chargeType: 'shipping' | 'return'; shipmentId: string }
+  | { chargeType: 'shipping'; shipmentId: string }
+  // Its own shape rather than sharing shipping's, so that the two cannot be
+  // written as one `case` again. See the 'return' arm below for what that cost.
+  | { chargeType: 'return'; shipmentId: string }
   | { chargeType: 'surcharge'; shipmentId: string; surchargeCode: string }
   | { chargeType: 'pick' | 'pack' | 'receiving'; orderItemId: string }
   | { chargeType: 'material'; orderItemId: string; variant: string }
@@ -46,8 +49,28 @@ function require_(value: unknown, field: string, chargeType: ChargeType): string
 export function chargeKey(input: ChargeKeyInput): string {
   switch (input.chargeType) {
     case 'shipping':
-    case 'return':
       return `shipment:${require_(input.shipmentId, 'shipmentId', input.chargeType)}`
+
+    // A RETURN IS NOT THE SHIPMENT IT REVERSES. These two shared one `case` and
+    // therefore one key: a return on an already-billed label produced
+    // 'shipment:<id>', the same string the outbound shipping charge had already
+    // claimed, and (order_id, charge_key) is unique. The upsert does not fail —
+    // it UPDATES — so the return would have silently overwritten the shipping
+    // charge it was meant to sit beside. Outbound revenue replaced by a credit,
+    // one row where there should be two, and no error on any surface.
+    //
+    // This is the storage bug one paragraph up, repeated: two different facts
+    // computing the same identity. It was dormant only because nothing emits
+    // charge_type 'return' yet — the trap was armed and waiting for whoever
+    // wrote the returns path, which is the worst way for this to be discovered.
+    //
+    // 'return:' is its own namespace rather than 'shipment:<id>:return' because
+    // the surcharge arm below builds 'shipment:<id>:<code>' from a carrier-
+    // supplied code. A carrier that ever names a surcharge 'return' would
+    // reintroduce exactly this collision, and nothing in that path validates
+    // the code against a list. A separate prefix cannot be reached that way.
+    case 'return':
+      return `return:${require_(input.shipmentId, 'shipmentId', input.chargeType)}`
 
     case 'surcharge': {
       const id = require_(input.shipmentId, 'shipmentId', input.chargeType)

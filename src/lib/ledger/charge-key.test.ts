@@ -43,6 +43,33 @@ describe('chargeKey', () => {
       .toBe('shipment:55:peak')
   })
 
+  // These two shared a `case` and so shared a key. Since (order_id, charge_key)
+  // is unique, a return would have UPDATED the outbound shipping charge rather
+  // than joining it: the freight revenue replaced by the credit, silently.
+  // Nothing emits 'return' yet, which is why this never showed up in the data.
+  it('keys a return separately from the shipping charge it reverses', () => {
+    expect(chargeKey({ chargeType: 'shipping', shipmentId: '91827364' }))
+      .toBe('shipment:91827364')
+    expect(chargeKey({ chargeType: 'return', shipmentId: '91827364' }))
+      .toBe('return:91827364')
+    expect(chargeKey({ chargeType: 'return', shipmentId: '91827364' }))
+      .not.toBe(chargeKey({ chargeType: 'shipping', shipmentId: '91827364' }))
+  })
+
+  // The return key is deliberately NOT 'shipment:<id>:return'. Surcharge codes
+  // arrive from the carrier and are not validated against a list, so that form
+  // would collide again the day a carrier names a surcharge 'return'. This test
+  // fails if someone later "tidies" the return key into the shipment namespace.
+  it('cannot be collided with by a surcharge code, whatever the carrier calls it', () => {
+    expect(chargeKey({ chargeType: 'surcharge', shipmentId: '77', surchargeCode: 'return' }))
+      .not.toBe(chargeKey({ chargeType: 'return', shipmentId: '77' }))
+  })
+
+  it('refuses a blank shipment id on a return, as it does everywhere else', () => {
+    expect(() => chargeKey({ chargeType: 'return', shipmentId: '  ' }))
+      .toThrow(BlankIdentifierError)
+  })
+
   it('is stable: the same input always produces the same key', () => {
     const input = { chargeType: 'pick' as const, orderItemId: 'zz' }
     expect(chargeKey(input)).toBe(chargeKey(input))

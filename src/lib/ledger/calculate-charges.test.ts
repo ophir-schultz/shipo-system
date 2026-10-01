@@ -289,6 +289,39 @@ describe('buildCharges', () => {
     expect(warnings[0]).toContain('unpriced shipment')
   })
 
+  // A SECOND WAY TO HAVE NO PRICE: the card HAS a flat shipping line in effect
+  // on the ship date, and its `rate` cell is empty. That read `(rate.rate ?? 0)`
+  // and billed the label at exactly $0 — a confident claim that we shipped it
+  // free, made on the one charge type where we know money left the bank. It is
+  // the identical null-versus-zero confusion the at-cost arm two tests up
+  // already refuses, reintroduced by a fallback in the known-price arm.
+  //
+  // `toBeNull()` and not `toBeCloseTo(0, 2)`, for the reason given above: the
+  // tolerance form passes against null and would assert nothing.
+  it('leaves the amount unknown when the shipping line in effect carries no rate', () => {
+    const warnings: string[] = []
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-ship-blank', chargeType: 'shipping', variant: null,
+                        rate: null, rateType: 'flat' })],
+      shipments: [{ id: 's3g', shipmentId: 563, shipDate: '2026-09-02', actualCost: 7.40, voided: false }],
+    }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+
+    expect(out).toHaveLength(1)
+    // The cost we paid is kept, exactly as in the no-line case.
+    expect(out[0].cost).toBeCloseTo(7.40, 2)
+    expect(out[0].amount).toBeNull()
+    // The line that failed us is still recorded, which is what distinguishes
+    // this case from "no line at all" for whoever goes to fix it.
+    expect(out[0].rate_id).toBe('rc-ship-blank')
+    expect(out[0].unit_rate).toBeNull()
+    // Named, and named as its own cause: "no line in effect" and "line with an
+    // empty rate" send someone to two different places in the rate card.
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('rate card line with no rate')
+    expect(warnings[0]).toContain('rc-ship-blank')
+  })
+
   // The same gap on a VOIDED label is not unknown revenue. The carrier refunded
   // it, so we paid nothing and we bill nothing: both figures are a known zero,
   // and nulling the amount here would invent a mystery where there is none.
@@ -321,13 +354,43 @@ describe('buildCharges', () => {
     expect(out[0].is_estimate).toBe(true)
   })
 
-  it('raises no charge when the client has no rate card line for it', () => {
+  // The row is still not raised — see the comment on the `!rate` branch in
+  // calculate-charges.ts for why a dropped pick errs in the loud direction
+  // where a dropped shipment errs in the flattering one. What this pins is that
+  // it is no longer dropped in SILENCE: the line, the quantity and the date are
+  // named, so the alert says which rate card line to go and add.
+  it('names the picked line it could not price, and still raises no charge', () => {
+    const warnings: string[] = []
     const out = buildCharges({
       ...base,
       rateCard: base.rateCard.filter((r) => r.chargeType !== 'pick'),
       items: [{ id: 'i8', sku: 'A', quantityPicked: 3, isComponent: true, pickDate: '2026-09-01' }],
-    })
+    }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
     expect(out).toEqual([])
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('unpriced pick')
+    expect(warnings[0]).toContain('i8')
+    expect(warnings[0]).toContain('component')
+    expect(warnings[0]).toContain('2026-09-01')
+  })
+
+  // The other half of the same silence, and a different instruction to the
+  // reader: the pick line IS on the card and in effect, and its rate cell is
+  // empty. Both conditions used to share one `continue` with no message.
+  it('names a picked line whose rate card line carries no rate', () => {
+    const warnings: string[] = []
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-pick-blank', chargeType: 'pick', variant: 'device',
+                        rate: null, rateType: 'per_unit' })],
+      items: [{ id: 'i8b', sku: 'B', quantityPicked: 5, isComponent: false, pickDate: '2026-09-01' }],
+    }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+    expect(out).toEqual([])
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('rate card line with no rate')
+    // The rate_id, because that is the row to go and edit.
+    expect(warnings[0]).toContain('rc-pick-blank')
+    expect(warnings[0]).toContain('i8b')
   })
 
   // Peak surcharge is 8% of pick and pack only. It must NOT apply to
