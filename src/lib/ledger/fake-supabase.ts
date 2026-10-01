@@ -322,6 +322,35 @@ class Builder implements PromiseLike<FakeResult> {
       case 'upsert': {
         const keys = (this.call.onConflict ?? '').split(',').map((k) => k.trim()).filter(Boolean)
         for (const incoming of this.call.payload) {
+          // A conflict target naming a column the payload does not have is a
+          // typo, and it has to fail here or the match below silently succeeds:
+          // `valuesEqual(undefined, undefined)` is true, so a misspelled key
+          // matches the FIRST row in the table and the upsert updates it. Every
+          // row in a batch would collapse onto row one and the test would still
+          // be green. persist-charges.test.ts's idempotency test -- the one
+          // spec §8 calls the most important in the file -- carried exactly this
+          // blind spot: it proved charge_key was deterministic and could say
+          // nothing about the onConflict target, because a mangled target
+          // behaved identically.
+          //
+          // Real PostgREST answers 42703 for an unknown column and 42P10 when
+          // no unique index matches the target, so failing is the faithful
+          // behaviour as well as the useful one. A throw rather than an error
+          // result because this is a broken test, not a modelled database
+          // outcome -- same reason an unimplemented operator throws.
+          //
+          // `in`, not a truthiness or undefined check: `order_id` is null on a
+          // storage charge and on unattributed label spend, and null is a
+          // legitimate conflict-target value that NULL-distinctness simply
+          // leaves unconstrained. Present-and-null must pass; absent must not.
+          for (const k of keys) {
+            if (!(k in incoming)) {
+              throw new Error(
+                `fake-supabase: upsert on ${this.call.table} names '${k}' in its `
+                + `onConflict target, but the payload has no such key. Keys present: `
+                + `${Object.keys(incoming).join(', ')}`)
+            }
+          }
           const existing = keys.length > 0
             ? table.find((r) => keys.every((k) => valuesEqual(r[k], incoming[k])))
             : undefined

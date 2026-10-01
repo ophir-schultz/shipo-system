@@ -119,3 +119,184 @@ describe('syncClientAssignments: a throw closes the row and spares the other cli
     expect(runFor('c1').status).toBe('ok')
   })
 })
+
+// ---------------------------------------------------------------------------
+// SPEC §8: "Running the sync twice over the same window changes no row count.
+// The single most important test in this file: three crons a day make
+// non-idempotency compound."
+//
+// This is the orders/order_items half. It is the half that rests entirely on
+// two onConflict targets -- 'client_id,order_key' and
+// 'order_id,source,line_ordinal' -- and until fake-supabase.ts was hardened
+// this session, a mangled target was INVISIBLE to a test: the double matched on
+// `valuesEqual(row[k], incoming[k])`, and for a column neither side has that is
+// `undefined === undefined`, so a misspelled target matched the first row in
+// the table and the upsert still looked like it worked. The double now refuses
+// a target naming a key the payload lacks, which is what makes the row counts
+// below mean anything.
+//
+// The second run is not a formality here. It is the run that first HAS a
+// usable watermark, because run one left an 'ok' sync_runs row seconds ago --
+// so it is the run with both the means and the opportunity to date a pick that
+// run one honestly declined to date. See the sticky-null test.
+// ---------------------------------------------------------------------------
+const orders = () => (h.db.tables.orders ?? []) as FakeRow[]
+const items = () => (h.db.tables.order_items ?? []) as FakeRow[]
+
+/** One Zenventory order with `lines` picked lines, in the real payload shape. */
+const payload = (orderNumber: string, lines: Array<Record<string, unknown>>) => ({
+  customerOrders: [{
+    orderNumber, orderDate: '2026-09-01', items: lines,
+  }],
+  meta: { totalPages: 1 },
+})
+
+describe('syncClientAssignments: running it twice over the same window', () => {
+  beforeEach(() => {
+    h.db.tables.clients = [client('c1', 'Nayax')]
+  })
+
+  it('changes no row count, for orders or for order_items', async () => {
+    h.getCustomerOrders.mockResolvedValue(payload('A-1', [
+      { sku: 'WIDGET', quantityOrdered: 2, quantityPicked: 2 },
+      { sku: 'GIZMO', quantityOrdered: 1, quantityPicked: 1 },
+    ]))
+
+    await syncClientAssignments(30)
+    // Guard the guard: one order and two items would be satisfied by every
+    // assertion below even if the second run did nothing at all, so the first
+    // run's counts are asserted before the second one is allowed to matter.
+    expect(orders()).toHaveLength(1)
+    expect(items()).toHaveLength(2)
+
+    await syncClientAssignments(30)
+
+    expect(orders()).toHaveLength(1)
+    expect(items()).toHaveLength(2)
+    // And the second run closed clean. A run that errored on both upserts would
+    // also leave the counts untouched -- the same green over a dead sync.
+    expect(runs().filter((r) => r.status === 'ok')).toHaveLength(2)
+  })
+
+  it('treats an order number differing only in case as the same order', async () => {
+    // This is what order_key is FOR: it is `orderNumber.toUpperCase()`, while
+    // order_number keeps what the API sent. Zenventory has returned both
+    // casings for one order, and without the key the second casing is a second
+    // order -- two orders billed for one, and the pick charges split across
+    // them so neither looks wrong on its own.
+    h.getCustomerOrders.mockResolvedValueOnce(
+      payload('a-1', [{ sku: 'WIDGET', quantityOrdered: 1, quantityPicked: 1 }]))
+    await syncClientAssignments(30)
+    expect(orders()).toHaveLength(1)
+
+    h.getCustomerOrders.mockResolvedValueOnce(
+      payload('A-1', [{ sku: 'WIDGET', quantityOrdered: 1, quantityPicked: 1 }]))
+    await syncClientAssignments(30)
+
+    expect(orders()).toHaveLength(1)
+    expect(orders()[0].order_key).toBe('A-1')
+    expect(items()).toHaveLength(1)
+  })
+
+  it('keeps a line undated when the first run found its date unknowable', async () => {
+    // THE STICKY NULL, and the reason the second run is the dangerous one.
+    //
+    // Run one is a first run for this client: there is no previous 'ok'
+    // sync_runs row, so watermarkIsEvidence() is false and the picked line is
+    // written pick_date null / pick_date_source 'unknown' -- a recorded
+    // "we looked, and it is unknowable", not a gap.
+    //
+    // Run two finds run one's row finished seconds ago, so the watermark IS now
+    // usable. Without `&& pickSource !== 'unknown'` it would stamp TODAY on a
+    // pick that happened during an outage of unknown length, and because
+    // pick_date is set once and never moved, that fabricated date is permanent.
+    // A fortnight of backlogged picks would land on one day: an invented labour
+    // spike there and an invented drought before it, in the one report that
+    // exists to make cost per pick legible over time.
+    h.getCustomerOrders.mockResolvedValue(payload('A-1', [
+      { sku: 'WIDGET', quantityOrdered: 1, quantityPicked: 1 },
+    ]))
+
+    await syncClientAssignments(30)
+    expect(items()[0].pick_date).toBeNull()
+    expect(items()[0].pick_date_source).toBe('unknown')
+
+    await syncClientAssignments(30)
+
+    expect(items()).toHaveLength(1)
+    expect(items()[0].pick_date).toBeNull()
+    expect(items()[0].pick_date_source).toBe('unknown')
+    // is_estimate must stay false too: a watermark date is an estimate and is
+    // flagged as one, but an UNKNOWN date is not an estimate of anything, and
+    // the charge calculator skips the line entirely rather than estimating it.
+    expect(items()[0].is_estimate).toBe(false)
+  })
+
+  it('reports undated picks as a per-run DELTA, not a standing count', async () => {
+    // Written the other way round first, asserting 1 on both runs, on the
+    // reasoning that a degraded state has to keep announcing itself. It failed,
+    // and the design is right and the test was wrong -- recorded here because
+    // the failing version is the one a reader will be tempted to restore.
+    //
+    // undatedPicks++ sits in the branch the sticky 'unknown' marker skips, so
+    // it counts lines THIS PASS declined to date and reads zero afterwards. The
+    // standing count deliberately lives elsewhere: step 4e of
+    // src/app/api/agent/monitor/route.ts scans order_items for
+    // `pick_date is null and quantity_picked > 0`, with no window.
+    //
+    // That is the better home, and not merely a different one. The monitor keys
+    // on the CONDITION rather than the marker, so it clears itself the moment a
+    // human supplies a date; a standing counter in here keyed on the marker
+    // would keep alerting after the money became billable, which is how a true
+    // alert turns into furniture. Two standing counts would also disagree the
+    // first time one of them changed.
+    //
+    // So this asserts the delta ON PURPOSE. Making it a gauge here reports the
+    // undated backlog twice, and the obvious next step after that is deleting
+    // the monitor scan as redundant -- which would move the one standing
+    // detector of unbillable picked work into a sync result that nothing
+    // retains. Note what is NOT a fallback: leaks_monthly cannot see these
+    // lines at all. Both picked_never_billed and pick_days filter on
+    // `oi.pick_date is not null`, and calculate-charges skips an undated line,
+    // so the monitor scan is the ONLY thing anywhere that reports them.
+    h.getCustomerOrders.mockResolvedValue(payload('A-1', [
+      { sku: 'WIDGET', quantityOrdered: 1, quantityPicked: 1 },
+    ]))
+
+    const first = await syncClientAssignments(30)
+    const second = await syncClientAssignments(30)
+
+    expect(first.undated_picks).toBe(1)
+    expect(second.undated_picks).toBe(0)
+
+    // The row is still undated, which is what makes the zero above a delta and
+    // not a resolution. This is exactly the state the monitor scan looks for.
+    expect(items()[0].pick_date).toBeNull()
+    expect(items()[0].quantity_picked).toBe(1)
+  })
+
+  it('does not leave a second row behind when a line stops being picked', async () => {
+    // An unpick is an update to the SAME line, keyed on line_ordinal, not a new
+    // line. If it inserted instead, the order would hold two rows for ordinal 1
+    // -- one picked, one not -- and the pick charge would be raised off
+    // whichever the calculator read first.
+    h.getCustomerOrders.mockResolvedValueOnce(payload('A-1', [
+      { sku: 'WIDGET', quantityOrdered: 1, quantityPicked: 1 },
+    ]))
+    await syncClientAssignments(30)
+    expect(items()).toHaveLength(1)
+
+    h.getCustomerOrders.mockResolvedValueOnce(payload('A-1', [
+      { sku: 'WIDGET', quantityOrdered: 1, quantityPicked: 0 },
+    ]))
+    await syncClientAssignments(30)
+
+    expect(items()).toHaveLength(1)
+    expect(items()[0].quantity_picked).toBe(0)
+    // Both cleared together. Leaving pick_date_source 'unknown' on a line that
+    // is no longer picked would block the watermark on a later healthy run that
+    // had every right to write it.
+    expect(items()[0].pick_date).toBeNull()
+    expect(items()[0].pick_date_source).toBeNull()
+  })
+})

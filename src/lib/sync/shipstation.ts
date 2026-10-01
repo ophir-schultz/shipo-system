@@ -57,11 +57,25 @@ export async function syncShipments(daysBack = 30) {
       for (const s of shipments) {
         run.seen()
         try {
-          // DEFECT 1, FIXED. The old code matched on order_number with
-          // .single() and destructured the error away. .single() returns
-          // {data: null, error: PGRST116} when several rows match — it does not
-          // throw — so a multi-package order fell through to .insert() and
-          // duplicated itself on every run. shipmentId is unique per label.
+          // DEFECT 1, FIXED. The old code matched on order_number, which is not
+          // the identity of a label: a multi-package order has several, and a
+          // blank order number gives every such label the same empty key.
+          //
+          // Corrected by mutation test, because the first version of this note
+          // claimed the wrong mechanism. Restoring the order_number match makes
+          // the second label of an order find its SIBLING's row and update it,
+          // so the two labels COLLAPSE onto one -- one carrier cost lost, the
+          // survivor overwritten. Measured cost comes out too low and margin
+          // too high. The PGRST116 fall-through-to-insert runaway needs the
+          // table to already hold two rows for one order number, which this
+          // path cannot produce on its own (every ambiguity collapses first);
+          // it needs a second writer or a backfill to seed it. Both failures
+          // are undetected by the leak views, which look at whether work was
+          // billed, never at whether a cost was recorded exactly once.
+          //
+          // shipmentId is unique per label, so it is the identity. The error is
+          // still inspected below rather than discarded, because a key being
+          // correct today is not a reason to read PGRST116 as "no row".
           const shipmentId = Number(s.shipmentId)
           if (!Number.isFinite(shipmentId)) {
             run.fail('missing shipmentId', { orderNumber: s.orderNumber })

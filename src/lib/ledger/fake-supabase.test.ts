@@ -80,7 +80,10 @@ describe('fake-supabase — single()', () => {
 
     const { data, error } = await db.client
       .from('orders')
-      .upsert({ order_key: 'A-1' }, { onConflict: 'client_id,order_key' })
+      // client_id is in the payload because it is in the conflict target, and
+      // the double now refuses a target naming a key the payload lacks. This
+      // fixture used to omit it, which is how that hole was found.
+      .upsert({ client_id: 'c1', order_key: 'A-1' }, { onConflict: 'client_id,order_key' })
       .select('id').single()
 
     expect(error).toBeNull()
@@ -123,5 +126,60 @@ describe('fake-supabase — unimplemented operators fail loudly', () => {
     expect(() =>
       db.client.from('shipments').select('id').not('ship_date', 'gt', '2026-01-01'),
     ).toThrow(/unimplemented/)
+  })
+})
+
+describe('fake-supabase — the onConflict target', () => {
+  // Why this is worth a test of the harness itself: without it, a typo in a
+  // conflict target was INVISIBLE here but fatal in production. The double
+  // matched on `valuesEqual(row[k], incoming[k])`, and for a column neither
+  // side has that is `undefined === undefined` -- true. So a misspelled target
+  // matched the first row in the table, every row in a batch collapsed onto it,
+  // and the upsert still looked like it worked. Real PostgREST answers 42703
+  // for the unknown column, or 42P10 when no unique index matches the target.
+  //
+  // persist-charges.test.ts's idempotency test, which spec §8 calls the single
+  // most important test in the file, documented this as a known blind spot:
+  // it could prove charge_key was deterministic and could say nothing at all
+  // about `onConflict: 'order_id,charge_key'`. This closes it.
+  it('refuses a conflict target naming a key the payload does not have', async () => {
+    const db = createFakeSupabase({ order_charges: [] })
+
+    await expect(db.client.from('order_charges').upsert(
+      { charge_key: 'shipment:1', amount: 5 },
+      { onConflict: 'order_id,charge_key' },
+    )).rejects.toThrow(/onConflict target, but the payload has no such key/)
+  })
+
+  it('accepts a conflict key that is present and null', async () => {
+    // Not a special case to be kind about -- it is how storage charges and
+    // unattributed label spend are stored. order_id null is a legitimate
+    // conflict-target value that NULL-distinctness leaves unconstrained, which
+    // is precisely why ledger_03_charges.sql carries two further partial unique
+    // indexes for those rows. Present-and-null must pass; only absent fails.
+    const db = createFakeSupabase({ order_charges: [] })
+
+    const { error } = await db.client.from('order_charges').upsert(
+      { order_id: null, charge_key: 'storage:2026-09-01:pallet', amount: 5 },
+      { onConflict: 'order_id,charge_key' },
+    )
+
+    expect(error).toBeNull()
+    expect(db.tables.order_charges).toHaveLength(1)
+  })
+
+  it('does not collapse a batch onto one row when the target is correct', async () => {
+    // The shape of the failure the guard exists to expose: three distinct
+    // charge keys for one order must be three rows. Under the old behaviour a
+    // mangled target made this one row, and nothing said so.
+    const db = createFakeSupabase({ order_charges: [] })
+
+    await db.client.from('order_charges').upsert([
+      { order_id: 'o1', charge_key: 'item:a:pick', amount: 1 },
+      { order_id: 'o1', charge_key: 'item:a:pack', amount: 2 },
+      { order_id: 'o1', charge_key: 'shipment:9', amount: 3 },
+    ], { onConflict: 'order_id,charge_key' })
+
+    expect(db.tables.order_charges).toHaveLength(3)
   })
 })

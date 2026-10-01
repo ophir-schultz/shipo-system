@@ -461,16 +461,22 @@ describe('recalculateCharges — running it twice', () => {
    * still inside the 10:00-14:00 cron gap, so the scheduled-firing escape
    * hatch is not what is being exercised here.
    *
-   * WHAT THE MUTATION CHECK ESTABLISHED, AND WHAT IT DID NOT. Making chargeKey
-   * non-deterministic turns this test red, so it does detect the failure it is
-   * named for. The OTHER route to the same bug — a typo in the `onConflict`
-   * target — was NOT verified, because fake-supabase's valuesEqual treats
-   * undefined as equal to undefined, which makes a misspelled conflict column
-   * match the first row and the upsert still behave. That is a harness blind
-   * spot, not a property of the code: against real Postgres a bad target is an
-   * error, not a silent match. Closing it means teaching the fake to reject
-   * conflict targets that name no column. Until then, this test's green is
-   * evidence about charge_key and not about onConflict.
+   * WHAT THE MUTATION CHECK ESTABLISHED. Both routes to the bug are now
+   * covered. Making chargeKey non-deterministic turns this test red, which is
+   * the failure it is named for.
+   *
+   * The second route — a typo in the `onConflict` target — used to be a stated
+   * blind spot here, because fake-supabase matched conflict keys with
+   * `valuesEqual(row[k], incoming[k])` and for a column neither side has that
+   * is `undefined === undefined`. A misspelled target therefore matched the
+   * first row in the table and the upsert still appeared to work, so this
+   * test's green was evidence about charge_key and about nothing else. The
+   * double now refuses a conflict target naming a key the payload does not
+   * have (fake-supabase.ts, and its own tests under 'the onConflict target'),
+   * which is also what real PostgREST does — 42703 for the unknown column, or
+   * 42P10 when no unique index matches. Re-verified by mutation: changing
+   * `onConflict: 'order_id,charge_key'` to `'order_id,chargekey'` in
+   * persist-charges.ts turns this test red.
    */
   it('writes the same charges, not a second copy of them', async () => {
     const input = () => order('order-a', {
