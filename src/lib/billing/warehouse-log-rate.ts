@@ -4,10 +4,17 @@
 // because it is the point at which work performed becomes money invoiced, and
 // what it used to be was `const rate = rateRow?.rate ?? 0` with the lookup's
 // error discarded. Four distinct conditions collapsed into a billable zero,
-// and `warehouse_daily_log.total` is read by dashboard/page.tsx (week and
-// month), pnl/page.tsx, billing/page.tsx, reports/page.tsx,
-// api/reports/download and lib/billing/calculator.ts -- so a zero there is
-// work that will never be invoiced, agreeing with itself on six screens.
+// and `warehouse_daily_log.total` is read by five reachable surfaces --
+// dashboard/page.tsx (week, month, and per-client), pnl/page.tsx,
+// billing/page.tsx, reports/page.tsx and api/reports/download -- so a zero
+// there is work that will never be invoiced, agreeing with itself everywhere
+// it is shown.
+//
+// An earlier version of this comment counted lib/billing/calculator.ts as a
+// sixth. It does contain such a read, but neither of its exports is called
+// from anywhere in the repository, so it is not a surface a zero reaches
+// today. Corrected rather than left standing: a blast radius is a claim, and
+// this one was not checked when it was written.
 //
 // Pure, so the decision can be tested without a database. The project has no
 // test database and the live one holds the figures the business invoices from;

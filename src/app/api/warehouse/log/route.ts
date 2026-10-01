@@ -4,12 +4,17 @@ import { requireStaff } from '@/lib/require-staff'
 import { cents } from '@/lib/ledger/calculate-charges'
 import { priceServiceLine, type WarehouseRateRow } from '@/lib/billing/warehouse-log-rate'
 
-// What this route writes ends up in six places: dashboard/page.tsx sums
-// `total` for the week and the month, pnl/page.tsx, billing/page.tsx,
-// reports/page.tsx, api/reports/download and lib/billing/calculator.ts all
-// read it. So a `total` of 0 here is work that was performed and will never
-// be invoiced, propagated everywhere, with nothing on any of those screens
-// to distinguish it from a service the client genuinely gets free.
+// What this route writes ends up on five reachable surfaces:
+// dashboard/page.tsx sums `total` for the week, the month and per client, and
+// pnl/page.tsx, billing/page.tsx, reports/page.tsx and api/reports/download
+// all read it. So a `total` of 0 here is work that was performed and will
+// never be invoiced, propagated everywhere, with nothing on any of those
+// screens to distinguish it from a service the client genuinely gets free.
+//
+// (An earlier version of this comment said six and named
+// lib/billing/calculator.ts. That file contains such a read but neither of its
+// exports is called from anywhere, so it is not reachable today. The count is
+// corrected rather than quietly dropped.)
 //
 // It used to produce one on four separate paths, because the rate lookup was
 // `const rate = rateRow?.rate ?? 0` with the error discarded. Each path is
