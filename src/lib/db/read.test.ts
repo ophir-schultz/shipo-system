@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { read, readOne } from '@/lib/db/read'
+import { read, readOne, readErrors } from '@/lib/db/read'
 
 // These two functions exist to keep "we looked and there is nothing" apart from
 // "we could not look". Both of the defects below were live on
@@ -42,6 +42,64 @@ describe('read', () => {
     // matrix would render whatever arrived as the client's whole rate card.
     const r = read('t', { data: [{ id: 1 }], error: { message: 'boom' } })
     expect(r.rows).toEqual([])
+  })
+})
+
+describe('readErrors', () => {
+  const ok = { error: null }
+  const bad = { error: 'shipments: fetch failed' }
+  const alsoBad = { error: 'manual_charges: statement timeout' }
+
+  it('is null when every read succeeded', () => {
+    // null and not '' -- the caller branches on this to decide whether it is
+    // allowed to publish a figure at all, and '' is falsy in the same way but
+    // would render as an empty reason if it ever reached the screen.
+    expect(readErrors(ok, ok, ok)).toBeNull()
+  })
+
+  it('is null when there is nothing to combine', () => {
+    expect(readErrors()).toBeNull()
+  })
+
+  it('reports a failure even when it is not the first read', () => {
+    // The defect this guards: "revenue this week" is shipments + warehouse +
+    // manual charges, and a check that only looked at the shipments read
+    // published a confident total missing the manual charges entirely.
+    expect(readErrors(ok, ok, bad)).toBe('shipments: fetch failed')
+  })
+
+  it('names every failed read, not just the first', () => {
+    // One unreachable table and a dead connection need different responses,
+    // and the first error alone cannot tell an operator which one this is.
+    const combined = readErrors(bad, ok, alsoBad)
+    expect(combined).toContain('shipments')
+    expect(combined).toContain('manual_charges')
+  })
+
+  it('tolerates a missing read rather than reading it as success', () => {
+    // A null slot is a read that was never performed. It carries no error, so
+    // it must not manufacture one -- but it must also not be the reason a
+    // caller skips the real failure sitting next to it.
+    expect(readErrors(null, undefined, bad)).toBe('shipments: fetch failed')
+    expect(readErrors(null, undefined)).toBeNull()
+  })
+
+  it('does not count an empty-string error as a failure', () => {
+    // read() never produces '', but a caller hand-rolling the shape might, and
+    // an empty reason on screen is worse than no reason: it blanks a figure
+    // and says nothing about why.
+    expect(readErrors({ error: '' })).toBeNull()
+  })
+
+  it('composes with read(), so a real failure blanks a real figure', () => {
+    const shipments = read('shipments', { data: [{ client_rate: 10 }], error: null })
+    const warehouse = read('warehouse_daily_log', {
+      data: null, error: { message: 'canceling statement due to statement timeout' },
+    })
+    // Shipments arrived, so a naive total would render $10.00 and look fine.
+    expect(shipments.rows).toHaveLength(1)
+    expect(readErrors(shipments, warehouse))
+      .toBe('warehouse_daily_log: canceling statement due to statement timeout')
   })
 })
 

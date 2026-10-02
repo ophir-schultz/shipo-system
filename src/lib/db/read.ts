@@ -42,6 +42,34 @@ export function read<T>(what: string, res: PostgrestLike<T[]>): Read<T> {
   return { rows: res.data ?? [], error: null }
 }
 
+/**
+ * The combined verdict of every read that one figure depends on.
+ *
+ * Returns null when all of them succeeded, and otherwise ONE message naming
+ * all of the failures. Two reasons it is not "the first error":
+ *
+ *   1. A figure like "revenue this week" is shipments + warehouse lines +
+ *      approved manual charges. If any one of those three reads failed the
+ *      figure is not LOW, it is UNKNOWN. A caller that checks only the
+ *      shipments read publishes a confident number short by an unknown amount,
+ *      which is the defect this whole branch exists to remove.
+ *   2. An operator looking at a blind dashboard needs to know whether one
+ *      table is unreachable or the whole connection is, and the first error
+ *      alone cannot tell them. Same reasoning as generateWeeklyBill reporting
+ *      all four of its failed reads together rather than stopping at the first.
+ *
+ * Deliberately `string | null` rather than a boolean: a caller holding this has
+ * the reason in hand, so it can show it instead of an unexplained dash.
+ */
+export function readErrors(
+  ...reads: ReadonlyArray<{ error: string | null } | null | undefined>
+): string | null {
+  const failed = reads
+    .map(r => r?.error)
+    .filter((e): e is string => typeof e === 'string' && e !== '')
+  return failed.length === 0 ? null : failed.join('; ')
+}
+
 /** One row, the reason we could not read it, or neither: it is simply absent. */
 export interface ReadOne<T> {
   row: T | null
