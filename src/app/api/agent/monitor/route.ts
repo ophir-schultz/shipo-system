@@ -9,7 +9,8 @@
  *   1. Sync shipments from ShipStation (last 7 days)
  *   2. Recalculate all client rates / profit-loss
  *   3. Scan for problems:
- *        - Unpriced shipments (client_rate = 0, has a client assigned)
+ *        - Unpriced shipments (client_rate IS NULL, has a client assigned),
+ *          reported separately from shipments rated at exactly $0
  *        - New losses (is_loss = true)
  *        - Pending carrier adjustments
  *        - Shipments with no client assigned
@@ -22,7 +23,7 @@ import { syncShipments } from '@/lib/sync/shipstation'
 import { syncClientAssignments } from '@/lib/sync/zenventory'
 import { sendEmail } from '@/lib/email'
 import { requireStaffOrCron } from '@/lib/require-staff'
-import { recalculateShipments } from '@/lib/billing/recalculate'
+import { recalculateShipments, type RecalculateStats } from '@/lib/billing/recalculate'
 import { recalculateCharges, type RecalculateResult } from '@/lib/ledger/persist-charges'
 import { loadChargeInputs } from '@/lib/ledger/load-charge-inputs'
 import { persistStorageCharges, type StorageResult } from '@/lib/ledger/persist-storage-charges'
@@ -142,15 +143,37 @@ export async function GET(req: Request) {
   }
 
   // ── 3. Recalculate rates ───────────────────────────────────────────────────
-  let recalcStats = { updated: 0, zone_matched: 0, legacy_matched: 0, unmatched: 0 }
+  let recalcStats: RecalculateStats = {
+    updated: 0, zone_matched: 0, legacy_matched: 0, unmatched: 0,
+    skipped: 0, failed: 0, reasons: [],
+  }
   try {
     // Called directly, not over HTTP. The old self-fetch to
     // /api/sync/recalculate carried no credentials, which is the only
     // reason that endpoint had to stay unauthenticated.
     recalcStats = await recalculateShipments()
-    log.push(`✓ Recalculate: ${recalcStats.updated} shipments · ${recalcStats.zone_matched} zone-matched · ${recalcStats.legacy_matched} rate-card · ${recalcStats.unmatched} unmatched`)
+    log.push(`✓ Recalculate: ${recalcStats.updated} written · ${recalcStats.zone_matched} zone-matched · ${recalcStats.legacy_matched} rate-card · ${recalcStats.unmatched} unmatched · ${recalcStats.skipped} skipped · ${recalcStats.failed} write-failed`)
     if (recalcStats.unmatched > 0) {
-      errors.push(`⚠ ${recalcStats.unmatched} shipments have no rate match (check zone matrix / rate cards)`)
+      errors.push(`⚠ ${recalcStats.unmatched} shipments have no rate match (stored as NULL, not $0)`)
+    }
+    // Skipped rows kept their previous value because an input could not be
+    // read. That is the safe outcome, and it is also the one that leaves a
+    // stale price in place, so it has to be said out loud rather than folded
+    // into `unmatched`.
+    if (recalcStats.skipped > 0) {
+      errors.push(`⚠ ${recalcStats.skipped} shipments were SKIPPED -- their inputs could not be read, so they keep their previous price, which may now be stale`)
+    }
+    if (recalcStats.failed > 0) {
+      errors.push(`✗ ${recalcStats.failed} shipments could not be written`)
+    }
+    // The reasons, not just the counts. `unmatched: 41` sends the reader to
+    // the rate cards with nothing to look for; "no rate-card row covers
+    // carrier 'usps' service 'ground_advantage'" names the row to add.
+    for (const r of recalcStats.reasons.slice(0, 8)) {
+      errors.push(`   · ${r.count}× ${r.reason} (e.g. ${r.example})`)
+    }
+    if (recalcStats.reasons.length > 8) {
+      errors.push(`   · and ${recalcStats.reasons.length - 8} further distinct reason(s)`)
     }
   } catch (err: any) {
     const msg = `✗ Recalculate FAILED: ${err.message}`
@@ -309,19 +332,43 @@ export async function GET(req: Request) {
     errors.push(msg)
   }
 
-  // 4a. Unpriced shipments (has a client but client_rate is 0)
-  const { count: unpricedCount, error: unpricedError } = await supabaseAdmin
-    .from('shipments')
-    .select('order_number, clients(name)', { count: 'exact' })
-    .not('client_id', 'is', null)
-    .eq('client_rate', 0)
-    .limit(20)
+  // 4a. Unpriced shipments (has a client but no usable rate)
+  //
+  // This scan was `.eq('client_rate', 0)`, which was correct only while
+  // recalculate.ts wrote 0 for a shipment it could not price. It now writes
+  // NULL, and a NULL never equals 0 in SQL -- so leaving this as it was would
+  // have made the fix turn the alarm off. Both are matched: NULL for rows
+  // repriced since, 0 for rows written before, and for a card that genuinely
+  // says the shipping is free.
+  //
+  // That last case means a 0 here can be legitimate. It is still reported,
+  // because a free shipment with a client attached is worth a second look, and
+  // the message distinguishes the two counts so neither is read as the other.
+  const [unpricedRes, zeroRes] = await Promise.all([
+    supabaseAdmin
+      .from('shipments')
+      .select('order_number', { count: 'exact', head: true })
+      .not('client_id', 'is', null)
+      .is('client_rate', null),
+    supabaseAdmin
+      .from('shipments')
+      .select('order_number', { count: 'exact', head: true })
+      .not('client_id', 'is', null)
+      .eq('client_rate', 0),
+  ])
 
-  if (unpricedError) {
-    scanFailed('unpriced shipments', unpricedError)
-  } else if (unpricedCount && unpricedCount > 0) {
-    errors.push(`⚠ ${unpricedCount} shipments have a client assigned but NO rate (client_rate = $0)`)
-    log.push(`⚠ ${unpricedCount} unpriced shipments`)
+  if (unpricedRes.error) {
+    scanFailed('unpriced shipments', unpricedRes.error)
+  } else if (unpricedRes.count && unpricedRes.count > 0) {
+    errors.push(`⚠ ${unpricedRes.count} shipments have a client assigned but NO rate (client_rate is NULL -- the rate card does not cover them; they are not $0)`)
+    log.push(`⚠ ${unpricedRes.count} unpriced shipments`)
+  }
+
+  if (zeroRes.error) {
+    scanFailed('zero-rated shipments', zeroRes.error)
+  } else if (zeroRes.count && zeroRes.count > 0) {
+    errors.push(`⚠ ${zeroRes.count} shipments are rated at exactly $0 (either a rate card that says free, or a row last priced before unknown rates became NULL)`)
+    log.push(`⚠ ${zeroRes.count} shipments rated $0`)
   }
 
   // 4b. Current loss shipments
@@ -489,7 +536,11 @@ export async function GET(req: Request) {
       losses: { count: lossCount, total: totalLoss },
       adjustments: { count: adjCount, total: adjTotal },
       unassigned: unassignedCount,
-      unpriced: unpricedCount,
+      // null where the scan itself failed, so a reader of this JSON cannot
+      // mistake "could not count" for "none found" -- the same distinction the
+      // scan now draws between a NULL rate and a rate of 0.
+      unpriced: unpricedRes.error ? null : unpricedRes.count,
+      zero_rated: zeroRes.error ? null : zeroRes.count,
       undated_picked_lines: undatedPickError ? null : undatedPickCount,
     },
     email: emailResult,
