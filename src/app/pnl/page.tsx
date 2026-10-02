@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { priceOf, unpricedNote } from '@/lib/billing/unpriced'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,11 +50,20 @@ async function getPnlData() {
   const migrationApplied = !campaignsRes.error
 
   // ---- Per-client fulfillment P&L ----
-  type Agg = { name: string; shipRev: number; shipCost: number; whRev: number; inRev: number; inCost: number }
+  //
+  // `unpriced` is counted alongside the revenue it is missing from. A margin
+  // computed over shipments whose rate is UNKNOWN treats them as revenue of
+  // zero against a real carrier cost, which understates the margin by the
+  // whole of their price -- on the screen whose only job is to report the
+  // margin. They are excluded and counted instead.
+  type Agg = {
+    name: string; shipRev: number; shipCost: number; whRev: number
+    inRev: number; inCost: number; unpriced: number
+  }
   const byClient: Record<string, Agg> = {}
   const ensure = (id: string | null, name: string) => {
     const key = id ?? 'unassigned'
-    if (!byClient[key]) byClient[key] = { name, shipRev: 0, shipCost: 0, whRev: 0, inRev: 0, inCost: 0 }
+    if (!byClient[key]) byClient[key] = { name, shipRev: 0, shipCost: 0, whRev: 0, inRev: 0, inCost: 0, unpriced: 0 }
     return byClient[key]
   }
 
@@ -66,12 +76,18 @@ async function getPnlData() {
       continue
     }
     const a = ensure(s.client_id, (s.clients as any)?.name ?? 'Unassigned')
-    a.shipRev += s.client_rate ?? 0
-    a.shipCost += s.actual_cost ?? 0
+    const rate = priceOf(s.client_rate)
+    if (rate === null) a.unpriced++
+    else a.shipRev += rate
+    a.shipCost += priceOf(s.actual_cost) ?? 0
   }
   for (const w of warehouse) {
     const a = ensure(w.client_id, 'Unassigned')
-    a.whRev += w.total ?? 0
+    // warehouse_daily_log.total is nullable for the same reason: the daily-log
+    // route writes null for a line whose rate is not on the card.
+    const total = priceOf(w.total)
+    if (total === null) a.unpriced++
+    else a.whRev += total
   }
   for (const i of inbound) {
     const a = ensure(i.client_id, (i.clients as any)?.name ?? 'Unassigned')
@@ -259,7 +275,18 @@ export default async function PnlPage() {
                 <tbody>
                   {d.clientPnl.map((c) => (
                     <tr key={c.id} className="border-b border-gray-700/40 hover:bg-gray-700/30">
-                      <td className="py-2.5 pr-3 text-gray-200">{c.id === 'unassigned' ? <span className="text-gray-600 italic">unassigned</span> : c.name}</td>
+                      <td className="py-2.5 pr-3 text-gray-200">
+                        {c.id === 'unassigned' ? <span className="text-gray-600 italic">unassigned</span> : c.name}
+                        {/* Beside the client's name, because this client's
+                            rate card is what has to change for the margin on
+                            this row to mean anything. */}
+                        {c.unpriced > 0 && (
+                          <span className="block text-amber-400/90 text-xs"
+                            title="Excluded from this row's revenue, profit and margin. Not $0.">
+                            ⚠ {unpricedNote(c.unpriced, 'line')}
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2.5 pr-3 text-right text-gray-400">{fmt(c.shipRev)}</td>
                       <td className="py-2.5 pr-3 text-right text-gray-400">{fmt(c.whRev)}</td>
                       <td className="py-2.5 pr-3 text-right text-gray-400">{fmt(c.inRev)}</td>
@@ -279,7 +306,14 @@ export default async function PnlPage() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-gray-600">
-                    <td className="pt-3 text-gray-300 text-xs font-semibold uppercase">Total</td>
+                    <td className="pt-3 text-gray-300 text-xs font-semibold uppercase">
+                      Total
+                      {d.clientPnl.reduce((s, c) => s + c.unpriced, 0) > 0 && (
+                        <span className="block text-amber-400/90 text-xs font-normal normal-case mt-0.5">
+                          ⚠ {unpricedNote(d.clientPnl.reduce((s, c) => s + c.unpriced, 0), 'line')}
+                        </span>
+                      )}
+                    </td>
                     <td colSpan={3}></td>
                     <td className="pt-3 text-right text-gray-300 text-sm">{fmt(d.totalRevenue)}</td>
                     <td className="pt-3 text-right text-gray-300 text-sm">{fmt(d.totalCost)}</td>

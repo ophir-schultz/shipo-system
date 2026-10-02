@@ -1,8 +1,23 @@
 import * as XLSX from 'xlsx'
+import {
+  formatPrice, formatSignedPrice, priceOf, sumPriced, unpricedNote,
+  UNPRICED_CELL,
+} from './unpriced'
+
+// These two produce the files a client actually receives, which is why `?? 0`
+// mattered more here than anywhere: a 0 in a spreadsheet cell is not "we do not
+// know", it is a price, and the recipient has no way to see that the TOTAL row
+// is short by however many lines the rate card did not cover.
+//
+// An unpriced cell is now the text UNPRICED rather than 0. Text also means a
+// SUM() over the column skips it, so a recipient re-adding the column gets the
+// same short total the TOTAL row shows -- and the count of excluded lines sits
+// next to it, so the shortfall is visible rather than inferable.
 
 export function downloadBillingExcel({
   clientName, dateFrom, dateTo, shipments, warehouse, adjustments, bills,
   shippingRevenue, shippingCost, warehouseTotal, pendingAdj, grandTotal,
+  unpricedShipments = 0, unpricedWarehouse = 0, unpricedLines = 0,
 }: any) {
   const wb = XLSX.utils.book_new()
 
@@ -17,6 +32,20 @@ export function downloadBillingExcel({
     ['Warehouse Charges', warehouseTotal.toFixed(2)],
     ['Pending Adjustments', pendingAdj.toFixed(2)],
     ['TOTAL TO BILL', grandTotal.toFixed(2)],
+    // Appended rather than inserted, and only when there is something to say,
+    // so the sheet keeps its shape in the ordinary case. A permanent all-clear
+    // row is how a real warning stops being read.
+    ...(unpricedLines > 0
+      ? [
+          [],
+          ['⚠ NOT A COMPLETE BILL'],
+          ['Unpriced lines excluded from TOTAL TO BILL', unpricedLines],
+          ['  of which shipments', unpricedShipments],
+          ['  of which warehouse days', unpricedWarehouse],
+          ['No rate card covers these lines. The total above is short by an '
+            + 'amount this file cannot state.'],
+        ]
+      : []),
   ]
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), 'Summary')
 
@@ -28,12 +57,15 @@ export function downloadBillingExcel({
       s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '',
       s.carrier ?? '',
       s.service ?? '',
-      s.actual_cost ?? 0,
-      s.client_rate ?? 0,
-      s.profit_loss ?? 0,
+      priceOf(s.actual_cost) ?? UNPRICED_CELL,
+      priceOf(s.client_rate) ?? UNPRICED_CELL,
+      priceOf(s.profit_loss) ?? UNPRICED_CELL,
     ]),
     [],
-    ['', '', '', 'TOTAL', shipments.reduce((s: number, r: any) => s + (r.actual_cost ?? 0), 0), shippingRevenue],
+    ['', '', '', 'TOTAL', sumPriced(shipments, 'actual_cost').total, shippingRevenue],
+    ...(unpricedShipments > 0
+      ? [['', '', '', '', '', `⚠ ${unpricedNote(unpricedShipments)}`]]
+      : []),
   ]
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shipRows), 'Shipments')
 
@@ -44,12 +76,15 @@ export function downloadBillingExcel({
       w.log_date,
       w.service_type?.replace(/_/g, ' ') ?? '',
       w.quantity,
-      w.rate ?? 0,
-      w.total ?? 0,
+      priceOf(w.rate) ?? UNPRICED_CELL,
+      priceOf(w.total) ?? UNPRICED_CELL,
       w.notes ?? '',
     ]),
     [],
     ['', '', '', 'TOTAL', '', warehouseTotal],
+    ...(unpricedWarehouse > 0
+      ? [['', '', '', '', '', `⚠ ${unpricedNote(unpricedWarehouse, 'day')}`]]
+      : []),
   ]
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(whRows), 'Warehouse')
 
@@ -72,6 +107,7 @@ export function downloadBillingExcel({
 export async function downloadBillingPDF({
   clientName, dateFrom, dateTo, shipments, warehouse, adjustments,
   shippingRevenue, shippingCost, warehouseTotal, pendingAdj, grandTotal,
+  unpricedShipments = 0, unpricedWarehouse = 0, unpricedLines = 0,
 }: any) {
   const { jsPDF } = await import('jspdf')
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -150,6 +186,27 @@ export async function downloadBillingPDF({
 
   y += 48
 
+  // Directly under the TOTAL TO BILL box, because this is a statement that
+  // leaves the building: whoever reads it will not have seen the warning on the
+  // billing screen, and the figure above is short by an amount this document
+  // cannot state. Rendered only when there is something to say.
+  if (unpricedLines > 0) {
+    doc.setFillColor(254, 243, 199)
+    doc.setDrawColor(217, 119, 6)
+    doc.roundedRect(14, y - 6, W - 28, 14, 2, 2, 'FD')
+    doc.setTextColor(146, 64, 14)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.text(
+      `! INCOMPLETE: ${unpricedLines} line${unpricedLines === 1 ? '' : 's'} `
+      + `(${unpricedShipments} shipment${unpricedShipments === 1 ? '' : 's'}, `
+      + `${unpricedWarehouse} warehouse day${unpricedWarehouse === 1 ? '' : 's'}) `
+      + `have no rate and are NOT included in the total above.`,
+      18, y + 2,
+    )
+    y += 16
+  }
+
   function sectionHeader(title: string) {
     doc.setFillColor(...blue)
     doc.rect(14, y, W - 28, 7, 'F')
@@ -195,9 +252,9 @@ export async function downloadBillingPDF({
         s.order_number ?? '',
         s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '',
         [s.carrier, s.service].filter(Boolean).join(' '),
-        `$${(s.actual_cost ?? 0).toFixed(2)}`,
-        `$${(s.client_rate ?? 0).toFixed(2)}`,
-        `${(s.profit_loss ?? 0) >= 0 ? '+' : ''}$${(s.profit_loss ?? 0).toFixed(2)}`,
+        formatPrice(s.actual_cost),
+        formatPrice(s.client_rate),
+        formatSignedPrice(s.profit_loss),
       ], [35, 22, 60, 22, 22, 22], false, i % 2 === 0)
     })
     doc.setDrawColor(...blue)
@@ -207,6 +264,15 @@ export async function downloadBillingPDF({
     doc.setFontSize(8)
     doc.text(`Total: $${shippingRevenue.toFixed(2)}`, W - 14, y + 5, { align: 'right' })
     y += 10
+    // The section count in the header above says `shipments.length`; this says
+    // how many of those the Total does not cover, so the two cannot be read as
+    // agreeing when they do not.
+    if (unpricedShipments > 0) {
+      doc.setTextColor(180, 83, 9)
+      doc.setFontSize(7.5)
+      doc.text(`! ${unpricedNote(unpricedShipments)}`, W - 14, y, { align: 'right' })
+      y += 6
+    }
   }
 
   // Warehouse section
@@ -220,8 +286,8 @@ export async function downloadBillingPDF({
         w.log_date ?? '',
         (w.service_type ?? '').replace(/_/g, ' '),
         String(w.quantity ?? ''),
-        `$${(w.rate ?? 0).toFixed(2)}`,
-        `$${(w.total ?? 0).toFixed(2)}`,
+        formatPrice(w.rate),
+        formatPrice(w.total),
         w.notes ?? '',
       ], [25, 50, 15, 20, 22, 50], false, i % 2 === 0)
     })
@@ -232,6 +298,12 @@ export async function downloadBillingPDF({
     doc.setFontSize(8)
     doc.text(`Total: $${warehouseTotal.toFixed(2)}`, W - 14, y + 5, { align: 'right' })
     y += 10
+    if (unpricedWarehouse > 0) {
+      doc.setTextColor(180, 83, 9)
+      doc.setFontSize(7.5)
+      doc.text(`! ${unpricedNote(unpricedWarehouse, 'day')}`, W - 14, y, { align: 'right' })
+      y += 6
+    }
   }
 
   // Adjustments section

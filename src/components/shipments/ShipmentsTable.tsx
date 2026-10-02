@@ -1,6 +1,18 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import {
+  formatPrice, formatSignedPrice, isPriced, sumPriced, unpricedNote,
+} from '@/lib/billing/unpriced'
+
+// The rate and profit columns are nullable: recalculate.ts writes null when
+// the rate card does not cover a shipment. `?? 0` printed those as "$0.00",
+// which is indistinguishable from a shipment carried free, and dropped them
+// from the footer totals while leaving them in the row count above.
+//
+// This file cannot be unit-tested here -- vitest.config.ts excludes
+// `.test.tsx` -- so the decisions live in lib/billing/unpriced.ts, which is
+// tested and mutation-checked, and this file only calls them.
 
 const QUICK_RANGES = [
   { label: 'Today', days: 0 },
@@ -74,9 +86,12 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
     })
   }, [shipments, dateFrom, dateTo, clientId, carrier, lossOnly, search])
 
-  const totalPaid = filtered.reduce((s, r) => s + (r.actual_cost ?? 0), 0)
-  const totalCharged = filtered.reduce((s, r) => s + (r.client_rate ?? 0), 0)
-  const totalPL = filtered.reduce((s, r) => s + (r.profit_loss ?? 0), 0)
+  const paidSum = sumPriced(filtered, 'actual_cost')
+  const chargedSum = sumPriced(filtered, 'client_rate')
+  const plSum = sumPriced(filtered, 'profit_loss')
+  const totalPaid = paidSum.total
+  const totalCharged = chargedSum.total
+  const totalPL = plSum.total
   const lossCount = filtered.filter(s => s.is_loss).length
 
   return (
@@ -207,10 +222,19 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                     {s.dim_weight ? `${s.dim_weight}` : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-right text-xs font-semibold text-[#00AAFF]">{s.billed_weight ? `${s.billed_weight}` : '—'}</td>
-                  <td className="px-4 py-2.5 text-right">${(s.actual_cost ?? 0).toFixed(2)}</td>
-                  <td className="px-4 py-2.5 text-right">${(s.client_rate ?? 0).toFixed(2)}</td>
-                  <td className={`px-4 py-2.5 text-right font-bold ${s.is_loss ? 'text-red-400' : 'text-green-400'}`}>
-                    {(s.profit_loss ?? 0) >= 0 ? '+' : ''}${(s.profit_loss ?? 0).toFixed(2)}
+                  <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
+                  <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400'}`}
+                      title={isPriced(s.client_rate) ? undefined : 'No rate-card rate covers this shipment'}>
+                    {formatPrice(s.client_rate)}
+                  </td>
+                  {/* Gray, not green, when the profit is UNKNOWN: `is_loss` is false
+                      for an unpriced shipment, so the old ternary painted the
+                      dash with the same green as a real profit. */}
+                  <td className={`px-4 py-2.5 text-right font-bold ${
+                    !isPriced(s.profit_loss) ? 'text-gray-500'
+                      : s.is_loss ? 'text-red-400' : 'text-green-400'
+                  }`}>
+                    {formatSignedPrice(s.profit_loss)}
                   </td>
                 </tr>
               ))}
@@ -218,11 +242,31 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
             {filtered.length > 0 && (
               <tfoot>
                 <tr className="border-t border-gray-600 font-semibold bg-gray-900/50">
-                  <td colSpan={9} className="px-5 py-3 text-gray-400 text-sm">Total ({filtered.length} shipments)</td>
-                  <td className="px-4 py-3 text-right">${totalPaid.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right">${totalCharged.toFixed(2)}</td>
+                  <td colSpan={9} className="px-5 py-3 text-gray-400 text-sm">
+                    Total ({filtered.length} shipments)
+                    {chargedSum.unpriced > 0 && (
+                      <span className="ml-2 text-amber-400 font-normal">
+                        ⚠ {unpricedNote(chargedSum.unpriced)} in Charged
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    ${totalPaid.toFixed(2)}
+                    {paidSum.unpriced > 0 && (
+                      <div className="text-xs text-amber-400 font-normal">{unpricedNote(paidSum.unpriced)}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    ${totalCharged.toFixed(2)}
+                    {chargedSum.unpriced > 0 && (
+                      <div className="text-xs text-amber-400 font-normal">{unpricedNote(chargedSum.unpriced)}</div>
+                    )}
+                  </td>
                   <td className={`px-4 py-3 text-right ${totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {totalPL >= 0 ? '+' : ''}${totalPL.toFixed(2)}
+                    {plSum.unpriced > 0 && (
+                      <div className="text-xs text-amber-400 font-normal">{unpricedNote(plSum.unpriced)}</div>
+                    )}
                   </td>
                 </tr>
               </tfoot>

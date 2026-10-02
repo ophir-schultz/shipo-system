@@ -1,18 +1,46 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import SyncButton from '@/components/dashboard/SyncButton'
 import AutoSync from '@/components/dashboard/AutoSync'
+import {
+  formatPrice, sumPriced, combinePriced, unpricedNote,
+} from '@/lib/billing/unpriced'
+
+// Every money figure on this page was built by `?? 0`, which reads an UNKNOWN
+// price as a decision that the work was free. recalculate.ts now writes
+// `client_rate: null` for a shipment the rate card does not cover, and the
+// warehouse log writes `total: null` for a line with no agreed rate, so the
+// nulls behind these figures are real and they mean "nobody has priced this".
+//
+// No figure here MOVES as a result of this change -- the stored value used to
+// be 0, and 0 contributes 0 to a sum either way. What changes is that each
+// total now carries the count of rows it left out, and says so on screen. The
+// row count beside a total already included those rows, so before this the
+// total and the count disagreed with nothing to explain the gap.
 
 function buildClientBreakdown(clients: any[], shipments: any[], warehouse: any[], adjustments: any[]) {
   return clients.map(client => {
     const cs = shipments.filter(s => s.client_id === client.id)
     const cw = warehouse.filter(w => w.client_id === client.id)
     const ca = adjustments.filter(a => a.client_id === client.id)
-    const revenue = cs.reduce((s, r) => s + (r.client_rate ?? 0), 0) + cw.reduce((s, r) => s + (r.total ?? 0), 0)
-    const cost = cs.reduce((s, r) => s + (r.actual_cost ?? 0), 0)
-    const profit = cs.reduce((s, r) => s + (r.profit_loss ?? 0), 0)
-    const pendingAdj = ca.reduce((s, r) => s + (r.adjustment_amount ?? 0), 0)
+    // Shipping revenue and warehouse revenue go through combinePriced rather
+    // than `+`, because both columns are nullable and a bare addition is
+    // exactly where the two withheld counts would be dropped.
+    const revenue = combinePriced(
+      sumPriced(cs, 'client_rate'), sumPriced(cw, 'total'))
+    const cost = sumPriced(cs, 'actual_cost')
+    const profit = sumPriced(cs, 'profit_loss')
+    const pendingAdj = sumPriced(ca, 'adjustment_amount')
     const lossCount = cs.filter(s => s.is_loss).length
-    return { id: client.id, name: client.name, shipments: cs.length, revenue, cost, profit, pendingAdj, lossCount }
+    return {
+      id: client.id, name: client.name, shipments: cs.length,
+      revenue: revenue.total, cost: cost.total, profit: profit.total,
+      pendingAdj: pendingAdj.total, lossCount,
+      // Counted per client, so the row says WHOSE rate card has the gap. A
+      // page-level total can only say the figure is incomplete; this says
+      // where to go and fix it.
+      unpricedRevenue: revenue.unpriced,
+      unknownProfit: profit.unpriced,
+    }
   }).sort((a, b) => b.revenue - a.revenue)
 }
 
@@ -52,31 +80,42 @@ async function getDashboardData() {
     supabaseAdmin.from('rate_adjustments').select('client_id, adjustment_amount').eq('status', 'pending'),
   ])
 
-  const sum = (arr: any[], key: string) => (arr ?? []).reduce((s, r) => s + (r[key] ?? 0), 0)
+  const sum = (arr: any[], key: string) => sumPriced(arr, key).total
+
+  // One period's figures, each carrying what it left out. `extra` is the
+  // non-shipment revenue (warehouse lines, approved manual charges) and is
+  // combined rather than added, so an unpriced warehouse line is counted
+  // against the week's revenue note too.
+  const period = (shipments: any[] | null | undefined, ...extra: any[][]) => {
+    const shipRevenue = sumPriced(shipments, 'client_rate')
+    const revenue = combinePriced(
+      shipRevenue,
+      ...extra.map((rows, i) => sumPriced(rows, i === 0 ? 'total' : 'amount')),
+    )
+    const cost = sumPriced(shipments, 'actual_cost')
+    const profit = sumPriced(shipments, 'profit_loss')
+    return {
+      revenue: revenue.total,
+      cost: cost.total,
+      shippingCost: cost.total,
+      profit: profit.total,
+      shipments: shipRevenue.counted,
+      unpricedRevenue: revenue.unpriced,
+      // Profit is UNKNOWN whenever the rate is unknown AND also whenever the
+      // carrier invoice has not landed, so this count can exceed the revenue
+      // one. They are kept apart rather than merged into a single "problems"
+      // figure, because they send you to two different places: a rate card,
+      // or a carrier bill that has not arrived.
+      unknownProfit: profit.unpriced,
+    }
+  }
 
   return {
     activeClients: clientsRes.data?.length ?? 0,
-    allTime: {
-      revenue: sum(allShipmentsRes.data ?? [], 'client_rate'),
-      cost: sum(allShipmentsRes.data ?? [], 'actual_cost'),
-      profit: sum(allShipmentsRes.data ?? [], 'profit_loss'),
-      shipments: allShipmentsRes.data?.length ?? 0,
-    },
-    week: {
-      revenue: sum(weekShipmentsRes.data ?? [], 'client_rate') + sum(weekWarehouseRes.data ?? [], 'total') + sum(weekManualRes.data ?? [], 'amount'),
-      shippingCost: sum(weekShipmentsRes.data ?? [], 'actual_cost'),
-      profit: sum(weekShipmentsRes.data ?? [], 'profit_loss'),
-    },
-    month: {
-      revenue: sum(monthShipmentsRes.data ?? [], 'client_rate') + sum(monthWarehouseRes.data ?? [], 'total') + sum(monthManualRes.data ?? [], 'amount'),
-      shippingCost: sum(monthShipmentsRes.data ?? [], 'actual_cost'),
-      profit: sum(monthShipmentsRes.data ?? [], 'profit_loss'),
-    },
-    year: {
-      revenue: sum(yearShipmentsRes.data ?? [], 'client_rate'),
-      cost: sum(yearShipmentsRes.data ?? [], 'actual_cost'),
-      profit: sum(yearShipmentsRes.data ?? [], 'profit_loss'),
-    },
+    allTime: period(allShipmentsRes.data),
+    week: period(weekShipmentsRes.data, weekWarehouseRes.data ?? [], weekManualRes.data ?? []),
+    month: period(monthShipmentsRes.data, monthWarehouseRes.data ?? [], monthManualRes.data ?? []),
+    year: period(yearShipmentsRes.data),
     lossShipments: lossShipmentsRes.data ?? [],
     lossTotal: Math.abs(sum(lossShipmentsRes.data ?? [], 'profit_loss')),
     pendingAdjustments: pendingAdjRes.data ?? [],
@@ -150,8 +189,8 @@ export default async function DashboardPage() {
                     <tr key={s.order_number} className="border-b border-red-900/20 hover:bg-red-900/20">
                       <td className="px-4 py-2 font-mono text-gray-300">{s.order_number}</td>
                       <td className="px-2 py-2 text-gray-300">{s.clients?.name ?? '—'}</td>
-                      <td className="px-2 py-2 text-right text-gray-400">${(s.actual_cost ?? 0).toFixed(2)}</td>
-                      <td className="px-2 py-2 text-right text-gray-400">${(s.client_rate ?? 0).toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right text-gray-400">{formatPrice(s.actual_cost)}</td>
+                      <td className="px-2 py-2 text-right text-gray-400">{formatPrice(s.client_rate)}</td>
                       <td className="px-2 py-2 text-right font-bold text-red-400">-${Math.abs(s.profit_loss ?? 0).toFixed(2)}</td>
                     </tr>
                   ))}
@@ -223,16 +262,21 @@ export default async function DashboardPage() {
 
       {/* Period Revenue Cards */}
       <div className="grid grid-cols-3 gap-4">
-        <PeriodCard title="This Week" revenue={d.week.revenue} cost={d.week.shippingCost} profit={d.week.profit} />
-        <PeriodCard title="This Month" revenue={d.month.revenue} cost={d.month.shippingCost} profit={d.month.profit} />
-        <PeriodCard title="This Year" revenue={d.year.revenue} cost={d.year.cost} profit={d.year.profit} />
+        <PeriodCard title="This Week" revenue={d.week.revenue} cost={d.week.shippingCost} profit={d.week.profit}
+          unpricedRevenue={d.week.unpricedRevenue} unknownProfit={d.week.unknownProfit} />
+        <PeriodCard title="This Month" revenue={d.month.revenue} cost={d.month.shippingCost} profit={d.month.profit}
+          unpricedRevenue={d.month.unpricedRevenue} unknownProfit={d.month.unknownProfit} />
+        <PeriodCard title="This Year" revenue={d.year.revenue} cost={d.year.cost} profit={d.year.profit}
+          unpricedRevenue={d.year.unpricedRevenue} unknownProfit={d.year.unknownProfit} />
       </div>
 
       {/* All Time Summary */}
       <div className="grid grid-cols-4 gap-4">
-        <BigStat label="Total Revenue" value={`$${d.allTime.revenue.toFixed(2)}`} color="blue" />
+        <BigStat label="Total Revenue" value={`$${d.allTime.revenue.toFixed(2)}`} color="blue"
+          note={unpricedNote(d.allTime.unpricedRevenue)} />
         <BigStat label="Total Carrier Cost" value={`$${d.allTime.cost.toFixed(2)}`} color="gray" />
-        <BigStat label="Net Profit / Loss" value={`${d.allTime.profit >= 0 ? '+' : ''}$${d.allTime.profit.toFixed(2)}`} color={d.allTime.profit >= 0 ? 'green' : 'red'} />
+        <BigStat label="Net Profit / Loss" value={`${d.allTime.profit >= 0 ? '+' : ''}$${d.allTime.profit.toFixed(2)}`} color={d.allTime.profit >= 0 ? 'green' : 'red'}
+          note={unpricedNote(d.allTime.unknownProfit)} />
         <BigStat label="Active Clients" value={d.activeClients.toString()} color="blue" />
       </div>
 
@@ -274,10 +318,22 @@ export default async function DashboardPage() {
                     {c.lossCount > 0 && (
                       <span className="bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-xs mr-1">⚠ {c.lossCount} loss</span>
                     )}
+                    {/* The unpriced flag is on the same row as the client's
+                        revenue, because this client's rate card is the thing
+                        that has to be edited to make the figure complete. */}
+                    {c.unpricedRevenue > 0 && (
+                      <span className="bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded text-xs mr-1"
+                        title="Revenue excludes these -- the rate card does not cover them. They are not $0.">
+                        ⚠ {c.unpricedRevenue} unpriced
+                      </span>
+                    )}
                     {c.pendingAdj > 0 && (
                       <span className="bg-orange-900/60 text-orange-300 px-2 py-0.5 rounded text-xs">🔔 adj</span>
                     )}
-                    {c.lossCount === 0 && c.pendingAdj === 0 && (
+                    {/* The green tick now requires the revenue figure to be
+                        complete as well. It used to appear beside a total that
+                        silently excluded unpriced work. */}
+                    {c.lossCount === 0 && c.pendingAdj === 0 && c.unpricedRevenue === 0 && (
                       <span className="text-green-400 text-xs">✓</span>
                     )}
                   </td>
@@ -288,7 +344,17 @@ export default async function DashboardPage() {
               <tr className="border-t border-gray-600 text-sm font-semibold">
                 <td className="pt-3">Total</td>
                 <td className="pt-3 text-right">{d.clientBreakdown.reduce((s: number, c: any) => s + c.shipments, 0)}</td>
-                <td className="pt-3 text-right">${d.clientBreakdown.reduce((s: number, c: any) => s + c.revenue, 0).toFixed(2)}</td>
+                <td className="pt-3 text-right">
+                  ${d.clientBreakdown.reduce((s: number, c: any) => s + c.revenue, 0).toFixed(2)}
+                  {/* The shipment count in the cell to the left includes the
+                      unpriced rows; this total does not. Saying so is the
+                      whole point -- otherwise the two disagree in silence. */}
+                  {d.clientBreakdown.reduce((s: number, c: any) => s + c.unpricedRevenue, 0) > 0 && (
+                    <span className="block text-amber-400/90 text-xs font-normal">
+                      ⚠ {unpricedNote(d.clientBreakdown.reduce((s: number, c: any) => s + c.unpricedRevenue, 0))}
+                    </span>
+                  )}
+                </td>
                 <td className="pt-3 text-right">${d.clientBreakdown.reduce((s: number, c: any) => s + c.cost, 0).toFixed(2)}</td>
                 <td className={`pt-3 text-right ${d.clientBreakdown.reduce((s: number, c: any) => s + c.profit, 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                   {d.clientBreakdown.reduce((s: number, c: any) => s + c.profit, 0) >= 0 ? '+' : ''}${d.clientBreakdown.reduce((s: number, c: any) => s + c.profit, 0).toFixed(2)}
@@ -341,7 +407,13 @@ export default async function DashboardPage() {
   )
 }
 
-function PeriodCard({ title, revenue, cost, profit }: { title: string; revenue: number; cost: number; profit: number }) {
+function PeriodCard(
+  { title, revenue, cost, profit, unpricedRevenue = 0, unknownProfit = 0 }:
+  {
+    title: string; revenue: number; cost: number; profit: number
+    unpricedRevenue?: number; unknownProfit?: number
+  },
+) {
   return (
     <div className="bg-gray-800 rounded-xl p-5">
       <p className="text-gray-400 text-sm font-medium mb-4">{title}</p>
@@ -350,6 +422,9 @@ function PeriodCard({ title, revenue, cost, profit }: { title: string; revenue: 
           <span className="text-gray-400">Revenue</span>
           <span className="text-white font-semibold">${revenue.toFixed(2)}</span>
         </div>
+        {unpricedRevenue > 0 && (
+          <p className="text-amber-400/90 text-xs">⚠ {unpricedNote(unpricedRevenue)}</p>
+        )}
         <div className="flex justify-between text-sm">
           <span className="text-gray-400">Carrier Cost</span>
           <span className="text-white">${cost.toFixed(2)}</span>
@@ -360,12 +435,20 @@ function PeriodCard({ title, revenue, cost, profit }: { title: string; revenue: 
             {profit >= 0 ? '+' : ''}${profit.toFixed(2)}
           </span>
         </div>
+        {unknownProfit > 0 && (
+          <p className="text-amber-400/90 text-xs">
+            ⚠ {unpricedNote(unknownProfit)} (no rate, or the carrier bill has not landed)
+          </p>
+        )}
       </div>
     </div>
   )
 }
 
-function BigStat({ label, value, color }: { label: string; value: string; color: string }) {
+function BigStat(
+  { label, value, color, note }:
+  { label: string; value: string; color: string; note?: string },
+) {
   const colors: Record<string, string> = {
     blue: 'border-[#00AAFF]/30 bg-[#00AAFF]/5',
     green: 'border-green-700/50 bg-green-950/50',
@@ -376,6 +459,11 @@ function BigStat({ label, value, color }: { label: string; value: string; color:
     <div className={`rounded-xl p-5 border ${colors[color]}`}>
       <p className="text-gray-400 text-xs uppercase tracking-wider">{label}</p>
       <p className="text-2xl font-bold mt-2 text-white">{value}</p>
+      {/* Amber rather than red: the figure is incomplete, which is a thing to
+          go and fix, not a failure. `note` is '' when nothing was withheld, so
+          nothing renders in the ordinary case -- a permanent all-clear under
+          every figure is how a real one stops being read. */}
+      {note ? <p className="text-amber-400/90 text-xs mt-1.5">⚠ {note}</p> : null}
     </div>
   )
 }

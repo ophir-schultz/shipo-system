@@ -2,6 +2,22 @@
 
 import { useState } from 'react'
 import { showError, showSuccess } from '@/components/ui/Toast'
+import {
+  formatPrice, formatSignedPrice, isPriced, sumPriced, unpricedNote,
+} from '@/lib/billing/unpriced'
+
+// `client_rate`, the profit derived from it, and `warehouse_daily_log.total`
+// are all nullable: recalculate.ts and the daily-log route write null when they
+// cannot read a rate, rather than the billable 0 they used to write. `?? 0`
+// printed those as "$0.00" -- indistinguishable from a line carried free -- and
+// dropped them out of every total while leaving them in the count beside it.
+//
+// This file cannot be unit-tested here (vitest.config.ts excludes `.test.tsx`),
+// so the rules live in lib/billing/unpriced.ts, which is tested and
+// mutation-checked, and this file only calls them.
+//
+// `adjustment_amount` below is deliberately left on `?? 0`: nothing writes null
+// to that column, so changing it would be a guess dressed up as a fix.
 
 const TABS = [
   { id: 'shipments', label: 'Shipments', icon: '🚚' },
@@ -128,17 +144,31 @@ function Empty({ msg }: { msg: string }) {
 
 function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
-  const totalPaid = filtered.reduce((s: number, r: any) => s + (r.actual_cost ?? 0), 0)
-  const totalCharged = filtered.reduce((s: number, r: any) => s + (r.client_rate ?? 0), 0)
-  const totalPL = filtered.reduce((s: number, r: any) => s + (r.profit_loss ?? 0), 0)
+  const paidSum = sumPriced(filtered, 'actual_cost')
+  const chargedSum = sumPriced(filtered, 'client_rate')
+  const plSum = sumPriced(filtered, 'profit_loss')
+  const totalPaid = paidSum.total
+  const totalCharged = chargedSum.total
+  const totalPL = plSum.total
+
+  // Each stat carries the count its own total left out, rather than one note
+  // for the panel: "We Paid" and "Charged" can be short by different rows, and
+  // a single number would not say which figure to distrust.
+  const stats: Array<[string, string | number, string]> = [
+    ['Shipments', filtered.length, ''],
+    ['We Paid', `$${totalPaid.toFixed(2)}`, unpricedNote(paidSum.unpriced)],
+    ['Charged', `$${totalCharged.toFixed(2)}`, unpricedNote(chargedSum.unpriced)],
+    ['Net P/L', `${totalPL >= 0 ? '+' : ''}$${totalPL.toFixed(2)}`, unpricedNote(plSum.unpriced)],
+  ]
 
   return (
     <>
       <div className="grid grid-cols-4 divide-x divide-gray-700 border-b border-gray-700">
-        {[['Shipments', filtered.length], ['We Paid', `$${totalPaid.toFixed(2)}`], ['Charged', `$${totalCharged.toFixed(2)}`], ['Net P/L', `${totalPL >= 0 ? '+' : ''}$${totalPL.toFixed(2)}`]].map(([l, v]) => (
+        {stats.map(([l, v, note]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-gray-400">{l}</p>
             <p className={`font-bold text-lg ${l === 'Net P/L' ? (totalPL >= 0 ? 'text-green-400' : 'text-red-400') : 'text-white'}`}>{v}</p>
+            {note && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {note}</p>}
           </div>
         ))}
       </div>
@@ -164,10 +194,16 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-2.5 text-gray-300 text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{s.tracking_number ?? '—'}</td>
-                <td className="px-4 py-2.5 text-right">${(s.actual_cost ?? 0).toFixed(2)}</td>
-                <td className="px-4 py-2.5 text-right">${(s.client_rate ?? 0).toFixed(2)}</td>
-                <td className={`px-4 py-2.5 text-right font-semibold ${s.is_loss ? 'text-red-400' : 'text-green-400'}`}>
-                  {(s.profit_loss ?? 0) >= 0 ? '+' : ''}${(s.profit_loss ?? 0).toFixed(2)}
+                <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
+                <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400'}`}
+                    title={isPriced(s.client_rate) ? undefined : 'No rate-card rate covers this shipment'}>
+                  {formatPrice(s.client_rate)}
+                </td>
+                <td className={`px-4 py-2.5 text-right font-semibold ${
+                  !isPriced(s.profit_loss) ? 'text-gray-500'
+                    : s.is_loss ? 'text-red-400' : 'text-green-400'
+                }`}>
+                  {formatSignedPrice(s.profit_loss)}
                 </td>
               </tr>
             ))}
@@ -180,14 +216,26 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
 
 function LossTable({ rows, clientId, dateFrom, dateTo }: any) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
-  const total = Math.abs(filtered.reduce((s: number, r: any) => s + (r.profit_loss ?? 0), 0))
+  const plSum = sumPriced(filtered, 'profit_loss')
+  const total = Math.abs(plSum.total)
+  // Averaged over the rows that actually contributed, not over every row in the
+  // table. `total / filtered.length` divides a short total by a full count,
+  // which understates the average loss -- the direction that makes a problem
+  // look smaller than it is.
+  const priced = plSum.counted - plSum.unpriced
+  const note = unpricedNote(plSum.unpriced)
   return (
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700" style={{ background: '#1a0a0a' }}>
-        {[['Loss Shipments', filtered.length], ['Total Lost', `-$${total.toFixed(2)}`], ['Avg Loss', filtered.length ? `-$${(total / filtered.length).toFixed(2)}` : '$0.00']].map(([l, v]) => (
+        {([
+          ['Loss Shipments', filtered.length, ''],
+          ['Total Lost', `-$${total.toFixed(2)}`, note],
+          ['Avg Loss', priced ? `-$${(total / priced).toFixed(2)}` : '$0.00', note],
+        ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-red-400/70">{l}</p>
             <p className="font-bold text-lg text-red-400">{v}</p>
+            {n && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {n}</p>}
           </div>
         ))}
       </div>
@@ -211,9 +259,13 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: any) {
                 <td className="px-4 py-2.5">{s.clients?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-2.5 text-gray-300 text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
-                <td className="px-4 py-2.5 text-right">${(s.actual_cost ?? 0).toFixed(2)}</td>
-                <td className="px-4 py-2.5 text-right">${(s.client_rate ?? 0).toFixed(2)}</td>
-                <td className="px-4 py-2.5 text-right font-bold text-red-400">-${Math.abs(s.profit_loss ?? 0).toFixed(2)}</td>
+                <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
+                <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400'}`}>
+                  {formatPrice(s.client_rate)}
+                </td>
+                <td className={`px-4 py-2.5 text-right font-bold ${isPriced(s.profit_loss) ? 'text-red-400' : 'text-gray-500'}`}>
+                  {isPriced(s.profit_loss) ? `-${formatPrice(Math.abs(Number(s.profit_loss)))}` : formatPrice(null)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -330,15 +382,21 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: any) {
 
 function WarehouseTable({ rows, clientId, dateFrom, dateTo }: any) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'log_date')
-  const totalRevenue = filtered.reduce((s: number, r: any) => s + (r.total ?? 0), 0)
+  const revenueSum = sumPriced(filtered, 'total')
+  const totalRevenue = revenueSum.total
 
   return (
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
-        {[['Entries', filtered.length], ['Total Revenue', `$${totalRevenue.toFixed(2)}`], ['Unique Days', new Set(filtered.map((r: any) => r.log_date)).size]].map(([l, v]) => (
+        {([
+          ['Entries', filtered.length, ''],
+          ['Total Revenue', `$${totalRevenue.toFixed(2)}`, unpricedNote(revenueSum.unpriced, 'day')],
+          ['Unique Days', new Set(filtered.map((r: any) => r.log_date)).size, ''],
+        ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-gray-400">{l}</p>
             <p className="font-bold text-lg text-white">{v}</p>
+            {n && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {n}</p>}
           </div>
         ))}
       </div>
@@ -363,7 +421,10 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: any) {
                 <td className="px-4 py-2.5 text-gray-300 capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                 <td className="px-4 py-2.5 text-right">{w.quantity}</td>
                 <td className="px-4 py-2.5 text-right text-gray-400">${(w.rate ?? 0).toFixed(2)}</td>
-                <td className="px-4 py-2.5 text-right font-semibold text-green-400">${(w.total ?? 0).toFixed(2)}</td>
+                <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-green-400' : 'text-amber-400'}`}
+                    title={isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day'}>
+                  {formatPrice(w.total)}
+                </td>
                 <td className="px-4 py-2.5 text-gray-500 text-xs">{w.notes ?? '—'}</td>
               </tr>
             ))}

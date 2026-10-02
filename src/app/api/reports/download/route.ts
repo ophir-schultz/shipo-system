@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
+import { priceOf } from '@/lib/billing/unpriced'
+
+// The per-shipment sheets pass `s.client_rate` straight through, which is
+// already honest: a null arrives in the cell as a blank, not as 0.00. The
+// profit-loss roll-up below was not -- `+= s.client_rate ?? 0` folded an
+// unpriced shipment into the client's revenue as nothing while still counting
+// it in 'Total Shipments', so the spreadsheet's own two columns disagreed and
+// the file gave no way to tell. Unpriced lines now get their own column, so the
+// number is still there to be added up and the omission travels with it.
 
 export async function GET(req: Request) {
   const denied = await requireStaff()
@@ -59,10 +68,12 @@ export async function GET(req: Request) {
     const byClient: Record<string, any> = {}
     for (const s of data ?? []) {
       const name = (s.clients as any)?.name ?? 'Unknown'
-      if (!byClient[name]) byClient[name] = { revenue: 0, cost: 0, profit: 0, shipments: 0, losses: 0 }
-      byClient[name].revenue += s.client_rate ?? 0
-      byClient[name].cost += s.actual_cost ?? 0
-      byClient[name].profit += s.profit_loss ?? 0
+      if (!byClient[name]) byClient[name] = { revenue: 0, cost: 0, profit: 0, shipments: 0, losses: 0, unpriced: 0 }
+      const rate = priceOf(s.client_rate)
+      if (rate === null) byClient[name].unpriced++
+      else byClient[name].revenue += rate
+      byClient[name].cost += priceOf(s.actual_cost) ?? 0
+      byClient[name].profit += priceOf(s.profit_loss) ?? 0
       byClient[name].shipments++
       if (s.is_loss) byClient[name].losses++
     }
@@ -70,7 +81,11 @@ export async function GET(req: Request) {
       'Client': name,
       'Total Shipments': d.shipments,
       'Loss Shipments': d.losses,
-      'Total Revenue ($)': d.revenue.toFixed(2),
+      // Named for what it is rather than 'Total Revenue', because it is not the
+      // revenue for 'Total Shipments' whenever the next column is non-zero.
+      'Priced Shipments': d.shipments - d.unpriced,
+      'Unpriced Shipments (excluded)': d.unpriced,
+      'Revenue, Priced Only ($)': d.revenue.toFixed(2),
       'Total Carrier Cost ($)': d.cost.toFixed(2),
       'Net Profit/Loss ($)': d.profit.toFixed(2),
       'Margin %': d.revenue > 0 ? ((d.profit / d.revenue) * 100).toFixed(1) + '%' : '0%',

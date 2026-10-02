@@ -1,4 +1,17 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { formatPrice, sumPriced, unpricedNote } from '@/lib/billing/unpriced'
+
+// This page answers "which shipments are we losing money on". An unpriced
+// shipment is NOT on it and must not be: `is_loss` is false when profit is
+// UNKNOWN, deliberately, because a shipment of unknown profit is not evidence
+// of a loss and filling a loss report with unknowns is how a real loss stops
+// being noticed (see shipmentProfit in lib/billing/shipment-rate.ts).
+//
+// But the margin figures at the top are computed over ALL shipments, and those
+// did include the unpriced ones as $0 revenue -- which makes the margin look
+// worse than it is, on the one screen where a bad margin is the thing being
+// investigated. They are now excluded from the figures and counted beside
+// them instead.
 
 async function getLossData() {
   const [lossRes, allRes] = await Promise.all([
@@ -18,9 +31,11 @@ async function getLossData() {
   const all = allRes.data ?? []
 
   const totalShipments = all.length
-  const totalRevenue = all.reduce((s, r) => s + (r.client_rate ?? 0), 0)
-  const totalCost = all.reduce((s, r) => s + (r.actual_cost ?? 0), 0)
-  const totalProfit = all.reduce((s, r) => s + (r.profit_loss ?? 0), 0)
+  const revenueSum = sumPriced(all, 'client_rate')
+  const totalRevenue = revenueSum.total
+  const unpricedShipments = revenueSum.unpriced
+  const totalCost = sumPriced(all, 'actual_cost').total
+  const totalProfit = sumPriced(all, 'profit_loss').total
   const totalLossAmt = losses.reduce((s, r) => s + Math.abs(r.profit_loss ?? 0), 0)
 
   // By client
@@ -65,6 +80,7 @@ async function getLossData() {
     losses,
     totalShipments,
     totalRevenue,
+    unpricedShipments,
     totalCost,
     totalProfit,
     totalLossAmt,
@@ -89,12 +105,39 @@ export default async function LossesPage() {
         <p className="text-gray-400 text-sm mt-1">All shipments where carrier cost exceeded what we charged the client</p>
       </div>
 
+      {/* An unpriced shipment cannot be known to be a loss, so it is correctly
+          absent from the table below -- but it is also absent from the margin
+          figures, and that needs saying on the screen where a thin margin is
+          the thing being investigated. A shipment with no agreed rate may well
+          be the worst loss in the business; nothing here can tell yet. */}
+      {d.unpricedShipments > 0 && (
+        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-3">
+          <p className="text-amber-300 text-sm font-semibold">
+            ⚠ {d.unpricedShipments} shipment{d.unpricedShipments === 1 ? '' : 's'} have no agreed rate
+          </p>
+          <p className="text-amber-200/70 text-xs mt-1">
+            They are excluded from the revenue, profit and margin figures below, and they
+            are not in the loss table — a shipment whose price is unknown cannot be shown
+            to be a loss. They are not $0. Fix the client&rsquo;s rate card, then re-run the
+            sync to price them.
+          </p>
+        </div>
+      )}
+
       {/* Summary bar */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Loss Shipments" value={d.lossCount.toString()} sub={`${d.lossRate.toFixed(1)}% of all shipments`} color="red" />
         <StatCard label="Total Loss Amount" value={`-${fmt(d.totalLossAmt)}`} sub="Money we lost on those shipments" color="red" />
-        <StatCard label="Net Profit (all)" value={`${d.totalProfit >= 0 ? '+' : '-'}${fmt(d.totalProfit)}`} sub={`${d.totalShipments} assigned shipments`} color={d.totalProfit >= 0 ? 'green' : 'red'} />
-        <StatCard label="Revenue vs Cost" value={`${fmt(d.totalRevenue)} / ${fmt(d.totalCost)}`} sub="Revenue / Carrier cost" color="blue" />
+        <StatCard label="Net Profit (all)" value={`${d.totalProfit >= 0 ? '+' : '-'}${fmt(d.totalProfit)}`}
+          sub={d.unpricedShipments > 0
+            ? `${d.totalShipments - d.unpricedShipments} of ${d.totalShipments} priced shipments`
+            : `${d.totalShipments} assigned shipments`}
+          color={d.totalProfit >= 0 ? 'green' : 'red'} />
+        <StatCard label="Revenue vs Cost" value={`${fmt(d.totalRevenue)} / ${fmt(d.totalCost)}`}
+          sub={d.unpricedShipments > 0
+            ? `Revenue / Carrier cost — ${unpricedNote(d.unpricedShipments)}`
+            : 'Revenue / Carrier cost'}
+          color="blue" />
       </div>
 
       {/* Breakdown panels */}
@@ -263,8 +306,8 @@ export default async function LossesPage() {
                           : <span className="text-gray-600">—</span>}
                       </td>
                       <td className="py-2 pr-3 text-right text-gray-400">{s.recipient_state ?? '—'}</td>
-                      <td className="py-2 pr-3 text-right text-gray-300">${(s.actual_cost ?? 0).toFixed(2)}</td>
-                      <td className="py-2 pr-3 text-right text-gray-300">${(s.client_rate ?? 0).toFixed(2)}</td>
+                      <td className="py-2 pr-3 text-right text-gray-300">{formatPrice(s.actual_cost)}</td>
+                      <td className="py-2 pr-3 text-right text-gray-300">{formatPrice(s.client_rate)}</td>
                       <td className="py-2 text-right font-bold text-red-400">-${Math.abs(s.profit_loss ?? 0).toFixed(2)}</td>
                     </tr>
                   ))}
@@ -272,8 +315,13 @@ export default async function LossesPage() {
                 <tfoot>
                   <tr className="border-t border-red-800/40">
                     <td colSpan={7} className="pt-3 text-red-400 text-xs font-semibold">TOTAL LOSSES</td>
-                    <td className="pt-3 text-right text-gray-300 text-xs">${d.losses.reduce((s, r) => s + (r.actual_cost ?? 0), 0).toFixed(2)}</td>
-                    <td className="pt-3 text-right text-gray-300 text-xs">${d.losses.reduce((s, r) => s + (r.client_rate ?? 0), 0).toFixed(2)}</td>
+                    {/* Every row in this table has is_loss = true, which can
+                        only be set when both figures are known, so neither of
+                        these totals can be withholding anything. sumPriced is
+                        used anyway for the cent-accurate accumulation and the
+                        string coercion -- not because a null is expected. */}
+                    <td className="pt-3 text-right text-gray-300 text-xs">${sumPriced(d.losses, 'actual_cost').total.toFixed(2)}</td>
+                    <td className="pt-3 text-right text-gray-300 text-xs">${sumPriced(d.losses, 'client_rate').total.toFixed(2)}</td>
                     <td className="pt-3 text-right font-bold text-red-400">-${d.totalLossAmt.toFixed(2)}</td>
                   </tr>
                 </tfoot>

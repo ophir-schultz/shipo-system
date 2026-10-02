@@ -2,6 +2,21 @@
 
 import { useState } from 'react'
 import { downloadBillingExcel, downloadBillingPDF } from '@/lib/billing/download'
+import {
+  combinePriced, formatPrice, formatSignedPrice, isPriced, sumPriced,
+  unpricedNote,
+} from '@/lib/billing/unpriced'
+
+// `client_rate` and `warehouse_daily_log.total` are nullable: recalculate.ts
+// and the daily-log route write null when they cannot read a rate, instead of
+// the billable 0 they used to write. On this page that matters more than
+// anywhere else -- it is where the invoice is read off -- because `?? 0` left
+// the unpriced lines out of "Total to Bill" while the counts beside it still
+// included them.
+//
+// This file cannot be unit-tested here (vitest.config.ts excludes `.test.tsx`),
+// so the rules live in lib/billing/unpriced.ts, which is tested and
+// mutation-checked, and this file only calls them.
 
 export default function BillingView({ data }: { data: any }) {
   const [selectedClient, setSelectedClient] = useState<string>(data.clients[0]?.id ?? '')
@@ -33,11 +48,23 @@ export default function BillingView({ data }: { data: any }) {
     return (!dateFrom || b.week_start >= dateFrom) && (!dateTo || b.week_end <= dateTo)
   })
 
-  const shippingRevenue = shipments.reduce((s: number, r: any) => s + (r.client_rate ?? 0), 0)
-  const shippingCost = shipments.reduce((s: number, r: any) => s + (r.actual_cost ?? 0), 0)
-  const warehouseTotal = warehouse.reduce((s: number, r: any) => s + (r.total ?? 0), 0)
+  // This is the screen the invoice is read off, so an omission here is money
+  // not billed rather than a figure looking slightly low. `?? 0` dropped every
+  // unpriced shipment out of shippingRevenue and so out of grandTotal, while
+  // the shipment count beside it still included them -- the invoice totalled
+  // less than the lines it claimed to cover, with nothing saying so.
+  const shippingRevenueSum = sumPriced(shipments, 'client_rate')
+  const shippingCostSum = sumPriced(shipments, 'actual_cost')
+  const warehouseSum = sumPriced(warehouse, 'total')
+  const shippingRevenue = shippingRevenueSum.total
+  const shippingCost = shippingCostSum.total
+  const warehouseTotal = warehouseSum.total
   const pendingAdj = adjustments.filter((a: any) => a.status === 'pending').reduce((s: number, r: any) => s + (r.adjustment_amount ?? 0), 0)
-  const grandTotal = shippingRevenue + warehouseTotal + pendingAdj
+  // combinePriced rather than `+`: adding the two totals is exactly where the
+  // withheld counts would be dropped, and this is the number that gets billed.
+  const billable = combinePriced(shippingRevenueSum, warehouseSum)
+  const grandTotal = billable.total + pendingAdj
+  const unbillableNote = unpricedNote(billable.unpriced, 'line')
   const lossCount = shipments.filter((s: any) => s.is_loss).length
 
   const [dlLoading, setDlLoading] = useState<'excel' | 'pdf' | null>(null)
@@ -47,6 +74,13 @@ export default function BillingView({ data }: { data: any }) {
     dateFrom, dateTo,
     shipments, warehouse, adjustments, bills,
     shippingRevenue, shippingCost, warehouseTotal, pendingAdj, grandTotal,
+    // Passed down so the spreadsheet and the PDF say the same thing this screen
+    // says. A downloaded invoice outlives the page it came from, so it has to
+    // carry the omission itself rather than rely on the reader having seen the
+    // banner above.
+    unpricedShipments: shippingRevenueSum.unpriced,
+    unpricedWarehouse: warehouseSum.unpriced,
+    unpricedLines: billable.unpriced,
   }
 
   async function handleExcel() {
@@ -102,13 +136,33 @@ export default function BillingView({ data }: { data: any }) {
         </div>
       </div>
 
+      {/* An invoice that silently omits lines is the one thing on this page
+          that must not happen quietly, so the warning sits above the figures
+          rather than beside one of them. It renders only when there is
+          something to say. */}
+      {client && billable.unpriced > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4">
+          <p className="font-semibold text-amber-300">
+            ⚠ Not ready to bill — {billable.unpriced} of {billable.counted} line
+            {billable.counted === 1 ? '' : 's'} has no price
+          </p>
+          <p className="mt-1 text-sm text-amber-200/80">
+            No rate card covers {billable.unpriced === 1 ? 'it' : 'them'}, so{' '}
+            {billable.unpriced === 1 ? 'it is' : 'they are'} missing from
+            &ldquo;Total to Bill&rdquo; below. Price {billable.unpriced === 1 ? 'it' : 'them'} and
+            re-run the recalculate before sending this invoice, or the client is
+            under-billed by an unknown amount.
+          </p>
+        </div>
+      )}
+
       {/* Client summary cards */}
       {client && (
         <div className="grid grid-cols-5 gap-3">
-          <SummaryCard label="Shipping Revenue" value={`$${shippingRevenue.toFixed(2)}`} sub={`Cost: $${shippingCost.toFixed(2)}`} color="blue" />
-          <SummaryCard label="Warehouse Charges" value={`$${warehouseTotal.toFixed(2)}`} sub={`${warehouse.length} entries`} color="gray" />
+          <SummaryCard label="Shipping Revenue" value={`$${shippingRevenue.toFixed(2)}`} sub={unpricedNote(shippingRevenueSum.unpriced) || `Cost: $${shippingCost.toFixed(2)}`} color={shippingRevenueSum.unpriced > 0 ? 'orange' : 'blue'} />
+          <SummaryCard label="Warehouse Charges" value={`$${warehouseTotal.toFixed(2)}`} sub={unpricedNote(warehouseSum.unpriced, 'day') || `${warehouse.length} entries`} color={warehouseSum.unpriced > 0 ? 'orange' : 'gray'} />
           <SummaryCard label="Pending Adjustments" value={`+$${pendingAdj.toFixed(2)}`} sub={`${adjustments.filter((a: any) => a.status === 'pending').length} pending`} color="orange" />
-          <SummaryCard label="Total to Bill" value={`$${grandTotal.toFixed(2)}`} sub="Shipping + WH + Adj" color="green" />
+          <SummaryCard label="Total to Bill" value={`$${grandTotal.toFixed(2)}`} sub={unbillableNote || 'Shipping + WH + Adj'} color={billable.unpriced > 0 ? 'orange' : 'green'} />
           <SummaryCard label="Loss Shipments" value={lossCount.toString()} sub={lossCount > 0 ? '⚠️ Needs review' : '✓ All profitable'} color={lossCount > 0 ? 'red' : 'gray'} />
         </div>
       )}
@@ -157,10 +211,16 @@ export default function BillingView({ data }: { data: any }) {
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{s.order_number}</td>
                         <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
                         <td className="px-4 py-2.5 text-gray-300 text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
-                        <td className="px-4 py-2.5 text-right">${(s.actual_cost ?? 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 text-right">${(s.client_rate ?? 0).toFixed(2)}</td>
-                        <td className={`px-4 py-2.5 text-right font-semibold ${s.is_loss ? 'text-red-400' : 'text-green-400'}`}>
-                          {(s.profit_loss ?? 0) >= 0 ? '+' : ''}${(s.profit_loss ?? 0).toFixed(2)}
+                        <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
+                        <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400 font-semibold'}`}
+                            title={isPriced(s.client_rate) ? undefined : 'No rate-card rate covers this shipment — it is NOT in the total to bill'}>
+                          {formatPrice(s.client_rate)}
+                        </td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${
+                          !isPriced(s.profit_loss) ? 'text-gray-500'
+                            : s.is_loss ? 'text-red-400' : 'text-green-400'
+                        }`}>
+                          {formatSignedPrice(s.profit_loss)}
                         </td>
                       </tr>
                     ))}
@@ -197,8 +257,11 @@ export default function BillingView({ data }: { data: any }) {
                         <td className="px-5 py-2.5 text-gray-400 text-xs">{w.log_date ? new Date(w.log_date + 'T12:00:00').toLocaleDateString() : '—'}</td>
                         <td className="px-4 py-2.5 text-gray-300 capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                         <td className="px-4 py-2.5 text-right">{w.quantity}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-400">${(w.rate ?? 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-green-400">${(w.total ?? 0).toFixed(2)}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(w.rate)}</td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-green-400' : 'text-amber-400'}`}
+                            title={isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day — it is NOT in the total to bill'}>
+                          {formatPrice(w.total)}
+                        </td>
                         <td className="px-4 py-2.5 text-gray-500 text-xs">{w.notes ?? '—'}</td>
                       </tr>
                     ))}
