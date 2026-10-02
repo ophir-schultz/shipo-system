@@ -74,21 +74,43 @@ export async function calculateShipmentProfitLoss(
   // somebody priced at nothing on purpose, and it is honoured as that rather
   // than treated as a miss and repriced off a different card.
   //
-  // KNOWN GAP, not fixed here: resolveZoneRate discards its own query error,
-  // so the null it returns means both "no matrix cell for this lane" and "the
-  // query failed". That makes a failed read fall through to the legacy card
-  // below, which is the wrong price rather than no price. zones.ts is shared
-  // with the scripts/ diagnostics, so changing its return shape is a separate
-  // change with its own blast radius -- recorded here and in recalculate.ts
-  // rather than silently absorbed.
+  // The KNOWN GAP that used to be recorded here is closed: resolveZone and
+  // resolveZoneRate used to discard their own query errors, so the null they
+  // returned meant both "no matrix cell for this lane" and "the query failed",
+  // and a failed read fell through to the legacy card below -- the wrong price
+  // rather than no price. Both now return the reason beside the value, and a
+  // reason stops the lookup here instead of letting it reprice.
   if (shipment) {
-    zone = await resolveZone(shipment, originZip)
+    const resolved = await resolveZone(shipment, originZip)
+    if (resolved.error) {
+      return {
+        clientRate: null,
+        profitLoss: null,
+        isLoss: false,
+        zone: null,
+        reason: `${resolved.error}. The shipment is NOT repriced off the legacy `
+          + `card: a zone that could not be read is not a shipment with no zone, `
+          + `and the two cards hold different agreed prices.`,
+      }
+    }
+    zone = resolved.zone
+
     if (zone != null) {
       const zoneRate = await resolveZoneRate(clientId, carrier, service, weight, zone)
-      if (zoneRate != null) {
-        const profit = shipmentProfit(zoneRate, actualCost)
+      if (zoneRate.error) {
         return {
-          clientRate: zoneRate,
+          clientRate: null,
+          profitLoss: null,
+          isLoss: false,
+          zone,
+          reason: `${zoneRate.error}. The shipment is NOT repriced off the legacy `
+            + `card: a cell that could not be read is not a cell that is absent.`,
+        }
+      }
+      if (zoneRate.rate != null) {
+        const profit = shipmentProfit(zoneRate.rate, actualCost)
+        return {
+          clientRate: zoneRate.rate,
           profitLoss: profit.profitLoss,
           isLoss: profit.isLoss,
           zone,

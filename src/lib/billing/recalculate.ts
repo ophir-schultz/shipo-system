@@ -34,6 +34,12 @@ import { matchLegacyRate, shipmentProfit, type ShippingRateRow } from '@/lib/bil
 //     "the card is empty".
 //   - the per-row update's error was discarded and `updated` incremented
 //     anyway, so the function reported work it had not done.
+//
+// The zone reads were the last hole of the same shape, and they were the worst
+// one: a failed zone-chart or zone-matrix read answered `null`, which is this
+// file's signal to reprice off the legacy card, so the row was written with a
+// real-looking price from the WRONG card rather than left alone. They are now
+// skipped and counted like any other unreadable input.
 
 export interface RecalculateStats {
   updated: number
@@ -135,26 +141,38 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
     let rateSource: 'zone' | 'legacy' | 'none' = 'none'
 
     // ── 1. Zone matrix rate (weight × zone) ──────────────────────────────────
+    //
+    // Both zone reads are now fatal FOR THIS ROW, and the row is skipped rather
+    // than repriced. The reason is the fallback directly below: a null zone or
+    // a null zone rate sends the shipment to the legacy carrier/service card,
+    // which is a different agreed price. So a failed zone read used to produce
+    // the WRONG price and write it -- not "no price", which would have been
+    // visible. Skipping leaves whatever the last good run stored and names the
+    // reason in `reasons`, which the monitor emails.
     const zone = await resolveZone(
       { recipient_zip: s.recipient_zip, raw_data: s.raw_data, zone: s.zone },
       client.originZip
     )
+    if (zone.error) {
+      skipped++
+      note(zone.error, label)
+      continue
+    }
 
-    if (zone != null) {
-      resolvedZone = zone
-      const zoneRate = await resolveZoneRate(s.client_id, s.carrier ?? '', s.service ?? '', billedWeightOz, zone)
+    if (zone.zone != null) {
+      resolvedZone = zone.zone
+      const zoneRate = await resolveZoneRate(
+        s.client_id, s.carrier ?? '', s.service ?? '', billedWeightOz, zone.zone)
+      if (zoneRate.error) {
+        skipped++
+        note(zoneRate.error, label)
+        continue
+      }
       // `!= null` rather than a truthiness test, so a zone cell holding 0 is
       // taken as the agreed price of 0 instead of falling through to the
       // legacy card and being billed at some other number.
-      //
-      // resolveZoneRate returns null for both "no matrix cell" and "the query
-      // failed" -- it discards its own error. That ambiguity is left in place
-      // here rather than fixed from this file, because zones.ts is also read by
-      // scripts and changing its signature is a separate change. The cost is
-      // that a failed zone query degrades to the legacy card rather than being
-      // reported, which is the safe direction but not an honest one.
-      if (zoneRate != null) {
-        clientRate = zoneRate
+      if (zoneRate.rate != null) {
+        clientRate = zoneRate.rate
         rateSource = 'zone'
         zoneMatched++
       }

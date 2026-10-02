@@ -30,6 +30,7 @@ function seed(over: Partial<Record<string, Record<string, unknown>[]>> = {}) {
     manual_charges: [],
     client_shipping_rates: [],
     client_zone_rates: [],
+    zone_chart: [],
     clients: [],
     bills: [],
     ...over,
@@ -327,6 +328,68 @@ describe('calculateShipmentProfitLoss', () => {
     expect(r.zone).toBe(3)
     expect(r.clientRate).toBe(0)
     expect(r.clientRate).not.toBe(99)
+  })
+
+  it('refuses rather than repricing off the legacy card when the chart fails', async () => {
+    // A failed zone-chart read used to answer "no zone", which is this
+    // function's signal to use the legacy card -- so a one-second hiccup
+    // returned 99 as the agreed price instead of returning nothing.
+    seed({
+      zone_chart: [{ origin_prefix: '191', dest_prefix: '902', zone: 3 }],
+      client_zone_rates: [{
+        client_id: CID, carrier: 'usps', service: 'ground',
+        zone: 3, weight_lb: 1, rate: 4,
+      }],
+      client_shipping_rates: [card({ rate: 99 })],
+    })
+    h.db.failOn = (c) => c.table === 'zone_chart' ? { message: 'timeout' } : null
+
+    const r = await calculateShipmentProfitLoss(
+      CID, 'usps', 'ground', 10, 5, { recipient_zip: '90210' }, '19101',
+    )
+
+    expect(r.clientRate).toBeNull()
+    expect(r.clientRate).not.toBe(99)
+    expect(r.profitLoss).toBeNull()
+    expect(r.isLoss).toBe(false)
+    expect(r.reason).toContain('timeout')
+  })
+
+  it('refuses rather than repricing off the legacy card when the matrix fails', async () => {
+    seed({
+      client_zone_rates: [{
+        client_id: CID, carrier: 'usps', service: 'ground',
+        zone: 3, weight_lb: 1, rate: 4,
+      }],
+      client_shipping_rates: [card({ rate: 99 })],
+    })
+    h.db.failOn = (c) =>
+      c.table === 'client_zone_rates' ? { message: 'connection reset' } : null
+
+    const r = await calculateShipmentProfitLoss(
+      CID, 'usps', 'ground', 10, 5, { zone: 3 },
+    )
+
+    expect(r.clientRate).toBeNull()
+    expect(r.clientRate).not.toBe(99)
+    expect(r.zone).toBe(3)
+    expect(r.reason).toContain('connection reset')
+  })
+
+  it('still uses the legacy card when the matrix genuinely has no cell', async () => {
+    // The other half of the pair above: the fallback is correct behaviour, and
+    // it has to survive the refusal being added next to it.
+    seed({
+      client_zone_rates: [],
+      client_shipping_rates: [card({ rate: 99 })],
+    })
+
+    const r = await calculateShipmentProfitLoss(
+      CID, 'usps', 'ground', 10, 5, { zone: 3 },
+    )
+
+    expect(r.clientRate).toBe(99)
+    expect(r.reason).toBeNull()
   })
 
   it('reports an unknown carrier cost as unknown profit, not as full profit', async () => {
