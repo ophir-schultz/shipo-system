@@ -204,6 +204,92 @@ describe('recalculateShipments: a zone that is genuinely absent', () => {
   })
 })
 
+describe('recalculateShipments: a shipment nobody weighed', () => {
+  // The end-to-end consequence of the weightToLb fix, asserted here rather than
+  // only in the unit tests, because the failure was never visible in either
+  // function on its own. `weight ?? 0` at the top of the loop turned an absent
+  // weight into 0; weightToLb sent 0 to matrix row 1 and matchLegacyRate let it
+  // into any band open at the bottom. Both answers are the CHEAPEST row of the
+  // card in question, and both are real prices that look correct.
+  //
+  // It must come out `unmatched` and NOT `skipped`. An unreadable input is
+  // skipped so the next run can try again -- right for a dropped connection.
+  // A missing weight will still be missing next run, so skipping would leave
+  // the stale price in place forever with nothing on screen about it; the row
+  // has to be written UNPRICED with the weight named as the reason.
+  it.each([
+    ['absent', null],
+    ['zero', 0],
+  ])('writes an unpriced row for a %s weight instead of the lightest band',
+    async (_label, weight) => {
+      seed({
+        shipments: [shipment({ weight, length: 0, width: 0, height: 0 })],
+        client_shipping_rates: [legacyCard({ weight_min: 0, rate: 99 })],
+      })
+
+      const stats = await recalculateShipments()
+
+      expect(stats.unmatched).toBe(1)
+      expect(stats.skipped).toBe(0)
+      expect(stats.updated).toBe(1)
+      // 99 is the lightest band, open at the bottom, and it is the figure the
+      // old code billed.
+      expect(stored().client_rate).toBeNull()
+      expect(stored().profit_loss).toBeNull()
+      expect(stored().is_loss).toBe(false)
+      expect(stats.reasons[0].reason).toContain('billed weight is')
+    })
+
+  it('does not price an unweighed shipment off the 1 LB zone matrix row', async () => {
+    // The zone card's half of the same defect, and the one the fix was filed
+    // for: weightToLb floored every unusable weight to 1, so a shipment nobody
+    // weighed was billed the 1 LB cell -- the smallest row of the matrix.
+    seed({
+      shipments: [shipment({ weight: null, length: 0, width: 0, height: 0, zone: 3 })],
+      client_zone_rates: [zoneCell({ weight_lb: 1, zone: 3, rate: 7 })],
+      client_shipping_rates: [],
+    })
+
+    const stats = await recalculateShipments()
+
+    expect(stats.zone_matched).toBe(0)
+    expect(stats.unmatched).toBe(1)
+    expect(stored().client_rate).toBeNull()
+  })
+
+  it('stores no billed weight for a shipment nobody weighed', async () => {
+    // The weight column has to agree with the price column. 0 is finite, so
+    // this used to store `billed_weight: 0` beside the null rate -- the one
+    // field an operator would check to find out why, reading as a parcel that
+    // weighs nothing rather than one that was never weighed.
+    seed({
+      shipments: [shipment({ weight: null, length: 0, width: 0, height: 0 })],
+      client_shipping_rates: [legacyCard()],
+    })
+
+    await recalculateShipments()
+
+    expect(stored().billed_weight).toBeNull()
+  })
+
+  it('still prices a real weight under a pound', async () => {
+    // The pair. The guard rejects "no measurement", not "small": a 1oz parcel
+    // is a measurement, it rounds up to the 1 LB matrix row, and it has an
+    // agreed price there.
+    seed({
+      shipments: [shipment({ weight: 1, length: 0, width: 0, height: 0, zone: 3 })],
+      client_zone_rates: [zoneCell({ weight_lb: 1, zone: 3, rate: 7 })],
+      client_shipping_rates: [],
+    })
+
+    const stats = await recalculateShipments()
+
+    expect(stats.zone_matched).toBe(1)
+    expect(stored().client_rate).toBe(7)
+    expect(stored().billed_weight).toBe(1)
+  })
+})
+
 describe('recalculateShipments: the other unreadable inputs', () => {
   it('skips a client whose legacy rate card could not be read', async () => {
     seed({ shipments: [shipment()], client_shipping_rates: [legacyCard()] })

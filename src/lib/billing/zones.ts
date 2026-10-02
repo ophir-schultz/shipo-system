@@ -34,6 +34,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase'
 import { priceOf } from '@/lib/billing/unpriced'
+import { billedWeightOf } from '@/lib/billing/shipment-rate'
 
 const MAX_WEIGHT_LB = 20 // matrix tops out at 20 LB
 
@@ -42,12 +43,27 @@ const MIN_ZONE = 1
 const MAX_ZONE = 8
 
 /**
- * Convert a weight in ounces to the matrix row (whole pounds, rounded UP).
+ * Convert a weight in ounces to the matrix row (whole pounds, rounded UP), or
+ * null when no row can be named for it.
+ *
  * 17 oz -> 2 LB. Anything above the chart max is capped to the top row.
+ *
+ * It used to be `Math.ceil((weightOz || 0) / 16)` with `if (lb < 1) return 1`,
+ * which sent an absent, zero or NaN weight to row 1 -- the CHEAPEST row of the
+ * matrix. So an unweighed shipment was not reported as unpriceable; it was
+ * quietly billed the 1 LB rate, which is a real price, correct for a real
+ * parcel, and impossible to tell apart from one afterwards. `|| 0` and the
+ * `< 1` floor were each individually reasonable and together they turned
+ * missing data into the lowest invoice line the card allows.
+ *
+ * The same judgement as matchLegacyRate's, imported rather than re-stated: two
+ * copies of "which weights may be priced from" would drift, and they would
+ * drift between the two cards a shipment can be priced off.
  */
-export function weightToLb(weightOz: number): number {
-  const lb = Math.ceil((weightOz || 0) / 16)
-  if (lb < 1) return 1
+export function weightToLb(weightOz: unknown): number | null {
+  const oz = billedWeightOf(weightOz)
+  if (oz === null) return null
+  const lb = Math.ceil(oz / 16)
   if (lb > MAX_WEIGHT_LB) return MAX_WEIGHT_LB
   return lb
 }
@@ -172,6 +188,19 @@ export async function resolveZoneRate(
   zone: number
 ): Promise<ZoneRateLookup> {
   const weightLb = weightToLb(weightOz)
+
+  // A miss, and NOT an `error`, for a weight no row can be named from.
+  //
+  // The distinction is deliberate and it is about what the callers do with each.
+  // An `error` means "ask again later", and recalculate.ts answers it by
+  // skipping the row and leaving the price it already had -- right for a dropped
+  // connection, wrong here, because a shipment with no recorded weight will
+  // still have no recorded weight on the next run and would keep a stale price
+  // forever with nothing on screen about it. A miss falls through to the legacy
+  // card, whose matchLegacyRate guard refuses the same weight FIRST -- before
+  // its "this client has no card" branch -- so the shipment is written as
+  // UNPRICED with the weight named as the reason. Which is the fact.
+  if (weightLb === null) return { rate: null, error: null }
 
   // Try specific carrier/service first, then blanket card
   const attempts: Array<{ carrier: string; service: string }> = [

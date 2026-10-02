@@ -60,10 +60,9 @@ describe('weightToLb', () => {
     expect(weightToLb(33)).toBe(3)
   })
 
-  it('never returns a row below 1', () => {
+  it('puts any real weight under a pound on the 1 LB row', () => {
     expect(weightToLb(1)).toBe(1)
-    expect(weightToLb(0)).toBe(1)
-    expect(weightToLb(-5)).toBe(1)
+    expect(weightToLb(0.5)).toBe(1)
   })
 
   it('caps at the top row the matrix has', () => {
@@ -74,15 +73,30 @@ describe('weightToLb', () => {
     expect(weightToLb(10_000)).toBe(20)
   })
 
-  it('treats an unreadable weight as the 1 LB row', () => {
-    // Documenting current behaviour, NOT endorsing it: `weightOz || 0` sends
-    // NaN and null to the CHEAPEST row rather than reporting that the weight is
-    // unknown. That is a separate defect from the read errors this file is
-    // about -- it needs a return-type change, not an error check -- and it is
-    // pinned here so the next change to this function has to confront it.
-    expect(weightToLb(NaN)).toBe(1)
-    expect(weightToLb(null as unknown as number)).toBe(1)
-    expect(weightToLb(undefined as unknown as number)).toBe(1)
+  it.each([
+    ['absent', null],
+    ['undefined', undefined],
+    ['empty', ''],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['zero', 0],
+    ['negative', -5],
+  ])('names no row for a weight that is %s', (_label, weightOz) => {
+    // This used to return 1 -- the CHEAPEST row of the matrix -- for every one
+    // of these. `Math.ceil((weightOz || 0) / 16)` with `if (lb < 1) return 1`
+    // meant an unweighed shipment was not reported as unpriceable, it was
+    // billed the 1 LB rate: a real price, correct for a real parcel, and
+    // impossible to tell apart from one afterwards.
+    //
+    // 0 is in this list on purpose. 0 is a decision when it is a RATE -- a lane
+    // somebody made free -- and never a measurement when it is a weight, so
+    // honouring a stored 0 here is honouring the `?? 0` that replaced a
+    // measurement nobody took.
+    expect(weightToLb(weightOz)).toBeNull()
+  })
+
+  it('coerces a weight that arrived as a string', () => {
+    expect(weightToLb('17')).toBe(2)
   })
 })
 

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  matchLegacyRate, shipmentProfit, cardRowCovers, bandCovers,
+  matchLegacyRate, shipmentProfit, cardRowCovers, bandCovers, billedWeightOf,
   type ShippingRateRow,
 } from './shipment-rate'
+import { priceOf } from './unpriced'
 
 // The function under test replaced two fallbacks in lib/billing/recalculate.ts
 // that ran UNATTENDED over every shipment in the table:
@@ -214,13 +215,79 @@ describe('matchLegacyRate', () => {
   it.each([
     ['NaN', NaN],
     ['Infinity', Infinity],
+    ['zero', 0],
+    ['negative', -5],
+    ['absent', null as unknown as number],
+    ['undefined', undefined as unknown as number],
   ])('refuses to price from a billed weight of %s', (_label, weight) => {
-    // Not hypothetical: billed weight is computed from dim weight, and every
-    // `>=`/`<=` comparison against NaN is false -- which is precisely how a
-    // shipment reached the heaviest-band fallback with no band matching.
+    // Not hypothetical, in either direction. Billed weight is computed from dim
+    // weight, and every `>=`/`<=` comparison against NaN is false -- which is
+    // precisely how a shipment reached the heaviest-band fallback with no band
+    // matching. And a weight of 0 is what `weight ?? 0` leaves behind when
+    // nobody weighed the parcel: the `row()` band here is 0-16oz, so 0 was
+    // INSIDE it and the shipment was billed the lightest rate on the card.
     const r = matchLegacyRate([row()], 'usps', 'ground', weight)
     expect(r.rate).toBeNull()
     expect(r.reason).toMatch(/billed weight is/)
+  })
+
+  it('does not bill the lightest band for an unweighed shipment', () => {
+    // The anti-fallback assertion for the 0 case, written against the number
+    // rather than against null: a refusal that happened to return the lightest
+    // band would satisfy the `toBeNull()` above only by accident, and this is
+    // the specific wrong figure -- cheapest row on the card, no evidence.
+    const card = [
+      row({ rate: 3.25, weight_min: 0, weight_max: 8 }),
+      row({ rate: 9.75, weight_min: 8, weight_max: 32 }),
+    ]
+    expect(matchLegacyRate(card, 'usps', 'ground', 0).rate).not.toBe(3.25)
+  })
+
+  it('still prices a real weight under a pound', () => {
+    // The pair to the refusals: the guard rejects 0, not "small". A 1oz parcel
+    // is a measurement somebody took and it has an agreed price.
+    expect(matchLegacyRate([row({ rate: 3.25 })], 'usps', 'ground', 1).rate).toBe(3.25)
+  })
+})
+
+describe('billedWeightOf', () => {
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['an empty string', ''],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['zero', 0],
+    ['a negative', -5],
+    ['an object', {}],
+    ['a non-numeric string', 'heavy'],
+    // These two are not padding. They are the only inputs the `typeof` guard
+    // catches that the finiteness and `<= 0` checks below it do not, because
+    // `Number(true)` is 1 and `Number([5])` is 5 -- so without the guard a
+    // weight that is not a weight gets priced AS one, which is the single
+    // thing this function exists to prevent. A mutation check removing the
+    // guard survived until these were added.
+    ['a boolean', true],
+    ['a one-element array', [5]],
+  ])('reads %s as no weight at all', (_label, input) => {
+    expect(billedWeightOf(input)).toBeNull()
+  })
+
+  it.each([
+    ['a number', 17, 17],
+    ['a string', '17', 17],
+    ['a fractional ounce', 0.5, 0.5],
+  ])('reads %s as a weight', (_label, input, expected) => {
+    expect(billedWeightOf(input)).toBe(expected)
+  })
+
+  it('rejects 0 even though 0 is a valid RATE', () => {
+    // The one place in the billing path where 0 is not a decision. A rate of 0
+    // is a lane somebody deliberately made free; a weight of 0 is a measurement
+    // nobody took. Pinned as its own test because the asymmetry is the thing
+    // most likely to be "tidied" into consistency later.
+    expect(billedWeightOf(0)).toBeNull()
+    expect(priceOf(0)).toBe(0)
   })
 })
 

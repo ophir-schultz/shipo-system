@@ -70,15 +70,59 @@ export function cardRowCovers(
   return carrierOk && serviceOk
 }
 
+/**
+ * The billed weight as a number a rate row can be chosen from, or null.
+ *
+ * Null for four kinds of input, and the last is the one worth spelling out:
+ *
+ *   - not a number or a string at all -- which covers null and undefined, the
+ *     column being nullable, because `typeof null` is 'object';
+ *   - a string that is not a number ('', 'heavy');
+ *   - not finite, because billed weight is `max(actual, dim)` and dim weight is
+ *     computed -- NaN arrives here and poisons every band comparison; and
+ *   - ZERO OR BELOW, because there is no such parcel. Unlike a rate, where 0 is
+ *     a decision somebody made ("this lane is free"), a weight of 0 is never a
+ *     measurement -- it is the `?? 0` that replaced a missing one. Treating it
+ *     as a real weight is how an unweighed shipment got billed from the
+ *     LIGHTEST band on the card and the smallest row of the zone matrix: the
+ *     cheapest possible price, arrived at with no evidence, and
+ *     indistinguishable from a correctly-priced small parcel.
+ *
+ * This is the one place in the billing path where 0 must NOT be read as a
+ * decision, and it is not an exception to the null-vs-zero rule but an
+ * application of it: the rule is that a stored 0 means whatever somebody
+ * deciding 0 would have meant, and nobody decides a parcel weighs nothing.
+ *
+ * Note what is NOT here: the `=== null || === undefined || === ''` line that
+ * shipmentProfit below carries, and that the first version of this function
+ * copied from it. All three terms were unobservable -- the type guard already
+ * rejects null and undefined, and `Number('')` is 0, which is refused two
+ * lines down. They survived a mutation check, which is the definition of lines
+ * that read as load-bearing and are not. In shipmentProfit the same line IS
+ * load-bearing, because there 0 is a legitimate value and '' must not silently
+ * become it. That asymmetry is the whole point of this function.
+ */
+export function billedWeightOf(weightOz: unknown): number | null {
+  if (typeof weightOz !== 'number' && typeof weightOz !== 'string') return null
+  const n = Number(weightOz)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return n
+}
+
 /** Inclusive on both ends, as `>= weight_min && <= weight_max` always was. */
 export function bandCovers(row: ShippingRateRow, billedWeightOz: number): boolean {
   // Checked first, and as its own statement rather than left to the two
   // comparisons below. Every comparison against NaN is false, so both of those
   // guards pass and the function would fall through to `return true` -- i.e.
   // claim that this band covers a weight nobody can read, and so would EVERY
-  // other band on the card. matchLegacyRate refuses a non-finite weight before
+  // other band on the card. matchLegacyRate refuses an unusable weight before
   // it reaches here, but this function is exported and says something on its
   // own: a band does not cover a weight that cannot be read.
+  //
+  // Finiteness only, deliberately NOT billedWeightOf: this predicate is about
+  // band geometry, and 0 really is inside a band with no lower bound. Whether a
+  // weight of 0 may be PRICED from is a different question, answered once in
+  // matchLegacyRate, so that the two are not quietly conflated here.
   if (!Number.isFinite(billedWeightOz)) return false
   if (row.weight_min != null && billedWeightOz < row.weight_min) return false
   if (row.weight_max != null && billedWeightOz > row.weight_max) return false
@@ -103,13 +147,16 @@ export function matchLegacyRate(
   service: string | null,
   billedWeightOz: number,
 ): PricedShipment {
-  if (!Number.isFinite(billedWeightOz)) {
+  if (billedWeightOf(billedWeightOz) === null) {
     return {
       rate: null,
       reason: `billed weight is ${JSON.stringify(billedWeightOz)}, so no `
-        + `weight band can be chosen. Priced from a weight that cannot be `
-        + `read, every band comparison is false and the old code fell through `
-        + `to the heaviest one.`,
+        + `weight band can be chosen. A non-finite weight makes every band `
+        + `comparison false, which is how the old code fell through to the `
+        + `heaviest band; a weight of 0 or less is the `
+        + `\`weight ?? 0\` standing in for a measurement nobody took, and `
+        + `pricing from it picks the LIGHTEST band -- the cheapest answer, on `
+        + `no evidence. Record the weight.`,
     }
   }
 

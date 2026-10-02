@@ -1,7 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { resolveZone, resolveZoneRate } from '@/lib/billing/zones'
 import { calcDimWeightOz, calcBilledWeightOz } from '@/lib/billing/dim-weight'
-import { matchLegacyRate, shipmentProfit, type ShippingRateRow } from '@/lib/billing/shipment-rate'
+import {
+  matchLegacyRate, shipmentProfit, billedWeightOf, type ShippingRateRow,
+} from '@/lib/billing/shipment-rate'
 
 // Repricing every shipment that has a client assigned.
 //
@@ -201,7 +203,12 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
       .from('shipments')
       .update({
         dim_weight: dimWeightOz,
-        billed_weight: Number.isFinite(billedWeightOz)
+        // billedWeightOf and not `Number.isFinite`, so that the weight column
+        // agrees with the price. 0 is finite, so an unweighed shipment used to
+        // store `billed_weight: 0` next to a null rate -- a figure in the column
+        // the operator would look at to find out WHY the rate is null, reading
+        // as a parcel that weighs nothing rather than as one nobody weighed.
+        billed_weight: billedWeightOf(billedWeightOz) != null
           ? parseFloat(billedWeightOz.toFixed(2)) : null,
         client_rate: clientRate,
         profit_loss: profitLoss,
