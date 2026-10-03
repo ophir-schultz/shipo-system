@@ -44,6 +44,30 @@ export async function syncClientAssignments(daysBack = 30) {
   let totalUndatedPicks = 0
   const clientErrors: string[] = []
 
+  // Per-ITEM failures, which clients_failed cannot see and therefore nobody
+  // downstream could.
+  //
+  // close() resolves the row's status from the error count (sync-run.ts:155-157),
+  // so a single run.fail() moves this client's sync_runs row off 'ok'. But a
+  // client that finished its loop having lost ten shipment assignments is not a
+  // failed CLIENT: it left clientErrors empty, so `clients_failed: 0` went back
+  // to the monitor, which only reports when that count is non-zero
+  // (api/agent/monitor/route.ts) — and so painted the sync indicator green over
+  // a row that says 'failed'. Production, 2026-10-03 ~08:07 UTC: status
+  // 'failed', error_count 1, context 'shipment lookup #2500-2', reported as all
+  // clear.
+  //
+  // Not counted here: the pagination failure and the per-client catch below.
+  // Both already push to clientErrors, so clients_failed reports them; counting
+  // them again would alert twice on one incident.
+  let totalItemsFailed = 0
+  // Names what failed, so the alert can say 'shipment lookup #2500-2' rather
+  // than only '1'. Capped for the reason sync-run.ts caps stored errors — one
+  // bad client must not make the alert email unreadable — and the count above
+  // stays complete, so the list is examples and never the figure.
+  const itemFailures: string[] = []
+  const MAX_NAMED_ITEM_FAILURES = 10
+
   for (const client of clients) {
     // Each client gets its own sync_runs row so a 401 on one client is
     // recordable without condemning or absolving the whole run. Two clients
@@ -103,6 +127,19 @@ export async function syncClientAssignments(daysBack = 30) {
       continue
     }
 
+    // One call, not two. sync/shipstation.ts pairs `results.errors++` with each
+    // run.fail() by hand, and that is exactly how these sites came to be
+    // unpaired — the row recorded the failure and nothing the caller reads did.
+    // Recording both from a single function is what stops the pairing drifting
+    // again the next time a fail() site is added.
+    const failItem = (context: string, err: unknown) => {
+      run.fail(context, err)
+      totalItemsFailed++
+      if (itemFailures.length < MAX_NAMED_ITEM_FAILURES) {
+        itemFailures.push(`${client.name ?? client.id}: ${context}`)
+      }
+    }
+
     // Everything this client's run does is inside the try, so that close()
     // runs whether it finishes, errors or throws. close() is what writes the
     // fail() and warn() records to the row; a row left at 'running' keeps all
@@ -134,7 +171,7 @@ export async function syncClientAssignments(daysBack = 30) {
 
         for (const order of orders) {
           const orderNumber = String(order.orderNumber ?? order.order_number ?? '').trim()
-          if (!orderNumber) { run.fail('blank order number', order); continue }
+          if (!orderNumber) { failItem('blank order number', order); continue }
           orderNumbers.push(orderNumber)
 
           run.seen()
@@ -153,7 +190,7 @@ export async function syncClientAssignments(daysBack = 30) {
               .single()
 
             if (orderErr || !orderRow) {
-              run.fail(`order ${orderNumber}`, orderErr ?? 'no row returned')
+              failItem(`order ${orderNumber}`, orderErr ?? 'no row returned')
               continue
             }
 
@@ -173,7 +210,7 @@ export async function syncClientAssignments(daysBack = 30) {
                 .maybeSingle()
 
               if (existingErr) {
-                run.fail(`item lookup ${orderNumber}:${line.line_ordinal}`, existingErr)
+                failItem(`item lookup ${orderNumber}:${line.line_ordinal}`, existingErr)
                 continue
               }
 
@@ -234,14 +271,14 @@ export async function syncClientAssignments(daysBack = 30) {
                   is_estimate: pickSource === 'watermark',
                 }, { onConflict: 'order_id,source,line_ordinal' })
 
-              if (itemErr) run.fail(`item ${orderNumber}:${line.line_ordinal}`, itemErr)
+              if (itemErr) failItem(`item ${orderNumber}:${line.line_ordinal}`, itemErr)
               else run.wrote()
             }
           } catch (err) {
             if (err instanceof NegativeQuantityError) {
-              run.fail(`order ${orderNumber}: bad quantity`, err)
+              failItem(`order ${orderNumber}: bad quantity`, err)
             } else {
-              run.fail(`order ${orderNumber}`, err)
+              failItem(`order ${orderNumber}`, err)
             }
           }
         }
@@ -270,7 +307,7 @@ export async function syncClientAssignments(daysBack = 30) {
           .maybeSingle()
 
         if (shipErr) {
-          run.fail(`shipment lookup ${orderNumber}`, shipErr)
+          failItem(`shipment lookup ${orderNumber}`, shipErr)
           continue
         }
 
@@ -283,7 +320,7 @@ export async function syncClientAssignments(daysBack = 30) {
           .eq('id', shipment.id)
 
         if (assignErr) {
-          run.fail(`assign shipment ${orderNumber} to ${client.name ?? client.id}`, assignErr)
+          failItem(`assign shipment ${orderNumber} to ${client.name ?? client.id}`, assignErr)
           continue
         }
 
@@ -340,6 +377,12 @@ export async function syncClientAssignments(daysBack = 30) {
   return {
     clients_synced: clients.length - clientErrors.length,
     clients_failed: clientErrors.length,
+    // Deliberately NOT folded into clients_failed. A client with one lost
+    // shipment assignment did sync, and calling it a failed client would
+    // misreport the other orders it mapped correctly; the two counts answer
+    // different questions and the monitor reports them separately.
+    items_failed: totalItemsFailed,
+    item_failures: itemFailures,
     mapped: totalMapped,
     updated: totalUpdated,
     skipped: totalSkipped,

@@ -117,14 +117,32 @@ export async function GET(req: Request) {
     // did not sync has no new orders, no picks and therefore no pick revenue,
     // which is exactly the kind of gap that reads downstream as a cheap month.
     const clientsFailed = Number(clientResult.clients_failed ?? 0)
-    log.push(`${clientsFailed > 0 ? '⚠' : '✓'} Client mapping: `
+    // clients_failed counts whole clients, and was the ONLY failure signal this
+    // stage read. A client that finished its loop having lost individual orders
+    // or shipment assignments reports zero failed clients, so every one of
+    // those passes arrived here as a clean tick — while its own sync_runs row
+    // said 'failed', because close() takes the status from the error count. The
+    // dashboard's sync indicator was green over exactly that: 2026-10-03
+    // ~08:07 UTC, status 'failed', context 'shipment lookup #2500-2',
+    // has_issues false. items_failed is the count that was missing.
+    const itemsFailed = Number(clientResult.items_failed ?? 0)
+    log.push(`${clientsFailed > 0 || itemsFailed > 0 ? '⚠' : '✓'} Client mapping: `
       + `${clientResult.updated ?? 0} shipments assigned`
       + `${clientsFailed > 0 ? ` · ${clientsFailed} of `
-        + `${(clientResult.clients_synced ?? 0) + clientsFailed} clients FAILED` : ''}`)
+        + `${(clientResult.clients_synced ?? 0) + clientsFailed} clients FAILED` : ''}`
+      + `${itemsFailed > 0 ? ` · ${itemsFailed} items FAILED` : ''}`)
     if (clientsFailed > 0) {
       errors.push(`⚠ ${clientsFailed} Zenventory client${clientsFailed > 1 ? 's' : ''} did `
         + `not sync, so ${clientsFailed > 1 ? 'their' : 'its'} orders and picks are `
         + `missing from this pass: ${(clientResult.errors ?? []).join('; ')}`)
+    }
+    if (itemsFailed > 0) {
+      errors.push(`⚠ ${itemsFailed} Zenventory item${itemsFailed > 1 ? 's' : ''} could not be `
+        + `written inside clients that otherwise synced (e.g. `
+        + `${(clientResult.item_failures ?? []).join('; ')}). An order or line that was `
+        + `not recorded raises no pick or pack charge, and a shipment that could not be `
+        + `assigned has NO CLIENT, so it cannot be billed at all. The next successful `
+        + `run picks these up; until then the revenue is absent from the ledger.`)
     }
     // Picked lines the sync refused to date because it had no continuous
     // observation to date them from. Not an error — declining to invent a date

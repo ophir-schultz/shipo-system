@@ -300,3 +300,139 @@ describe('syncClientAssignments: running it twice over the same window', () => {
     expect(items()[0].pick_date_source).toBeNull()
   })
 })
+
+// ---------------------------------------------------------------------------
+// THE GAP BETWEEN THE ROW AND THE REPORT.
+//
+// close() resolves the status from the error count, so one run.fail() closes
+// the row 'failed' or 'partial'. But the only per-client failure signal the
+// caller got was `clients_failed: clientErrors.length`, and the per-item
+// fail() sites did not touch clientErrors -- so a run that lost orders or
+// shipment assignments returned clients_failed 0, api/agent/monitor/route.ts
+// pushed nothing into errors[], has_issues came back false and the dashboard
+// indicator went green over a row that says 'failed'. Observed in production
+// on 2026-10-03 ~08:07 UTC: status 'failed', error_count 1, context
+// 'shipment lookup #2500-2'.
+//
+// These tests are written against the RETURN VALUE as well as the row,
+// because the row was already right. The bug was entirely in what the caller
+// could see, so a test that only inspects sync_runs cannot detect it.
+// ---------------------------------------------------------------------------
+describe('syncClientAssignments: per-item failures reach the caller', () => {
+  beforeEach(() => {
+    h.db.tables.clients = [client('c1', 'Nayax')]
+  })
+
+  const failShipments = (verb: 'select' | 'update') => {
+    h.db.failOn = (call) =>
+      call.table === 'shipments' && call.verb === verb
+        ? { message: 'permission denied for table shipments' }
+        : null
+  }
+
+  it('reports a failed shipment lookup, which clients_failed cannot see', async () => {
+    failShipments('select')
+
+    const result = await syncClientAssignments(30)
+
+    // Both halves of the production contradiction, asserted together: the row
+    // knows it failed...
+    expect(runFor('c1').status).toBe('failed')
+    expect((runFor('c1').errors as Array<{ context: string }>)[0].context)
+      .toBe('shipment lookup A-1')
+    // ...and the whole-client count says nothing is wrong, which is the number
+    // the monitor was reading. This stays 0 ON PURPOSE -- the client synced.
+    expect(result.clients_failed).toBe(0)
+    // items_failed is the signal that was missing, and it names the order so
+    // the alert can say which one rather than only how many.
+    expect(result.items_failed).toBe(1)
+    expect(result.item_failures).toEqual(['Nayax: shipment lookup A-1'])
+  })
+
+  it('reports a failed assignment, and the shipment is left with no client to bill', async () => {
+    h.db.tables.shipments = [{ id: 's1', order_number: 'A-1', client_id: null }]
+    failShipments('update')
+
+    const result = await syncClientAssignments(30)
+
+    expect(result.items_failed).toBe(1)
+    expect(result.item_failures[0]).toContain('assign shipment A-1')
+    // The money consequence the alert names, asserted rather than asserted
+    // about: the shipment still has no client, so nothing can invoice it, and
+    // `updated` correctly does not count the update that never happened.
+    expect(h.db.tables.shipments[0].client_id).toBeNull()
+    expect(result.updated).toBe(0)
+  })
+
+  it('reports a failed order upsert, not only the shipment-loop failures', async () => {
+    // A second, distant fail() site. Pairing only the two sites in the
+    // assignment loop would leave the order loop silent again, and an order
+    // that was not recorded raises no pick or pack charge at all.
+    h.db.failOn = (call) =>
+      call.table === 'orders' && call.verb === 'upsert'
+        ? { message: 'deadlock detected' }
+        : null
+
+    const result = await syncClientAssignments(30)
+
+    expect(result.items_failed).toBe(1)
+    expect(result.item_failures).toEqual(['Nayax: order A-1'])
+    expect(runFor('c1').status).toBe('failed')
+  })
+
+  it('does not also count a pagination failure, which clients_failed already reports', async () => {
+    // Two clients, because one failing client out of one throws.
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    h.getCustomerOrders.mockReset()
+    h.getCustomerOrders
+      .mockRejectedValueOnce(new Error('401 Unauthorized'))
+      .mockResolvedValue({
+        customerOrders: [{ orderNumber: 'A-1', orderDate: '2026-09-01', items: [] }],
+        meta: { totalPages: 1 },
+      })
+
+    const result = await syncClientAssignments(30)
+
+    // The 401 is a whole-client event: it pushes clientErrors, so route.ts
+    // already alerts on it. Counting it in items_failed as well would turn one
+    // incident into two alerts -- the doubling route.ts avoids explicitly when
+    // the storage block declines to re-report a skipped charge run.
+    expect(result.clients_failed).toBe(1)
+    expect(result.items_failed).toBe(0)
+    expect(result.item_failures).toEqual([])
+    expect(runFor('c1').status).toBe('failed')
+  })
+
+  it('does not also count the per-client catch, for the same reason', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    let seen = 0
+    const real = h.db.client.from.bind(h.db.client)
+    h.db.client.from = ((t: string) => {
+      if (t === 'shipments' && ++seen === 1) throw new TypeError('fetch failed')
+      return real(t)
+    }) as typeof h.db.client.from
+
+    const result = await syncClientAssignments(30)
+
+    expect(result.clients_failed).toBe(1)
+    expect(result.items_failed).toBe(0)
+  })
+
+  it('caps the names it returns without capping the count', async () => {
+    h.getCustomerOrders.mockResolvedValue({
+      customerOrders: Array.from({ length: 15 }, (_, i) => ({
+        orderNumber: `A-${i + 1}`, orderDate: '2026-09-01', items: [],
+      })),
+      meta: { totalPages: 1 },
+    })
+    failShipments('select')
+
+    const result = await syncClientAssignments(30)
+
+    // The count is the figure and the list is examples. Capping the count would
+    // under-report the money; an uncapped list would put fifteen lines of
+    // near-identical prose in the alert email that has to stay readable.
+    expect(result.items_failed).toBe(15)
+    expect(result.item_failures).toHaveLength(10)
+  })
+})
