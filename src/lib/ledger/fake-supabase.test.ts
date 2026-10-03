@@ -116,6 +116,42 @@ describe('fake-supabase — single()', () => {
   })
 })
 
+describe('fake-supabase — gt()', () => {
+  it('drops null rather than comparing it, as SQL does', async () => {
+    // A null is not > anything in Postgres, so the row is excluded. Were the
+    // double to treat null as 0, the monitor's undated-pick scan would report
+    // every line that has never been picked as a line picked without a date.
+    const db = createFakeSupabase({
+      order_items: [
+        { id: 'i1', quantity_picked: 2 },
+        { id: 'i2', quantity_picked: 0 },
+        { id: 'i3', quantity_picked: null },
+      ],
+    })
+
+    const { data } = await db.client
+      .from('order_items').select('id').gt('quantity_picked', 0)
+
+    // The whole row, because the double does not model column projection.
+    expect(data).toEqual([{ id: 'i1', quantity_picked: 2 }])
+  })
+
+  it('compares numbers NUMERICALLY, not as strings', async () => {
+    // The trap its sibling operators get away with: lt/lte/gte here only ever
+    // receive ISO dates, which sort correctly as strings. gt()'s caller
+    // compares an integer quantity, and as strings '9' > '10' is true, so a
+    // 9-unit line would pass a 10-unit threshold.
+    const db = createFakeSupabase({
+      order_items: [{ id: 'i1', quantity_picked: 9 }],
+    })
+
+    const { data } = await db.client
+      .from('order_items').select('id').gt('quantity_picked', 10)
+
+    expect(data).toEqual([])
+  })
+})
+
 describe('fake-supabase — unimplemented operators fail loudly', () => {
   it('throws rather than silently matching everything', () => {
     // The default that matters most. A double that quietly ignored an operator

@@ -29,7 +29,7 @@ export type FakeResult = { data: unknown; error: FakeError | null; count: number
 type Verb = 'select' | 'insert' | 'update' | 'upsert' | 'delete'
 
 interface Filter {
-  op: 'eq' | 'in' | 'lt' | 'lte' | 'gte' | 'like' | 'is-null' | 'not-is-null' | 'or'
+  op: 'eq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'is-null' | 'not-is-null' | 'or'
   column: string
   value: unknown
 }
@@ -130,6 +130,19 @@ function matches(row: FakeRow, filters: Filter[]): boolean {
         // is DROPPED, silently, rather than compared.
         if (actual === null || actual === undefined) return false
         return String(actual) <= String(f.value)
+      case 'gt':
+        // Same null guard as its siblings: a null is not > anything in SQL, and
+        // the row is DROPPED rather than compared.
+        if (actual === null || actual === undefined) return false
+        // NUMERIC when both sides are numbers, unlike the string comparisons
+        // above. Those operators only ever receive ISO dates, which sort
+        // correctly as strings; .gt()'s only caller in this codebase is the
+        // monitor's undated-pick scan, which compares `quantity_picked` to 0 —
+        // and as strings '9' > '10', so a 9-unit line would be judged against
+        // a 10-unit threshold wrongly. Postgres compares integers as integers,
+        // so this is the more faithful behaviour, not a convenience.
+        if (typeof actual === 'number' && typeof f.value === 'number') return actual > f.value
+        return String(actual) > String(f.value)
       case 'gte':
         if (actual === null || actual === undefined) return false
         return String(actual) >= String(f.value)
@@ -210,6 +223,9 @@ class Builder implements PromiseLike<FakeResult> {
   }
   lte(column: string, value: unknown): this {
     this.call.filters.push({ op: 'lte', column, value }); return this
+  }
+  gt(column: string, value: unknown): this {
+    this.call.filters.push({ op: 'gt', column, value }); return this
   }
   gte(column: string, value: unknown): this {
     this.call.filters.push({ op: 'gte', column, value }); return this
