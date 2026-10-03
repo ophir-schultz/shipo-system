@@ -51,9 +51,11 @@ scripts/out/
 # database, kept only so the next person can see what was asked. They are not
 # maintained, nothing imports them, and no test pins them -- so committing one
 # publishes an unmaintained query against production as if it were a tool.
-# dfb4b0a committed scripts/diag-unpriced-shipments.mjs by accident this way.
+# dfb4b0a committed scripts/diag-unpriced-shipments.mjs by accident this way --
+# though that file has since earned its place and is tracked deliberately now;
+# the accident is the cautionary tale, not a claim about the file today.
 #
-# Deliberately NOT a `diag-*` rule: 15 diag- scripts are tracked and 9 are not,
+# Deliberately NOT a `diag-*` rule: 16 diag- scripts are tracked and 8 are not,
 # so that pattern would claim to ignore files git is already tracking and tell
 # a reader the opposite of the truth. Every probe-* is untracked and no tracked
 # file begins with probe-, so this one matches exactly what it says it does.
@@ -61,22 +63,28 @@ scripts/out/
 scripts/probe-*
 
 # The scratch diag- scripts, named in full because the glob above cannot reach
-# them: 15 OTHER diag- scripts are tracked, so `scripts/diag-*` would claim to
+# them: 16 OTHER diag- scripts are tracked, so `scripts/diag-*` would claim to
 # ignore files git is already tracking.
 #
 # Listed one per line rather than as `scripts/diag-*` plus a `!` exception for
-# each of the 15 tracked ones. That would have been fewer characters but it
+# each of the 16 tracked ones. That would have been fewer characters but it
 # would restate, in this file, a fact git already holds -- which of these are
 # tracked -- and the copy would go stale silently the next time one is added or
 # untracked. Each line below instead names a file that is scratch today; if one
 # is deleted the line is dead but harmless, and it cannot disagree with git.
+#
+# scripts/diag-unpriced-shipments.mjs was on this list and has come off it: it
+# now shares the read-or-refuse and unpriced-filter modules with the other
+# diagnostics, is covered by their tests, and reports a capped read rather than
+# describing a subset in silence. That is the "earns its place" case the
+# paragraph above anticipated, so the line is removed rather than kept as a
+# stale entry contradicting git.
 #
 # The cost of doing it this way: a FUTURE diag- script is not covered, so the
 # dfb4b0a accident can still happen to one that does not exist yet. Accepted,
 # because the alternative hides the opposite mistake -- a new diagnostic that
 # was meant to be tracked, silently ignored, with nothing in `git status` to
 # show it. `git add -f` is the escape hatch either way.
-scripts/diag-unpriced-shipments.mjs
 scripts/diag-carrier-card-gap.mjs
 scripts/diag-carrier-zone-mismatch.mjs
 scripts/diag-legacy-clientkey.mjs

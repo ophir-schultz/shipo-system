@@ -33,7 +33,7 @@ import { UNPRICED_OR, splitUnpriced, unpricedSummary } from './unpriced-filter.m
 // matters most here: it printed `NO ROWS AT ALL` for a falsy result, so a
 // failed read reported that a client's rate matrix is empty -- the strongest
 // claim this script makes, and the one that sends somebody to build a card.
-import { mustRead, unknownLog, UNKNOWN } from './read-or-refuse.mjs'
+import { mustRead, readFailure, unknownLog, UNKNOWN } from './read-or-refuse.mjs'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -41,20 +41,65 @@ const db = createClient(
   { auth: { persistSession: false } }
 )
 
-const { data: unpricedRows } = mustRead('the unpriced-shipments read', await db
+// `{ count: 'exact' }` alongside the rows, the way scripts/diag-unrated.mjs and
+// scripts/gen-rate-card-worklist.mjs already do it. PostgREST caps a `.select()`
+// with no `.range()`, so `data.length` is how many rows CAME BACK and says
+// nothing about how many match. Asking for both is what lets them be compared.
+const unpricedRes = mustRead('the unpriced-shipments read', await db
   .from('shipments')
   // client_rate is selected because the split below reads it; a row that never
   // selected it would answer undefined and be filed under NULL.
-  .select('id, client_id, carrier, service, weight, zone, recipient_zip, client_rate')
+  .select('id, client_id, carrier, service, weight, zone, recipient_zip, client_rate',
+    { count: 'exact' })
   .not('client_id', 'is', null)
   .or(UNPRICED_OR))
 
-const split = splitUnpriced(unpricedRows)
+const split = splitUnpriced(unpricedRes.data)
 // Printed before anything else so that no count further down -- all of which
 // are over the union, because a rate-card gap is diagnosed the same way
 // whichever value is stored -- gets read as being about one of the two alone.
 console.log(unpricedSummary(split) + '\n')
 const unpriced = split.all
+
+// Not `(count ?? 0)`. A failed count request answers null and a count of 0 is a
+// real finding -- nothing is unpriced -- so `readFailure`'s `want: 'count'` mode
+// is what tells them apart. Folded together, a broken count would read as "0
+// match", which against any rows at all looks like a cap that is not there.
+const countWhy = readFailure(unpricedRes, { want: 'count' })
+const unpricedTotal = countWhy ? null : unpricedRes.count
+const capped = unpricedTotal != null && unpricedTotal !== unpriced.length
+
+// Said here, ahead of all four sections, because every one of them is derived
+// from the rows that came back. The sharpest consequence is section 2: this
+// script exists to find the carrier/service pair whose casing or naming misses
+// the matrix, and the pairs it can show are only those present in the rows read.
+// A mismatched pair held entirely by shipments beyond the cap is invisible, and
+// the script would go on to report the remaining pairs as the whole story.
+// Sections 1 and 4 iterate the distinct client_ids in those same rows, so a
+// capped read drops clients out of the matrix inventory and out of the
+// origin_zip coverage check with nothing saying they were ever there.
+//
+// `fetchAllPages` in src/lib/ledger/load-charge-inputs.ts is the real pager and
+// is deliberately not reimplemented here: it handles PGRST103 at the end of the
+// table and needs an explicit `.order()`, and it lives in a module importing
+// `@/lib/supabase`, an alias Node's type stripping cannot resolve from a .mjs.
+// So this says the list is partial rather than growing a second copy of it.
+if (capped) {
+  console.log(`!! PARTIAL: ${unpricedTotal} shipments match, but only ${unpriced.length} came back --`)
+  console.log(`   PostgREST capped the read. All four sections below describe that subset:`)
+  console.log(`   the carrier/service pairs in section 2 are only those it contains, so a`)
+  console.log(`   mismatched pair held by the shipments not read does not appear at all, and`)
+  console.log(`   clients may be missing from the inventory in section 1 entirely. Page the`)
+  console.log(`   query with .range() and re-run before reading a pair list as exhaustive.\n`)
+}
+// A count that never arrived is not a count that agreed: with nothing to check
+// `data.length` against, a cap cannot be ruled out either.
+else if (countWhy) {
+  console.log(`!! whether these are ALL the matching shipments is ${UNKNOWN}: the exact count`)
+  console.log(`   was not returned (${countWhy}), so the ${unpriced.length} rows read cannot be`)
+  console.log(`   compared against the number that match. PostgREST caps an unpaged .select(),`)
+  console.log(`   so a cap cannot be ruled out here.\n`)
+}
 
 // Refused, not UNKNOWN: `origin_zip` drives sections 3 and 4, and without the
 // client rows every verdict there becomes "origin_zip unusable (undefined)",
@@ -111,7 +156,10 @@ for (const cid of affected) {
 }
 
 // ---------- 2. what did each shipment ASK for? ----------
-console.log(`\n=== what the ${unpriced.length} unpriced shipments ASKED for ===\n`)
+// The heading names the population it is about to break down, so it says which
+// population that is: `unpriced.length` alone would present the subset as the
+// whole when the read was capped.
+console.log(`\n=== what the ${capped ? `${unpriced.length} of ${unpricedTotal}` : unpriced.length} unpriced shipments ASKED for ===\n`)
 const asked = new Map()
 for (const s of unpriced) {
   const k = `${nameOf[s.client_id]} | carrier=${JSON.stringify(s.carrier)} service=${JSON.stringify(s.service)}`

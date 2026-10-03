@@ -27,7 +27,7 @@ import { UNPRICED_OR, splitUnpriced, unpricedSummary, rateKind, NO_RATE } from '
 // read is the worst of them: `(dbChart ?? [])` means a failed read leaves the
 // merge base empty, so every USPS row counts as one Section A adds, and the
 // script reports a far larger `+N zone_chart rows` than Section A really is.
-import { mustRead, unknownLog, UNKNOWN } from './read-or-refuse.mjs'
+import { mustRead, readFailure, unknownLog, UNKNOWN } from './read-or-refuse.mjs'
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
 
 const usps = JSON.parse(readFileSync('/tmp/usps198.json','utf8'))
@@ -55,16 +55,30 @@ for (const [p, z] of uspsChart) if (!merged.has(p)) { merged.set(p, z); added++ 
 const { data: clients } = mustRead('the clients read',
   await db.from('clients').select('id, name'))
 const nameOf = Object.fromEntries(clients.map(c=>[c.id,c.name]))
-const { data: unpricedRows } = mustRead('the unpriced-shipments read', await db.from('shipments')
+// `{ count: 'exact' }` alongside the rows, the way scripts/diag-unrated.mjs and
+// scripts/gen-rate-card-worklist.mjs already do it. PostgREST caps a `.select()`
+// with no `.range()`, so `data.length` is how many rows CAME BACK and says
+// nothing about how many match. Asking for both is what lets them be compared,
+// and it matters more here than anywhere: `M` in "would price: N of M" IS this
+// number, and a capped M understates the case for Section A invisibly.
+const unpricedRes = mustRead('the unpriced-shipments read', await db.from('shipments')
   // client_rate is selected because the split reads it.
-  .select('id, client_id, carrier, service, weight, zone, recipient_zip, client_rate')
+  .select('id, client_id, carrier, service, weight, zone, recipient_zip, client_rate',
+    { count: 'exact' })
   .not('client_id','is',null).or(UNPRICED_OR), {
   instead: 'No simulation is printed. An unread population would have reported '
     + '"would price: 0 of 0", which reads as Section A being worth nothing.',
 })
 
-const split = splitUnpriced(unpricedRows)
+const split = splitUnpriced(unpricedRes.data)
 const unpriced = split.all
+
+// Not `(count ?? 0)`. A failed count request answers null and a count of 0 is a
+// real finding -- nothing is unpriced, i.e. there is nothing for Section A to
+// fix -- so `readFailure`'s `want: 'count'` mode is what tells them apart.
+const countWhy = readFailure(unpricedRes, { want: 'count' })
+const unpricedTotal = countWhy ? null : unpricedRes.count
+const capped = unpricedTotal != null && unpricedTotal !== unpriced.length
 
 console.log(`simulating Section A only: +${added} zone_chart rows, no zone changes\n`)
 // Which population is being simulated, stated before its result. Section A
@@ -72,6 +86,35 @@ console.log(`simulating Section A only: +${added} zone_chart rows, no zone chang
 // client_rate holds -- but "would price: N of M" is the figure this script
 // exists to produce, so what M is made of belongs next to it.
 console.log(unpricedSummary(split) + '\n')
+
+// Said at the top as well as at the headline, because this script's entire
+// output is one decision: is applying Section A worth it? A shipment beyond the
+// cap is never simulated, so it can only be absent from `would price` -- the
+// headline moves in one direction only, DOWN, and the decision it informs is
+// whether to bother. A capped read therefore argues against a change that may
+// well be worth making, and nothing in the old output said so.
+//
+// `fetchAllPages` in src/lib/ledger/load-charge-inputs.ts is the real pager and
+// is deliberately not reimplemented here: it handles PGRST103 at the end of the
+// table and needs an explicit `.order()`, and it lives in a module importing
+// `@/lib/supabase`, an alias Node's type stripping cannot resolve from a .mjs.
+// So this says the simulation is partial rather than growing a second copy.
+if (capped) {
+  console.log(`!! PARTIAL: ${unpricedTotal} shipments match, but only ${unpriced.length} came back --`)
+  console.log(`   PostgREST capped the read. The ${unpricedTotal - unpriced.length} not read were not simulated at all,`)
+  console.log(`   so every figure below is over the subset and "would price" is a FLOOR on`)
+  console.log(`   what Section A would fix, never the result. Page the query with .range()`)
+  console.log(`   and re-run before deciding against applying it.\n`)
+}
+// A count that never arrived is not a count that agreed: with nothing to check
+// `data.length` against, a cap cannot be ruled out, so the headline cannot be
+// certified as covering the population either.
+else if (countWhy) {
+  console.log(`!! whether these are ALL the matching shipments is ${UNKNOWN}: the exact count`)
+  console.log(`   was not returned (${countWhy}), so the ${unpriced.length} rows read cannot be`)
+  console.log(`   compared against the number that match. PostgREST caps an unpaged .select(),`)
+  console.log(`   so "would price" below may be over a subset.\n`)
+}
 const res = { priced: 0, pricedNull: 0, pricedZero: 0, noZone: 0, noCell: 0, noWeight: 0, unknown: 0 }
 const detail = new Map()
 /** Rate-cell lookups that failed, named once at the end. */
@@ -136,7 +179,16 @@ for (const s of unpriced) {
   detail.set(k, (detail.get(k) ?? 0) + 1)
 }
 for (const [k, n] of [...detail].sort()) console.log(`  ${String(n).padStart(3)}  ${k}`)
-console.log(`\n  would price: ${res.priced}${res.unknown ? ' (AT LEAST)' : ''} of ${unpriced.length}`)
+// A floor for either of two independent reasons: a rate-cell lookup that failed
+// (below), or shipments that were never simulated because the read was capped.
+// Both can only move the figure down, so either one makes it AT LEAST.
+const isFloor = res.unknown > 0 || capped
+// `of M` names the population, so when the read was capped it names both: the
+// number that match and the number actually simulated. Printing `unpriced.length`
+// alone offered the subset as the denominator, which is the whole fault here --
+// a capped M understates the case for Section A and reads as the final word.
+const denom = capped ? `${unpriced.length} simulated (of ${unpricedTotal} that match)` : `${unpriced.length}`
+console.log(`\n  would price: ${res.priced}${isFloor ? ' (AT LEAST)' : ''} of ${denom}`)
 // Said next to the headline, not only in the stderr tail. This number is read
 // as the case for applying Section A, and with failed lookups in it the number
 // is a floor rather than the answer.
@@ -144,6 +196,15 @@ if (res.unknown) {
   console.log(`    ^ ${res.unknown} shipments had a rate-cell lookup fail, so they are`)
   console.log(`      counted in neither "would price" nor "rate card still missing".`)
   console.log(`      This figure is a FLOOR, not the result. Re-run.`)
+}
+// The same point for the other reason, next to the same number: an unsimulated
+// shipment cannot land in "would price", so the case for Section A can only be
+// stronger than this line says -- never weaker.
+if (capped) {
+  console.log(`    ^ ${unpricedTotal - unpriced.length} more shipments match but were not read, so they were never`)
+  console.log(`      simulated. Section A may price some of them too. This figure is a`)
+  console.log(`      FLOOR and every breakdown below is over the ${unpriced.length} simulated. Page`)
+  console.log(`      the shipments query with .range() and re-run.`)
 }
 // Split, because only the first number is a thing Section A fixes. A shipment
 // storing 0 because its card says the shipping is free already priced; it
