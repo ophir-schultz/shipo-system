@@ -60,13 +60,31 @@ scripts/out/
 # `git add -f` is the escape hatch if a probe ever earns its place.
 scripts/probe-*
 
-# Named in full because the glob above cannot reach it. 64f81f6 untracked this
-# after dfb4b0a committed it by accident, and without this line the next
-# `git add -A` puts it straight back. The other 8 untracked diag- scripts are
-# still exposed to exactly that; they are listed nowhere because each would
-# need its own line, and a decision about which diagnostics are tools and
-# which are scratch has not been made.
+# The scratch diag- scripts, named in full because the glob above cannot reach
+# them: 15 OTHER diag- scripts are tracked, so `scripts/diag-*` would claim to
+# ignore files git is already tracking.
+#
+# Listed one per line rather than as `scripts/diag-*` plus a `!` exception for
+# each of the 15 tracked ones. That would have been fewer characters but it
+# would restate, in this file, a fact git already holds -- which of these are
+# tracked -- and the copy would go stale silently the next time one is added or
+# untracked. Each line below instead names a file that is scratch today; if one
+# is deleted the line is dead but harmless, and it cannot disagree with git.
+#
+# The cost of doing it this way: a FUTURE diag- script is not covered, so the
+# dfb4b0a accident can still happen to one that does not exist yet. Accepted,
+# because the alternative hides the opposite mistake -- a new diagnostic that
+# was meant to be tracked, silently ignored, with nothing in `git status` to
+# show it. `git add -f` is the escape hatch either way.
 scripts/diag-unpriced-shipments.mjs
+scripts/diag-carrier-card-gap.mjs
+scripts/diag-carrier-zone-mismatch.mjs
+scripts/diag-legacy-clientkey.mjs
+scripts/diag-order-items.mjs
+scripts/diag-warehouse-rates.mjs
+scripts/diag-zone-chart-coverage.mjs
+scripts/diag-zone-chart-diff.mjs
+scripts/diag-zone-chart-provenance.mjs
 
 # Supabase CLI scratch — version cache, not source
 supabase/.temp/
