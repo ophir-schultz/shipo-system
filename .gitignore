@@ -47,5 +47,26 @@ next-env.d.ts
 # generated quote/price artifacts, including real client documents
 scripts/out/
 
+# one-off read-only probes: written to answer a single question about the live
+# database, kept only so the next person can see what was asked. They are not
+# maintained, nothing imports them, and no test pins them -- so committing one
+# publishes an unmaintained query against production as if it were a tool.
+# dfb4b0a committed scripts/diag-unpriced-shipments.mjs by accident this way.
+#
+# Deliberately NOT a `diag-*` rule: 15 diag- scripts are tracked and 9 are not,
+# so that pattern would claim to ignore files git is already tracking and tell
+# a reader the opposite of the truth. Every probe-* is untracked and no tracked
+# file begins with probe-, so this one matches exactly what it says it does.
+# `git add -f` is the escape hatch if a probe ever earns its place.
+scripts/probe-*
+
+# Named in full because the glob above cannot reach it. 64f81f6 untracked this
+# after dfb4b0a committed it by accident, and without this line the next
+# `git add -A` puts it straight back. The other 8 untracked diag- scripts are
+# still exposed to exactly that; they are listed nowhere because each would
+# need its own line, and a decision about which diagnostics are tools and
+# which are scratch has not been made.
+scripts/diag-unpriced-shipments.mjs
+
 # Supabase CLI scratch — version cache, not source
 supabase/.temp/
