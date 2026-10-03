@@ -28,12 +28,49 @@ import { weightToLb } from './zone-weight.mjs'
 // NULL change was absent from the list of cells somebody is asked to create.
 import { UNPRICED_OR, splitUnpriced, rateKind, NO_RATE } from './unpriced-filter.mjs'
 
-const { data: clients } = await db.from('clients').select('id, name')
+/**
+ * Stops the run without writing, naming the read that failed.
+ *
+ * A failed read is UNKNOWN, and the one thing this script must not do with an
+ * UNKNOWN is write it out as a 0. docs/rate-card-worklist.md is an operator
+ * document: `splitUnpriced(null)` answers an empty population quite happily, so
+ * a read that failed outright would have produced "Generated from the 0
+ * shipments", a worklist with no clients in it and no indication that anything
+ * had gone wrong -- read as "there is no rate-card work to do". Same reasoning
+ * as src/lib/billing/recalculate.ts, which refuses rather than writing a price
+ * it cannot stand behind.
+ *
+ * Exits BEFORE writeFileSync, so the previous worklist is left intact rather
+ * than overwritten with an empty one. That matters more than it looks: the
+ * stale file is at least a true record of a run that worked.
+ */
+function refuse(what, error) {
+  console.error(
+    `\n!! REFUSING to write docs/rate-card-worklist.md: ${what} failed `
+    + `-- ${error?.message ?? 'no rows returned and no error given'}.\n`
+    + `   Nothing was written; any existing worklist is untouched and is now `
+    + `stale rather than wrong. Fix the read and re-run.`
+  )
+  process.exit(1)
+}
+
+const { data: clients, error: clientsErr } = await db.from('clients').select('id, name')
+// Without this the next line threw "Cannot read properties of null (reading
+// 'map')" -- which does at least refuse, but names neither the query nor the
+// document that did not get written.
+if (clientsErr || !clients) refuse('the clients read', clientsErr)
 const nameOf = Object.fromEntries(clients.map(c=>[c.id,c.name]))
-const { data: unpricedRows, count: unpricedTotal } = await db.from('shipments')
+
+const { data: unpricedRows, count: unpricedTotal, error: unpricedErr } = await db.from('shipments')
   // client_rate is selected because the split reads it.
   .select('client_id, carrier, service, weight, zone, recipient_zip, client_rate', { count: 'exact' })
   .not('client_id','is',null).or(UNPRICED_OR)
+
+// `!unpricedRows` is refused alongside the error. A genuinely empty result
+// arrives as [], not null, so null here means the read did not happen -- and
+// "no shipments are unpriced" is far too good a piece of news to infer from a
+// query that never answered.
+if (unpricedErr || !unpricedRows) refuse('the unpriced-shipments read', unpricedErr)
 
 const split = splitUnpriced(unpricedRows)
 const unpriced = split.all
@@ -94,6 +131,9 @@ for (const s of unpriced) {
   byClient.get(s.client_id).push(s)
 }
 
+/** Clients whose rate card could not be read, collected for the stderr tail. */
+const cardReadFailures = []
+
 for (const [cid, rows] of [...byClient].sort((a,b)=>b[1].length-a[1].length)) {
   // Capped the same way, and this read is the one that changes the INSTRUCTION
   // rather than a count: the `Fix` paragraph below branches on whether `pairs`
@@ -101,16 +141,32 @@ for (const [cid, rows] of [...byClient].sort((a,b)=>b[1].length-a[1].length)) {
   // the cap, the operator is told to create or re-key a card that already
   // exists. A full 20x8 blanket grid is 160 rows, so a client with several
   // carrier/service pairs can reach the limit.
-  const { data: card, count: cardTotal } = await db.from('client_zone_rates')
+  const { data: card, count: cardTotal, error: cardErr } = await db.from('client_zone_rates')
     .select('carrier, service, weight_lb, zone', { count: 'exact' }).eq('client_id', cid)
+  // Not a refusal, because this one is per-client and the other sections are
+  // still worth having -- but emphatically not an empty card either. `card`
+  // would be null, `cardRead` 0, and the document would have said "*none at
+  // all*" and then "Fix: create a card" to an operator whose client may already
+  // have a complete one. So this client's card is reported UNKNOWN and the Fix
+  // line is withheld rather than guessed.
+  const cardKnown = !cardErr && card != null
+  if (!cardKnown) cardReadFailures.push(nameOf[cid] ?? cid)
   const cardRead = card?.length ?? 0
-  const cardCapped = cardTotal != null && cardTotal !== cardRead
+  const cardCapped = cardKnown && cardTotal != null && cardTotal !== cardRead
   const pairs = [...new Set((card ?? []).map(r => `carrier=${JSON.stringify(r.carrier)} service=${JSON.stringify(r.service)}`))]
 
   const clientSplit = splitUnpriced(rows)
   out += `## ${nameOf[cid]} — ${rows.length} unpriced `
   out += `(${clientSplit.noRate.length} NULL, ${clientSplit.zero.length} stored \`0\`)\n\n`
-  out += `**Card today:** ${cardRead ? `${cardCapped ? `${cardTotal} rows, of which ${cardRead} were read` : `${cardRead} rows`}, keyed \`${pairs.join('` , `')}\`` : '*none at all*'}\n\n`
+  if (!cardKnown) {
+    out += `**Card today:** *UNKNOWN — could not be read.* \`client_zone_rates\` query failed: `
+    out += `${cardErr?.message ?? 'no rows returned and no error given'}\n\n`
+    out += `> **⚠ A failed read is not an empty card, so no fix is suggested for this\n`
+    out += `> client.** They may already have a complete card. The cells listed below are\n`
+    out += `> what their traffic needs; whether any of them are missing is not known.\n`
+    out += `> Re-run before concluding anything about this client.\n\n`
+  }
+  else out += `**Card today:** ${cardRead ? `${cardCapped ? `${cardTotal} rows, of which ${cardRead} were read` : `${cardRead} rows`}, keyed \`${pairs.join('` , `')}\`` : '*none at all*'}\n\n`
   if (cardCapped) {
     out += `> **⚠ This client's card read was capped** — ${cardTotal} rows exist, ${cardRead} came back.\n`
     out += `> The keys above are only those present in that subset, so the **Fix** below may\n`
@@ -155,7 +211,8 @@ for (const [cid, rows] of [...byClient].sort((a,b)=>b[1].length-a[1].length)) {
 
   const carriers = [...new Set(rows.map(s => `${s.carrier} / ${s.service}`))]
   out += `\n**Their traffic is:** ${carriers.map(c=>`\`${c}\``).join(', ')}\n\n`
-  if (!cardRead) out += `**Fix:** create a card. Simplest is a blanket grid \`carrier=''\`, \`service=''\`, weight_lb 1-20 x zone 1-8 = 160 cells.\n\n`
+  if (!cardKnown) out += `**Fix:** *withheld* — this client's card could not be read, so there is nothing to compare their traffic against. See above.\n\n`
+  else if (!cardRead) out += `**Fix:** create a card. Simplest is a blanket grid \`carrier=''\`, \`service=''\`, weight_lb 1-20 x zone 1-8 = 160 cells.\n\n`
   else if (pairs.some(p => p.includes('carrier=""'))) {
     // "fail only because the zone could not be resolved" is not true of a
     // shipment with no usable weight, and this line is the one an operator
@@ -178,5 +235,12 @@ if (capped) {
     `\n!! wrote a PARTIAL worklist: ${unpricedTotal} shipments match but only `
     + `${unpriced.length} were read. Whole clients may be missing. Page the `
     + `shipments query with .range() and regenerate.`
+  )
+}
+if (cardReadFailures.length) {
+  console.error(
+    `\n!! ${cardReadFailures.length} client(s) had an unreadable rate card and are `
+    + `marked UNKNOWN with no fix suggested: ${cardReadFailures.join(', ')}. `
+    + `Their sections say what their traffic needs but not what is missing.`
   )
 }
