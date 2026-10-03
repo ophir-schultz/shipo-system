@@ -30,13 +30,28 @@ import { UNPRICED_OR, splitUnpriced, rateKind, NO_RATE } from './unpriced-filter
 
 const { data: clients } = await db.from('clients').select('id, name')
 const nameOf = Object.fromEntries(clients.map(c=>[c.id,c.name]))
-const { data: unpricedRows } = await db.from('shipments')
+const { data: unpricedRows, count: unpricedTotal } = await db.from('shipments')
   // client_rate is selected because the split reads it.
-  .select('client_id, carrier, service, weight, zone, recipient_zip, client_rate')
+  .select('client_id, carrier, service, weight, zone, recipient_zip, client_rate', { count: 'exact' })
   .not('client_id','is',null).or(UNPRICED_OR)
 
 const split = splitUnpriced(unpricedRows)
 const unpriced = split.all
+
+// PostgREST caps a `.select()` with no `.range()`. The exact count is requested
+// so the two can be compared, because this script WRITES the worklist an
+// operator acts on: a capped read here does not merely undercount a console
+// figure, it drops whole clients off the list of people whose card needs cells,
+// and nothing in the document would say so. Same fault as the predicate this
+// file just had fixed -- describing a population while quietly meaning a subset.
+//
+// `fetchAllPages` in src/lib/ledger/load-charge-inputs.ts is the real pager and
+// is not reimplemented here: it handles PGRST103 at the end of the table and
+// requires an explicit `.order()` for stable paging, and it lives in a module
+// that imports `@/lib/supabase` -- an alias Node's type stripping cannot
+// resolve (scripts/zone-weight.mjs explains that wall at length). So this says
+// the list is partial rather than guessing at a second copy of the pager.
+const capped = unpricedTotal != null && unpricedTotal !== unpriced.length
 
 // Date and counts are derived. This line read "Generated 2026-09-29 from the 33
 // shipments with `client_rate = 0`": a fixed date and a fixed total, written
@@ -44,7 +59,21 @@ const unpriced = split.all
 // that had by then stopped meaning unpriced.
 const today = new Date().toISOString().slice(0, 10)
 let out = `# Rate-card worklist — what is missing, per client\n\n`
-out += `Generated ${today} from the ${unpriced.length} shipments that have a client assigned and\n`
+// The banner goes in the DOCUMENT, not only the console. This file is what gets
+// read, often long after the run, and an operator who never saw the terminal
+// has no other way to learn the list is partial.
+if (capped) {
+  out += `> ## ⚠ THIS LIST IS INCOMPLETE\n>\n`
+  out += `> ${unpricedTotal} shipments match, but the query returned only ${unpriced.length}:\n`
+  out += `> PostgREST capped the result. Every total below, every per-client section and\n`
+  out += `> every cell count describes that subset only, and **whole clients may be missing\n`
+  out += `> from this document entirely** — so an absent client here is not evidence that\n`
+  out += `> their card is complete. Page the shipments query with \`.range()\` and\n`
+  out += `> regenerate before working from this list.\n\n`
+}
+out += `Generated ${today} from the `
+out += capped ? `${unpriced.length} of ${unpricedTotal}` : `${unpriced.length}`
+out += ` shipments that have a client assigned and\n`
 out += `no usable rate: **${split.noRate.length} with \`client_rate\` NULL** (the rate card does not cover\n`
 out += `them) and **${split.zero.length} rated exactly \`0\`**.\n\n`
 out += `Those two are counted apart because they arrive by different routes. NULL is what\n`
@@ -66,14 +95,28 @@ for (const s of unpriced) {
 }
 
 for (const [cid, rows] of [...byClient].sort((a,b)=>b[1].length-a[1].length)) {
-  const { data: card } = await db.from('client_zone_rates')
-    .select('carrier, service, weight_lb, zone').eq('client_id', cid)
+  // Capped the same way, and this read is the one that changes the INSTRUCTION
+  // rather than a count: the `Fix` paragraph below branches on whether `pairs`
+  // contains the blanket `carrier=''` pair. If the rows carrying it sat beyond
+  // the cap, the operator is told to create or re-key a card that already
+  // exists. A full 20x8 blanket grid is 160 rows, so a client with several
+  // carrier/service pairs can reach the limit.
+  const { data: card, count: cardTotal } = await db.from('client_zone_rates')
+    .select('carrier, service, weight_lb, zone', { count: 'exact' }).eq('client_id', cid)
+  const cardRead = card?.length ?? 0
+  const cardCapped = cardTotal != null && cardTotal !== cardRead
   const pairs = [...new Set((card ?? []).map(r => `carrier=${JSON.stringify(r.carrier)} service=${JSON.stringify(r.service)}`))]
 
   const clientSplit = splitUnpriced(rows)
   out += `## ${nameOf[cid]} — ${rows.length} unpriced `
   out += `(${clientSplit.noRate.length} NULL, ${clientSplit.zero.length} stored \`0\`)\n\n`
-  out += `**Card today:** ${card?.length ? `${card.length} rows, keyed \`${pairs.join('` , `')}\`` : '*none at all*'}\n\n`
+  out += `**Card today:** ${cardRead ? `${cardCapped ? `${cardTotal} rows, of which ${cardRead} were read` : `${cardRead} rows`}, keyed \`${pairs.join('` , `')}\`` : '*none at all*'}\n\n`
+  if (cardCapped) {
+    out += `> **⚠ This client's card read was capped** — ${cardTotal} rows exist, ${cardRead} came back.\n`
+    out += `> The keys above are only those present in that subset, so the **Fix** below may\n`
+    out += `> name work that is already done: a blanket \`carrier=''\`, \`service=''\` row could\n`
+    out += `> exist beyond the cap. Page this query with \`.range()\` before acting on it.\n\n`
+  }
 
   const need = new Map()
   let noWeight = 0
@@ -112,7 +155,7 @@ for (const [cid, rows] of [...byClient].sort((a,b)=>b[1].length-a[1].length)) {
 
   const carriers = [...new Set(rows.map(s => `${s.carrier} / ${s.service}`))]
   out += `\n**Their traffic is:** ${carriers.map(c=>`\`${c}\``).join(', ')}\n\n`
-  if (!card?.length) out += `**Fix:** create a card. Simplest is a blanket grid \`carrier=''\`, \`service=''\`, weight_lb 1-20 x zone 1-8 = 160 cells.\n\n`
+  if (!cardRead) out += `**Fix:** create a card. Simplest is a blanket grid \`carrier=''\`, \`service=''\`, weight_lb 1-20 x zone 1-8 = 160 cells.\n\n`
   else if (pairs.some(p => p.includes('carrier=""'))) {
     // "fail only because the zone could not be resolved" is not true of a
     // shipment with no usable weight, and this line is the one an operator
@@ -123,8 +166,17 @@ for (const [cid, rows] of [...byClient].sort((a,b)=>b[1].length-a[1].length)) {
       ? ` The other ${noWeight} fail on an unusable weight, which Section A does not touch: record the weight.\n\n`
       : `\n\n`
   }
-  else out += `**Fix:** the existing ${card.length} rows are keyed to \`${pairs.join('`, `')}\`, which this client's traffic never matches. Either re-key them to the blanket pair \`carrier=''\`, \`service=''\`, or add a second card keyed to \`carrier='STAMPS_COM'\` with the real USPS rates.\n\n`
+  else out += `**Fix:** the existing ${cardRead} rows are keyed to \`${pairs.join('`, `')}\`, which this client's traffic never matches. Either re-key them to the blanket pair \`carrier=''\`, \`service=''\`, or add a second card keyed to \`carrier='STAMPS_COM'\` with the real USPS rates.\n\n`
   out += `---\n\n`
 }
 writeFileSync('/Users/ophirschultz/shipo-system/docs/rate-card-worklist.md', out)
 console.log(out)
+// On stderr as well as in the document, because this script's stdout is often
+// redirected and the banner would go with it.
+if (capped) {
+  console.error(
+    `\n!! wrote a PARTIAL worklist: ${unpricedTotal} shipments match but only `
+    + `${unpriced.length} were read. Whole clients may be missing. Page the `
+    + `shipments query with .range() and regenerate.`
+  )
+}
