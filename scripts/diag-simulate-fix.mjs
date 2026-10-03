@@ -21,6 +21,13 @@ import { weightToLb } from './zone-weight.mjs'
 // recalculate.ts began writing NULL, so the simulation was deciding whether
 // Section A is worth applying from only the pre-change legacy zeros.
 import { UNPRICED_OR, splitUnpriced, unpricedSummary, rateKind, NO_RATE } from './unpriced-filter.mjs'
+// What to do when a read fails. This script's whole output is a decision
+// support figure -- "would price: N of M" decides whether Section A gets
+// applied -- and every read it rests on was destructured bare. The zone_chart
+// read is the worst of them: `(dbChart ?? [])` means a failed read leaves the
+// merge base empty, so every USPS row counts as one Section A adds, and the
+// script reports a far larger `+N zone_chart rows` than Section A really is.
+import { mustRead, unknownLog, UNKNOWN } from './read-or-refuse.mjs'
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
 
 const usps = JSON.parse(readFileSync('/tmp/usps198.json','utf8'))
@@ -32,17 +39,29 @@ for (const col of ['Column0','Column1','Column2','Column3'])
     for (let i=Number(m[1]); i<=(m[2]?Number(m[2]):Number(m[1])); i++) uspsChart.set(String(i).padStart(3,'0'), z)
   }
 
-const { data: dbChart } = await db.from('zone_chart').select('dest_prefix, zone').eq('origin_prefix','198')
-const merged = new Map((dbChart ?? []).map(r => [r.dest_prefix, Number(r.zone)]))
+// Refused, because this read IS the simulation's baseline: Section A is defined
+// as "the USPS rows the table does not already have", so an unread table makes
+// Section A look like the entire USPS chart and every zone it supplies look new.
+const { data: dbChart } = mustRead('the zone_chart read', await db.from('zone_chart')
+  .select('dest_prefix, zone').eq('origin_prefix','198'), {
+  instead: 'No simulation is printed. Section A is the difference between the USPS '
+    + 'chart and this table, and an unread table would have reported the whole '
+    + 'USPS chart as rows Section A adds.',
+})
+const merged = new Map(dbChart.map(r => [r.dest_prefix, Number(r.zone)]))
 let added = 0
 for (const [p, z] of uspsChart) if (!merged.has(p)) { merged.set(p, z); added++ }   // Section A only
 
-const { data: clients } = await db.from('clients').select('id, name')
+const { data: clients } = mustRead('the clients read',
+  await db.from('clients').select('id, name'))
 const nameOf = Object.fromEntries(clients.map(c=>[c.id,c.name]))
-const { data: unpricedRows } = await db.from('shipments')
+const { data: unpricedRows } = mustRead('the unpriced-shipments read', await db.from('shipments')
   // client_rate is selected because the split reads it.
   .select('id, client_id, carrier, service, weight, zone, recipient_zip, client_rate')
-  .not('client_id','is',null).or(UNPRICED_OR)
+  .not('client_id','is',null).or(UNPRICED_OR), {
+  instead: 'No simulation is printed. An unread population would have reported '
+    + '"would price: 0 of 0", which reads as Section A being worth nothing.',
+})
 
 const split = splitUnpriced(unpricedRows)
 const unpriced = split.all
@@ -53,8 +72,10 @@ console.log(`simulating Section A only: +${added} zone_chart rows, no zone chang
 // client_rate holds -- but "would price: N of M" is the figure this script
 // exists to produce, so what M is made of belongs next to it.
 console.log(unpricedSummary(split) + '\n')
-const res = { priced: 0, pricedNull: 0, pricedZero: 0, noZone: 0, noCell: 0, noWeight: 0 }
+const res = { priced: 0, pricedNull: 0, pricedZero: 0, noZone: 0, noCell: 0, noWeight: 0, unknown: 0 }
 const detail = new Map()
+/** Rate-cell lookups that failed, named once at the end. */
+const unread = unknownLog()
 for (const s of unpriced) {
   const kind = rateKind(s)
   let zone = (s.zone >= 1 && s.zone <= 8) ? s.zone : null
@@ -74,13 +95,33 @@ for (const s of unpriced) {
   else {
     const lb = weightToLb(s.weight)
     let rate = null
+    let cellUnknown = false
     for (const a of [{c:s.carrier ?? '', sv:s.service ?? ''},{c:'',sv:''}]) {
-      const { data } = await db.from('client_zone_rates').select('rate')
-        .eq('client_id', s.client_id).eq('carrier', a.c).eq('service', a.sv)
-        .eq('weight_lb', lb).eq('zone', zone).maybeSingle()
-      if (data?.rate != null) { rate = Number(data.rate); break }
+      // `want: 'maybe'`: a null row is the ordinary miss, and the miss is what
+      // `no rate cell` reports. An error is not a miss -- it used to be
+      // indistinguishable from one, so a failed lookup moved a shipment out of
+      // "would price" and into "rate card still missing", understating the
+      // figure this script exists to produce and blaming the rate card for it.
+      const hit = unread.soft(
+        `${nameOf[s.client_id] ?? s.client_id} rate cell carrier=${JSON.stringify(a.c)} `
+        + `service=${JSON.stringify(a.sv)} weight_lb=${lb} zone=${zone}`,
+        await db.from('client_zone_rates').select('rate')
+          .eq('client_id', s.client_id).eq('carrier', a.c).eq('service', a.sv)
+          .eq('weight_lb', lb).eq('zone', zone).maybeSingle(),
+        { want: 'maybe' },
+      )
+      // Breaks rather than trying the blanket pair next. A shipment whose exact
+      // pair could not be read is unknown whatever the blanket row says: the
+      // exact pair is tried first and wins, so a blanket hit would be reported
+      // as this shipment's price when it may not be.
+      if (!hit.ok) { cellUnknown = true; break }
+      if (hit.value?.rate != null) { rate = Number(hit.value.rate); break }
     }
-    if (rate != null) {
+    if (cellUnknown) {
+      res.unknown++
+      outcome = `zone ${zone} OK, rate cell ${UNKNOWN} (lookup failed)`
+    }
+    else if (rate != null) {
       res.priced++
       if (kind === NO_RATE) res.pricedNull++
       else res.pricedZero++
@@ -95,7 +136,15 @@ for (const s of unpriced) {
   detail.set(k, (detail.get(k) ?? 0) + 1)
 }
 for (const [k, n] of [...detail].sort()) console.log(`  ${String(n).padStart(3)}  ${k}`)
-console.log(`\n  would price: ${res.priced} of ${unpriced.length}`)
+console.log(`\n  would price: ${res.priced}${res.unknown ? ' (AT LEAST)' : ''} of ${unpriced.length}`)
+// Said next to the headline, not only in the stderr tail. This number is read
+// as the case for applying Section A, and with failed lookups in it the number
+// is a floor rather than the answer.
+if (res.unknown) {
+  console.log(`    ^ ${res.unknown} shipments had a rate-cell lookup fail, so they are`)
+  console.log(`      counted in neither "would price" nor "rate card still missing".`)
+  console.log(`      This figure is a FLOOR, not the result. Re-run.`)
+}
 // Split, because only the first number is a thing Section A fixes. A shipment
 // storing 0 because its card says the shipping is free already priced; it
 // "would price" again at $0 here, and counting that as a Section A win
@@ -107,3 +156,6 @@ console.log(`    of which client_rate is already 0:                ${res.pricedZ
 console.log(`  still no zone: ${res.noZone}`)
 console.log(`  zone fine, rate card still missing: ${res.noCell}`)
 console.log(`  zone fine, but no usable weight: ${res.noWeight}  (Section A cannot fix these; record the weight)`)
+if (res.unknown) console.log(`  zone fine, but the rate cell could not be read: ${res.unknown}  (${UNKNOWN} — not a verdict either way)`)
+
+unread.tail('rate-cell lookups')

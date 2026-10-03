@@ -6,6 +6,12 @@ import { createClient } from '@supabase/supabase-js'
 // asked for `.eq('client_rate', 0)`, which stopped meaning "unpriced" when
 // recalculate.ts began writing NULL for a shipment it cannot price.
 import { UNPRICED_OR, splitUnpriced } from './unpriced-filter.mjs'
+// What to do when a read fails. This script destructured `{ data }` alone and
+// scanned `data ?? []`, so a failed read printed "sampled: 0 unrated shipments
+// ... origin-ish fields found in raw_data: (none)" -- which is the answer "the
+// payload does not tell us the origin ZIP", i.e. the finding this script exists
+// to establish, stated with total confidence by a run that read nothing.
+import { mustRead } from './read-or-refuse.mjs'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -13,13 +19,17 @@ const db = createClient(
   { auth: { persistSession: false } }
 )
 
-const { data } = await db
+const { data } = mustRead('the unpriced-shipments read', await db
   .from('shipments')
   // client_rate is selected because the split reads it.
   .select('order_number, carrier, service, zone, recipient_zip, raw_data, client_rate')
   .not('client_id', 'is', null)
   .or(UNPRICED_OR)
-  .limit(400)
+  .limit(400), {
+  instead: 'Nothing is reported. An empty scan here would have read as '
+    + '"raw_data carries no origin ZIP and no zone", which is a conclusion about '
+    + 'the payload, not about a query that failed.',
+})
 
 const originCounts = {}
 const zoneKeysSeen = new Set()

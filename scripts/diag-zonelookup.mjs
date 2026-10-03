@@ -19,6 +19,12 @@ import { createClient } from '@supabase/supabase-js'
 // asked for `.eq('client_rate', 0)`, which stopped meaning "unpriced" when
 // recalculate.ts began writing NULL.
 import { onlyNoRate, onlyZeroRate, rateKind } from './unpriced-filter.mjs'
+// What to do when a read fails. The per-ZIP lookup at the bottom is the reason
+// this matters here: it destructured `{ data: hit }` and printed `NOT IN CHART
+// ✗` for a falsy hit, so a failed lookup announced cause (b) above -- "the
+// lookup itself fails and no amount of recalculating will help" -- which is the
+// whole question this script exists to settle.
+import { mustRead, unknownLog, UNKNOWN } from './read-or-refuse.mjs'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -42,22 +48,30 @@ const [nullRes, zeroRes, nullCountRes, zeroCountRes] = await Promise.all([
   onlyZeroRate(db.from('shipments').select('id', { count: 'exact', head: true }).not('client_id', 'is', null)),
 ])
 
-const error = nullRes.error ?? zeroRes.error
-if (error) { console.error(error.message); process.exit(1) }
+// Both samples are refused, not just the first error found. Each is half of
+// the population being examined, and the loop below would simply have iterated
+// the half that came back -- while the header still said the sample covers both.
+mustRead('the NULL-rated sample read', nullRes)
+mustRead('the zero-rated sample read', zeroRes)
 
-const sample = [...(nullRes.data ?? []), ...(zeroRes.data ?? [])]
+const sample = [...nullRes.data, ...zeroRes.data]
 if (!sample.length) { console.log('no unpriced shipments found'); process.exit(0) }
+
+/** Counts that could not be read, named once at the end. */
+const unread = unknownLog()
+const nullCount = unread.soft('the client_rate NULL count', nullCountRes, { want: 'count' })
+const zeroCount = unread.soft('the client_rate = 0 count', zeroCountRes, { want: 'count' })
+const chartCount = unread.soft('the zone_chart count', await db
+  .from('zone_chart').select('*', { count: 'exact', head: true }), { want: 'count' })
 
 // The population the sample came out of, so a reader is never guessing which
 // of the two a sampled row represents or how many were not shown.
 console.log('population (client assigned):')
-console.log(`  client_rate NULL:      ${nullCountRes.count ?? '(count failed)'}  — rate card does not cover them`)
-console.log(`  client_rate exactly 0: ${zeroCountRes.count ?? '(count failed)'}  — legacy zero, or a card that says free`)
-console.log(`sampled below: ${nullRes.data?.length ?? 0} NULL + ${zeroRes.data?.length ?? 0} zero-rated\n`)
+console.log(`  client_rate NULL:      ${nullCount.value ?? UNKNOWN}  — rate card does not cover them`)
+console.log(`  client_rate exactly 0: ${zeroCount.value ?? UNKNOWN}  — legacy zero, or a card that says free`)
+console.log(`sampled below: ${nullRes.data.length} NULL + ${zeroRes.data.length} zero-rated\n`)
 
-const { count: zoneChartRows } = await db
-  .from('zone_chart').select('*', { count: 'exact', head: true })
-console.log(`zone_chart rows in DB: ${zoneChartRows ?? '(count failed)'}\n`)
+console.log(`zone_chart rows in DB: ${chartCount.value ?? UNKNOWN}\n`)
 
 console.log(`columns on shipments (${Object.keys(sample[0]).length}):`)
 console.log('  ' + Object.keys(sample[0]).join(', '))
@@ -67,6 +81,10 @@ const zipCols = Object.keys(sample[0]).filter(k => /zip|postal/i.test(k))
 console.log(`\nZIP-ish columns: ${zipCols.join(', ') || '(NONE FOUND)'}`)
 
 console.log('\nper-shipment destination + zone-chart lookup:')
+// Its own log, kept apart from the counts above: these two groups answer
+// different questions and one tail claiming the other's failures would be
+// wrong about which part of the output has holes in it.
+const lookups = unknownLog()
 for (const s of sample) {
   const vals = zipCols.map(c => `${c}=${JSON.stringify(s[c])}`).join(' ')
   console.log(`\n  id=${s.id ?? '?'}  [${rateKind(s)}]  zone=${JSON.stringify(s.zone)}  ${vals}`)
@@ -75,12 +93,23 @@ for (const s of sample) {
     const raw = String(s[c] ?? '').replace(/\D/g, '')
     if (raw.length < 3) { console.log(`    ${c}: no usable ZIP3`); continue }
     const dest = raw.slice(0, 3)
-    const { data: hit } = await db
+    // `want: 'maybe'` because a null row here is the finding, not a failure:
+    // "198 -> this ZIP3 is not in the chart" is cause (b) and exactly what the
+    // script is looking for. Only an error means the lookup did not happen, and
+    // the two have to print differently -- NOT IN CHART is a verdict a person
+    // acts on by adding chart rows.
+    const hit = lookups.soft(`198->${dest}`, await db
       .from('zone_chart')
       .select('zone')
       .eq('origin_prefix', '198')
       .eq('dest_prefix', dest)
-      .maybeSingle()
-    console.log(`    ${c}: ZIP3 ${dest} -> ${hit ? `zone ${hit.zone} ✓` : 'NOT IN CHART ✗'}`)
+      .maybeSingle(), { want: 'maybe' })
+    const verdict = !hit.ok
+      ? `${UNKNOWN} — the chart lookup itself failed (${hit.why})`
+      : hit.value ? `zone ${hit.value.zone} ✓` : 'NOT IN CHART ✗'
+    console.log(`    ${c}: ZIP3 ${dest} -> ${verdict}`)
   }
 }
+
+unread.tail('count reads')
+lookups.tail('zone_chart lookups')
