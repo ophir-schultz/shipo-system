@@ -2,6 +2,10 @@
 // and is there a zone anywhere in it? Determines whether origin_zip can be
 // backfilled from data we already hold.
 import { createClient } from '@supabase/supabase-js'
+// Which shipments count as unpriced, pinned to the monitor's scan. This script
+// asked for `.eq('client_rate', 0)`, which stopped meaning "unpriced" when
+// recalculate.ts began writing NULL for a shipment it cannot price.
+import { UNPRICED_OR, splitUnpriced } from './unpriced-filter.mjs'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -11,9 +15,10 @@ const db = createClient(
 
 const { data } = await db
   .from('shipments')
-  .select('order_number, carrier, service, zone, recipient_zip, raw_data')
+  // client_rate is selected because the split reads it.
+  .select('order_number, carrier, service, zone, recipient_zip, raw_data, client_rate')
   .not('client_id', 'is', null)
-  .eq('client_rate', 0)
+  .or(UNPRICED_OR)
   .limit(400)
 
 const originCounts = {}
@@ -48,7 +53,9 @@ for (const s of data ?? []) {
   }
 }
 
-console.log(`sampled: ${data?.length ?? 0} unrated shipments`)
+const split = splitUnpriced(data)
+console.log(`sampled: ${split.all.length} unrated shipments `
+  + `(${split.noRate.length} client_rate NULL, ${split.zero.length} rated exactly $0, limit 400)`)
 console.log(`have a zone column value: ${withAnyZone}`)
 console.log('\norigin-ish fields found in raw_data:')
 console.log(Object.keys(originCounts).length ? originCounts : '  (none)')

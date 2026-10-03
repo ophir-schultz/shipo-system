@@ -25,6 +25,10 @@ import { createClient } from '@supabase/supabase-js'
 // stopped doing so -- making this diagnostic claim a 1 LB lookup for shipments
 // the live biller never looks up at all.
 import { weightToLb } from './zone-weight.mjs'
+// Which shipments count as unpriced, pinned to the monitor's scan. This file
+// used to ask for `.eq('client_rate', 0)` alone, which stopped meaning
+// "unpriced" when recalculate.ts began writing NULL instead of 0.
+import { UNPRICED_OR, splitUnpriced, unpricedSummary } from './unpriced-filter.mjs'
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -32,11 +36,20 @@ const db = createClient(
   { auth: { persistSession: false } }
 )
 
-const { data: unpriced } = await db
+const { data: unpricedRows } = await db
   .from('shipments')
-  .select('id, client_id, carrier, service, weight, zone, recipient_zip')
+  // client_rate is selected because the split below reads it; a row that never
+  // selected it would answer undefined and be filed under NULL.
+  .select('id, client_id, carrier, service, weight, zone, recipient_zip, client_rate')
   .not('client_id', 'is', null)
-  .eq('client_rate', 0)
+  .or(UNPRICED_OR)
+
+const split = splitUnpriced(unpricedRows)
+// Printed before anything else so that no count further down -- all of which
+// are over the union, because a rate-card gap is diagnosed the same way
+// whichever value is stored -- gets read as being about one of the two alone.
+console.log(unpricedSummary(split) + '\n')
+const unpriced = split.all
 
 const { data: clients } = await db.from('clients').select('id, name, origin_zip')
 const nameOf = Object.fromEntries(clients.map(c => [c.id, c.name]))
@@ -130,4 +143,21 @@ const { data: chartRows } = await db.from('zone_chart').select('origin_prefix, d
 const origins = new Map()
 for (const r of chartRows ?? []) origins.set(r.origin_prefix, (origins.get(r.origin_prefix) ?? 0) + 1)
 console.log(`\nzone_chart origin prefixes present: ${[...origins].map(([o, n]) => `${o}(${n} dests)`).join(', ')}`)
-console.log('all clients above use origin_zip 19801 -> prefix 198')
+
+// Derived, not asserted. This line read 'all clients above use origin_zip
+// 19801 -> prefix 198', which was true of the clients present when it was
+// written and is the claim the section exists to check -- so stating it from
+// memory rather than from the rows makes the check vacuous.
+const originsUsed = new Map()
+for (const cid of affected) {
+  const zip = originOf[cid]
+  const prefix = String(zip ?? '').replace(/\D/g, '').slice(0, 3)
+  const k = `${JSON.stringify(zip ?? null)} -> prefix ${prefix.length === 3 ? prefix : 'UNUSABLE'}`
+  originsUsed.set(k, (originsUsed.get(k) ?? 0) + 1)
+}
+console.log('origin_zip used by the clients above:')
+for (const [k, n] of [...originsUsed].sort((a, b) => b[1] - a[1])) {
+  console.log(`  ${String(n).padStart(3)} client(s)  origin_zip ${k}`)
+}
+const covered = [...originsUsed.keys()].every(k => origins.has(k.match(/prefix (\S+)$/)?.[1]))
+if (!covered) console.log('  ^ at least one of those prefixes has NO rows in zone_chart')

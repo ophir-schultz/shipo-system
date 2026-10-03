@@ -21,15 +21,38 @@ for (const col of ['Column0','Column1','Column2','Column3'])
 // looks anything up -- so the instruction was both useless and pointed at the
 // cheapest row on the card.
 import { weightToLb } from './zone-weight.mjs'
+// Which shipments count as unpriced, pinned to the monitor's scan. Of the seven
+// scripts that still asked for `.eq('client_rate', 0)` after recalculate.ts
+// started writing NULL, this is the one that mattered most: the worklist it
+// WRITES is what an operator acts on, so every shipment left unpriced since the
+// NULL change was absent from the list of cells somebody is asked to create.
+import { UNPRICED_OR, splitUnpriced, rateKind, NO_RATE } from './unpriced-filter.mjs'
 
 const { data: clients } = await db.from('clients').select('id, name')
 const nameOf = Object.fromEntries(clients.map(c=>[c.id,c.name]))
-const { data: unpriced } = await db.from('shipments')
-  .select('client_id, carrier, service, weight, zone, recipient_zip')
-  .not('client_id','is',null).eq('client_rate', 0)
+const { data: unpricedRows } = await db.from('shipments')
+  // client_rate is selected because the split reads it.
+  .select('client_id, carrier, service, weight, zone, recipient_zip, client_rate')
+  .not('client_id','is',null).or(UNPRICED_OR)
 
+const split = splitUnpriced(unpricedRows)
+const unpriced = split.all
+
+// Date and counts are derived. This line read "Generated 2026-09-29 from the 33
+// shipments with `client_rate = 0`": a fixed date and a fixed total, written
+// into a document whose entire purpose is to be regenerated, naming a predicate
+// that had by then stopped meaning unpriced.
+const today = new Date().toISOString().slice(0, 10)
 let out = `# Rate-card worklist — what is missing, per client\n\n`
-out += `Generated 2026-09-29 from the 33 shipments with \`client_rate = 0\`.\n`
+out += `Generated ${today} from the ${unpriced.length} shipments that have a client assigned and\n`
+out += `no usable rate: **${split.noRate.length} with \`client_rate\` NULL** (the rate card does not cover\n`
+out += `them) and **${split.zero.length} rated exactly \`0\`**.\n\n`
+out += `Those two are counted apart because they arrive by different routes. NULL is what\n`
+out += `\`lib/billing/recalculate.ts\` writes today for a shipment it cannot price. A stored\n`
+out += `\`0\` is either a row last priced before unknown became NULL, or a rate card that\n`
+out += `genuinely says the shipping is free — and nothing in the column tells those two\n`
+out += `apart. **A free-card zero needs no cell created**, so check a \`0\` row against the\n`
+out += `client's agreement before acting on it. Each client's rows below are marked.\n\n`
 out += `Read-only analysis. Nothing has been written to the database.\n\n`
 out += `\`resolveZoneRate\` looks for a \`client_zone_rates\` row matching\n`
 out += `\`{client_id, carrier, service, weight_lb, zone}\` exactly — first with the\n`
@@ -47,7 +70,9 @@ for (const [cid, rows] of [...byClient].sort((a,b)=>b[1].length-a[1].length)) {
     .select('carrier, service, weight_lb, zone').eq('client_id', cid)
   const pairs = [...new Set((card ?? []).map(r => `carrier=${JSON.stringify(r.carrier)} service=${JSON.stringify(r.service)}`))]
 
-  out += `## ${nameOf[cid]} — ${rows.length} unpriced\n\n`
+  const clientSplit = splitUnpriced(rows)
+  out += `## ${nameOf[cid]} — ${rows.length} unpriced `
+  out += `(${clientSplit.noRate.length} NULL, ${clientSplit.zero.length} stored \`0\`)\n\n`
   out += `**Card today:** ${card?.length ? `${card.length} rows, keyed \`${pairs.join('` , `')}\`` : '*none at all*'}\n\n`
 
   const need = new Map()
@@ -59,12 +84,23 @@ for (const [cid, rows] of [...byClient].sort((a,b)=>b[1].length-a[1].length)) {
     // and for the same reason: a cell nobody can name is not a cell to add.
     const lb = weightToLb(s.weight)
     if (lb === null) noWeight++
-    const k = `${lb ?? 'NO WEIGHT'}|${z ?? 'NO ZONE'}`
+    // The rate kind is part of the key so the table does not merge the two. A
+    // cell wanted only by stored-0 rows may be a cell that already prices --
+    // at $0, because the card says free -- and creating it would be the
+    // operator doing work to change a price somebody agreed.
+    const k = `${lb ?? 'NO WEIGHT'}|${z ?? 'NO ZONE'}|${rateKind(s) === NO_RATE ? 'NULL' : '0'}`
     need.set(k, (need.get(k) ?? 0) + 1)
   }
   out += `**Cells its real traffic needs** (weight_lb x zone, zone resolved via the USPS chart):\n\n`
-  out += `| weight_lb | zone | shipments |\n|---|---|---|\n`
-  for (const [k, n] of [...need].sort()) { const [w,z]=k.split('|'); out += `| ${w} | ${z} | ${n} |\n` }
+  out += `| weight_lb | zone | stored client_rate | shipments |\n|---|---|---|---|\n`
+  for (const [k, n] of [...need].sort()) { const [w,z,kind]=k.split('|'); out += `| ${w} | ${z} | ${kind} | ${n} |\n` }
+  if (clientSplit.zero.length) {
+    out += `\n> **${clientSplit.zero.length} of these already store \`0\`.** If this client's agreement says\n`
+    out += `> the shipping is free, those rows are correct and the cells wanted only by\n`
+    out += `> them are **not cells to create**. If it does not, they are pre-NULL legacy\n`
+    out += `> zeros and they belong on this list. The column cannot tell you which;\n`
+    out += `> the agreement can.\n`
+  }
   if (noWeight) {
     out += `\n> **${noWeight} of these have no usable weight** (absent, 0, negative or\n`
     out += `> non-finite), so no \`weight_lb\` can be named for them and the rows marked\n`
