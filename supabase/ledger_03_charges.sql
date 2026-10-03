@@ -427,6 +427,12 @@ begin
 exception
   when duplicate_object then
     raise notice 'client_warehouse_rates_no_overlap already present';
+  when duplicate_table then
+    -- Same trap as ledger_02_cost.sql: the exclusion constraint's backing index
+    -- collides first, raising 42P07 duplicate_table rather than 42710
+    -- duplicate_object, so a duplicate_object-only handler lets it escape and
+    -- aborts the file on re-run. Verified first-hand 2026-10-03.
+    raise notice 'client_warehouse_rates_no_overlap already present (index exists)';
   when exclusion_violation then
     -- The duplicate is ALREADY in the table, so adding the constraint cannot
     -- succeed. Say what to do about it, then let the original error through

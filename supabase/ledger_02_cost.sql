@@ -33,8 +33,17 @@ begin
       coalesce(variant,'') with =,
       daterange(effective_from, effective_to, '[)') with &&
     );
-exception when duplicate_object then
-  raise notice 'cost_rates_no_overlap already present';
+exception
+  when duplicate_object then
+    raise notice 'cost_rates_no_overlap already present';
+  when duplicate_table then
+    -- An exclusion constraint is backed by an index of the same name, and
+    -- re-adding it reports the INDEX collision (42P07 duplicate_table), not the
+    -- constraint one (42710 duplicate_object). Catching only duplicate_object
+    -- let the error escape and aborted the whole file on the second run, which
+    -- contradicted the "safe to run more than once" promise in the header.
+    -- Verified first-hand 2026-10-03 against the live database.
+    raise notice 'cost_rates_no_overlap already present (index exists)';
 end $$;
 
 -- calculate-charges.ts:144 and :177 test `lookup.basis === 'estimated'` by exact
