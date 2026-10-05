@@ -58,6 +58,88 @@
 
 
 -- ===========================================================================
+-- PART 0 -- THE WORKLIST AND ITS PRECONDITION, ONE QUERY, FIVE COLUMNS.
+-- ===========================================================================
+-- Read-only. Run this ONE statement and send back the whole grid. It replaces
+-- PART 1 and PART 2 for practical purposes; both are kept below because each
+-- reads better alone, but the editor only shows the last statement of a batch.
+--
+-- IT ANSWERS PART 1 WITHOUT A SEPARATE QUERY: the row whose store reads
+-- `<no store>` IS the coverage answer. Its `unattr` figure is the portion of
+-- the $8,980.99 that has neither a client nor a store to derive one from --
+-- shipments no SQL can attribute, which need a human reading tracking numbers
+-- in ShipStation. If that row carries most of the money, this whole approach
+-- has a low ceiling and it is better to know that before answering anything.
+--
+-- CONFLICT DETECTION IS INLINE, not deferred to PART 3: a store that points at
+-- two clients is reported as `CONFLICT: A + B` in the derived column rather
+-- than being collapsed to whichever appeared more often.
+-- ledger_01_orders.sql:8 is explicit that a store cannot map two ways, so a
+-- conflict means that invariant is ALREADY violated in the data. It is not a
+-- tie to be broken.
+with s as (
+  select sh.client_id, sh.actual_cost, sh.client_rate, sh.ship_date,
+         sh.order_number,
+         coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
+                  sh.raw_data ->> 'storeId') as store_id
+    from shipments sh
+),
+-- The training set: store -> client, ONLY from rows a human already attributed
+-- by hand. Nothing here is derived from a display name.
+trained as (
+  select store_id, client_id, count(*) as n
+    from s
+   where client_id is not null and store_id is not null
+   group by 1, 2
+),
+ta as (
+  select store_id, count(*) as dc, sum(n) as rows_
+    from trained group by 1
+)
+select
+  coalesce(s.store_id, '<no store>')                        as store,
+  count(*)::text                                            as n,
+  'unattr ' || count(*) filter (where s.client_id is null)
+    || '  cost ' || coalesce(
+         sum(s.actual_cost) filter (where s.client_id is null), 0)
+    || '  billed ' || count(s.client_rate)
+    || '  ' || min(s.ship_date)::date || '..' || max(s.ship_date)::date
+                                                            as detail,
+  case
+    when ta.store_id is null then 'NEEDS A HUMAN ANSWER'
+    when ta.dc > 1 then 'CONFLICT: ' || (
+      select string_agg(c.name, ' + ')
+        from trained t join clients c on c.id = t.client_id
+       where t.store_id = s.store_id)
+    else (
+      select c.name from trained t join clients c on c.id = t.client_id
+       where t.store_id = s.store_id limit 1)
+      || ' (' || ta.rows_ || ' rows)'
+  end                                                       as derived_client,
+  -- Two real order numbers, because a bare 350349 is not a question anyone can
+  -- answer from memory and a derived name still deserves a sanity check.
+  (select string_agg(x.order_number, ', ')
+     from (select distinct sh2.order_number
+             from s sh2
+            where sh2.store_id is not distinct from s.store_id
+            order by 1 limit 2) x)                          as sample_orders
+from s
+left join ta on ta.store_id = s.store_id
+group by s.store_id, ta.store_id, ta.dc, ta.rows_
+order by sum(s.actual_cost) filter (where s.client_id is null) desc nulls last;
+
+-- HOW TO READ IT:
+--   derived_client = a name with a high row count -> safe to insert (PART 5);
+--     the mapping is being read back off work a human already did.
+--   derived_client = a name with (1 rows)        -> one hand-attributed
+--     shipment is thin evidence for a whole store. Check sample_orders.
+--   NEEDS A HUMAN ANSWER                         -> say which client, using
+--     sample_orders to recognise it.
+--   CONFLICT                                     -> stop. Do not pick one.
+--   store = <no store>                           -> unreachable by this method.
+
+
+-- ===========================================================================
 -- PART 1 -- IS THE STORE ID EVEN THERE? The precondition for everything below.
 -- ===========================================================================
 -- Three candidate paths, because the field's location is being verified rather
