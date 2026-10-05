@@ -292,19 +292,43 @@ rollback;
 -- PART B -- Q2: how many schedulers fired, plus ledger health.
 -- Run this only after PART A comes back all PRESENT.
 --
--- HOW TO READ THE SCHEDULER ROWS -- this is the subtle part.
--- Do not count successful runs. A duplicate scheduler usually does NOT show up
--- as a second successful run: the run-lock makes the loser SKIP. canStart() in
--- src/lib/ledger/run-lock.ts is a pure function over rows the caller already
--- read, and persist-charges.ts does select -> decide -> insert with no
--- database-level mutex, so a second scheduler yields either a skip that leaves
--- no row at all, or a second row in the same minute if it won the race.
+-- HOW TO READ THE SCHEDULER ROWS -- this is the subtle part, and the strength
+-- of an all-OK result DEPENDS ON THE source COLUMN. An earlier version of this
+-- comment said all-OK proves nothing. That is true for one source out of three
+-- and wrong for the other two, so it threw away good evidence. Corrected
+-- 2026-10-05 after reading the three call sites.
 --
--- So the signal for "more than one scheduler" is a SCHEDULER row whose verdict
--- is MULTIPLE -- two or more runs for one source clustered on a cron boundary.
--- One scheduler produces exactly one run per boundary. Note the asymmetry:
--- MULTIPLE proves duplicate schedulers, but all-OK does NOT prove there is
--- only one -- the others may simply be losing the race and skipping silently.
+-- Only THREE sources ever write a sync_runs row, and only ONE is gated:
+--
+--   'charges'    persist-charges.ts:210, GATED by canStart()
+--   'shipstation' sync/shipstation.ts:19, NOT GATED
+--   'zenventory'  sync/zenventory.ts:117, NOT GATED
+--
+-- For 'charges', a duplicate scheduler usually leaves NO TRACE. canStart() in
+-- run-lock.ts is a pure function over rows the caller already read, and
+-- persist-charges.ts does select (:172) -> decide (:192) -> insert (:210) with
+-- no transaction and no database-level mutex. So a second scheduler yields
+-- either a silent skip that writes no row, or a second row in the same minute
+-- when it won the race. An OK on a 'charges' cluster is therefore WEAK.
+--
+-- For 'shipstation' and 'zenventory' there is NO LOCK TO LOSE. Both call
+-- openSyncRun() unconditionally, near the top of the sync, so a second
+-- scheduler that got as far as the sync WOULD have inserted a visible second
+-- row. An OK on one of those clusters is therefore STRONG: it says no second
+-- scheduler reached that code path at that boundary.
+--
+-- The one thing an OK on those two does not rule out is a duplicate scheduler
+-- that never got past auth. requireStaffOrCron collapses to requireStaff() when
+-- no secret is configured, so a project cloned without CRON_SECRET 401s before
+-- reaching any sync and writes nothing. That world is BENIGN -- it is a noise
+-- and billing question, not a ledger-correctness one -- but it is not the same
+-- world as "only one scheduler exists", and the two are indistinguishable here.
+--
+-- Do NOT credit single-flight.ts with any of this. It is an in-process ref
+-- guard for the browser AutoSync component; separate Vercel projects are
+-- separate lambdas and it cannot see across them.
+--
+-- MULTIPLE on any source proves duplicate schedulers outright.
 -- ###########################################################################
 
 begin;
