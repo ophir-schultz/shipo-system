@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { read, readOne, readErrors } from '@/lib/db/read'
+import { read, readOne, readErrors, isMigrationMissing } from '@/lib/db/read'
 
 // These two functions exist to keep "we looked and there is nothing" apart from
 // "we could not look". Both of the defects below were live on
@@ -100,6 +100,88 @@ describe('readErrors', () => {
     expect(shipments.rows).toHaveLength(1)
     expect(readErrors(shipments, warehouse))
       .toBe('warehouse_daily_log: canceling statement due to statement timeout')
+  })
+})
+
+describe('isMigrationMissing', () => {
+  const err = (code?: string, message = 'boom') => ({ data: null, error: { message, code } })
+
+  it('recognises the table not existing in Postgres', () => {
+    expect(isMigrationMissing(err('42P01', 'relation "public.campaigns" does not exist'))).toBe(true)
+  })
+
+  it('recognises the table not existing in the PostgREST schema cache', () => {
+    // The code supabase-js actually returns: PostgREST resolves the table name
+    // against its own cache and 404s before Postgres is ever asked, so a page
+    // that only knew 42P01 would never show its migration banner at all.
+    expect(isMigrationMissing(err('PGRST205',
+      "Could not find the table 'public.campaigns' in the schema cache"))).toBe(true)
+  })
+
+  it('recognises a missing column, because the remedy is the same file', () => {
+    expect(isMigrationMissing(err('42703',
+      'column clients.founding_bonus_seq does not exist'))).toBe(true)
+  })
+
+  it('does NOT read a statement timeout as a missing migration', () => {
+    // The defect. `migrationApplied = !res.error` made this true, so a
+    // one-second blip told the operator to go and paste DDL at a database whose
+    // referral ledger was sitting there intact.
+    expect(isMigrationMissing(err(undefined,
+      'canceling statement due to statement timeout'))).toBe(false)
+  })
+
+  it('does NOT read a dropped connection as a missing migration', () => {
+    expect(isMigrationMissing(err('08006', 'fetch failed'))).toBe(false)
+    expect(isMigrationMissing(err('57014', 'query canceled'))).toBe(false)
+  })
+
+  it('does NOT read permission denied as a missing migration', () => {
+    // 42501. The table exists; the grant is wrong. Pasting the CREATE TABLE
+    // again does nothing, and the operator needs to see the real message.
+    expect(isMigrationMissing(err('42501', 'permission denied for table campaigns'))).toBe(false)
+  })
+
+  it('does NOT read an absent row as a missing migration', () => {
+    // PGRST116 is readOne's "no such row" -- a successful answer about a table
+    // that plainly exists.
+    expect(isMigrationMissing(err('PGRST116', 'multiple (or no) rows returned'))).toBe(false)
+  })
+
+  it('does NOT read the write-path column code as a missing migration', () => {
+    // PGRST204 is deliberately out of the set: write path only, unexercised by
+    // any caller here, so it falls through to showing the real message.
+    expect(isMigrationMissing(err('PGRST204', "Column 'x' not found"))).toBe(false)
+  })
+
+  it('is false for a read that succeeded', () => {
+    expect(isMigrationMissing({ data: [{ id: 1 }], error: null })).toBe(false)
+    expect(isMigrationMissing({ data: [], error: null })).toBe(false)
+  })
+
+  it('is false for a read that was never performed', () => {
+    expect(isMigrationMissing(null)).toBe(false)
+    expect(isMigrationMissing(undefined)).toBe(false)
+  })
+
+  it('matches codes exactly, and does not guess from the message', () => {
+    // Two separate guards. A substring or case-insensitive match would make
+    // "42P019" or "pgrst205" true; and a message-sniffing implementation would
+    // fire on the word "exist" in an unrelated constraint error.
+    expect(isMigrationMissing(err('42P019'))).toBe(false)
+    expect(isMigrationMissing(err('pgrst205'))).toBe(false)
+    expect(isMigrationMissing(err('', 'relation "public.campaigns" does not exist'))).toBe(false)
+    expect(isMigrationMissing(err('23505',
+      'duplicate key value violates unique constraint, row does not exist yet'))).toBe(false)
+  })
+
+  it('is still a FAILED read, so a page must ask this one first', () => {
+    // Both are true at once by design. A page that checked read()'s error
+    // before this predicate would cover its own actionable yellow banner with
+    // an opaque red one on exactly the day the banner is needed.
+    const res = { data: null, error: { message: 'relation "public.campaigns" does not exist', code: '42P01' } }
+    expect(isMigrationMissing(res)).toBe(true)
+    expect(read('campaigns', res).error).not.toBeNull()
   })
 })
 

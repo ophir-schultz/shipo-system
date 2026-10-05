@@ -70,6 +70,68 @@ export function readErrors(
   return failed.length === 0 ? null : failed.join('; ')
 }
 
+/**
+ * Codes that all mean the same thing: the schema this query needs is not there.
+ *
+ * There is no migration runner in this project -- a migration is a .sql file a
+ * person pastes into the Supabase editor -- so "the table does not exist yet" is
+ * a NORMAL state on a fresh database, not an incident.
+ *
+ *   42P01     Postgres undefined_table.
+ *   42703     Postgres undefined_column. The table is there but the migration
+ *             that added a column to it is not. Same remedy, so same bucket;
+ *             this matches the existing judgement in load-charge-inputs.ts.
+ *   PGRST205  PostgREST, 404, "Caused when the table specified in the URI is
+ *             not found" -- its schema cache answers before Postgres is ever
+ *             asked, so this is the code supabase-js actually returns for
+ *             `.from('a_table_that_does_not_exist')`. Confirmed against the
+ *             PostgREST error reference, not against this database; omitting it
+ *             would mean the day-one banner never appears, which is the whole
+ *             reason the predicate exists.
+ *
+ * PGRST204 ("the column specified in the `columns` query parameter is not
+ * found") is deliberately NOT here. It is a write-path code, every caller of
+ * this predicate only reads, and the safe direction for an unexercised code is
+ * to fall through to showing the operator the real message.
+ */
+const MIGRATION_MISSING_CODES: ReadonlySet<string> = new Set([
+  '42P01',
+  '42703',
+  'PGRST205',
+])
+
+/**
+ * Did this read fail because the migration has not been applied, as opposed to
+ * failing for a reason retrying would fix?
+ *
+ * Three pages used to decide this with `const migrationApplied = !res.error`,
+ * which is the error-swallowing defect wearing a different hat. It does not
+ * discard the error; it MISREADS it. Every failure became "the table does not
+ * exist yet", so a one-second connection drop printed
+ *
+ *   "⚠ Referral tables not created yet · Run supabase/referral_program.sql,
+ *    then supabase/partner_portal.sql, then supabase/partner_login.sql"
+ *
+ * over a populated payout ledger. That is worse than an unexplained blank: it
+ * is confident, specific, wrong, and the instruction it gives you is to start
+ * pasting DDL at a database that is fine.
+ *
+ * Takes the RAW PostgREST result rather than a `Read`, which is load-bearing:
+ * `read()` has already flattened the error to a string and thrown the code
+ * away, so a `Read` cannot answer this question -- and because `Read.error` is
+ * `string | null`, passing one here is a compile error rather than a silent
+ * `false`.
+ *
+ * Note that a migration-missing read is STILL a failed read. `read()` will
+ * report an error for it too, so a page that handles both must ask this first;
+ * otherwise the yellow actionable banner is shadowed by the red one.
+ */
+export function isMigrationMissing(
+  res: { data?: unknown; error: { code?: string } | null } | null | undefined,
+): boolean {
+  return MIGRATION_MISSING_CODES.has(res?.error?.code ?? '')
+}
+
 /** One row, the reason we could not read it, or neither: it is simply absent. */
 export interface ReadOne<T> {
   row: T | null
