@@ -222,8 +222,30 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
           // shipmentId is unique per label, so it is the identity. The error is
           // still inspected below rather than discarded, because a key being
           // correct today is not a reason to read PGRST116 as "no row".
+          //
+          // THE GUARD IS isInteger AND > 0, NOT isFinite, and the difference is
+          // a lost carrier cost. `Number(null)` is 0 -- not NaN -- and
+          // `Number.isFinite(0)` is true, so the isFinite version admitted a
+          // label with no identity under the identity 0. So did '', false, []
+          // and '0'. Every id-less label in every run then shared that one key,
+          // which is exactly the collapse the paragraph above says this guard
+          // prevents: measured 2026-10-05, two null-id labels at $11.11 and
+          // $22.22 wrote ONE row holding $22.22, reported `created: 1,
+          // updated: 1`, and closed the run `ok` with no errors recorded. The
+          // first cost was overwritten, silently, and row 0 persists so every
+          // later run overwrites it again.
+          //
+          // `> 0` rather than `!== 0` because a negative id is not a
+          // ShipStation id either, and isInteger rejects NaN, the infinities
+          // and any fractional value in one predicate. Real ids are positive
+          // integers, so nothing legitimate is refused -- there is a test that
+          // a valid id still lands, because a guard drawn too wide would
+          // satisfy every assertion about collapse by recording nothing at all.
           const shipmentId = Number(s.shipmentId)
-          if (!Number.isFinite(shipmentId)) {
+          if (!Number.isInteger(shipmentId) || shipmentId <= 0) {
+            // orderNumber is the only handle left on a label with no id, so it
+            // goes on the run row: refusing the label is only better than
+            // collapsing it if the cost can still be recovered by hand.
             failItem('missing shipmentId', { orderNumber: s.orderNumber })
             continue
           }

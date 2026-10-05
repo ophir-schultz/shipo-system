@@ -765,3 +765,106 @@ describe('syncShipments: losing the sync_runs lock', () => {
     await expect(syncShipments(30)).rejects.toThrow(/permission denied/)
   })
 })
+// DEFECT 1, STILL LIVE, THROUGH A DIFFERENT DOOR. Found 2026-10-05 by writing
+// the two-unusable-ids case below for the counter work, which returned
+// `errors: 1` where the counter could only have produced 2 -- so the SECOND
+// label had not reached the fail site at all.
+//
+// `Number(null)` is 0, not NaN, and `Number.isFinite(0)` is true. So the guard
+// that exists to reject a label with no identity passes it through with the
+// identity 0 -- as do '', false, [] and '0'. Every such label in every run
+// shares that one key, which is precisely the collapse the guard was written to
+// stop: measured end-to-end, two null-id labels at $11.11 and $22.22 produced
+// ONE row (ssid 0, holding only $22.22), `created: 1, updated: 1`, and a run
+// row closed `status: 'ok'` with `errors: []` and `rows_written: 2`.
+//
+// So the first label's carrier cost was not merely misattributed, it was
+// overwritten, and nothing anywhere reported a problem. Row 0 is permanent, so
+// each later run overwrites it again. This is the module's own described
+// failure mode -- "the two labels COLLAPSE onto one, one carrier cost lost, the
+// survivor overwritten. Measured cost comes out too low and margin too high" --
+// and the leak views do not catch it, because they ask whether work was billed,
+// never whether a cost was recorded exactly once.
+describe('syncShipments: a label with no usable shipmentId', () => {
+  it('does not collapse two id-less labels onto one row', async () => {
+    h.getShipments.mockResolvedValue({
+      shipments: [
+        { ...label(1, 'E-910', { shipmentCost: 11.11 }), shipmentId: null },
+        { ...label(2, 'E-911', { shipmentCost: 22.22 }), shipmentId: null },
+      ],
+      pages: 1,
+    })
+
+    await syncShipments(30)
+
+    // The money assertion. Before the fix this was one row holding 22.22, and
+    // 11.11 had been overwritten by it.
+    expect(shipments()).toHaveLength(0)
+  })
+
+  it('never writes a shipment under the identity 0', async () => {
+    h.getShipments.mockResolvedValue({
+      shipments: [{ ...label(1, 'E-912'), shipmentId: null }],
+      pages: 1,
+    })
+
+    await syncShipments(30)
+
+    expect(shipments().map((r) => r.shipstation_shipment_id)).not.toContain(0)
+  })
+
+  it.each([
+    ['null', null],
+    ['an empty string', ''],
+    ['a literal zero', 0],
+    ['the string "0"', '0'],
+    ['false', false],
+  ])('refuses a shipmentId that is %s, rather than calling it shipment 0', async (_label, id) => {
+    h.getShipments.mockResolvedValue({
+      shipments: [{ ...label(1, 'E-913'), shipmentId: id }],
+      pages: 1,
+    })
+
+    const result = await syncShipments(30)
+
+    expect(shipments()).toHaveLength(0)
+    expect(result.errors).toBe(1)
+    expect(theRun().status).toBe('failed')
+  })
+
+  it('records WHICH labels it refused, so the cost can be recovered by hand', async () => {
+    // The whole value of refusing instead of collapsing: the order number is
+    // the only handle left on a label with no id, so it has to be on the row.
+    h.getShipments.mockResolvedValue({
+      shipments: [
+        { ...label(1, 'E-914'), shipmentId: null },
+        { ...label(2, 'E-915'), shipmentId: '' },
+      ],
+      pages: 1,
+    })
+
+    await syncShipments(30)
+
+    const errs = theRun().errors as Array<{ context: string; message: string }>
+    expect(errs).toHaveLength(2)
+    expect(errs.every((e) => e.context === 'missing shipmentId')).toBe(true)
+    expect(JSON.stringify(errs)).toContain('E-914')
+    expect(JSON.stringify(errs)).toContain('E-915')
+  })
+
+  it('still accepts a legitimate id, so the guard has not been drawn too wide', async () => {
+    // The positive control. A guard that refuses everything would pass every
+    // assertion above and silently stop recording the business.
+    h.getShipments.mockResolvedValue({
+      shipments: [label(9301, 'E-930', { shipmentCost: 8.80 })],
+      pages: 1,
+    })
+
+    const result = await syncShipments(30)
+
+    expect(result).toMatchObject({ created: 1, errors: 0 })
+    expect(shipments()).toHaveLength(1)
+    expect(shipments()[0].shipstation_shipment_id).toBe(9301)
+  })
+})
+
