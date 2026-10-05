@@ -24,18 +24,29 @@
 --
 --
 -- PASTE CONTRACT -- READ THIS, THE SPLIT IS DELIBERATE
--- Paste PART A and PART B as TWO SEPARATE pastes. Do not combine them.
+-- Paste PART A, PART A2, PART A3 and PART B as FOUR SEPARATE pastes, in that
+-- order. Do not combine them.
 --
--- Postgres parses a whole statement before executing any of it, so if a table
+-- Postgres parses a whole statement before executing any of it, so when a table
 -- is missing, a script that references it fails to parse and returns NOTHING --
 -- including the catalog checks that would have told you which table is missing.
 -- PART A reads only pg_class, so it cannot fail that way and always answers Q1.
--- PART B reads the ledger tables themselves and WILL error with
--- "relation does not exist" if PART A reported anything MISSING. That error is
--- itself the answer; fix the migration before bothering with PART B.
+-- The later parts read the tables themselves and WILL error with
+-- "relation does not exist" when PART A reported anything MISSING. That error is
+-- itself the answer; fix the migration before bothering with the rest.
 --
 -- Each part is a single statement returning a single result set, because the
 -- Supabase SQL editor shows the result of the last statement only.
+--
+-- WHAT EACH PART ANSWERS
+--   PART A  -- 6 of the 8 ledger files, by relation existence. Cannot fail.
+--   PART A2 -- ledger_06_seed_cost_rates.sql, by comparing seeded VALUES.
+--   PART A3 -- ledger_03b_rate_adjustments_cleanup.sql, by its backfill effect.
+--   PART B  -- Q2, the scheduler count, plus ledger health.
+--
+-- A2 and A3 exist because an existence check is blind to a migration that
+-- creates no relation. Those two files only `update` and `insert`, so PART A
+-- coming back all PRESENT says nothing whatsoever about either of them.
 --
 -- WHY EACH PART IS WRAPPED IN begin; ... rollback; EVEN THOUGH IT ONLY SELECTS
 -- The other scripts in this directory insert sentinel clients, orders and
@@ -49,8 +60,24 @@
 
 -- ###########################################################################
 -- PART A -- Q1: did the migrations apply? Reads the catalog only, never fails.
--- Expect 13 rows, every verdict PRESENT. A MISSING row names the .sql file
+-- Expect 15 rows, every verdict PRESENT. A MISSING row names the .sql file
 -- that did not go in.
+--
+-- WHAT THIS PART CANNOT SEE -- read this before calling Q1 answered.
+-- An existence check can only find migrations that CREATE A RELATION. Two of
+-- the eight ledger files create nothing:
+--
+--   ledger_03b_rate_adjustments_cleanup.sql -- one `update` backfill
+--   ledger_06_seed_cost_rates.sql           -- six `insert` rows
+--
+-- All PRESENT here therefore means "6 of 8 applied", not "all 8 applied".
+-- PART A2 and PART A3 cover the other two by their EFFECTS instead. Do not
+-- read an all-PRESENT PART A as a clean bill for the whole migration set.
+--
+-- The last two rows are not ledger files at all. shipments and
+-- rate_adjustments predate this work and PART A3 reads both, so a missing one
+-- would make PART A3 fail to parse. Listing them here means that failure is
+-- diagnosed in advance rather than hit as a bare "relation does not exist".
 -- ###########################################################################
 
 begin;
@@ -71,7 +98,10 @@ with expected(kind_label, relname, created_by) as (
     ('VIEW',  'pnl_client_monthly',     'ledger_04_views.sql'),
     ('VIEW',  'leaks_monthly',          'ledger_04_views.sql'),
     ('VIEW',  'pick_days',              'ledger_04_views.sql'),
-    ('VIEW',  'labour_variance_inputs', 'ledger_04_views.sql')
+    ('VIEW',  'labour_variance_inputs', 'ledger_04_views.sql'),
+    -- Prerequisites, not ledger output. PART A3 reads these two.
+    ('TABLE', 'shipments',        'schema.sql (PREREQUISITE, not a ledger file)'),
+    ('TABLE', 'rate_adjustments', 'schema.sql (PREREQUISITE, not a ledger file)')
 )
 select
   e.kind_label                                        as expected_kind,
@@ -92,6 +122,168 @@ order by
   case when c.oid is null then 0 else 1 end,  -- MISSING rows float to the top
   e.created_by,
   e.relname;
+
+rollback;
+
+
+-- ###########################################################################
+-- PART A2 -- did ledger_06_seed_cost_rates.sql apply? Six rows, by value.
+-- Safe to run once PART A reports cost_rates PRESENT. Expect 6 rows, all OK.
+--
+-- WHY VALUES AND NOT JUST PRESENCE. ledger_06 ends in `on conflict do nothing`,
+-- so A ROW THAT ALREADY EXISTED WINS -- including one edited by hand. Re-running
+-- the file does not reassert the numbers, so git and the database can diverge
+-- permanently and silently. ledger_06's own header says to compare against the
+-- literals rather than assume a re-run restored them; that comparison is what
+-- this part is. The expected values below are copied from ledger_06 lines 42-80.
+--
+-- HOW TO READ THE VERDICTS
+--   MISSING -- the row is absent, so ledger_06 did not apply (or not fully).
+--   DEFECT  -- basis is not 'estimated'. This is the dangerous one: basis drives
+--              is_estimate (calculate-charges.ts:144), so 'measured' or
+--              'derived' on one of these placeholders makes a screen present a
+--              guess as a measured cost, which ledger_06's header forbids.
+--   DRIFT   -- the row exists with a different rate, so this file did NOT write
+--              it. Note the direction. A hand-edited rate LOWER than git
+--              understates cost and flatters margin, which is the direction that
+--              does not announce itself.
+--
+-- `unit` is shown side by side rather than scored. Nothing reads cost_rates.unit
+-- -- costOf is rate * quantity unconditionally (cost-rate.ts:71) -- so a unit
+-- mismatch is cosmetic today and a trap tomorrow. See ledger_06's pack comment.
+-- ###########################################################################
+
+begin;
+
+with expected(cost_type, variant, unit, rate) as (
+  values
+    ('pick',     'device',           'per_unit',          0.2300),
+    ('pick',     'component',        'per_unit',          0.2000),
+    ('pack',     null::text,         'per_order',         0.1500),
+    ('material', 'box_small',        'per_order',         0.4500),
+    ('material', 'box_medium',       'per_order',         0.7500),
+    ('storage',  null::text,         'per_pallet_month', 12.0000)
+)
+select
+  e.cost_type || ' / ' || coalesce(e.variant, '(null variant)') as seeded_row,
+  case
+    when c.id is null
+      then 'MISSING <- ledger_06 did not apply'
+    when c.basis is distinct from 'estimated'
+      then 'DEFECT: basis=' || coalesce(c.basis, 'NULL')
+           || ' <- placeholder would present as measured'
+    when c.rate <> e.rate
+      then 'DRIFT: db=' || c.rate::text || ' git=' || e.rate::text
+           || case when c.rate < e.rate then ' (db LOWER: flatters margin)'
+                   else ' (db higher)' end
+    else 'OK: rate=' || c.rate::text || ' basis=estimated'
+  end as verdict,
+  coalesce(c.unit, '-')         as db_unit,
+  e.unit                        as git_unit,
+  coalesce(c.effective_to::text, 'open') as db_effective_to
+from expected e
+-- Joined on coalesce(variant,'') to match the unique index in ledger_02_cost.sql,
+-- which is also how the two null-variant rows deduplicate correctly.
+left join cost_rates c
+       on c.cost_type            = e.cost_type
+      and coalesce(c.variant, '') = coalesce(e.variant, '')
+      and c.effective_from        = date '2026-01-01'
+order by
+  case when c.id is null then 0 else 1 end,
+  e.cost_type,
+  coalesce(e.variant, '');
+
+rollback;
+
+
+-- ###########################################################################
+-- PART A3 -- did ledger_03b_rate_adjustments_cleanup.sql apply?
+-- Safe to run once PART A reports shipments and rate_adjustments PRESENT.
+-- Expect 4 rows. Only the first is a pass/fail; the rest are the context that
+-- stops it being misread. Read the DENOMINATOR row before trusting an OK.
+--
+-- WHAT 03b DID. Task 10 moved the dedup key from (order_number,
+-- adjustment_amount) to (shipment_id, adjustment_amount). Every pre-existing
+-- row has a null shipment_id, so without the backfill each one fails the new
+-- lookup and the next sync inserts a duplicate beside it -- with both counting
+-- toward the client's ledger.
+--
+-- WHY THE count(*) = 1 QUALIFIER IS LOAD-BEARING. order_number is NOT unique in
+-- shipments (multi-package orders, reships), so 03b deliberately backfills only
+-- rows whose order_number resolves to exactly ONE shipment. A check without
+-- that qualifier would count the deliberately-skipped rows as failures and
+-- report a clean migration as broken.
+--
+-- THE LIMIT OF THIS CHECK. A nonzero first row means EITHER 03b never applied OR
+-- something is still writing rate_adjustments with a null shipment_id. Both need
+-- fixing, but they are different bugs, and this count cannot tell them apart.
+-- Check the newest row's created_at against the migration date to separate them.
+-- ###########################################################################
+
+begin;
+
+-- Named `unlinked`, not `nulls`: NULLS is a Postgres keyword (ORDER BY ... NULLS
+-- FIRST). It is unreserved and would almost certainly parse as a CTE name, but
+-- this script is handed to an operator to paste and there is no local database
+-- to try it on, so a near-certainty is not worth a wasted round-trip.
+with unlinked as (
+  select
+    ra.id,
+    (select count(*)
+     from   shipments s
+     where  s.order_number = ra.order_number) as shipment_matches
+  from rate_adjustments ra
+  where ra.shipment_id is null
+),
+-- Each branch is a bare aggregate with no GROUP BY, so it returns exactly one
+-- row even when the filter matches nothing. An empty result would otherwise be
+-- indistinguishable from a read that never ran.
+rows_out as (
+  select
+    0 as ord,
+    'BACKFILL' as section,
+    'resolvable rows still null (must be 0)' as item,
+    case when count(*) = 0
+         then 'OK: 0 <- ledger_03b applied'
+         else 'FOUND: ' || count(*)::text
+              || ' <- NOT backfilled; each duplicates on the next sync run'
+    end as verdict
+  from unlinked
+  where shipment_matches = 1
+  union all
+  select
+    1,
+    'BY DESIGN',
+    'orphaned: order_number matches 0 shipments',
+    count(*)::text || ' rows <- skipped deliberately, not a failure'
+  from unlinked
+  where shipment_matches = 0
+  union all
+  select
+    2,
+    'BY DESIGN',
+    'ambiguous: order_number matches 2+ shipments',
+    count(*)::text || ' rows <- skipped deliberately, not a failure'
+  from unlinked
+  where shipment_matches > 1
+  union all
+  -- THE DENOMINATOR, and it is not decoration. Without it a count of 0 on the
+  -- row above is ambiguous between "the backfill ran" and "the table is empty,
+  -- so there was never anything to back fill" -- the second being a vacuous
+  -- pass, which is the failure mode this directory's own comments warn about.
+  -- Zero total rows means PART A3 proves NOTHING; it does not mean OK.
+  select
+    3,
+    'DENOMINATOR',
+    'rate_adjustments total / already linked',
+    count(*)::text || ' total, '
+      || count(shipment_id)::text || ' with a shipment_id'
+      || case when count(*) = 0
+              then ' <- TABLE EMPTY: the verdict above is vacuous, not a pass'
+              else '' end
+  from rate_adjustments
+)
+select section, item, verdict from rows_out order by ord;
 
 rollback;
 
