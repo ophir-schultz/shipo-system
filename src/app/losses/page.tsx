@@ -1,5 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { formatPrice, sumPriced, unpricedNote } from '@/lib/billing/unpriced'
+import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
+import ViewUnreadable from '@/components/ui/ViewUnreadable'
 
 // This page answers "which shipments are we losing money on". An unpriced
 // shipment is NOT on it and must not be: `is_loss` is false when profit is
@@ -12,6 +14,19 @@ import { formatPrice, sumPriced, unpricedNote } from '@/lib/billing/unpriced'
 // worse than it is, on the one screen where a bad margin is the thing being
 // investigated. They are now excluded from the figures and counted beside
 // them instead.
+//
+// A failed read used to arrive here as `[]` and produce something stranger than
+// an empty screen: "Loss Shipments 0 · 0.0% of all shipments · Total Loss
+// Amount -$0.00". That is not missing information, it is the single most
+// reassuring sentence this app can print, and it is printed on no evidence.
+// Worse, the loss table is where a thin margin gets investigated, so the moment
+// someone comes here asking "where is the money going" is exactly the moment a
+// blank answer is most likely to be believed and acted on.
+//
+// Both reads are refused together. `lossRes` is the table and `allRes` is the
+// denominator for every rate and total beside it, and a loss count without its
+// denominator is not a partial answer -- 12 losses out of 0 shipments is not a
+// smaller claim than 12 out of 4,000, it is an incoherent one.
 
 async function getLossData() {
   const [lossRes, allRes] = await Promise.all([
@@ -27,83 +42,111 @@ async function getLossData() {
       .not('client_id', 'is', null),
   ])
 
-  const losses = lossRes.data ?? []
-  const all = allRes.data ?? []
+  const lossRead = read('shipments (losses)', lossRes)
+  const allRead = read('shipments (all assigned)', allRes)
+  const unreadable = readErrors(lossRead, allRead)
+  // Everything below is inside the thunk, so on the failure path not one of
+  // these aggregations runs. A full set of byClient / byService / byZone /
+  // byWeight breakdowns reading "no losses" should not exist in the program at
+  // all, not even for long enough to be discarded.
+  return loaded(unreadable, () => {
+    const losses = lossRead.rows
+    const all = allRead.rows
 
-  const totalShipments = all.length
-  const revenueSum = sumPriced(all, 'client_rate')
-  const totalRevenue = revenueSum.total
-  const unpricedShipments = revenueSum.unpriced
-  const totalCost = sumPriced(all, 'actual_cost').total
-  const totalProfit = sumPriced(all, 'profit_loss').total
-  const totalLossAmt = losses.reduce((s, r) => s + Math.abs(r.profit_loss ?? 0), 0)
+    const totalShipments = all.length
+    const revenueSum = sumPriced(all, 'client_rate')
+    const totalRevenue = revenueSum.total
+    const unpricedShipments = revenueSum.unpriced
+    const totalCost = sumPriced(all, 'actual_cost').total
+    const totalProfit = sumPriced(all, 'profit_loss').total
+    const totalLossAmt = losses.reduce((s, r) => s + Math.abs(r.profit_loss ?? 0), 0)
 
-  // By client
-  const byClient: Record<string, { name: string; count: number; lossAmt: number }> = {}
-  for (const s of losses) {
-    const name = (s.clients as any)?.name ?? 'Unassigned'
-    if (!byClient[name]) byClient[name] = { name, count: 0, lossAmt: 0 }
-    byClient[name].count++
-    byClient[name].lossAmt += Math.abs(s.profit_loss ?? 0)
-  }
+    // By client
+    const byClient: Record<string, { name: string; count: number; lossAmt: number }> = {}
+    for (const s of losses) {
+      const name = (s.clients as any)?.name ?? 'Unassigned'
+      if (!byClient[name]) byClient[name] = { name, count: 0, lossAmt: 0 }
+      byClient[name].count++
+      byClient[name].lossAmt += Math.abs(s.profit_loss ?? 0)
+    }
 
-  // By carrier/service
-  const byService: Record<string, { count: number; lossAmt: number }> = {}
-  for (const s of losses) {
-    const key = `${s.carrier ?? '?'} · ${s.service ?? '?'}`
-    if (!byService[key]) byService[key] = { count: 0, lossAmt: 0 }
-    byService[key].count++
-    byService[key].lossAmt += Math.abs(s.profit_loss ?? 0)
-  }
+    // By carrier/service
+    const byService: Record<string, { count: number; lossAmt: number }> = {}
+    for (const s of losses) {
+      const key = `${s.carrier ?? '?'} · ${s.service ?? '?'}`
+      if (!byService[key]) byService[key] = { count: 0, lossAmt: 0 }
+      byService[key].count++
+      byService[key].lossAmt += Math.abs(s.profit_loss ?? 0)
+    }
 
-  // By zone
-  const byZone: Record<string, { count: number; lossAmt: number }> = {}
-  for (const s of losses) {
-    const key = s.zone ? `Zone ${s.zone}` : 'Zone unknown'
-    if (!byZone[key]) byZone[key] = { count: 0, lossAmt: 0 }
-    byZone[key].count++
-    byZone[key].lossAmt += Math.abs(s.profit_loss ?? 0)
-  }
+    // By zone
+    const byZone: Record<string, { count: number; lossAmt: number }> = {}
+    for (const s of losses) {
+      const key = s.zone ? `Zone ${s.zone}` : 'Zone unknown'
+      if (!byZone[key]) byZone[key] = { count: 0, lossAmt: 0 }
+      byZone[key].count++
+      byZone[key].lossAmt += Math.abs(s.profit_loss ?? 0)
+    }
 
-  // By weight bracket (lb)
-  const byWeight: Record<string, { count: number; lossAmt: number }> = {}
-  for (const s of losses) {
-    const oz = s.billed_weight ?? s.weight ?? 0
-    const lb = Math.ceil(oz / 16)
-    const key = lb <= 1 ? '≤1 lb' : lb <= 5 ? '2–5 lb' : lb <= 10 ? '6–10 lb' : lb <= 20 ? '11–20 lb' : '20+ lb'
-    if (!byWeight[key]) byWeight[key] = { count: 0, lossAmt: 0 }
-    byWeight[key].count++
-    byWeight[key].lossAmt += Math.abs(s.profit_loss ?? 0)
-  }
+    // By weight bracket (lb)
+    const byWeight: Record<string, { count: number; lossAmt: number }> = {}
+    for (const s of losses) {
+      const oz = s.billed_weight ?? s.weight ?? 0
+      const lb = Math.ceil(oz / 16)
+      const key = lb <= 1 ? '≤1 lb' : lb <= 5 ? '2–5 lb' : lb <= 10 ? '6–10 lb' : lb <= 20 ? '11–20 lb' : '20+ lb'
+      if (!byWeight[key]) byWeight[key] = { count: 0, lossAmt: 0 }
+      byWeight[key].count++
+      byWeight[key].lossAmt += Math.abs(s.profit_loss ?? 0)
+    }
 
-  return {
-    losses,
-    totalShipments,
-    totalRevenue,
-    unpricedShipments,
-    totalCost,
-    totalProfit,
-    totalLossAmt,
-    lossCount: losses.length,
-    lossRate: totalShipments > 0 ? (losses.length / totalShipments) * 100 : 0,
-    byClient: Object.values(byClient).sort((a, b) => b.lossAmt - a.lossAmt),
-    byService: Object.entries(byService).sort((a, b) => b[1].lossAmt - a[1].lossAmt).slice(0, 10),
-    byZone: Object.entries(byZone).sort((a, b) => a[0].localeCompare(b[0])),
-    byWeight: Object.entries(byWeight),
-  }
+    return {
+      losses,
+      totalShipments,
+      totalRevenue,
+      unpricedShipments,
+      totalCost,
+      totalProfit,
+      totalLossAmt,
+      lossCount: losses.length,
+      lossRate: totalShipments > 0 ? (losses.length / totalShipments) * 100 : 0,
+      byClient: Object.values(byClient).sort((a, b) => b.lossAmt - a.lossAmt),
+      byService: Object.entries(byService).sort((a, b) => b[1].lossAmt - a[1].lossAmt).slice(0, 10),
+      byZone: Object.entries(byZone).sort((a, b) => a[0].localeCompare(b[0])),
+      byWeight: Object.entries(byWeight),
+    }
+  })
+}
+
+function Header() {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-white">Loss Analysis</h2>
+      <p className="text-gray-400 text-sm mt-1">All shipments where carrier cost exceeded what we charged the client</p>
+    </div>
+  )
 }
 
 export default async function LossesPage() {
-  const d = await getLossData()
+  const page = await getLossData()
+  if (!page.ok) {
+    return (
+      <div className="space-y-6">
+        <Header />
+        <ViewUnreadable message={page.error} />
+      </div>
+    )
+  }
+  // Annotated, not inferred. The body below reads `d.` about forty times, and
+  // every one of those sites would accept `undefined` happily through the `any`
+  // rows; the annotation is what makes deleting the check above a compile error
+  // rather than a silent return to printing "-$0.00" over an unread table.
+  const d: LoadedData<typeof page> = page.data
   const fmt = (n: number) => `$${Math.abs(n).toFixed(2)}`
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-white">Loss Analysis</h2>
-        <p className="text-gray-400 text-sm mt-1">All shipments where carrier cost exceeded what we charged the client</p>
-      </div>
+      <Header />
 
       {/* An unpriced shipment cannot be known to be a loss, so it is correctly
           absent from the table below -- but it is also absent from the margin

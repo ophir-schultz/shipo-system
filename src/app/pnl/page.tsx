@@ -1,7 +1,24 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { priceOf, unpricedNote } from '@/lib/billing/unpriced'
+import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
+import ViewUnreadable from '@/components/ui/ViewUnreadable'
 
 export const dynamic = 'force-dynamic'
+
+// Six reads aggregated into per-client margin and a four-card summary bar, and
+// the aggregation is the problem: every figure on this page is a SUM across
+// tables, so a read that returned `[]` because it failed did not blank a cell,
+// it moved a total. Revenue = shipping + warehouse + inbound. Lose the inbound
+// read and Net Profit is wrong by exactly the inbound margin, with no dash and
+// no asterisk to say so -- on the screen whose entire purpose is to say whether
+// this business makes money.
+//
+// So the whole page is refused together. There is no useful partial view here:
+// "Total Revenue" with one of its three terms silently missing is not a smaller
+// number than the truth, it is a different claim presented in the same font.
+//
+// The three tables campaigns_pnl.sql creates are the exception, and only when
+// they are genuinely absent -- see the note on the per-table predicates below.
 
 const CHANNEL_LABELS: Record<string, string> = {
   dtc_email: 'DTC Email (Apollo)',
@@ -21,7 +38,8 @@ async function getPnlData() {
     supabaseAdmin
       .from('warehouse_daily_log')
       .select('client_id, total'),
-    // new tables — may not exist until migration is applied; errors → empty
+    // The three tables campaigns_pnl.sql creates: may legitimately not exist
+    // yet, which is asked about by error code below -- NOT excused wholesale.
     supabaseAdmin
       .from('inbound_shipments')
       .select('id, client_id, reference, received_date, units, our_cost, billed_amount, notes, clients(name)')
@@ -40,135 +58,191 @@ async function getPnlData() {
       .limit(200),
   ])
 
-  const shipments = shipRes.data ?? []
-  const warehouse = whRes.data ?? []
-  const inbound = inboundRes.data ?? []
-  const campaigns = campaignsRes.data ?? []
-  const clients = clientsRes.data ?? []
-  const payouts = payoutsRes.data ?? []
+  // Asked per table rather than inferred from `campaigns` alone. Those three
+  // reads were all excused by a single `migrationApplied = !campaignsRes.error`,
+  // which is two errors in one line: it excused `inbound_shipments` on the
+  // strength of a DIFFERENT table's result, and it read every failure of any
+  // kind as "the table does not exist". With the migration applied and
+  // inbound_shipments timing out, the old code printed a confident Net Profit
+  // short by the whole inbound margin and no banner at all, because `campaigns`
+  // had answered fine.
+  const inboundMissing = isMigrationMissing(inboundRes)
+  const campaignsMissing = isMigrationMissing(campaignsRes)
+  const payoutsMissing = isMigrationMissing(payoutsRes)
+  const migrationMissing = inboundMissing || campaignsMissing || payoutsMissing
 
-  const migrationApplied = !campaignsRes.error
+  const shipRead = read('shipments', shipRes)
+  const whRead = read('warehouse_daily_log', whRes)
+  const clientsRead = read('clients', clientsRes)
+  const inboundRead = read('inbound_shipments', inboundRes)
+  const campaignsRead = read('campaigns', campaignsRes)
+  const payoutsRead = read('referral_payouts', payoutsRes)
 
-  // ---- Per-client fulfillment P&L ----
-  //
-  // `unpriced` is counted alongside the revenue it is missing from. A margin
-  // computed over shipments whose rate is UNKNOWN treats them as revenue of
-  // zero against a real carrier cost, which understates the margin by the
-  // whole of their price -- on the screen whose only job is to report the
-  // margin. They are excluded and counted instead.
-  type Agg = {
-    name: string; shipRev: number; shipCost: number; whRev: number
-    inRev: number; inCost: number; unpriced: number
-  }
-  const byClient: Record<string, Agg> = {}
-  const ensure = (id: string | null, name: string) => {
-    const key = id ?? 'unassigned'
-    if (!byClient[key]) byClient[key] = { name, shipRev: 0, shipCost: 0, whRev: 0, inRev: 0, inCost: 0, unpriced: 0 }
-    return byClient[key]
-  }
+  // shipments / warehouse_daily_log / clients are never excused: they are not
+  // created by any pending migration, so a failure on one of them is a failure.
+  // The other three are excused only when THEY report a missing relation, which
+  // is the state the yellow banner already describes and already scopes -- "the
+  // per-client P&L below is live from real shipment + warehouse data".
+  const unreadable = readErrors(
+    shipRead,
+    whRead,
+    clientsRead,
+    inboundMissing ? null : inboundRead,
+    campaignsMissing ? null : campaignsRead,
+    payoutsMissing ? null : payoutsRead,
+  )
 
-  let unassignedCount = 0
-  let unassignedCost = 0
-  for (const s of shipments) {
-    if (!s.client_id) {
-      unassignedCount++
-      unassignedCost += s.actual_cost ?? 0
-      continue
+  // Everything from here to the return is inside the thunk, so on the failure
+  // path none of it runs. Six tables aggregate into a per-client margin table;
+  // a complete set of plausible $0.00 margins for every client should not exist
+  // in the program at all, not even long enough to be thrown away.
+  return { migrationMissing, page: loaded(unreadable, () => {
+    const shipments = shipRead.rows
+    const warehouse = whRead.rows
+    const clients = clientsRead.rows
+    const inbound = inboundRead.rows
+    const campaigns = campaignsRead.rows
+    const payouts = payoutsRead.rows
+
+    // ---- Per-client fulfillment P&L ----
+    //
+    // `unpriced` is counted alongside the revenue it is missing from. A margin
+    // computed over shipments whose rate is UNKNOWN treats them as revenue of
+    // zero against a real carrier cost, which understates the margin by the
+    // whole of their price -- on the screen whose only job is to report the
+    // margin. They are excluded and counted instead.
+    type Agg = {
+      name: string; shipRev: number; shipCost: number; whRev: number
+      inRev: number; inCost: number; unpriced: number
     }
-    const a = ensure(s.client_id, (s.clients as any)?.name ?? 'Unassigned')
-    const rate = priceOf(s.client_rate)
-    if (rate === null) a.unpriced++
-    else a.shipRev += rate
-    a.shipCost += priceOf(s.actual_cost) ?? 0
-  }
-  for (const w of warehouse) {
-    const a = ensure(w.client_id, 'Unassigned')
-    // warehouse_daily_log.total is nullable for the same reason: the daily-log
-    // route writes null for a line whose rate is not on the card.
-    const total = priceOf(w.total)
-    if (total === null) a.unpriced++
-    else a.whRev += total
-  }
-  for (const i of inbound) {
-    const a = ensure(i.client_id, (i.clients as any)?.name ?? 'Unassigned')
-    a.inRev += i.billed_amount ?? 0
-    a.inCost += i.our_cost ?? 0
-  }
-
-  const clientPnl = Object.entries(byClient).map(([id, a]) => {
-    const revenue = a.shipRev + a.whRev + a.inRev
-    const cost = a.shipCost + a.inCost
-    const profit = revenue - cost
-    const margin = revenue > 0 ? (profit / revenue) * 100 : 0
-    return { id, ...a, revenue, cost, profit, margin }
-  }).sort((x, y) => y.profit - x.profit)
-
-  // client_id -> total fulfillment revenue (for campaign attribution)
-  const clientRevenue: Record<string, number> = {}
-  for (const c of clientPnl) clientRevenue[c.id] = c.revenue
-
-  // ---- Campaign ROI ----
-  const clientsByCampaign: Record<string, number> = {}
-  const revByCampaign: Record<string, number> = {}
-  for (const c of clients) {
-    const cid = (c as any).acquisition_campaign_id
-    if (cid) {
-      clientsByCampaign[cid] = (clientsByCampaign[cid] ?? 0) + 1
-      revByCampaign[cid] = (revByCampaign[cid] ?? 0) + (clientRevenue[c.id] ?? 0)
+    const byClient: Record<string, Agg> = {}
+    const ensure = (id: string | null, name: string) => {
+      const key = id ?? 'unassigned'
+      if (!byClient[key]) byClient[key] = { name, shipRev: 0, shipCost: 0, whRev: 0, inRev: 0, inCost: 0, unpriced: 0 }
+      return byClient[key]
     }
-  }
 
-  const campaignPnl = campaigns.map((c: any) => {
-    const spend = (c.monthly_cost ?? 0) + (c.one_time_cost ?? 0)
-    const clientsWon = clientsByCampaign[c.id] ?? 0
-    const revenue = revByCampaign[c.id] ?? 0
-    const profit = revenue - spend
-    const roi = spend > 0 ? (profit / spend) * 100 : null
-    const cac = clientsWon > 0 ? spend / clientsWon : null
-    return { ...c, spend, clientsWon, revenue, profit, roi, cac }
-  }).sort((a: any, b: any) => b.revenue - a.revenue)
+    let unassignedCount = 0
+    let unassignedCost = 0
+    for (const s of shipments) {
+      if (!s.client_id) {
+        unassignedCount++
+        unassignedCost += s.actual_cost ?? 0
+        continue
+      }
+      const a = ensure(s.client_id, (s.clients as any)?.name ?? 'Unassigned')
+      const rate = priceOf(s.client_rate)
+      if (rate === null) a.unpriced++
+      else a.shipRev += rate
+      a.shipCost += priceOf(s.actual_cost) ?? 0
+    }
+    for (const w of warehouse) {
+      const a = ensure(w.client_id, 'Unassigned')
+      // warehouse_daily_log.total is nullable for the same reason: the daily-log
+      // route writes null for a line whose rate is not on the card.
+      const total = priceOf(w.total)
+      if (total === null) a.unpriced++
+      else a.whRev += total
+    }
+    for (const i of inbound) {
+      const a = ensure(i.client_id, (i.clients as any)?.name ?? 'Unassigned')
+      a.inRev += i.billed_amount ?? 0
+      a.inCost += i.our_cost ?? 0
+    }
 
-  // ---- Totals ----
-  const totalRevenue = clientPnl.reduce((s, c) => s + c.revenue, 0)
-  const totalCost = clientPnl.reduce((s, c) => s + c.cost, 0)
-  const totalProfit = totalRevenue - totalCost
-  const totalSpend = campaignPnl.reduce((s: number, c: any) => s + c.spend, 0)
-  const totalPayouts = payouts.reduce((s, p: any) => s + (p.amount ?? 0), 0)
-  const pendingPayouts = payouts.filter((p: any) => p.status === 'pending').reduce((s, p: any) => s + (p.amount ?? 0), 0)
+    const clientPnl = Object.entries(byClient).map(([id, a]) => {
+      const revenue = a.shipRev + a.whRev + a.inRev
+      const cost = a.shipCost + a.inCost
+      const profit = revenue - cost
+      const margin = revenue > 0 ? (profit / revenue) * 100 : 0
+      return { id, ...a, revenue, cost, profit, margin }
+    }).sort((x, y) => y.profit - x.profit)
 
-  return {
-    migrationApplied,
-    clientPnl,
-    campaignPnl,
-    payouts,
-    inbound,
-    totalRevenue,
-    totalCost,
-    totalProfit,
-    totalSpend,
-    totalPayouts,
-    pendingPayouts,
-    rawShipmentCount: shipments.length,
-    unassignedCount,
-    unassignedCost,
-    activeCampaigns: campaigns.filter((c: any) => c.status === 'active').length,
-    clientCount: clientPnl.filter(c => c.id !== 'unassigned').length,
-  }
+    // client_id -> total fulfillment revenue (for campaign attribution)
+    const clientRevenue: Record<string, number> = {}
+    for (const c of clientPnl) clientRevenue[c.id] = c.revenue
+
+    // ---- Campaign ROI ----
+    const clientsByCampaign: Record<string, number> = {}
+    const revByCampaign: Record<string, number> = {}
+    for (const c of clients) {
+      const cid = (c as any).acquisition_campaign_id
+      if (cid) {
+        clientsByCampaign[cid] = (clientsByCampaign[cid] ?? 0) + 1
+        revByCampaign[cid] = (revByCampaign[cid] ?? 0) + (clientRevenue[c.id] ?? 0)
+      }
+    }
+
+    const campaignPnl = campaigns.map((c: any) => {
+      const spend = (c.monthly_cost ?? 0) + (c.one_time_cost ?? 0)
+      const clientsWon = clientsByCampaign[c.id] ?? 0
+      const revenue = revByCampaign[c.id] ?? 0
+      const profit = revenue - spend
+      const roi = spend > 0 ? (profit / spend) * 100 : null
+      const cac = clientsWon > 0 ? spend / clientsWon : null
+      return { ...c, spend, clientsWon, revenue, profit, roi, cac }
+    }).sort((a: any, b: any) => b.revenue - a.revenue)
+
+    // ---- Totals ----
+    const totalRevenue = clientPnl.reduce((s, c) => s + c.revenue, 0)
+    const totalCost = clientPnl.reduce((s, c) => s + c.cost, 0)
+    const totalProfit = totalRevenue - totalCost
+    const totalSpend = campaignPnl.reduce((s: number, c: any) => s + c.spend, 0)
+    const totalPayouts = payouts.reduce((s, p: any) => s + (p.amount ?? 0), 0)
+    const pendingPayouts = payouts.filter((p: any) => p.status === 'pending').reduce((s, p: any) => s + (p.amount ?? 0), 0)
+
+    return {
+      clientPnl,
+      campaignPnl,
+      payouts,
+      inbound,
+      totalRevenue,
+      totalCost,
+      totalProfit,
+      totalSpend,
+      totalPayouts,
+      pendingPayouts,
+      rawShipmentCount: shipments.length,
+      unassignedCount,
+      unassignedCost,
+      activeCampaigns: campaigns.filter((c: any) => c.status === 'active').length,
+      clientCount: clientPnl.filter(c => c.id !== 'unassigned').length,
+    }
+  }) }
+}
+
+function Header() {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-white">Campaigns + P&amp;L</h2>
+      <p className="text-gray-400 text-sm mt-1">Marketing ROI by campaign, fulfillment margin by client, referral payouts, and the inbound receiving log.</p>
+    </div>
+  )
 }
 
 export default async function PnlPage() {
-  const d = await getPnlData()
+  const res = await getPnlData()
+  if (!res.page.ok) {
+    return (
+      <div className="space-y-6">
+        <Header />
+        <ViewUnreadable message={res.page.error} />
+      </div>
+    )
+  }
+  // Annotated, not inferred. The body below reads `d.` dozens of times and
+  // every one of those sites would take `undefined` without complaint, so this
+  // line is what makes deleting the check above a compile error instead of a
+  // quiet return to publishing a Net Profit assembled from reads that failed.
+  const d: LoadedData<typeof res.page> = res.page.data
   const fmt = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toFixed(2)}`
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-white">Campaigns + P&amp;L</h2>
-        <p className="text-gray-400 text-sm mt-1">Marketing ROI by campaign, fulfillment margin by client, referral payouts, and the inbound receiving log.</p>
-      </div>
+      <Header />
 
-      {!d.migrationApplied && (
+      {res.migrationMissing && (
         <div className="rounded-xl p-4 border border-yellow-700/50 bg-yellow-950/30">
           <p className="text-yellow-300 text-sm font-medium">⚠ Campaign / referral / inbound tables not created yet</p>
           <p className="text-yellow-500/80 text-xs mt-1">Per-client P&amp;L below is live from real shipment + warehouse data. Run <span className="font-mono">supabase/campaigns_pnl.sql</span> in Supabase to enable the campaign ROI, referral payout, and inbound-log sections.</p>
