@@ -27,21 +27,22 @@
 --
 --
 -- PASTE CONTRACT -- READ THIS, THE SPLIT IS DELIBERATE
--- Paste PART A, PART A2, PART A3, PART A4, PART A5 and PART B as SIX SEPARATE
--- pastes, in that order. Do not combine them.
+-- Paste PART A, PART A2, PART A3, PART A4, PART A5, PART A6 and PART B as SEVEN
+-- SEPARATE pastes, in that order. Do not combine them.
 --
 -- Postgres parses a whole statement before executing any of it, so when a table
 -- is missing, a script that references it fails to parse and returns NOTHING --
 -- including the catalog checks that would have told you which table is missing.
--- PART A and PART A4 read the catalog only -- pg_class and pg_constraint -- so
--- neither can fail that way, and both answer whatever they can even on a
--- database with tables missing. PART A2, A3, A5 and B read the tables
--- themselves and WILL error with "relation does not exist" when PART A reported
--- anything MISSING. That error is itself the answer; fix the migration before
--- bothering with the rest.
+-- PART A, PART A4 and PART A6 read the catalog only -- pg_class, pg_constraint,
+-- pg_index -- so none of them can fail that way, and each answers whatever it
+-- can even on a database with tables missing. PART A2, A3, A5 and B read the
+-- tables themselves and WILL error with "relation does not exist" when PART A
+-- reported anything MISSING. That error is itself the answer; fix the migration
+-- before bothering with the rest.
 --
--- A4 sits fourth rather than beside PART A only because a missing TABLE is the
--- more useful thing to learn first. Nothing stops it being run at any point.
+-- A4 and A6 sit after the table checks rather than beside PART A only because a
+-- missing TABLE is the more useful thing to learn first. Nothing stops either
+-- being run at any point.
 --
 -- Each part is a single statement returning a single result set, because the
 -- Supabase SQL editor shows the result of the last statement only.
@@ -52,15 +53,17 @@
 --   PART A3 -- ledger_03b_rate_adjustments_cleanup.sql, by its backfill effect.
 --   PART A4 -- the 8 named constraints, by catalog presence AND definition.
 --   PART A5 -- ledger_05_seed_nayax.sql, by counting the rate card it wrote.
+--   PART A6 -- ledger_03c and ledger_03d, by their 5 named INDEXES: catalog
+--              presence AND definition, predicate included. Cannot fail.
 --   PART B  -- Q2, the scheduler count, plus ledger health.
 --
--- A2, A3, A4 and A5 exist because an existence check is blind to a migration
+-- A2, A3, A5 and A6 exist because an existence check is blind to a migration
 -- that creates no relation PART A looks for. FIVE of the ten files are in that
--- position, not two:
+-- position, not two, and each now has a part of its own:
 --
 --   ledger_03b_rate_adjustments_cleanup.sql -- one `update` backfill   -> A3
---   ledger_03c_rate_adjustments_uniq.sql    -- two indexes             -> NOT COVERED
---   ledger_03d_sync_runs_mutex.sql          -- three indexes           -> NOT COVERED
+--   ledger_03c_rate_adjustments_uniq.sql    -- two indexes             -> A6
+--   ledger_03d_sync_runs_mutex.sql          -- three indexes           -> A6
 --   ledger_05_seed_nayax.sql                -- 18 rate-card rows       -> A5
 --   ledger_06_seed_cost_rates.sql           -- six `insert` rows       -> A2
 --
@@ -68,14 +71,30 @@
 -- PART A already finds by its tables. It is here because finding the TABLE does
 -- not find the constraints on it; see PART A4's own header.
 --
--- THE REMAINING HOLE, STATED PLAINLY SO THAT IT STAYS FIXABLE.
--- ledger_03c and ledger_03d create nothing but indexes. An index is a pg_class
--- row of relkind 'i', which PART A's join excludes, and it has no pg_constraint
--- row, so PART A4 cannot see it either. Both files are load-bearing:
+-- THE HOLE THAT USED TO BE HERE, KEPT BECAUSE THE SHAPE OF IT RECURS.
+-- Until PART A6 was written, ledger_03c and ledger_03d were covered by NOTHING
+-- in this script, and the reason is worth remembering: both create nothing but
+-- indexes, an index is a pg_class row of relkind 'i' which PART A's join
+-- excludes, and an index made by `create unique index` has no pg_constraint row
+-- so PART A4 could not see it either. Two checks that each looked thorough left
+-- the two newest files -- the likeliest of the ten to be unapplied -- entirely
+-- unexamined, and both are load-bearing:
 -- rate_adjustments_shipment_amount_key is the uniqueness the whole 03b backfill
 -- exists to make possible, and sync_runs_running_source_key IS the sync mutex.
--- They are also the two newest files, which makes them the likeliest of the ten
--- to be unapplied. Nothing in this script currently says whether they went in.
+--
+-- WHAT IS STILL NOT COVERED, so that this stays honest rather than merely
+-- shorter than it was:
+--   * ledger_01, 02, 03, 04 and 07 are covered by PART A at the level of
+--     relations and by PART A4 at the level of named constraints. Their column
+--     types, defaults and nullability are read by nothing here, and `create
+--     table if not exists` does nothing to an existing table -- the same gap
+--     PART A4 exists to close for constraints, one level down.
+--   * Every part here scores DDL and seeded VALUES, never behaviour. The
+--     scripts beside this one in supabase/verify/ attempt writes that must be
+--     refused, which is the only thing that proves a constraint or an index
+--     bites. They write fixtures and stop at the first fault; this script reads
+--     only, reports every row at once, and is safe to run mid-sync. The two are
+--     not substitutes for each other in either direction.
 --
 -- WHY EACH PART IS WRAPPED IN begin; ... rollback; EVEN THOUGH IT ONLY SELECTS
 -- The other scripts in this directory insert sentinel clients, orders and
@@ -96,8 +115,9 @@
 -- An existence check can only find migrations that CREATE A RELATION, and only
 -- the kinds of relation it asks about: tables and views, never indexes. Five of
 -- the ten ledger files create nothing it looks for. They are listed in this
--- file's header along with which later PART covers each, and two of the five
--- are covered by nothing at all.
+-- file's header along with which later PART covers each; the two that create
+-- nothing but indexes are PART A6's subject, and the relkind filter below is
+-- exactly why they need a part of their own.
 --
 -- All PRESENT here therefore means "5 of 10 applied", not "all 10 applied".
 -- Do not read an all-PRESENT PART A as a clean bill for the migration set. It
@@ -401,7 +421,8 @@ rollback;
 --   * A unique index made by `create unique index` is not a constraint and has
 --     no pg_constraint row, so none of the indexes in ledger_03c or ledger_03d
 --     appear here -- including sync_runs_running_source_key, which is the whole
---     mutex. See the coverage note in this file's header.
+--     mutex. PART A6 is where those five are read. An all-OK PART A4 says
+--     nothing whatsoever about either of those two files.
 -- ###########################################################################
 
 begin;
@@ -716,6 +737,297 @@ rollback;
 
 
 -- ###########################################################################
+-- PART A6 -- did ledger_03c and ledger_03d apply? Their 5 named INDEXES, by
+-- catalog presence AND definition. Reads pg_class, pg_index and
+-- pg_get_indexdef only, so like PART A and PART A4 it cannot fail to parse and
+-- may be run even when PART A reported something MISSING. Expect 5 rows, every
+-- verdict OK.
+--
+-- WHY THIS IS A SEPARATE QUESTION FROM PART A AND FROM PART A4.
+-- Those two files create nothing BUT indexes. An index is a pg_class row of
+-- relkind 'i', which PART A's relkind filter excludes, and one made by
+-- `create unique index` has no pg_constraint row, so PART A4 cannot see it
+-- either. Until this part existed nothing in this script said whether either
+-- file had gone in -- and they are the two newest of the ten, which makes them
+-- the likeliest of the ten to be unapplied.
+--
+-- WHY THE DEFINITION IS SCORED AND NOT MERELY THE NAME.
+-- All five are created by `create index if not exists`, which does NOTHING to an
+-- index of that name that already exists -- not even correct its columns. So an
+-- index of the right name and the wrong shape is KEPT and the file reports
+-- success. Same trap as PART A4's six guarded constraints, and the same repair:
+-- it has to be dropped by hand before a re-run will write what git declares.
+--
+-- WHY THE PREDICATE IS SCORED IN BOTH DIRECTIONS. want_partial is per row,
+-- because the right answer differs per row and the two mistakes are silent in
+-- OPPOSITE ways:
+--
+--   PREDICATE ADDED on rate_adjustments_shipment_amount_key is a REGRESSION, and
+--   it is the likeliest edit a reader would make in good faith: `where
+--   shipment_id is not null` looks free, since NULLs are distinct in SQL and such
+--   a row is unconstrained whether the predicate is written or not. It is not
+--   free. PostgREST emits a bare column list for on_conflict -- shipstation.ts
+--   sends the pair shipment_id,adjustment_amount and nothing else -- Postgres
+--   cannot infer a partial index from that, and supabase-js .upsert() then raises
+--   42P10 on EVERY adjustment. The table stays clean because NOTHING IS EVER
+--   WRITTEN TO IT, which from the table's point of view looks exactly like
+--   success. The full argument is ledger_03c_rate_adjustments_uniq.sql:40-54.
+--
+--   THE 42P10 ARGUMENT STOPS AT THAT ONE INDEX, and the verdict below says so
+--   rather than reusing the sentence. on_conflict can only ever name a unique or
+--   exclusion constraint, so rate_adjustments_client_status_date_idx -- declared
+--   non-unique here -- cannot be an upsert target and cannot produce 42P10 no
+--   matter what predicate it carries. A predicate there costs reach, not writes.
+--   Printing the 42P10 consequence against it would be an alarm for something
+--   that cannot happen, which teaches an operator to discount the next one.
+--
+--   PREDICATE MISSING on a sync_runs mutex index is the opposite failure. There
+--   the predicate IS the unlock: a row occupies the index only while status =
+--   'running', and close() moving it to ok/partial/failed is what releases the
+--   lock, at no extra write (ledger_03d_sync_runs_mutex.sql:100-103). Without
+--   the predicate the first run ever recorded holds its source for ever and
+--   every later run is refused with 23505.
+--
+-- WHY THE HALVES OF THE MUTEX PREDICATE ARE SCORED AND NOT JUST ITS EXISTENCE.
+-- The two mutex indexes are a PAIR split on client_id, and a single
+-- `unique (source, client_id) where status = 'running'` would pass any
+-- predicate-presence test while getting the design exactly backwards: NULLs are
+-- distinct, so every client_id-null row would go unconstrained -- and charges
+-- and shipstation, the two sources whose overlap actually destroys charge rows,
+-- are the two that write client_id null (ledger_03d:81-86). So
+-- `client_id IS NULL` and `client_id IS NOT NULL` are required fragments here.
+-- supabase/verify/ledger_03d_verify.sql asserts that A predicate exists; it
+-- does not read WHICH one, and this part does.
+--
+-- THE FRAGMENTS ARE WRITTEN AS pg_get_indexdef PRINTS THEM, not as the
+-- migrations write them. Postgres normalises a predicate on the way in: it
+-- prints IS NULL and DESC in upper case, casts text constants ('running'
+-- becomes 'running'::text, which the fragment still matches as a prefix), and
+-- may render `in ('ok','partial')` as `= ANY (ARRAY[...])` -- which is why no
+-- fragment below spans more than one value.
+--
+-- THE COMPARISON IS CASE-SENSITIVE ON PURPOSE. Lowering both sides would
+-- tolerate more rendering variation and would also hide the single worst drift
+-- available here: a predicate hand-edited to status = 'Running' matches no row
+-- ever written, so the mutex silently stops locking while every other verdict
+-- in this part reads OK. A case-insensitive match would call that clean.
+--
+-- EXTRA counts quoted values rather than parsing, exactly as PART A4 does, and
+-- the expected count is DERIVED from the fragments rather than written out
+-- beside them, so the two cannot drift apart. It catches the direction NARROWED
+-- cannot see: `status in ('ok','partial','failed')` on the watermark index
+-- leaves every required fragment present. The arithmetic is single quotes over
+-- two, so it is exact only while no required value contains an apostrophe,
+-- which holds for the four here. The definition is printed in full regardless.
+--
+-- INVALID is scored because it is a false-clean nothing else in this script
+-- would show. A CREATE INDEX CONCURRENTLY that fails leaves the index in place
+-- -- named, listed by every tool, with indisunique still true and a definition
+-- that reads perfectly -- AND NOT ENFORCING ANYTHING. Same shape as PART A4's
+-- NOT VALIDATED, and the same reason for scoring it.
+--
+-- LOCALISING A HALF-APPLIED PASTE. These five indexes come from four separate
+-- statements, so a split verdict says WHERE a paste stopped, not merely that it
+-- did. ledger_03c creates its unique index inside a DO block and
+-- rate_adjustments_client_status_date_idx in a bare statement after it, so both
+-- MISSING is the signature of that DO block having raised on duplicate rows and
+-- the editor having stopped there. The thing to fix then is the duplicate
+-- (shipment_id, adjustment_amount) pairs, NOT the migration: ledger_03c raises
+-- the reconciliation query in its own error message, and
+-- supabase/verify/ledger_03b_verify.sql query 2 asserts the same invariant
+-- independently. Both sync_runs mutex indexes live in ONE DO block, so they are
+-- present together or absent together, and sync_runs_watermark_idx is a later
+-- statement again.
+--
+-- WHAT THIS PART CANNOT SEE -- read this before calling 03c and 03d verified.
+--   * It scores TEXT, not behaviour -- PART A4's limit exactly.
+--     supabase/verify/ledger_03c_verify.sql and ledger_03d_verify.sql attempt
+--     real duplicate rows and require the insert to be REJECTED, which is what
+--     proves an index bites, and nothing here replaces that. Those two write
+--     fixtures and stop at the first fault, which is why they are not what this
+--     script is: a read-only pass, safe mid-sync, that reports all five at once.
+--   * A non-default opclass or a COLLATE clause is printed inside the column
+--     list and would read here as NARROWED. The definition column is the answer
+--     to that, so read it before believing a fault.
+--   * Nothing here says whether ledger_03d PART 1 reaped the abandoned runs.
+--     PART B's ORPHANED LOCK row is that check.
+-- ###########################################################################
+
+begin;
+
+with expected(table_name, indexname, want_unique, want_partial, must_contain,
+              at_stake, declared_at) as (
+  values
+    ('rate_adjustments', 'rate_adjustments_shipment_amount_key',
+     true, false,
+     array['(shipment_id, adjustment_amount)'],
+     'this is the uniqueness the whole ledger_03b backfill exists to make '
+       || 'possible; without it the dedup in sync/shipstation.ts is a '
+       || 'check-then-act over two overlapping syncs, and the duplicate it '
+       || 'admits never heals and double-bills the client once approved',
+     'ledger_03c_rate_adjustments_uniq.sql:75'),
+    ('rate_adjustments', 'rate_adjustments_client_status_date_idx',
+     false, false,
+     array['(client_id, status, adjustment_date)'],
+     'the per-client read behind every weekly bill (calculator.ts) and the '
+       || 'dashboard status filter; absence costs speed, never correctness',
+     'ledger_03c_rate_adjustments_uniq.sql:93'),
+    ('sync_runs', 'sync_runs_running_source_key',
+     true, true,
+     array['(source)', 'status = ''running''', 'client_id IS NULL'],
+     'THIS IS THE SYNC MUTEX for the two sources that write client_id null -- '
+       || 'charges and shipstation -- and a second overlapping charge run '
+       || 'deletes the fresh rows the first one has just written',
+     'ledger_03d_sync_runs_mutex.sql:106'),
+    ('sync_runs', 'sync_runs_running_source_client_key',
+     true, true,
+     array['(source, client_id)', 'status = ''running''',
+           'client_id IS NOT NULL'],
+     'the per-client half of the same mutex, which is the half zenventory runs '
+       || 'under because it opens one row per client',
+     'ledger_03d_sync_runs_mutex.sql:110'),
+    ('sync_runs', 'sync_runs_watermark_idx',
+     false, true,
+     array['(source, client_id, finished_at DESC)', '''ok''', '''partial'''],
+     'the zenventory watermark read, run once per client per sync against a '
+       || 'table that is append-only and never pruned; absence costs speed, '
+       || 'never correctness',
+     'ledger_03d_sync_runs_mutex.sql:137')
+),
+-- Three left joins, so a row survives whether the table is absent, the index is
+-- absent, or both -- and the verdict tells those apart, because they are fixed
+-- by different actions. The pg_index join is on indexrelid ALONE, deliberately:
+-- joining it on indrelid too would make an index that exists on the WRONG table
+-- indistinguishable from one that does not exist, and those are different
+-- faults. on_table_oid is compared against table_oid below instead.
+found as (
+  select
+    e.*,
+    t.oid                   as table_oid,
+    ic.oid                  as index_oid,
+    i.indrelid              as on_table_oid,
+    i.indisunique,
+    i.indisvalid,
+    i.indisready,
+    -- Null, not false, when there is no pg_index row at all. `indpred is not
+    -- null` on a missing row would read as a confident "not partial" for an
+    -- index this database does not have, and a false UNKNOWN is the one shape
+    -- this directory refuses to write.
+    case when i.indexrelid is null
+         then null
+         else i.indpred is not null
+    end                     as is_partial,
+    pg_get_indexdef(ic.oid) as indexdef
+  from expected e
+  left join pg_class t
+         on t.relname      = e.table_name
+        and t.relnamespace = 'public'::regnamespace
+        and t.relkind      = any (array['r','p']::"char"[])
+  left join pg_class ic
+         on ic.relname      = e.indexname
+        and ic.relnamespace = 'public'::regnamespace
+        and ic.relkind      = any (array['i','I']::"char"[])  -- index, partitioned
+  left join pg_index i
+         on i.indexrelid = ic.oid
+),
+-- One row per (index, required fragment), reduced to the fragments this database
+-- does NOT have. `unnest(f.must_contain)` refers to an earlier FROM item, which
+-- a function-call FROM item may do without the LATERAL keyword.
+--
+-- position(), not LIKE: '_' is a LIKE single-character wildcard, and every
+-- fragment below contains one, so '%client_id IS NULL%' would also match
+-- 'clientXid IS NULL' and the instrument would pass the drift it exists to
+-- catch. A missing index makes indexdef null, so position() returns null, the
+-- filter counts nothing and absent_count is 0 -- which is why MISSING is
+-- scored before this is read.
+required as (
+  select
+    f.indexname,
+    count(*) filter (where position(v in f.indexdef) = 0) as absent_count,
+    string_agg(v, ' | ' order by v)
+      filter (where position(v in f.indexdef) = 0)        as absent_list
+  from found f, unnest(f.must_contain) v
+  group by f.indexname
+),
+scored as (
+  select
+    f.*,
+    r.absent_count,
+    r.absent_list,
+    (length(f.indexdef) - length(replace(f.indexdef, '''', ''))) / 2
+      as literals_in_def,
+    -- Derived from the fragments rather than stated beside them, so a fragment
+    -- added later cannot leave a stale expected count behind it.
+    (length(array_to_string(f.must_contain, ''))
+      - length(replace(array_to_string(f.must_contain, ''), '''', ''))) / 2
+      as want_literals
+  from found f
+  left join required r on r.indexname = f.indexname
+)
+select
+  s.indexname as index_name,
+  case
+    when s.table_oid is null
+      then 'MISSING: table absent -- read PART A, this is not a DDL fault'
+    when s.index_oid is null
+      then 'MISSING <- re-run ' || split_part(s.declared_at, ':', 1)
+           || ' (and read the half-applied note in this part''s header before '
+           || 'assuming it was never pasted). AT STAKE: ' || s.at_stake
+    when s.on_table_oid is distinct from s.table_oid
+      then 'WRONG TABLE: this index is on '
+           || coalesce(s.on_table_oid::regclass::text, 'something else')
+           || ', not ' || s.table_name || ' <- it constrains the wrong rows'
+    when s.indisvalid is distinct from true
+      or s.indisready is distinct from true
+      then 'INVALID <- present and enforcing NOTHING; a CREATE INDEX '
+           || 'CONCURRENTLY that failed leaves exactly this. Drop it and re-run '
+           || split_part(s.declared_at, ':', 1)
+    when s.indisunique is distinct from s.want_unique
+      then case
+             when s.want_unique
+               then 'NOT UNIQUE <- it constrains nothing, and the name alone '
+                    || 'reads as protection. AT STAKE: ' || s.at_stake
+             else 'UNEXPECTEDLY UNIQUE <- this repository declares a plain '
+                  || 'index here, so a unique one refuses legitimate writes'
+           end
+    when s.is_partial is distinct from s.want_partial
+      then case
+             when not s.want_partial
+               then 'PREDICATE ADDED <- Postgres cannot infer a partial index '
+                    || 'from the bare column list PostgREST emits for '
+                    || 'on_conflict, so supabase-js .upsert() raises 42P10 on '
+                    || 'every write and the table stays clean by never being '
+                    || 'written to at all'
+             when s.want_unique
+               then 'PREDICATE MISSING <- the predicate IS the unlock, so the '
+                    || 'first run ever recorded holds its source for ever and '
+                    || 'every later run is refused with 23505'
+             else 'PREDICATE MISSING <- the index now covers the rows the read '
+                  || 'it exists for excludes, so it is bigger and less selective'
+           end
+    when s.literals_in_def > s.want_literals
+      then 'EXTRA: the definition holds ' || s.literals_in_def::text
+           || ' quoted value(s), this repository requires '
+           || s.want_literals::text
+           || ' <- a widened predicate indexes rows the repository excludes'
+    when coalesce(s.absent_count, 0) > 0
+      then 'NARROWED or MOVED: ' || s.absent_list
+           || ' absent from the definition <- the columns or the predicate are '
+           || 'not what this repository declares; read the definition column'
+    else 'OK'
+  end         as verdict,
+  coalesce(s.indexdef, '-') as definition,
+  s.declared_at             as declared_at
+from scored s
+order by
+  case when s.index_oid is null then 0 else 1 end,  -- faults float to the top
+  split_part(s.declared_at, ':', 1),                -- then grouped by file
+  s.indexname;
+
+rollback;
+
+
+-- ###########################################################################
 -- PART B -- Q2: how many schedulers fired, plus ledger health.
 -- Run this only after PART A comes back all PRESENT.
 --
@@ -777,6 +1089,13 @@ rollback;
 -- live. Against an older build every refusal is still invisible and a
 -- CONTENDED verdict simply cannot appear -- which reads identically to "no
 -- contention", the same false-clean this block exists to warn about.
+--
+-- AND CONFIRM THE INDEX ITSELF, WITH PART A6. Every verdict below is read
+-- against the assumption that the mutex is really there. With
+-- sync_runs_running_source_key absent nothing is ever refused, so no refusal
+-- row is ever written, CONTENDED cannot appear for that reason too, and
+-- "OK: 1 run, nothing refused" degrades from "nothing contended" to "nothing
+-- was stopping a second run". MULTIPLE still means exactly what it says.
 -- ###########################################################################
 --
 -- The one thing an OK on those two does not rule out is a duplicate scheduler
