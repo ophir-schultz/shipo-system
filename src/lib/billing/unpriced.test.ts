@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   priceOf, isPriced, formatPrice, formatSignedPrice, sumPriced, combinePriced,
-  unpricedNote,
+  unpricedNote, totalOrUnknown,
   UNPRICED_DASH, UNPRICED_CELL,
 } from './unpriced'
 
@@ -289,5 +289,77 @@ describe('unpricedNote', () => {
   it('takes the noun, so a warehouse line is not called a shipment', () => {
     expect(unpricedNote(2, 'line')).toContain('2 unpriced lines')
     expect(unpricedNote(1, 'line')).toContain('1 unpriced line ')
+  })
+})
+
+describe('totalOrUnknown', () => {
+  // Three states, and the whole function is about not collapsing them:
+  // nothing counted (a real 0), nothing priced (UNKNOWN), some priced (a real
+  // partial). Each test below names which state it pins.
+  //
+  // Measured on the dashboard 2026-10-05 before this existed: a client with
+  // three shipments whose carrier invoices had not landed rendered `+$0.00` in
+  // GREEN with a ✓ beside it, because `sumPriced` gave `total: 0` and the
+  // colour test was `profit >= 0`.
+
+  it('is UNKNOWN when every counted row was unpriced', () => {
+    expect(totalOrUnknown(sumPriced(
+      [{ p: null }, { p: null }, { p: null }], 'p'))).toBeNull()
+  })
+
+  it('is UNKNOWN for a single unpriced row', () => {
+    // The off-by-one neighbour of the case above: a guard written `> 1` or
+    // `>= 2` would let the commonest shape through.
+    expect(totalOrUnknown(sumPriced([{ p: null }], 'p'))).toBeNull()
+  })
+
+  it('is a real 0 for no rows at all, NOT unknown', () => {
+    // A client with no shipments has $0.00 of shipping revenue. That is a fact
+    // about an empty set. Dashing it would hide a true zero behind the mark
+    // for UNKNOWN, which is this module's own error in reverse.
+    expect(totalOrUnknown(sumPriced([], 'p'))).toBe(0)
+    expect(totalOrUnknown(sumPriced(null, 'p'))).toBe(0)
+  })
+
+  it('is a real 0 when the rows were priced and genuinely summed to zero', () => {
+    // The pair that matters most: same returned number as the UNKNOWN case
+    // above would have produced, arrived at legitimately. A fix that keyed off
+    // `total === 0` instead of the counts would break exactly here.
+    expect(totalOrUnknown(sumPriced([{ p: 0 }, { p: 0 }], 'p'))).toBe(0)
+    expect(totalOrUnknown(sumPriced([{ p: 5 }, { p: -5 }], 'p'))).toBe(0)
+  })
+
+  it('returns the partial total when SOME rows were priced', () => {
+    // Deliberately not dashed. Two priced rows out of three is a real figure
+    // about those two, and `unpriced` is rendered beside it.
+    const sum = sumPriced([{ p: 10 }, { p: 20 }, { p: null }], 'p')
+    expect(totalOrUnknown(sum)).toBe(30)
+    expect(sum.unpriced).toBe(1)
+  })
+
+  it('keeps a known negative total, which is the figure a loss lives in', () => {
+    // `null` and a negative both fail a naive truthiness test, and profit is
+    // the column this is used on.
+    expect(totalOrUnknown(sumPriced([{ p: -15 }], 'p'))).toBe(-15)
+  })
+
+  it('reads a combined sum, so a footer total is unknown only if every part is', () => {
+    // The dashboard footer combines one PricedSum per client. A client with
+    // a known profit has to rescue the total from UNKNOWN.
+    const known = sumPriced([{ p: 20 }], 'p')
+    const blind = sumPriced([{ p: null }, { p: null }], 'p')
+    expect(totalOrUnknown(combinePriced(known, blind))).toBe(20)
+    expect(totalOrUnknown(combinePriced(blind, blind))).toBeNull()
+  })
+
+  it('does not report a dash for a figure formatSignedPrice would sign', () => {
+    // End-to-end on the two renderers the dashboard actually calls, because
+    // the bug was in the rendering, not the arithmetic.
+    const blind = sumPriced([{ p: null }, { p: null }, { p: null }], 'p')
+    expect(formatSignedPrice(totalOrUnknown(blind))).toBe(UNPRICED_DASH)
+    expect(formatPrice(totalOrUnknown(blind))).toBe(UNPRICED_DASH)
+    // ...and the real zero still prints as a zero.
+    expect(formatSignedPrice(totalOrUnknown(sumPriced([{ p: 0 }], 'p'))))
+      .toBe('+$0.00')
   })
 })

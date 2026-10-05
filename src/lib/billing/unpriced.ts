@@ -100,6 +100,32 @@ export interface PricedSum {
 }
 
 /**
+ * A sum's total, or null when the sum excluded EVERY row it counted.
+ *
+ * `sumPriced` returns `total: 0` for a column of nothing but nulls, which is
+ * arithmetically right and, rendered, is a lie: a client whose three shipments
+ * are all waiting on a carrier invoice had `+$0.00` printed in green beside a
+ * ✓ on the dashboard. Zero priced rows is not a total of zero. It is the same
+ * distinction the rest of this module exists for, one level up -- `priceOf`
+ * separates an unknown price from a price of 0, and this separates an unknown
+ * total from a total of 0.
+ *
+ * `counted === 0` is NOT unknown. A client with no shipments at all genuinely
+ * has $0.00 of shipping revenue; that is a fact about an empty set, not a gap
+ * in the data, and dashing it would hide a real zero behind the mark for
+ * UNKNOWN -- the error this module was written to stop.
+ *
+ * A PARTIAL sum still returns its total, deliberately. Two of five rows priced
+ * is a real figure about those two, and the caller is already obliged to
+ * render `unpriced` beside it; collapsing partials to a dash would throw away
+ * information the operator can act on.
+ */
+export function totalOrUnknown(sum: PricedSum): number | null {
+  if (sum.counted > 0 && sum.unpriced === sum.counted) return null
+  return sum.total
+}
+
+/**
  * The total of one money column, and what it left out.
  *
  * Returning the count is the point. A caller cannot render this total without

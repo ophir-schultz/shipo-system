@@ -3,7 +3,7 @@ import SyncButton from '@/components/dashboard/SyncButton'
 import AutoSync from '@/components/dashboard/AutoSync'
 import {
   formatPrice, formatSignedPrice, priceOf, sumPriced, combinePriced,
-  unpricedNote, UNPRICED_DASH,
+  unpricedNote, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 import { read, readErrors, type Read } from '@/lib/db/read'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
@@ -67,13 +67,23 @@ function buildClientBreakdown(clients: any[], shipments: any[], warehouse: any[]
     const lossCount = cs.filter(s => s.is_loss).length
     return {
       id: client.id, name: client.name, shipments: cs.length,
-      revenue: revenue.total, cost: cost.total, profit: profit.total,
+      revenue: revenue.total, cost: cost.total,
+      // null, not 0, when NO shipment of this client's has a known profit --
+      // which is the ordinary state of a client whose carrier invoices have
+      // not landed yet. `profit.total` was 0 there, and 0 was painted green
+      // with a '+' and a ✓, so the row said "break-even, nothing to see" about
+      // a client whose margin is entirely unmeasured. See totalOrUnknown.
+      profit: totalOrUnknown(profit),
+      // The sum itself, kept so the footer can combine the clients' profits
+      // instead of re-deriving them from the collapsed numbers above. Carrying
+      // the PricedSum rather than a second scalar count is deliberate: a
+      // boolean or a count sitting beside a number is how the two drift apart.
+      profitSum: profit,
       pendingAdj: pendingAdj.total, lossCount,
       // Counted per client, so the row says WHOSE rate card has the gap. A
       // page-level total can only say the figure is incomplete; this says
       // where to go and fix it.
       unpricedRevenue: revenue.unpriced,
-      unknownProfit: profit.unpriced,
     }
   }).sort((a, b) => b.revenue - a.revenue)
 }
@@ -184,6 +194,19 @@ async function getDashboardData() {
   const breakdownError = readErrors(
     clients, clientShipments, clientWarehouse, clientAdj)
 
+  const clientBreakdown = breakdownError ? [] : buildClientBreakdown(
+    clients.rows, clientShipments.rows, clientWarehouse.rows, clientAdj.rows)
+
+  // The footer's profit total, combined from the clients' own sums rather than
+  // added up from the numbers in the rows above it. Two reasons: adding the
+  // rendered numbers would need `?? 0` now that a row's profit can be UNKNOWN
+  // -- the exact coercion this page was rewritten to remove -- and combining
+  // the sums carries the withheld counts through the addition, so the total
+  // can say how many shipments it is blind to. `combinePriced()` of nothing is
+  // a counted-nothing, which totalOrUnknown correctly calls a real 0.
+  const breakdownProfit = combinePriced(
+    ...clientBreakdown.map(c => c.profitSum))
+
   return {
     // null, not 0. "Active Clients: 0" on a failed read is a number somebody
     // can act on, and the action is to go looking for deleted clients.
@@ -204,8 +227,9 @@ async function getDashboardData() {
     recentBills: bills.rows,
     billsError: bills.error,
     breakdownError,
-    clientBreakdown: breakdownError ? [] : buildClientBreakdown(
-      clients.rows, clientShipments.rows, clientWarehouse.rows, clientAdj.rows),
+    clientBreakdown,
+    breakdownProfitTotal: totalOrUnknown(breakdownProfit),
+    breakdownProfitUnknown: breakdownProfit.unpriced,
   }
 }
 
@@ -431,7 +455,7 @@ export default async function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {d.clientBreakdown.map((c: any) => (
+              {d.clientBreakdown.map((c) => (
                 <tr key={c.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
                   <td className="py-3 font-medium">
                     <a href={`/clients/${c.id}`} className="hover:text-[#00AAFF] transition">{c.name}</a>
@@ -439,8 +463,20 @@ export default async function DashboardPage() {
                   <td className="py-3 text-right text-gray-300">{c.shipments}</td>
                   <td className="py-3 text-right">${c.revenue.toFixed(2)}</td>
                   <td className="py-3 text-right text-gray-300">${c.cost.toFixed(2)}</td>
-                  <td className={`py-3 text-right font-semibold ${c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {c.profit >= 0 ? '+' : ''}${c.profit.toFixed(2)}
+                  {/* Gray for UNKNOWN. `c.profit >= 0` was the colour test and
+                      `null >= 0` is true, so a client with no known margin at
+                      all was painted the same green as a profitable one -- the
+                      third time this exact two-way-test-on-three-states trap
+                      has been found on this page. formatSignedPrice renders
+                      the same '+$12.34' / '$-12.34' as the hand-built string
+                      it replaces, so no figure already on screen changes
+                      shape; only the UNKNOWN case moves, from '+$0.00' to a
+                      dash. */}
+                  <td className={`py-3 text-right font-semibold ${
+                    c.profit === null ? 'text-gray-500'
+                      : c.profit >= 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {formatSignedPrice(c.profit)}
                   </td>
                   <td className={`py-3 text-right ${c.pendingAdj > 0 ? 'text-orange-400 font-semibold' : 'text-gray-500'}`}>
                     {c.pendingAdj > 0 ? `+$${c.pendingAdj.toFixed(2)}` : '—'}
@@ -458,13 +494,30 @@ export default async function DashboardPage() {
                         ⚠ {c.unpricedRevenue} unpriced
                       </span>
                     )}
+                    {/* Separate flag from the unpriced one above, and worth
+                        the extra badge, because the two send you to different
+                        places: an unpriced REVENUE row needs this client's
+                        rate card edited, an unknown PROFIT row needs a carrier
+                        invoice that has not arrived. Merging them into one
+                        "incomplete" count would hide which. */}
+                    {c.profitSum.unpriced > 0 && (
+                      <span className="bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded text-xs mr-1"
+                        title="Profit excludes these -- no rate, or the carrier bill has not landed. They are not break-even.">
+                        ⚠ {c.profitSum.unpriced} profit unknown
+                      </span>
+                    )}
                     {c.pendingAdj > 0 && (
                       <span className="bg-orange-900/60 text-orange-300 px-2 py-0.5 rounded text-xs">🔔 adj</span>
                     )}
-                    {/* The green tick now requires the revenue figure to be
-                        complete as well. It used to appear beside a total that
-                        silently excluded unpriced work. */}
-                    {c.lossCount === 0 && c.pendingAdj === 0 && c.unpricedRevenue === 0 && (
+                    {/* The green tick requires the revenue figure to be
+                        complete, and now the profit figure too. `lossCount`
+                        cannot stand in for the latter: `is_loss` is false for
+                        a shipment whose profit is unknown, so a client with
+                        nothing but un-invoiced shipments satisfied all three
+                        of the old conditions and got a ✓ -- an affirmative
+                        all-clear about margin nobody has measured. */}
+                    {c.lossCount === 0 && c.pendingAdj === 0
+                      && c.unpricedRevenue === 0 && c.profitSum.unpriced === 0 && (
                       <span className="text-green-400 text-xs">✓</span>
                     )}
                   </td>
@@ -487,8 +540,20 @@ export default async function DashboardPage() {
                   )}
                 </td>
                 <td className="pt-3 text-right">${d.clientBreakdown.reduce((s: number, c: any) => s + c.cost, 0).toFixed(2)}</td>
-                <td className={`pt-3 text-right ${d.clientBreakdown.reduce((s: number, c: any) => s + c.profit, 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {d.clientBreakdown.reduce((s: number, c: any) => s + c.profit, 0) >= 0 ? '+' : ''}${d.clientBreakdown.reduce((s: number, c: any) => s + c.profit, 0).toFixed(2)}
+                {/* Combined in getDashboardData from the clients' own sums,
+                    not reduced over the rendered numbers: `s + c.profit` would
+                    need a `?? 0` now that a row can be UNKNOWN, and that is
+                    the coercion this page exists to be rid of. */}
+                <td className={`pt-3 text-right ${
+                  d.breakdownProfitTotal === null ? 'text-gray-500'
+                    : d.breakdownProfitTotal >= 0 ? 'text-green-400' : 'text-red-400'
+                }`}>
+                  {formatSignedPrice(d.breakdownProfitTotal)}
+                  {d.breakdownProfitUnknown > 0 && (
+                    <span className="block text-amber-400/90 text-xs font-normal">
+                      ⚠ {unpricedNote(d.breakdownProfitUnknown)} (no rate, or the carrier bill has not landed)
+                    </span>
+                  )}
                 </td>
                 <td className="pt-3 text-right text-orange-400">
                   ${d.clientBreakdown.reduce((s: number, c: any) => s + c.pendingAdj, 0).toFixed(2)}
