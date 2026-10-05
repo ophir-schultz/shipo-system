@@ -95,4 +95,66 @@ begin
   end;
 end $$;
 
+-- operating_costs_allocation_valid (ledger_02_cost.sql:120-121). A synthetic
+-- category namespace and a 2099 period_month, for the reason this file's header
+-- gives. operating_costs holds real monthly bills and they are PERMANENT -- the
+-- September rows in operating_costs_2026_09_opex.sql and _labor.sql are not
+-- rolled back by anything -- so a fixture keyed on a plausible
+-- (period_month, category) would eventually collide with one, and the unique
+-- index on (period_month, category, coalesce(vendor,'')) would then raise
+-- unique_violation where a reader expects a verdict about `allocation`.
+--
+-- All three permitted values must be accepted, not merely the typo rejected. A
+-- constraint narrowed to 'overhead' alone would still pass the rejection tests
+-- below while making every direct_labor and direct_storage row unenterable --
+-- and those are the two allocations pnl_monthly pushes down rather than
+-- subtracting at the top (ledger_04_views.sql:349-351).
+insert into operating_costs (period_month, category, amount, allocation)
+  values ('2099-01-01', 'alloc_probe_overhead',       100.00, 'overhead'),
+         ('2099-01-01', 'alloc_probe_direct_labor',   100.00, 'direct_labor'),
+         ('2099-01-01', 'alloc_probe_direct_storage', 100.00, 'direct_storage');
+do $$ begin raise notice 'PASS: overhead, direct_labor and direct_storage are all accepted'; end $$;
+
+-- The column default must itself satisfy the CHECK. `allocation text not null
+-- default 'overhead'` (ledger_02_cost.sql:94) and the constraint are two
+-- separate declarations that can be edited apart. If they ever disagree, every
+-- insert that OMITS allocation fails on a value the operator never typed, and
+-- omitting it is the normal way to enter an overhead bill.
+insert into operating_costs (period_month, category, amount)
+  values ('2099-01-01', 'alloc_probe_default', 100.00);
+do $$ begin raise notice 'PASS: the allocation default is a permitted value'; end $$;
+
+-- The case the constraint exists for. ledger_04_views.sql:349-351 reads
+-- allocation by exact string equality inside a FILTER, so a misspelt value
+-- matches no filter at all: the cost is not mis-bucketed, it disappears from
+-- net_profit and the month reads MORE profitable than it was. Both typo shapes
+-- named at ledger_02_cost.sql:110 are checked -- wrong case, then wrong
+-- separator, which is the likelier slip on 'direct_labor'.
+--
+-- Each uses its own category, so only the CHECK can reject the row. Sharing a
+-- key with a fixture above would raise unique_violation, which these handlers
+-- deliberately do not catch -- it would abort the file rather than print a PASS
+-- that was never earned.
+do $$
+begin
+  begin
+    insert into operating_costs (period_month, category, amount, allocation)
+      values ('2099-01-01', 'alloc_probe_typo_case', 100.00, 'Overhead');
+    raise exception 'FAIL: allocation ''Overhead'' was accepted';
+  exception when check_violation then
+    raise notice 'PASS: a miscapitalised allocation is rejected';
+  end;
+end $$;
+
+do $$
+begin
+  begin
+    insert into operating_costs (period_month, category, amount, allocation)
+      values ('2099-01-01', 'alloc_probe_typo_sep', 100.00, 'direct-labor');
+    raise exception 'FAIL: allocation ''direct-labor'' was accepted';
+  exception when check_violation then
+    raise notice 'PASS: a hyphenated allocation is rejected';
+  end;
+end $$;
+
 rollback;
