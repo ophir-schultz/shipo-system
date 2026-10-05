@@ -311,11 +311,32 @@ rollback;
 -- either a silent skip that writes no row, or a second row in the same minute
 -- when it won the race. An OK on a 'charges' cluster is therefore WEAK.
 --
--- For 'shipstation' and 'zenventory' there is NO LOCK TO LOSE. Both call
--- openSyncRun() unconditionally, near the top of the sync, so a second
+-- For 'shipstation' and 'zenventory' there USED TO BE no lock to lose. Both
+-- called openSyncRun() unconditionally, near the top of the sync, so a second
 -- scheduler that got as far as the sync WOULD have inserted a visible second
--- row. An OK on one of those clusters is therefore STRONG: it says no second
--- scheduler reached that code path at that boundary.
+-- row, and an OK on one of those clusters was therefore STRONG.
+--
+-- ###########################################################################
+-- THAT IS NO LONGER TRUE, AND THIS IS THE FIRST THING TO READ ABOUT PART B.
+--
+-- ledger_03d_sync_runs_mutex.sql (applied 2026-10-05 13:56 UTC) put a unique
+-- partial index on the running rows. A second scheduler on ANY source is now
+-- refused by the index and writes NOTHING -- which is exactly the property
+-- that made 'charges' weak above. So all three clusters are now WEAK, and
+-- PART B can no longer prove a single scheduler. An OK means "at most one
+-- scheduler WON", not "at most one fired".
+--
+-- MULTIPLE is unaffected and still proves duplicate schedulers outright: the
+-- index suppresses concurrent rows, not sequential ones.
+--
+-- The root cause is that a lock refusal leaves NO durable trace. openSyncRun()
+-- throws SyncRunLockedError, the callers count it in memory (skipReason,
+-- locked_clients) and the monitor prints a skip line into an HTTP response
+-- body, after which it is gone. To restore a STRONG reading, a refusal has to
+-- write something -- a sync_runs row with its own terminal status, or a
+-- counter. Until then, use the Vercel Cron Jobs tab per project to count
+-- schedulers; this query cannot.
+-- ###########################################################################
 --
 -- The one thing an OK on those two does not rule out is a duplicate scheduler
 -- that never got past auth. requireStaffOrCron collapses to requireStaff() when
