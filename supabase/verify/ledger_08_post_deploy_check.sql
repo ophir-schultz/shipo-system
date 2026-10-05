@@ -7,9 +7,12 @@
 -- Two questions were open as of 2026-10-03 and neither can be answered from
 -- outside the database:
 --
---   Q1. Did the 8 ledger_*.sql migrations actually apply? The handover note
---       records them as REPORTED RUN on an operator report, which is weaker
---       evidence than a machine check. Vercel runtime logs return 403, so the
+--   Q1. Did the ledger_*.sql migrations actually apply? There are 10 of them
+--       as of 2026-10-05 -- ledger_03c and ledger_03d arrived after the
+--       handover note was written and are counted nowhere in it. The note
+--       records the original eight as REPORTED RUN on an operator report,
+--       which is weaker evidence than a machine check, and says nothing at all
+--       about the other two. Vercel runtime logs return 403, so the
 --       deploy-side log is unreadable.
 --
 --   Q2. How many schedulers are really firing /api/agent/monitor? Four Vercel
@@ -24,29 +27,55 @@
 --
 --
 -- PASTE CONTRACT -- READ THIS, THE SPLIT IS DELIBERATE
--- Paste PART A, PART A2, PART A3 and PART B as FOUR SEPARATE pastes, in that
--- order. Do not combine them.
+-- Paste PART A, PART A2, PART A3, PART A4, PART A5 and PART B as SIX SEPARATE
+-- pastes, in that order. Do not combine them.
 --
 -- Postgres parses a whole statement before executing any of it, so when a table
 -- is missing, a script that references it fails to parse and returns NOTHING --
 -- including the catalog checks that would have told you which table is missing.
--- PART A reads only pg_class, so it cannot fail that way and always answers Q1.
--- The later parts read the tables themselves and WILL error with
--- "relation does not exist" when PART A reported anything MISSING. That error is
--- itself the answer; fix the migration before bothering with the rest.
+-- PART A and PART A4 read the catalog only -- pg_class and pg_constraint -- so
+-- neither can fail that way, and both answer whatever they can even on a
+-- database with tables missing. PART A2, A3, A5 and B read the tables
+-- themselves and WILL error with "relation does not exist" when PART A reported
+-- anything MISSING. That error is itself the answer; fix the migration before
+-- bothering with the rest.
+--
+-- A4 sits fourth rather than beside PART A only because a missing TABLE is the
+-- more useful thing to learn first. Nothing stops it being run at any point.
 --
 -- Each part is a single statement returning a single result set, because the
 -- Supabase SQL editor shows the result of the last statement only.
 --
 -- WHAT EACH PART ANSWERS
---   PART A  -- 6 of the 8 ledger files, by relation existence. Cannot fail.
+--   PART A  -- 5 of the 10 ledger files, by relation existence. Cannot fail.
 --   PART A2 -- ledger_06_seed_cost_rates.sql, by comparing seeded VALUES.
 --   PART A3 -- ledger_03b_rate_adjustments_cleanup.sql, by its backfill effect.
+--   PART A4 -- the 8 named constraints, by catalog presence AND definition.
+--   PART A5 -- ledger_05_seed_nayax.sql, by counting the rate card it wrote.
 --   PART B  -- Q2, the scheduler count, plus ledger health.
 --
--- A2 and A3 exist because an existence check is blind to a migration that
--- creates no relation. Those two files only `update` and `insert`, so PART A
--- coming back all PRESENT says nothing whatsoever about either of them.
+-- A2, A3, A4 and A5 exist because an existence check is blind to a migration
+-- that creates no relation PART A looks for. FIVE of the ten files are in that
+-- position, not two:
+--
+--   ledger_03b_rate_adjustments_cleanup.sql -- one `update` backfill   -> A3
+--   ledger_03c_rate_adjustments_uniq.sql    -- two indexes             -> NOT COVERED
+--   ledger_03d_sync_runs_mutex.sql          -- three indexes           -> NOT COVERED
+--   ledger_05_seed_nayax.sql                -- 18 rate-card rows       -> A5
+--   ledger_06_seed_cost_rates.sql           -- six `insert` rows       -> A2
+--
+-- A4 covers no file on its own -- every constraint it reads belongs to a file
+-- PART A already finds by its tables. It is here because finding the TABLE does
+-- not find the constraints on it; see PART A4's own header.
+--
+-- THE REMAINING HOLE, STATED PLAINLY SO THAT IT STAYS FIXABLE.
+-- ledger_03c and ledger_03d create nothing but indexes. An index is a pg_class
+-- row of relkind 'i', which PART A's join excludes, and it has no pg_constraint
+-- row, so PART A4 cannot see it either. Both files are load-bearing:
+-- rate_adjustments_shipment_amount_key is the uniqueness the whole 03b backfill
+-- exists to make possible, and sync_runs_running_source_key IS the sync mutex.
+-- They are also the two newest files, which makes them the likeliest of the ten
+-- to be unapplied. Nothing in this script currently says whether they went in.
 --
 -- WHY EACH PART IS WRAPPED IN begin; ... rollback; EVEN THOUGH IT ONLY SELECTS
 -- The other scripts in this directory insert sentinel clients, orders and
@@ -60,38 +89,48 @@
 
 -- ###########################################################################
 -- PART A -- Q1: did the migrations apply? Reads the catalog only, never fails.
--- Expect 15 rows, every verdict PRESENT. A MISSING row names the .sql file
+-- Expect 17 rows, every verdict PRESENT. A MISSING row names the .sql file
 -- that did not go in.
 --
 -- WHAT THIS PART CANNOT SEE -- read this before calling Q1 answered.
--- An existence check can only find migrations that CREATE A RELATION. Two of
--- the eight ledger files create nothing:
+-- An existence check can only find migrations that CREATE A RELATION, and only
+-- the kinds of relation it asks about: tables and views, never indexes. Five of
+-- the ten ledger files create nothing it looks for. They are listed in this
+-- file's header along with which later PART covers each, and two of the five
+-- are covered by nothing at all.
 --
---   ledger_03b_rate_adjustments_cleanup.sql -- one `update` backfill
---   ledger_06_seed_cost_rates.sql           -- six `insert` rows
+-- All PRESENT here therefore means "5 of 10 applied", not "all 10 applied".
+-- Do not read an all-PRESENT PART A as a clean bill for the migration set. It
+-- is also blind to the CONSTRAINTS on the tables it finds, which is PART A4's
+-- subject and a sharper hole than it sounds: `create table if not exists` does
+-- nothing whatsoever to a table that is already there.
 --
--- All PRESENT here therefore means "6 of 8 applied", not "all 8 applied".
--- PART A2 and PART A3 cover the other two by their EFFECTS instead. Do not
--- read an all-PRESENT PART A as a clean bill for the whole migration set.
---
--- The last two rows are not ledger files at all. shipments and
--- rate_adjustments predate this work and PART A3 reads both, so a missing one
--- would make PART A3 fail to parse. Listing them here means that failure is
--- diagnosed in advance rather than hit as a bare "relation does not exist".
+-- The last four rows are not ledger files at all. These predate this work, and
+-- a later PART reads each of them, so a missing one would make that PART fail
+-- to parse. Listing them here means the failure is diagnosed in advance rather
+-- than hit as a bare "relation does not exist".
 -- ###########################################################################
 
 begin;
 
 with expected(kind_label, relname, created_by) as (
   values
-    -- tables, from `create table if not exists` in the 8 ledger files
+    -- Tables, from `create table if not exists`. The file named is the one that
+    -- CREATES the table, which is the file to re-run when a row reads MISSING.
+    -- client_store_ids was credited to ledger_05_seed_nayax.sql until
+    -- 2026-10-05. It is created by ledger_01_orders.sql:10 and ledger_05 does
+    -- not mention it -- re-running ledger_05 on that advice would have failed
+    -- on its own first statement. The misattribution also hid something: with
+    -- client_store_ids credited to it, ledger_05 appeared to be covered by an
+    -- existence check, when in truth it creates no relation at all and needed
+    -- the separate check that is now PART A5.
     ('TABLE', 'orders',                'ledger_01_orders.sql'),
     ('TABLE', 'order_items',           'ledger_01_orders.sql'),
     ('TABLE', 'sync_runs',             'ledger_01_orders.sql'),
+    ('TABLE', 'client_store_ids',      'ledger_01_orders.sql'),
     ('TABLE', 'cost_rates',            'ledger_02_cost.sql'),
     ('TABLE', 'operating_costs',       'ledger_02_cost.sql'),
     ('TABLE', 'order_charges',         'ledger_03_charges.sql'),
-    ('TABLE', 'client_store_ids',      'ledger_05_seed_nayax.sql'),
     ('TABLE', 'client_storage_months', 'ledger_07_storage.sql'),
     -- views, from `create or replace view` in ledger_04_views.sql
     ('VIEW',  'pnl_monthly',            'ledger_04_views.sql'),
@@ -99,9 +138,14 @@ with expected(kind_label, relname, created_by) as (
     ('VIEW',  'leaks_monthly',          'ledger_04_views.sql'),
     ('VIEW',  'pick_days',              'ledger_04_views.sql'),
     ('VIEW',  'labour_variance_inputs', 'ledger_04_views.sql'),
-    -- Prerequisites, not ledger output. PART A3 reads these two.
-    ('TABLE', 'shipments',        'schema.sql (PREREQUISITE, not a ledger file)'),
-    ('TABLE', 'rate_adjustments', 'schema.sql (PREREQUISITE, not a ledger file)')
+    -- Prerequisites, not ledger output. PART A3 reads shipments and
+    -- rate_adjustments; PART A5 reads clients and client_warehouse_rates,
+    -- which ledger_03_charges.sql alters and ledger_05 seeds but neither
+    -- creates.
+    ('TABLE', 'shipments',              'schema.sql (PREREQUISITE, not a ledger file)'),
+    ('TABLE', 'rate_adjustments',       'schema.sql (PREREQUISITE, not a ledger file)'),
+    ('TABLE', 'clients',                'schema.sql (PREREQUISITE, not a ledger file)'),
+    ('TABLE', 'client_warehouse_rates', 'schema.sql (PREREQUISITE, not a ledger file)')
 )
 select
   e.kind_label                                        as expected_kind,
@@ -282,6 +326,389 @@ rows_out as (
               then ' <- TABLE EMPTY: the verdict above is vacuous, not a pass'
               else '' end
   from rate_adjustments
+)
+select section, item, verdict from rows_out order by ord;
+
+rollback;
+
+
+-- ###########################################################################
+-- PART A4 -- are the named CONSTRAINTS there, and do they still say what this
+-- repository says they say? Reads pg_constraint and pg_class only, so like
+-- PART A it cannot fail to parse and may be run even when PART A reported
+-- something MISSING. Expect 8 rows, every verdict OK.
+--
+-- WHY THIS IS A SEPARATE QUESTION FROM PART A.
+-- `create table if not exists` does NOTHING to a table that already exists --
+-- not even add a constraint the current version of the file declares inline.
+-- That is not hypothetical in this repository: order_charges_cost_has_basis was
+-- added inline by a commit later than the one that created order_charges, so
+-- every database that applied the earlier version has the table and not the
+-- constraint. ledger_03_charges.sql:149 exists solely to repair that, and
+-- src/lib/ledger/migrations.test.ts asserts such a repair block for every named
+-- inline constraint. PART A reports that table PRESENT either way, because
+-- constraints live in pg_constraint and PART A never reads it.
+--
+-- A half-applied paste opens the same hole. Several of the guarded blocks RAISE
+-- when existing rows violate the constraint being added (ledger_02_cost.sql:70,
+-- ledger_03_charges.sql:155). The raise aborts the remainder of that file, so
+-- the tables already created stay and every constraint after the raise never
+-- arrives -- which is exactly the state PART A cannot distinguish from clean.
+--
+-- WHY THE DEFINITION IS SCORED AND NOT MERELY THE NAME.
+-- Six of these eight are added by `alter table ... add constraint` under
+-- `exception when duplicate_object then raise notice '... already present'`. A
+-- constraint of the same NAME whose definition differs is therefore KEPT, and
+-- the file reports it present. Checking the name alone would call that clean.
+--
+--   EXTRA     -- the definition holds more literal values than this repository
+--                lists. Checked before NARROWED because it is the silent
+--                direction: a hand-added 'Estimated' still fails the exact
+--                equality at calculate-charges.ts:144, so the placeholder it
+--                lets in is presented as a measured cost. A narrowed
+--                constraint, by contrast, rejects inserts loudly.
+--   NARROWED  -- a value this repository requires is absent from the
+--                definition, so every insert carrying it fails.
+--
+-- Neither test subsumes the other. A SUBSTITUTED value ('derived' edited to
+-- 'Derived') leaves the count unchanged and is caught only by NARROWED; an
+-- ADDED value leaves every required value present and is caught only by EXTRA.
+--
+-- HOW TO FIX AN EXTRA OR A NARROWED, because the obvious move does not work.
+-- RE-RUNNING THE FILE WILL NOT REPLACE A WRONG DEFINITION. Those six blocks see
+-- the name already taken, take the duplicate_object branch, and print "already
+-- present". The constraint has to be dropped by hand first, and only then will
+-- a re-run write the definition this repository declares. The two in
+-- ledger_07_storage.sql are the exception: they `drop constraint if exists`
+-- immediately before adding, so for those two a re-run genuinely does reassert
+-- the definition -- which also means a mismatch there can ONLY mean the file
+-- has not been run since the definition last changed.
+--
+-- The count is single quotes divided by two, not a parse. That is exact only
+-- while no permitted value contains an apostrophe, which holds for all 14
+-- listed below. `definition` is printed in full regardless, so the operator can
+-- read the domain rather than trust the arithmetic.
+--
+-- NOT VALIDATED is scored because it is the natural workaround for the raise
+-- described above: `add constraint ... not valid` gets past violating rows by
+-- declining to look at them. New rows are checked, the rows that caused the
+-- raise are still there, and every other verdict here reads OK.
+--
+-- WHAT THIS PART CANNOT SEE -- read this before calling the DDL verified.
+--   * It scores TEXT, not behaviour. ledger_02_verify.sql and
+--     ledger_03_verify.sql insert rows that must be rejected; that is the check
+--     that proves a constraint bites. This one answers "did the DDL land".
+--   * A unique index made by `create unique index` is not a constraint and has
+--     no pg_constraint row, so none of the indexes in ledger_03c or ledger_03d
+--     appear here -- including sync_runs_running_source_key, which is the whole
+--     mutex. See the coverage note in this file's header.
+-- ###########################################################################
+
+begin;
+
+with expected(table_name, conname, kind_label, must_contain, declared_at) as (
+  values
+    ('cost_rates',             'cost_rates_no_overlap',
+     'EXCLUDE', null::text[],
+     'ledger_02_cost.sql:30'),
+    ('cost_rates',             'cost_rates_basis_valid',
+     'CHECK',   array['measured','derived','estimated'],
+     'ledger_02_cost.sql:63'),
+    ('operating_costs',        'operating_costs_allocation_valid',
+     'CHECK',   array['overhead','direct_labor','direct_storage'],
+     'ledger_02_cost.sql:120'),
+    ('order_charges',          'order_charges_cost_has_basis',
+     'CHECK',   null::text[],
+     'ledger_03_charges.sql:149'),
+    ('order_charges',          'order_charges_charge_type_valid',
+     'CHECK',   array['shipping','pick','pack','material',
+                      'storage','receiving','surcharge','return'],
+     'ledger_03_charges.sql:202'),
+    -- client_warehouse_rates predates the ledger and is NOT in PART A's list.
+    -- A missing table shows up below as "table absent" rather than as a bare
+    -- "relation does not exist", because this part reads the catalog only.
+    ('client_warehouse_rates', 'client_warehouse_rates_no_overlap',
+     'EXCLUDE', null::text[],
+     'ledger_03_charges.sql:420'),
+    ('client_storage_months',  'client_storage_months_is_month_start',
+     'CHECK',   null::text[],
+     'ledger_07_storage.sql:57'),
+    ('client_storage_months',  'client_storage_months_non_negative',
+     'CHECK',   null::text[],
+     'ledger_07_storage.sql:73')
+),
+-- Two left joins, so a row survives whether the table is absent, the
+-- constraint is absent, or both -- and the verdict can tell those apart, which
+-- matters because they are fixed by different actions.
+found as (
+  select
+    e.*,
+    t.oid                       as table_oid,
+    c.oid                       as con_oid,
+    c.contype,
+    c.convalidated,
+    pg_get_constraintdef(c.oid) as condef
+  from expected e
+  left join pg_class t
+         on t.relname      = e.table_name
+        and t.relnamespace = 'public'::regnamespace
+        and t.relkind      = any (array['r','p']::"char"[])
+  left join pg_constraint c
+         on c.conname  = e.conname
+        and c.conrelid = t.oid
+),
+-- One row per (constraint, required value), reduced to the values this database
+-- does NOT have. `unnest(f.must_contain)` refers to an earlier FROM item, which
+-- a function-call FROM item is documented to be allowed to do without the
+-- LATERAL keyword. Rows whose must_contain is null unnest to nothing and so are
+-- absent from this CTE entirely -- hence the left join below.
+--
+-- position(), not LIKE: '_' is a LIKE single-character wildcard, so
+-- '%direct_labor%' would also match a definition reading 'directXlabor', and
+-- the instrument would pass the exact drift it exists to catch. quote_literal
+-- puts the value in the quotes pg_get_constraintdef prints around it, so a
+-- column or function of the same spelling cannot satisfy the test.
+required as (
+  select
+    f.conname,
+    count(*) filter (where position(quote_literal(v) in f.condef) = 0)
+      as absent_count,
+    string_agg(quote_literal(v), ', ')
+      filter (where position(quote_literal(v) in f.condef) = 0)
+      as absent_list
+  from found f, unnest(f.must_contain) v
+  group by f.conname
+),
+scored as (
+  select
+    f.*,
+    r.absent_count,
+    r.absent_list,
+    (length(f.condef) - length(replace(f.condef, '''', ''))) / 2
+      as literals_in_def
+  from found f
+  left join required r on r.conname = f.conname
+)
+select
+  s.conname as constraint_name,
+  case
+    when s.table_oid is null
+      then 'MISSING: table absent -- read PART A, this is not a DDL fault'
+    when s.con_oid is null
+      then 'MISSING <- the table exists WITHOUT it; re-run '
+           || split_part(s.declared_at, ':', 1)
+    when s.contype::text <> case s.kind_label when 'CHECK' then 'c' else 'x' end
+      then 'WRONG KIND: expected ' || s.kind_label
+           || ', found contype=' || s.contype::text
+    when s.must_contain is not null
+     and s.literals_in_def > array_length(s.must_contain, 1)
+      then 'EXTRA: the definition holds ' || s.literals_in_def::text
+           || ' values, this repository lists '
+           || array_length(s.must_contain, 1)::text
+           || ' <- a widened domain admits what the code rejects'
+    when coalesce(s.absent_count, 0) > 0
+      then 'NARROWED: ' || s.absent_list
+           || ' absent from the definition <- every insert carrying one fails'
+    when not s.convalidated
+      then 'NOT VALIDATED <- added NOT VALID, so the rows written before it '
+           || 'were never checked and are still there'
+    else 'OK'
+  end       as verdict,
+  coalesce(s.condef, '-') as definition,
+  s.declared_at           as declared_at
+from scored s
+order by
+  case when s.con_oid is null then 0 else 1 end,  -- faults float to the top
+  split_part(s.declared_at, ':', 1),              -- then grouped by file
+  s.conname;
+
+rollback;
+
+
+-- ###########################################################################
+-- PART A5 -- did ledger_05_seed_nayax.sql apply, and is its card still intact?
+-- Expect 6 rows. Read the CLIENT row FIRST: every verdict under it is a count
+-- over the set that row describes, so on NONE they are vacuous, not passes.
+--
+-- PRECONDITIONS, AND ONE OF THEM IS NOT A TABLE. Run this once PART A reports
+-- clients and client_warehouse_rates PRESENT -- and also order_charges, because
+-- charge_type, variant, effective_from, effective_to and rate_type are columns
+-- ledger_03_charges.sql:346-360 ADDS to client_warehouse_rates. Without
+-- ledger_03 this part fails with "column charge_type does not exist", which
+-- names no file and reads like a bug in this script rather than a missing
+-- migration. order_charges PRESENT in PART A is the proxy for ledger_03.
+--
+-- WHY THIS PART EXISTS AT ALL. ledger_05 creates no relation -- it deletes and
+-- re-inserts 18 rows of client_warehouse_rates -- so PART A is blind to it. The
+-- blindness was invisible until 2026-10-05 because PART A credited
+-- client_store_ids to ledger_05, which made the file look covered. It was not.
+--
+-- WHY NOT TRUST ledger_05's OWN ASSERTIONS. ledger_05 ends with five checks
+-- that raise on a wrong row count, and they are good ones. They run only at
+-- paste time. They cannot say whether the file was ever pasted, and they cannot
+-- see what happened afterwards -- which is the live risk here, not a bad paste:
+-- POST /api/clients/[id]/warehouse-rates deletes ALL of a client's rates before
+-- inserting, and the replacements carry no charge_type, so one use of the
+-- rate-upload UI on Nayax removes all 18 rows and the loader silently stops
+-- billing the client (ledger_05_seed_nayax.sql:29-33).
+--
+-- WHY `charge_type is not null` IS THE SCOPE. That predicate is what makes a
+-- row one of ledger_05's; rows written by the upload endpoint carry no
+-- charge_type. It is also the key ledger_05's own delete uses, so this part
+-- counts exactly the set that file manages.
+--
+-- The four rate assertions are the three lines that are BILLABLE TODAY plus the
+-- surcharge that multiplies them. The other fourteen lines are deliberately
+-- unbillable (ledger_05's closing table says which and why), so a drift in one
+-- of them moves no money today; the CARD row counts all eighteen, which is what
+-- catches a dropped tuple among them.
+-- ###########################################################################
+
+begin;
+
+with nayax as (
+  -- The same predicate ledger_05 resolves the client with, deliberately. A
+  -- stricter one here could report a clean card for a client that file never
+  -- wrote to, or an empty one for the client it did.
+  select id from clients where name ilike '%nayax%'
+),
+card as (
+  select r.*
+  from client_warehouse_rates r
+  where r.client_id in (select id from nayax)
+    and r.charge_type is not null
+),
+-- Every branch is a bare aggregate with no GROUP BY, so each returns exactly
+-- one row even when its filter matches nothing. An empty result set would
+-- otherwise be indistinguishable from a read that never ran.
+rows_out as (
+  select
+    0 as ord,
+    'CLIENT' as section,
+    'clients matching ''%nayax%'' (must be exactly 1)' as item,
+    case
+      when count(*) = 1 then 'OK: 1'
+      when count(*) = 0
+        then 'NONE <- there is no Nayax client, so every count below is over an '
+             || 'empty set and proves nothing. This is not a pass.'
+      else count(*)::text || ' <- ledger_05 REFUSES to seed in this state '
+           || '(ledger_05_seed_nayax.sql:55-60). The rows below span more than '
+           || 'one client and no count among them is meaningful.'
+    end as verdict
+  from clients where name ilike '%nayax%'
+  union all
+  select
+    1,
+    'CARD',
+    '18 structured rate lines (charge_type not null)',
+    case
+      when count(*) = 18 then 'OK: 18'
+      when count(*) = 0
+        then 'NONE <- ledger_05 never applied, or the rate-upload endpoint '
+             || 'replaced the card and the client is no longer billed at all'
+      when count(*) > 18
+        then 'FOUND ' || count(*)::text || ' <- a row escaped the delete and is '
+             || 'now duplicated; the duplicate is billed from as well'
+      else 'FOUND ' || count(*)::text || ' <- something outside ledger_05 '
+           || 'removed ' || (18 - count(*))::text || ' line(s)'
+    end
+  from card
+  union all
+  -- The peak surcharge, by name. It is the one line ledger_05 documents as
+  -- MEANT to change, so a date-scoped check cannot protect it, and it is a
+  -- percentage applied to every pick-and-pack total.
+  select
+    2,
+    'SURCHARGE',
+    'exactly one surcharge / peak line',
+    case
+      when count(*) = 0
+        then 'NONE <- deleting this row removes hasPeakLine, and the undated 8% '
+             || 'then re-enters through the fallback at '
+             || 'load-charge-inputs.ts:392 on EVERY order'
+      when count(*) > 1
+        then count(*)::text || ' <- two of these bill the surcharge twice over, '
+             || 'or once from whichever row sorts first'
+      else 'OK: 1 line, window ' || min(effective_from)::text || ' -> '
+           || coalesce(min(effective_to)::text, 'OPEN-ENDED')
+           || case
+                when min(effective_to) is null
+                  then ' <- WARNING: open-ended, so 8% is added to every '
+                       || 'pick-and-pack total all year. leaks_monthly has no '
+                       || 'overbilling branch and will not report this.'
+                when min(effective_to) = min(effective_from)
+                  then ' (empty range: the deliberate off-switch, raises nothing)'
+                else ' (ARMED: this window is billing 8%)'
+              end
+    end
+  from card where charge_type = 'surcharge' and variant = 'peak'
+  union all
+  -- pick/device and pick/component are two of the three lines that bill today.
+  -- The variant strings must read exactly as calculate-charges.ts:117 writes
+  -- them; a drift there costs the rate silently, and the order surfaces in
+  -- leaks_monthly.picked_never_billed instead of on an invoice.
+  select
+    3,
+    'BILLABLE',
+    'pick / device: one open-ended line at 0.32',
+    case
+      when count(*) = 0
+        then 'MISSING <- every device pick loses its rate and the order lands '
+             || 'in leaks_monthly.picked_never_billed'
+      when count(*) > 1
+        then 'DUPLICATE: ' || count(*)::text || ' lines <- '
+             || 'calculate-charges.ts:91-98 calls this a data error and then '
+             || 'resolves it by sort order rather than refusing'
+      when count(*) filter (where effective_to is not null) > 0
+        then 'DISABLED: effective_to = ' || max(effective_to)::text
+             || ' <- the largest revenue line stops billing on that date'
+      when max(rate) is distinct from 0.32
+        then 'DRIFT: db=' || coalesce(max(rate)::text, 'NULL') || ' git=0.32'
+      else 'OK: 0.32, open-ended'
+    end
+  from card where charge_type = 'pick' and variant = 'device'
+  union all
+  select
+    4,
+    'BILLABLE',
+    'pick / component: one open-ended line at 0.20',
+    case
+      when count(*) = 0
+        then 'MISSING <- every component pick loses its rate and the order '
+             || 'lands in leaks_monthly.picked_never_billed'
+      when count(*) > 1
+        then 'DUPLICATE: ' || count(*)::text || ' lines <- resolved by sort '
+             || 'order, not refused'
+      when count(*) filter (where effective_to is not null) > 0
+        then 'DISABLED: effective_to = ' || max(effective_to)::text
+      when max(rate) is distinct from 0.20
+        then 'DRIFT: db=' || coalesce(max(rate)::text, 'NULL') || ' git=0.20'
+      else 'OK: 0.20, open-ended'
+    end
+  from card where charge_type = 'pick' and variant = 'component'
+  union all
+  -- The freight line. A null rate here is CORRECT and is not the same as zero:
+  -- rate_type 'at_cost' means the client pays what the carrier charged, and the
+  -- null reads as "the carrier bill has not arrived yet". A number in that
+  -- column converts a pass-through into a fixed price nobody agreed.
+  select
+    5,
+    'BILLABLE',
+    'shipping: one at_cost line, rate null BY DESIGN',
+    case
+      when count(*) = 0
+        then 'MISSING <- there is no freight line, so shipping is never billed'
+      when count(*) > 1
+        then 'DUPLICATE: ' || count(*)::text || ' freight lines'
+      when bool_or(rate_type is distinct from 'at_cost')
+        then 'DEFECT: rate_type=' || coalesce(max(rate_type), 'NULL')
+             || ' <- must be at_cost'
+      when bool_or(rate is not null)
+        then 'DEFECT: rate=' || max(rate)::text || ' <- a fixed freight PRICE '
+             || 'has replaced pass-through carrier cost'
+      else 'OK: at_cost, rate null'
+    end
+  from card where charge_type = 'shipping'
 )
 select section, item, verdict from rows_out order by ord;
 
