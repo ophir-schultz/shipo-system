@@ -3,17 +3,34 @@ begin;
 
 -- The client-keyed index is the one that protects storage and unattributed
 -- spend. If it is missing, three crons a day triple those charges.
+--
+-- The charge_key is DELIBERATELY not a key the product can produce. These two
+-- order-less blocks are the only fixtures in this file that write a
+-- (client_id, charge_key) pair against a REAL client -- every other block
+-- inserts its own order first, so (order_id, charge_key) is new by
+-- construction and cannot meet live data.
+--
+-- They used to key on 'storage:2026-09-01', which is precisely the string the
+-- product emitted before charge-key.ts:54-62 made the storage variant
+-- mandatory. Legacy rows of exactly that shape can still be in this table. If
+-- the client `limit 1` returns owns one, the FIRST insert here -- a bare
+-- statement with no handler -- raises 23505 and aborts the whole file before
+-- any assertion runs, and the error names a unique violation rather than the
+-- fixture clash that caused it. Worse, it would do so for only SOME clients,
+-- so the file would pass or fail depending on what the planner happened to
+-- return. 'verify:storage:...' matches no arm of chargeKey(), so no live row
+-- can carry it.
 do $$
 declare cid uuid;
 begin
   select id into cid from clients limit 1;
   insert into order_charges
     (order_id, client_id, charge_key, charge_type, label, amount, charge_date, source)
-    values (null, cid, 'storage:2026-09-01', 'storage', 'Storage', 100, '2026-09-01', 'verify');
+    values (null, cid, 'verify:storage:2026-09-01', 'storage', 'Storage', 100, '2026-09-01', 'verify');
   begin
     insert into order_charges
       (order_id, client_id, charge_key, charge_type, label, amount, charge_date, source)
-      values (null, cid, 'storage:2026-09-01', 'storage', 'Storage', 100, '2026-09-01', 'verify');
+      values (null, cid, 'verify:storage:2026-09-01', 'storage', 'Storage', 100, '2026-09-01', 'verify');
     raise exception 'FAIL: a duplicate order-less charge was accepted';
   exception when unique_violation then
     raise notice 'PASS: order-less charges are constrained by (client_id, charge_key)';
@@ -109,11 +126,11 @@ begin
   select id into cid from clients limit 1;
   insert into order_charges
     (order_id, client_id, charge_key, charge_type, label, amount, charge_date, source)
-    values (null, cid, 'storage:2026-10-01', 'storage', 'Storage', 100, '2026-10-01', 'verify');
+    values (null, cid, 'verify:storage:2026-10-01', 'storage', 'Storage', 100, '2026-10-01', 'verify');
   begin
     insert into order_charges
       (order_id, client_id, charge_key, charge_type, label, amount, charge_date, source)
-      values (null, cid, 'storage:2026-10-01', 'storage', 'Storage', 100, '2026-10-01', 'verify');
+      values (null, cid, 'verify:storage:2026-10-01', 'storage', 'Storage', 100, '2026-10-01', 'verify');
     raise exception 'FAIL: a second order-less row with the same (client_id, charge_key) was accepted -- order_charges_client_key is missing or no longer covers it';
   exception when unique_violation then
     raise notice 'PASS: order_charges_client_key still constrains order-less rows';

@@ -322,3 +322,135 @@ describe('verify scripts are structurally runnable', () => {
     })
   }
 })
+
+// ---------------------------------------------------------------------------
+// A verify fixture must not share an exclusion-constraint group with a SEEDED
+// cost rate.
+//
+// Every check above is structural: it reads whether a file is shaped like a
+// runnable script. All of them passed while ledger_02_verify.sql could not
+// execute a single statement.
+//
+// What happened: its overlap fixtures keyed on the real ('pick','device') and
+// ('storage',null) tuples from 2026-01-01. Then ledger_06_seed_cost_rates.sql
+// seeded those same two tuples, open-ended, from the same date. The first
+// insert in the file is a bare statement with no exception handler, so from
+// the moment ledger_06 was applied the whole script aborted on line 7 with an
+// exclusion_violation and verified nothing -- while continuing to typecheck,
+// to pass every assertion above, and to read as a thorough piece of work.
+//
+// That direction is the lucky one. The same clash inside a block whose handler
+// catches exclusion_violation reports PASS without the fixture's own insert
+// having been exercised at all, and no amount of reading the file reveals it,
+// because the cause is in a DIFFERENT file.
+//
+// The key is (cost_type, coalesce(variant,'')) because that is what
+// cost_rates_no_overlap and the unique index actually group on -- not cost_type
+// alone. ledger_04_verify.sql shares the cost_type 'pick' quite legitimately,
+// under the fresh variants 'VERIFY-A' and 'VERIFY-B', and a cost_type-only
+// check would condemn it.
+//
+// DELIBERATELY STRICTER THAN THE DATABASE: it ignores effective_from, so a
+// fixture sharing a group but sitting in a non-overlapping window (2098, as
+// ledger_04_verify.sql does with ('pick', null)) would still be refused here.
+// Dates are the fragile half of that reasoning -- they are what a later edit
+// moves without thinking -- and a verify fixture has no reason to want a
+// seeded key. To satisfy this check, give the fixture its own synthetic
+// cost_type or its own variant, as 'overlap_probe' and 'basis_probe' do.
+// ---------------------------------------------------------------------------
+describe('verify fixtures do not collide with seeded cost rates', () => {
+  const SEED = `${DIR}/ledger_06_seed_cost_rates.sql`
+
+  /**
+   * The (cost_type, variant) pairs written by every `insert into cost_rates`
+   * in a file, variant-null normalised to '' exactly as the constraint does.
+   *
+   * Scoped to `insert into cost_rates ... ;` regions so that a tuple belonging
+   * to some other table cannot be read as a rate. Both callers below assert on
+   * what this returns before trusting it: a regex over SQL that quietly
+   * matched nothing would turn this whole describe into the vacuous pass these
+   * files keep warning about.
+   */
+  function costRateGroups(sql: string): Set<string> {
+    const out = new Set<string>()
+    for (const stmt of sql.match(/insert\s+into\s+cost_rates\b[\s\S]*?;/gi) ?? []) {
+      const at = stmt.search(/\bvalues\b/i)
+      if (at < 0) continue
+      // `null\b`, NOT `(?:...|null)\b`. The word boundary has to live inside
+      // the null branch: after the closing quote of a variant the next
+      // character is a comma, and `\b` between two non-word characters does
+      // not match. Written the other way this found only the null-variant
+      // rows -- which is to say it found the seed file's ('pack', null) and
+      // ('storage', null) and nothing else, and the two instrumentation tests
+      // above are the only reason that was noticed rather than shipped as a
+      // check that silently examined a third of its input.
+      for (const m of stmt.slice(at).matchAll(/\(\s*'([^']*)'\s*,\s*(?:'([^']*)'|null\b)/gi)) {
+        out.add(`${m[1]} ${m[2] ?? ''}`)
+      }
+    }
+    return out
+  }
+
+  const show = (g: string) => {
+    const [type, variant] = g.split(' ')
+    return `('${type}', ${variant === '' ? 'null' : `'${variant}'`})`
+  }
+
+  const seeded = costRateGroups(
+    stripFullLineComments(readFileSync(SEED, 'utf8')))
+
+  it('parsed the seed file it is comparing against', () => {
+    // Exactly six, named. ledger_06 seeds six rows; if a seventh is added or
+    // the file is reshaped so the parser stops finding them, this fails and
+    // asks to be updated rather than letting the comparison below shrink to
+    // nothing and keep passing.
+    expect([...seeded].map(show).sort(), `Parsed ${seeded.size} rate group(s) `
+      + `from ${SEED}, expected the six it seeds. Either a rate was added -- in `
+      + 'which case extend this list and check no verify fixture already uses '
+      + 'it -- or the insert was reformatted past what costRateGroups can read, '
+      + 'and this check is no longer comparing against anything.')
+      .toEqual([
+        "('material', 'box_medium')",
+        "('material', 'box_small')",
+        "('pack', null)",
+        "('pick', 'component')",
+        "('pick', 'device')",
+        "('storage', null)",
+      ])
+  })
+
+  it('parsed the verify fixtures it is checking', () => {
+    // Two anchors from two different files, so a parser that worked on the
+    // seed file but not on the fixtures cannot hide. ledger_04_verify.sql's
+    // 'pick'/'VERIFY-A' is the load-bearing one: it proves the key is the
+    // (cost_type, variant) pair, since cost_type alone would reject it.
+    const all = new Set<string>()
+    for (const f of VERIFY) {
+      for (const g of costRateGroups(
+        stripFullLineComments(readFileSync(`${VERIFY_DIR}/${f}`, 'utf8')))) {
+        all.add(g)
+      }
+    }
+    expect([...all].map(show).sort(), 'Found no recognisable cost_rates '
+      + `fixtures across ${VERIFY.length} verify script(s). The collision check `
+      + 'below would then compare an empty set and pass unconditionally.')
+      .toContain("('overlap_probe', 'device')")
+    expect([...all].map(show).sort()).toContain("('pick', 'VERIFY-A')")
+  })
+
+  for (const file of VERIFY) {
+    it(`${file}: no fixture keyed on a seeded rate`, () => {
+      const groups = costRateGroups(
+        stripFullLineComments(readFileSync(`${VERIFY_DIR}/${file}`, 'utf8')))
+      const clashes = [...groups].filter((g) => seeded.has(g)).map(show).sort()
+      expect(clashes, `${file} inserts cost_rates rows keyed on `
+        + `${clashes.join(', ')}, which ${SEED} also seeds. Depending on where `
+        + 'the insert sits, this either aborts the script with an '
+        + 'exclusion_violation before it asserts anything, or -- inside a block '
+        + 'that handles exclusion_violation -- reports PASS without the insert '
+        + 'under test having run. Give the fixture a synthetic cost_type or its '
+        + 'own variant instead.')
+        .toEqual([])
+    })
+  }
+})
