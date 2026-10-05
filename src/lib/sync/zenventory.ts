@@ -58,8 +58,10 @@ export async function syncClientAssignments(daysBack = 30) {
   // clear.
   //
   // Not counted here: the pagination failure and the per-client catch below.
-  // Both already push to clientErrors, so clients_failed reports them; counting
-  // them again would alert twice on one incident.
+  // Both go through failClient() instead, so clients_failed reports them;
+  // counting them again would alert twice on one incident. That split is the
+  // reason there are two helpers rather than one -- failItem() for a client that
+  // synced but lost rows, failClient() for a client that did not sync.
   let totalItemsFailed = 0
   // Names what failed, so the alert can say 'shipment lookup #2500-2' rather
   // than only '1'. Capped for the reason sync-run.ts caps stored errors — one
@@ -148,6 +150,13 @@ export async function syncClientAssignments(daysBack = 30) {
         lockedClients.push(client.name ?? client.id)
         continue
       }
+      // A bare clientErrors.push, and the ONE place in this function that is
+      // allowed to be: failClient() is defined below because it closes over
+      // `run`, and the whole reason we are in this branch is that `run` does not
+      // exist -- openSyncRun threw. There is no row to fail() against, which is
+      // also why the message has to say the client was not synced rather than
+      // leaving that to be inferred from a sync_runs row that was never written.
+      // Do not "fix" this into failClient(); it would throw on `run`.
       clientErrors.push(`${client.name}: could not open a sync_runs row, so this `
         + `client was not synced (${err?.message ?? String(err)})`)
       continue
@@ -170,6 +179,42 @@ export async function syncClientAssignments(daysBack = 30) {
       }
     }
 
+    // The CLIENT-level counterpart, and the distinction between the two is the
+    // whole reason there are two. failItem() means "this client synced, but it
+    // lost N individual rows"; failClient() means "this client did not sync".
+    // They feed different counters that different readers consume --
+    // items_failed/item_failures versus clients_failed/errors[], and only the
+    // latter reaches the 🚨 alert email -- so routing a failure through the
+    // wrong one is a reporting defect even though both record against the row.
+    //
+    // Pairing by hand is what this replaces: two sites below each wrote
+    // run.fail() and clientErrors.push() as separate statements, which is the
+    // same drift hazard the 2026-10-03 incident came from, one level up.
+    //
+    // `any` rather than `unknown` so the message expression stays byte-identical
+    // to the two sites it replaces; both already catch with `err: any`.
+    //
+    // KNOWN DEFECT, NOT FIXED HERE, and this is the place it would be fixed.
+    // One client can reach both call sites in a single pass -- page 1 succeeds,
+    // page 2 rejects (push #1, break), then the assignment loop below throws and
+    // the per-client catch fires (push #2). clientErrors then holds two entries
+    // for one client, and since clients_synced is computed by SUBTRACTION the
+    // result is arithmetically impossible rather than merely wrong. Measured
+    // 2026-10-05 on a one-client pass: clients_failed 2, clients_synced -1.
+    //
+    // Worse than the counts: the `clientErrors.length === clients.length` guard
+    // below is what turns "every client failed" into a throw, and 2 !== 1, so
+    // the one pass where the ONLY client failed completely returned normally.
+    // Verified identical at HEAD before this refactor, so it is pre-existing --
+    // deduping here would change observable behaviour and does not belong in a
+    // pure refactor. Fix it by making this helper idempotent per client (or by
+    // counting failed clients in a Set), NOT by adding a guard at either call
+    // site -- that is the hand-pairing this helper exists to end.
+    const failClient = (context: string, err: any) => {
+      run.fail(context, err)
+      clientErrors.push(`${client.name}: ${err?.message ?? String(err)}`)
+    }
+
     // Everything this client's run does is inside the try, so that close()
     // runs whether it finishes, errors or throws. close() is what writes the
     // fail() and warn() records to the row; a row left at 'running' keeps all
@@ -190,8 +235,11 @@ export async function syncClientAssignments(daysBack = 30) {
             modifiedSince: modifiedFromISO,
           })
         } catch (err: any) {
-          clientErrors.push(`${client.name}: ${err.message}`)
-          run.fail(`pagination page ${page}`, err)
+          // A page that cannot be fetched ends this client, not this page: the
+          // order list is incomplete from here on, so there is nothing to be
+          // gained by asking for page n+1. failClient(), not failItem(), for
+          // that reason -- the client did not sync.
+          failClient(`pagination page ${page}`, err)
           hasMore = false
           break
         }
@@ -385,9 +433,10 @@ export async function syncClientAssignments(daysBack = 30) {
       // throws below if EVERY client failed.
       //
       // fail() before close(), not after: close() picks the status from the
-      // error list, so an unrecorded throw would close this row 'ok'.
-      run.fail(`zenventory sync for ${client.name ?? client.id}`, err)
-      clientErrors.push(`${client.name}: ${err?.message ?? String(err)}`)
+      // error list, so an unrecorded throw would close this row 'ok'. failClient
+      // records both halves, and it runs before the finally, so the ordering
+      // this note describes still holds.
+      failClient(`zenventory sync for ${client.name ?? client.id}`, err)
     } finally {
       await run.close()
     }
