@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import Link from 'next/link'
 import { read, loaded } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
+import { nameInitial } from '@/lib/display/initial'
 
 // The empty state on this page does not merely fail to inform you, it gives you
 // an instruction:
@@ -72,7 +73,7 @@ export default async function ClientsPage() {
             <div key={client.id} className="bg-gray-800 rounded-xl p-5 flex items-center justify-between hover:bg-gray-750">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-full bg-[#0090DD] flex items-center justify-center font-bold text-white">
-                  {client.name[0].toUpperCase()}
+                  {nameInitial(client.name)}
                 </div>
                 <div>
                   <p className="font-semibold text-white">{client.name}</p>
