@@ -550,3 +550,145 @@ describe('syncClientAssignments: a client whose lock is already held', () => {
     expect(result.errors[0]).toContain('Nayax')
   })
 })
+
+// One client can fail TWICE in a single pass, and until 2026-10-05 that made
+// the client counts arithmetically impossible rather than merely wrong.
+//
+// The route: page 1 of the order list succeeds, page 2 rejects (failure #1,
+// which `break`s out of pagination), execution carries on into the shipment
+// assignment loop with the partial order list, and that throws (failure #2, via
+// the per-client catch). Both are real, distinct failures and both SHOULD be
+// recorded. What must not happen is that the client is COUNTED twice, because
+// clients_failed was the length of a message list and clients_synced was
+// computed by subtracting it.
+//
+// Every assertion below is on a count, not a message, for that reason: the
+// messages were never the bug.
+describe('syncClientAssignments: a client that fails twice in one pass', () => {
+  // Page 1 ok with more pages promised, page 2 rejects, then the first
+  // shipments statement throws -- which lands on whichever client is processed
+  // first, so c1 double-fails and the rest of the list is untouched.
+  const doubleFailFirstClient = () => {
+    h.getCustomerOrders.mockReset()
+    h.getCustomerOrders
+      .mockResolvedValueOnce({
+        customerOrders: [{ orderNumber: 'A-1', orderDate: '2026-09-01', items: [] }],
+        meta: { totalPages: 2 },
+      })
+      .mockRejectedValueOnce(new Error('page 2 died'))
+      .mockResolvedValue({
+        customerOrders: [{ orderNumber: 'B-1', orderDate: '2026-09-01', items: [] }],
+        meta: { totalPages: 1 },
+      })
+
+    let seen = 0
+    const real = h.db.client.from.bind(h.db.client)
+    h.db.client.from = ((t: string) => {
+      if (t === 'shipments' && ++seen === 1) throw new TypeError('fetch failed')
+      return real(t)
+    }) as typeof h.db.client.from
+  }
+
+  it('counts it once, not once per failure', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    doubleFailFirstClient()
+
+    const result = await syncClientAssignments(30)
+
+    // Was 2 before the fix: one client, counted once per error message.
+    expect(result.clients_failed).toBe(1)
+  })
+
+  it('does not lose the client that did sync from clients_synced', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    doubleFailFirstClient()
+
+    const result = await syncClientAssignments(30)
+
+    // Was 0 before the fix -- 2 clients minus 2 "failures" -- which erased
+    // Creative Pea, a client that synced perfectly well, from the only number
+    // the monitor uses to say how many clients a pass covered.
+    expect(result.clients_synced).toBe(1)
+  })
+
+  it('never reports more failed clients than there are clients', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    doubleFailFirstClient()
+
+    const result = await syncClientAssignments(30)
+
+    // The invariant the old code could violate, stated directly: these three
+    // partition the client list, so they cannot sum to more than it or imply a
+    // negative. Asserted as arithmetic rather than as literals so this keeps
+    // its teeth if the scenario above ever drifts.
+    const { clients_synced: synced, clients_failed: failed, clients_locked: locked } = result
+    expect(synced).toBeGreaterThanOrEqual(0)
+    expect(failed).toBeLessThanOrEqual(h.db.tables.clients.length)
+    expect(synced + failed + locked).toBe(h.db.tables.clients.length)
+  })
+
+  it('still records both failures, because two things really did go wrong', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    doubleFailFirstClient()
+
+    const result = await syncClientAssignments(30)
+
+    // Deliberately NOT deduped. The count is the figure and the list is the
+    // examples -- the same split items_failed/item_failures already uses, where
+    // the list is capped at ten and the count stays complete. Collapsing these
+    // to one message would throw away the fact that the pagination failure is
+    // what left the order list partial, which is the more useful half.
+    expect(result.errors).toHaveLength(2)
+    expect(result.errors.join(' ')).toContain('page 2 died')
+    expect(result.errors.join(' ')).toContain('fetch failed')
+  })
+
+  it('records both failures on the client\'s sync_runs row too', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    doubleFailFirstClient()
+
+    await syncClientAssignments(30)
+
+    // run.fail() is still called per failure, not per client. The row is the
+    // forensic record and both contexts belong on it; it is only the CALLER's
+    // client count that had to become per-client.
+    const errors = runFor('c1').errors as Array<{ context: string }>
+    expect(errors).toHaveLength(2)
+    expect(errors.map((e) => e.context)).toEqual([
+      'pagination page 2',
+      'zenventory sync for Nayax',
+    ])
+  })
+
+  it('throws when the only client failed, even though it failed twice', async () => {
+    // The consequence that mattered most, and the reason this was worth fixing
+    // rather than noting. The all-failed guard is what turns "nothing worked"
+    // into a thrown error, which is what the monitor route and the 🚨 alert
+    // email actually report. Comparing a message count to a client count made
+    // it 2 !== 1, so the one pass where the ONLY client failed completely
+    // returned NORMALLY -- silence on a total outage.
+    h.db.tables.clients = [client('c1', 'Nayax')]
+    doubleFailFirstClient()
+
+    await expect(syncClientAssignments(30)).rejects.toThrow(/failed for every client/)
+  })
+
+  it('counts a double failure and a locked client without double-subtracting', async () => {
+    // Set-counted failures and locked clients have to stay disjoint, since both
+    // are subtracted from clients_synced. c1 double-fails, c2 is locked out by
+    // a sibling run, nothing synced -- and that is 0, not a negative.
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    doubleFailFirstClient()
+    h.db.failOn = (call) =>
+      call.table === 'sync_runs' && call.verb === 'insert'
+        && call.payload[0]?.client_id === 'c2'
+        ? { code: '23505', message: 'duplicate key value violates unique constraint' }
+        : null
+
+    const result = await syncClientAssignments(30)
+
+    expect(result.clients_failed).toBe(1)
+    expect(result.clients_locked).toBe(1)
+    expect(result.clients_synced).toBe(0)
+  })
+})

@@ -42,7 +42,35 @@ export async function syncClientAssignments(daysBack = 30) {
   // picked line produces no pick charge at all, and a number nobody is shown is
   // the same as revenue quietly not being billed.
   let totalUndatedPicks = 0
+  // Failure MESSAGES, which is not the same thing as failed CLIENTS, and
+  // conflating the two was a real defect until 2026-10-05. This list names what
+  // went wrong and may hold more than one entry for the same client; the set
+  // below is what counts clients. Read the note there before using `.length` of
+  // this for anything.
   const clientErrors: string[] = []
+  // Failed CLIENTS, by id, and the reason this is a Set rather than a count.
+  //
+  // One client can fail twice in a single pass: page 1 of its order list
+  // succeeds, page 2 rejects (which ends pagination), execution carries on into
+  // the shipment assignment loop with the partial list, and that throws into the
+  // per-client catch. Two real failures, two messages -- but one client.
+  //
+  // clients_failed used to be clientErrors.length and clients_synced used to
+  // subtract it, so that pass reported arithmetic that cannot happen. Measured
+  // 2026-10-05 on a one-client pass: clients_failed 2, clients_synced -1.
+  //
+  // The guard below is the part that actually hurt, and it broke BOTH ways:
+  // with one client it compared 2 !== 1, so the single pass where the only
+  // client failed completely returned normally instead of throwing -- silence
+  // on a total outage. With two clients and one of them double-failing it
+  // compared 2 === 2 and threw 'failed for every client', alerting a total
+  // outage while the other client had synced perfectly. A count of messages
+  // can be both too high and, as a proxy for clients, never right.
+  //
+  // Keyed on client.id, not client.name: id is the primary key the clients
+  // query selects, and name is nullable and not guaranteed unique (every other
+  // site here already writes `client.name ?? client.id` for that reason).
+  const failedClients = new Set<string>()
 
   // Per-ITEM failures, which clients_failed cannot see and therefore nobody
   // downstream could.
@@ -82,6 +110,23 @@ export async function syncClientAssignments(daysBack = 30) {
   const lockedClients: string[] = []
 
   for (const client of clients) {
+    // Marks THIS CLIENT failed, in both of the places that have to know: the
+    // set that counts clients and the list that names failures. Calling it
+    // twice for one client adds a second message and leaves the count at one,
+    // which is the whole fix -- idempotent per client, by construction, so no
+    // call site has to know whether it is the first failure of the pass.
+    //
+    // Separate from failClient() below, and deliberately above the openSyncRun
+    // try: this closes over `client` only, so the branch where openSyncRun threw
+    // can still reach it. That branch is a failed client too, and leaving it out
+    // of the set would have traded the overcount for an undercount.
+    //
+    // Owns the `${client.name}: ` prefix so both call sites cannot drift on it.
+    const recordClientFailure = (message: string) => {
+      failedClients.add(client.id)
+      clientErrors.push(`${client.name}: ${message}`)
+    }
+
     // Each client gets its own sync_runs row so a 401 on one client is
     // recordable without condemning or absolving the whole run. Two clients
     // (Nayax and Creative Pea) currently return 401 while their Zenventory 2.0
@@ -150,14 +195,15 @@ export async function syncClientAssignments(daysBack = 30) {
         lockedClients.push(client.name ?? client.id)
         continue
       }
-      // A bare clientErrors.push, and the ONE place in this function that is
-      // allowed to be: failClient() is defined below because it closes over
-      // `run`, and the whole reason we are in this branch is that `run` does not
-      // exist -- openSyncRun threw. There is no row to fail() against, which is
-      // also why the message has to say the client was not synced rather than
-      // leaving that to be inferred from a sync_runs row that was never written.
-      // Do not "fix" this into failClient(); it would throw on `run`.
-      clientErrors.push(`${client.name}: could not open a sync_runs row, so this `
+      // recordClientFailure and NOT failClient, which is the one deliberate
+      // exception here: failClient() closes over `run`, and the whole reason we
+      // are in this branch is that `run` does not exist -- openSyncRun threw.
+      // There is no row to fail() against, which is also why the message has to
+      // say the client was not synced rather than leaving that to be inferred
+      // from a sync_runs row that was never written. Do not "fix" this into
+      // failClient(); it would throw on `run`. It does still count the client,
+      // which is what recordClientFailure is for.
+      recordClientFailure(`could not open a sync_runs row, so this `
         + `client was not synced (${err?.message ?? String(err)})`)
       continue
     }
@@ -194,25 +240,24 @@ export async function syncClientAssignments(daysBack = 30) {
     // `any` rather than `unknown` so the message expression stays byte-identical
     // to the two sites it replaces; both already catch with `err: any`.
     //
-    // KNOWN DEFECT, NOT FIXED HERE, and this is the place it would be fixed.
-    // One client can reach both call sites in a single pass -- page 1 succeeds,
-    // page 2 rejects (push #1, break), then the assignment loop below throws and
-    // the per-client catch fires (push #2). clientErrors then holds two entries
-    // for one client, and since clients_synced is computed by SUBTRACTION the
-    // result is arithmetically impossible rather than merely wrong. Measured
-    // 2026-10-05 on a one-client pass: clients_failed 2, clients_synced -1.
+    // Calling this twice for one client is SAFE, and that was once a defect
+    // rather than a property. Both of the sites below can fire in a single pass
+    // -- page 1 succeeds, page 2 rejects (which ends pagination), then the
+    // assignment loop runs on the partial order list and throws into the
+    // per-client catch -- which used to count the client twice, because
+    // clients_failed was clientErrors.length and clients_synced subtracted it.
+    // Measured on a one-client pass: clients_failed 2, clients_synced -1, and
+    // the all-failed guard silently not firing. Fixed 2026-10-05 by counting
+    // clients in a Set via recordClientFailure; see the note on failedClients
+    // for both of the ways that guard misreported.
     //
-    // Worse than the counts: the `clientErrors.length === clients.length` guard
-    // below is what turns "every client failed" into a throw, and 2 !== 1, so
-    // the one pass where the ONLY client failed completely returned normally.
-    // Verified identical at HEAD before this refactor, so it is pre-existing --
-    // deduping here would change observable behaviour and does not belong in a
-    // pure refactor. Fix it by making this helper idempotent per client (or by
-    // counting failed clients in a Set), NOT by adding a guard at either call
-    // site -- that is the hand-pairing this helper exists to end.
+    // run.fail() is still called per FAILURE, not per client, and that is
+    // deliberate: the row is the forensic record, and 'pagination page 2' plus
+    // 'zenventory sync for X' says more than either alone. Only the caller's
+    // client count had to become per-client.
     const failClient = (context: string, err: any) => {
       run.fail(context, err)
-      clientErrors.push(`${client.name}: ${err?.message ?? String(err)}`)
+      recordClientFailure(err?.message ?? String(err))
     }
 
     // Everything this client's run does is inside the try, so that close()
@@ -442,14 +487,21 @@ export async function syncClientAssignments(daysBack = 30) {
     }
   }
 
-  // WAS: if (clientErrors.length === clients.length) throw ...
+  // Why the guard is this NARROW: it fires only when nothing at all worked.
+  // Throwing whenever any client failed reported seven successes and one 401 as
+  // a dead run, and two clients return 401 today — Nayax and Creative Pea, both
+  // awaiting Zenventory 2.0 credentials — so partial failure is the normal
+  // state here, not an edge case. Each client's outcome is its own sync_runs
+  // row; this throw is only for the total-outage case.
   //
-  // That reported seven successes and one 401 as a clean run. Two clients
-  // return 401 today — Nayax and Creative Pea, both awaiting Zenventory 2.0
-  // credentials — so a partial failure is the normal state, not an edge case.
-  // Each client's outcome is now its own sync_runs row; the throw only remains
-  // for the case where nothing at all worked.
-  if (clientErrors.length === clients.length) {
+  // Why it counts the SET: both sides have to be client counts. This compared
+  // clientErrors.length to clients.length until 2026-10-05 -- a message count
+  // against a client count -- and a double-failing client broke it in both
+  // directions at once: it both suppressed the throw on a real total outage and
+  // invented one on a partial. See the note on failedClients. The messages are
+  // still what the thrown error CARRIES, since naming both halves of a double
+  // failure is the useful part; they are just no longer what it counts.
+  if (failedClients.size === clients.length) {
     throw new Error(`Zenventory sync failed for every client:\n${clientErrors.join('\n')}`)
   }
 
@@ -457,8 +509,14 @@ export async function syncClientAssignments(daysBack = 30) {
     // Locked clients subtracted as well as failed ones. They were not synced
     // BY THIS RUN, and this count is the only thing the monitor uses to say
     // how many clients a pass covered.
-    clients_synced: clients.length - clientErrors.length - lockedClients.length,
-    clients_failed: clientErrors.length,
+    //
+    // Both subtrahends count CLIENTS, which is what makes the subtraction
+    // sound. failedClients and lockedClients are disjoint by construction: the
+    // lock check `continue`s before anything can record a failure, and a client
+    // that got a run row never reaches the locked branch. So these three
+    // partition the client list and cannot imply a negative.
+    clients_synced: clients.length - failedClients.size - lockedClients.length,
+    clients_failed: failedClients.size,
     // Separate from clients_failed so the monitor can say "skipped" rather
     // than "FAILED". Nothing is missing when this is non-zero -- the sibling
     // run that holds the locks is doing the work.
