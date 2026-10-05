@@ -61,12 +61,19 @@ function label(shipmentId: number, orderNumber: string, over: Partial<{
 /**
  * A shipment row that already exists AND already belongs to a client.
  *
- * Needed because syncShipments never assigns client_id -- it only reads it, and
- * attribution happens in the zenventory sync. So a row this file creates by
- * running the sync has client_id null, and `&& existingShipment.client_id`
- * silently disables the entire rate-adjustment branch. Any test asserting
- * something about rate_adjustments without seeding attribution first is
- * asserting about dead code.
+ * Still needed, but no longer for the reason this comment used to give.
+ * syncShipments DOES assign client_id now, via decideAttribution -- but only
+ * when `client_store_ids` has a row matching the payload's store id. The
+ * fixtures in this file carry no storeId at all and seed no `client_store_ids`
+ * rows, so every shipment the sync creates here lands unattributed, and the
+ * `&& attributedClientId` guard silently disables the entire rate-adjustment
+ * branch. Any test asserting something about rate_adjustments without seeding
+ * attribution first is asserting about dead code.
+ *
+ * Attribution itself is tested in shipstation-attribution.test.ts, which seeds
+ * the store map on purpose. Keep the two concerns apart: adding a storeId to
+ * `label()` would start attributing rows here as a side effect and make these
+ * adjustment tests depend on the store map.
  */
 function seedAttributed(shipmentId: number, orderNumber: string, cost: number | null) {
   (h.db.tables.shipments as FakeRow[]).push({
