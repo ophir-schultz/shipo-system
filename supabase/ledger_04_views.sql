@@ -332,7 +332,7 @@ with revenue as (
 ),
 overhead as (
   -- `date_trunc` on operating_costs.period_month, not the raw column, and this
-  -- is not cosmetic. `ledger_02_cost.sql:44` declares `period_month date not
+  -- is not cosmetic. `ledger_02_cost.sql:90` declares `period_month date not
   -- null` with NO constraint that it is the first of the month, and the unique
   -- index is on (period_month, category, coalesce(vendor,'')) -- so 2026-09-15
   -- and 2026-09-01 are different rows, not a conflict. The revenue side of the
@@ -516,7 +516,7 @@ picked as (
          -- VarianceResult.basis for the purpose: variance.ts:39 returns
          -- 'measured' whenever both inputs are present, because it has no way
          -- to know the rate it was handed is a placeholder.
-         -- cost_rates_basis_valid (ledger_02_cost.sql:55) limits the domain to
+         -- cost_rates_basis_valid (ledger_02_cost.sql:63-64) limits the domain to
          -- these three, so the chain is total.
          case when bool_or(basis = 'estimated') then 'estimated'
               when bool_or(basis = 'derived')   then 'derived'
@@ -532,7 +532,7 @@ picked as (
   group by 1
 ),
 payroll as (
-  -- date_trunc, NOT the raw column. ledger_02_cost.sql:81 declares
+  -- date_trunc, NOT the raw column. ledger_02_cost.sql:90 declares
   -- `period_month date not null` with no first-of-month constraint, and the
   -- unique index is on (period_month, category, coalesce(vendor,'')) -- so
   -- September payroll entered as 2026-09-15 is a perfectly legal row. Grouped

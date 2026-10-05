@@ -619,7 +619,7 @@ export async function getLedgerSummary(now: Date = new Date()): Promise<LedgerSu
     // null bucket. Both sides of this view are NOT NULL at the source:
     // order_charges.charge_date is `date not null` (ledger_03_charges.sql:74)
     // and operating_costs.period_month is `date not null`
-    // (ledger_02_cost.sql:81). date_trunc of a non-null date is non-null, and
+    // (ledger_02_cost.sql:90). date_trunc of a non-null date is non-null, and
     // the `months` union draws from nothing else, so no row of this view can
     // carry a null period_month for the filter to drop.
     supabaseAdmin.from('labour_variance_inputs').select('*', { count: 'exact' })

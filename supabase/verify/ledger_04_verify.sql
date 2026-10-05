@@ -251,7 +251,7 @@ end $$;
 --            an empty cell -- and until now nothing exercised it.
 --
 -- Phase 2's BOTH rows are dated mid-month on purpose. operating_costs
--- imposes no first-of-month constraint (ledger_02_cost.sql:44), so if the
+-- imposes no first-of-month constraint (ledger_02_cost.sql:90), so if the
 -- overhead CTE ever loses its date_trunc, neither row joins to 2099-01-01 and
 -- both overhead_rows and direct_labor_rows come back NULL -- which the
 -- assertions below name. If only direct_labor were mid-month, the overhead row
@@ -288,7 +288,7 @@ begin
 
   -- Phase 2: two of the three allocations entered, direct_storage missing.
   -- period_month, category and amount are the NOT NULL columns without a
-  -- default (ledger_02_cost.sql:42-51); vendor and note are nullable, and
+  -- default (ledger_02_cost.sql:88-97); vendor and note are nullable, and
   -- allocation has a default we override explicitly.
   insert into operating_costs (period_month, category, amount, allocation)
     values ('2099-01-10', 'VERIFY-rent',  1000.00, 'overhead'),
