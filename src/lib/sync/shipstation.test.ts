@@ -542,3 +542,82 @@ describe('syncShipments: a second run overlapping the first', () => {
     expect(errors[0].message).toContain('overflow')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Losing the sync_runs lock.
+//
+// Before ledger_03d_sync_runs_mutex.sql this source opened its row
+// unconditionally and could not have a lock conflict at all. Now the loser of
+// an overlapping pair gets 23505 -- and overlap here is the ORDINARY case, not
+// a rare collision: the monitor route budgets 300s and AutoSync polls it every
+// five minutes from every open browser tab, so a pass that uses its full budget
+// has not finished when the next tick begins.
+describe('syncShipments: losing the sync_runs lock', () => {
+  /** Make the sync_runs INSERT fail, leaving the stale-run reap alone. */
+  const failTheRunInsert = (error: { code?: string; message: string }) => {
+    h.db.failOn = (call) =>
+      call.table === 'sync_runs' && call.verb === 'insert' ? error : null
+  }
+  const lockConflict = {
+    code: '23505',
+    message: 'duplicate key value violates unique constraint "sync_runs_running_source_key"',
+  }
+
+  // Does not throw, and that is the point. The three callers all surface a
+  // throw from here: api/sync/all turns it into a 500, and the monitor turns it
+  // into a 🚨 line. Propagating would mean raising an alarm BECAUSE the system
+  // successfully prevented the problem it was built to prevent.
+  it('returns instead of throwing', async () => {
+    failTheRunInsert(lockConflict)
+    await expect(syncShipments(30)).resolves.toBeTruthy()
+  })
+
+  it('says it skipped, and why', async () => {
+    failTheRunInsert(lockConflict)
+    const result = await syncShipments(30)
+    expect(result.skipped).toBe(true)
+    expect(result.skipReason).toMatch(/already in progress/)
+  })
+
+  // Every counter at zero AND errors at zero. The monitor reads `errors` to
+  // decide whether to send the alert, so a non-zero here would be the false
+  // alarm this whole branch exists to avoid; and `created`/`updated` must not
+  // claim work the sibling run is doing.
+  it('reports no work and no failures', async () => {
+    failTheRunInsert(lockConflict)
+    const result = await syncShipments(30)
+    expect(result).toMatchObject({
+      created: 0, updated: 0, adjustments: 0, refunds: 0,
+      errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
+    })
+  })
+
+  // The distinguishing test. `skipped` has to be readable as "this pass did
+  // nothing because another one is doing it" and NOT as "this pass did nothing
+  // because there was nothing to do" -- the counters are identical in both
+  // cases, so without the flag the monitor prints the same cheerful line.
+  it('a genuinely empty pass is NOT marked skipped', async () => {
+    h.getShipments.mockResolvedValue({ shipments: [], pages: 1 })
+    const result = await syncShipments(30)
+    expect(result.skipped).toBe(false)
+    expect(result.skipReason).toBeNull()
+    expect(result.created).toBe(0)
+  })
+
+  // It must not pull anything either. Returning the right numbers while still
+  // hammering the ShipStation API for eleven pages would defeat the purpose of
+  // stepping aside.
+  it('does not call ShipStation at all', async () => {
+    failTheRunInsert(lockConflict)
+    await syncShipments(30)
+    expect(h.getShipments).not.toHaveBeenCalled()
+  })
+
+  // Only 23505 is a lock. Any other failure to write the run row still throws,
+  // because this sync writes the shipment cost rows and running it with no
+  // record of the run is how a partial ingest becomes invisible.
+  it('still throws when the run row fails for any other reason', async () => {
+    failTheRunInsert({ code: '42501', message: 'permission denied for table sync_runs' })
+    await expect(syncShipments(30)).rejects.toThrow(/permission denied/)
+  })
+})

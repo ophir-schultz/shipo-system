@@ -2,7 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getCustomerOrders } from '@/lib/api/zenventory'
 import { normaliseLines, NegativeQuantityError } from '@/lib/ledger/order-line'
 import { watermarkPickDate, watermarkIsEvidence } from '@/lib/ledger/pick-date'
-import { openSyncRun } from '@/lib/ledger/sync-run'
+import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
 
 /**
  * Each client has their own Zenventory account.
@@ -68,6 +68,17 @@ export async function syncClientAssignments(daysBack = 30) {
   const itemFailures: string[] = []
   const MAX_NAMED_ITEM_FAILURES = 10
 
+  // Clients this invocation stepped over because a concurrent invocation
+  // already holds their per-client lock. Kept SEPARATE from clientErrors, and
+  // the separation is the whole point: a locked client is being synced right
+  // now by the sibling run, so it is neither a failure nor something for the
+  // alert email. But it is also NOT a success of this run's, and
+  // clients_synced below is computed by subtraction -- so without this list a
+  // wholly locked-out invocation would report every client as synced while
+  // having touched none of them, which is a worse lie than the failure it
+  // avoided.
+  const lockedClients: string[] = []
+
   for (const client of clients) {
     // Each client gets its own sync_runs row so a 401 on one client is
     // recordable without condemning or absolving the whole run. Two clients
@@ -122,6 +133,21 @@ export async function syncClientAssignments(daysBack = 30) {
         windowEnd: new Date().toISOString().split('T')[0],
       })
     } catch (err: any) {
+      // A lock conflict is the mutex working, so it is recorded but not
+      // reported as a failure. It can only happen when a second invocation of
+      // this whole function is in flight for the SAME client -- the loop is
+      // sequential, so a client cannot collide with itself -- and in that case
+      // the sibling invocation is mid-sync for this client and will write
+      // everything this one would have. Pushing it to clientErrors would send
+      // a 🚨 email naming a client that is at that moment syncing correctly.
+      //
+      // Checked before the generic branch so that it cannot be swallowed by
+      // it, and `continue` either way: without a run row there is nothing to
+      // fail() against and nothing to close().
+      if (isSyncRunLocked(err)) {
+        lockedClients.push(client.name ?? client.id)
+        continue
+      }
       clientErrors.push(`${client.name}: could not open a sync_runs row, so this `
         + `client was not synced (${err?.message ?? String(err)})`)
       continue
@@ -375,8 +401,16 @@ export async function syncClientAssignments(daysBack = 30) {
   }
 
   return {
-    clients_synced: clients.length - clientErrors.length,
+    // Locked clients subtracted as well as failed ones. They were not synced
+    // BY THIS RUN, and this count is the only thing the monitor uses to say
+    // how many clients a pass covered.
+    clients_synced: clients.length - clientErrors.length - lockedClients.length,
     clients_failed: clientErrors.length,
+    // Separate from clients_failed so the monitor can say "skipped" rather
+    // than "FAILED". Nothing is missing when this is non-zero -- the sibling
+    // run that holds the locks is doing the work.
+    clients_locked: lockedClients.length,
+    locked_clients: lockedClients,
     // Deliberately NOT folded into clients_failed. A client with one lost
     // shipment assignment did sync, and calling it a failed client would
     // misreport the other orders it mapped correctly; the two counts answer

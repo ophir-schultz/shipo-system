@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { canStart } from '@/lib/ledger/run-lock'
-import { openSyncRun } from '@/lib/ledger/sync-run'
+import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
 import { buildCharges, type BuiltCharge, type ChargeInput } from '@/lib/ledger/calculate-charges'
 
 /**
@@ -209,6 +209,29 @@ export async function recalculateCharges(
   try {
     run = await openSyncRun({ source: 'charges', mode: 'live' })
   } catch (err) {
+    // Losing the race is NOT a failure, and it must not be reported as one.
+    // canStart() above is advisory: it reads the open runs, decides, and only
+    // then inserts, so two callers that both read before either writes both
+    // pass it. The partial unique index in ledger_03d_sync_runs_mutex.sql is
+    // what actually arbitrates, and the loser learns it here, by 23505.
+    //
+    // That outcome is identical in MEANING to `!gate.ok` thirty lines up -- a
+    // run is already in progress, so this one steps aside -- and so it gets the
+    // identical cause. Reporting it as 'no-run-row' instead would file the
+    // mutex working correctly under the same heading as the database being
+    // unreachable, and the monitor is polled every five minutes from every open
+    // tab, so that is a recurring false alarm rather than a one-off cosmetic
+    // slip. The distinction is kept separate from the generic branch below,
+    // which still means what it always meant: we could not tell.
+    if (isSyncRunLocked(err)) {
+      return {
+        skipped: true,
+        cause: 'lock',
+        reason: `Another charge run already holds the sync_runs lock, so this one `
+              + `is skipping. The gate above did not catch it, which means the two `
+              + `runs started within the same instant; the database settled it.`,
+      }
+    }
     return {
       skipped: true,
       cause: 'no-run-row',

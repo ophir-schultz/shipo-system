@@ -588,3 +588,66 @@ describe('chargeRunIsDue', () => {
     expect(hours).toEqual([...CHARGE_CRON_HOURS_UTC].sort((a, b) => a - b))
   })
 })
+
+// ---------------------------------------------------------------------------
+// The race canStart() cannot win.
+//
+// canStart is advisory by construction: it SELECTS the open runs, decides, and
+// only then inserts the 'running' row, with no transaction in between. Two
+// callers that both read before either writes both pass it. The partial unique
+// index in supabase/ledger_03d_sync_runs_mutex.sql is what actually arbitrates,
+// and the loser finds out when its insert comes back 23505.
+describe('recalculateCharges: losing the database-level lock', () => {
+  const lockConflict = {
+    code: '23505',
+    message: 'duplicate key value violates unique constraint "sync_runs_running_source_key"',
+  }
+  /** Fail the run-row INSERT only. The gate SELECT above it must still work. */
+  const failTheRunInsert = (error: { code?: string; message: string }) => {
+    h.db.failOn = (call) =>
+      call.table === 'sync_runs' && call.verb === 'insert' ? error : null
+  }
+
+  // The same cause as `!gate.ok` above, because it means the same thing: a run
+  // is already in progress and this one steps aside. Filing it under
+  // 'no-run-row' instead would put the mutex working correctly in the same
+  // bucket as the database being unreachable -- and this route is polled every
+  // five minutes from every open tab, so that is a recurring false alarm
+  // rather than a cosmetic slip.
+  it('reports cause lock, not no-run-row', async () => {
+    failTheRunInsert(lockConflict)
+
+    const result = await recalculateCharges(async () => [order('order-a')])
+
+    expect(result).toMatchObject({ skipped: true, cause: 'lock' })
+  })
+
+  // The distinguishing case. If the 23505 branch were removed, the generic
+  // branch below it would still produce a skip -- so a test asserting only
+  // `skipped: true` would pass against the defect. 'no-run-row' must remain
+  // reachable, and must mean what it always meant: we could not tell.
+  it('still reports no-run-row for a failure that is not a lock conflict', async () => {
+    failTheRunInsert({ code: '42501', message: 'permission denied for table sync_runs' })
+
+    const result = await recalculateCharges(async () => [order('order-a')])
+
+    expect(result).toMatchObject({ skipped: true, cause: 'no-run-row' })
+  })
+
+  // Nothing is deleted and nothing is written. This is the outcome the whole
+  // lock exists for: the sibling run is mid-recalculation, and a second run
+  // proceeding without a lock would stale-delete the fresh rows the first one
+  // had just written.
+  it('writes nothing and deletes nothing', async () => {
+    h.db.tables.order_charges = [
+      { id: 'existing', order_id: 'order-a', charge_key: 'pick:device',
+        calculated_at: minutesAgo(600) },
+    ]
+    failTheRunInsert(lockConflict)
+
+    await recalculateCharges(async () => [order('order-a')])
+
+    expect(charges()).toHaveLength(1)
+    expect(h.db.calls.some((c) => c.table === 'order_charges' && c.verb === 'delete')).toBe(false)
+  })
+})

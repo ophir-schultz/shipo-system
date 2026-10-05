@@ -66,10 +66,21 @@ export async function GET(req: Request) {
     // recorded. Section 4 below is a post-mortem on exactly that shape of
     // claim; this is the same claim, two stages earlier in the same handler.
     const shipFailed = Number(syncResult.errors ?? 0)
-    log.push(`${shipFailed > 0 ? '⚠' : '✓'} ShipStation sync: ${syncResult.created} new · `
-      + `${syncResult.updated} updated · ${syncResult.adjustments} adjustments · `
-      + `${syncResult.refunds ?? 0} refunds`
-      + `${shipFailed > 0 ? ` · ${shipFailed} FAILED` : ''}`)
+    // A skipped pass is reported as a skip, not as a clean pass with four
+    // zeros. The two are indistinguishable from the counters alone -- a run
+    // that lost the sync_runs lock returns exactly the numbers a run with
+    // nothing to do returns -- and reading `✓ ShipStation sync: 0 new` as
+    // evidence of health is the precise mistake section 4 below is a
+    // post-mortem on. log, not errors[]: losing the lock means a sibling run is
+    // doing the work, so nothing is missing and nobody needs waking.
+    if (syncResult.skipped) {
+      log.push(`⏭ ShipStation sync skipped: ${syncResult.skipReason ?? 'another run holds the lock'}`)
+    } else {
+      log.push(`${shipFailed > 0 ? '⚠' : '✓'} ShipStation sync: ${syncResult.created} new · `
+        + `${syncResult.updated} updated · ${syncResult.adjustments} adjustments · `
+        + `${syncResult.refunds ?? 0} refunds`
+        + `${shipFailed > 0 ? ` · ${shipFailed} FAILED` : ''}`)
+    }
     if (shipFailed > 0) {
       errors.push(`⚠ ${shipFailed} ShipStation shipment${shipFailed > 1 ? 's' : ''} could `
         + `not be recorded (see the latest sync_runs row for source = `
@@ -126,11 +137,20 @@ export async function GET(req: Request) {
     // ~08:07 UTC, status 'failed', context 'shipment lookup #2500-2',
     // has_issues false. items_failed is the count that was missing.
     const itemsFailed = Number(clientResult.items_failed ?? 0)
+    // Appended to the line rather than pushed to errors[], and never counted
+    // into clientsFailed. A locked client is one a CONCURRENT invocation is
+    // syncing at this moment, so nothing is missing and nobody needs waking --
+    // but it is not something this pass did either, and `0 shipments assigned`
+    // with no explanation is the reading that would send someone looking for a
+    // fault that is not there.
+    const clientsLocked = Number(clientResult.clients_locked ?? 0)
     log.push(`${clientsFailed > 0 || itemsFailed > 0 ? '⚠' : '✓'} Client mapping: `
       + `${clientResult.updated ?? 0} shipments assigned`
       + `${clientsFailed > 0 ? ` · ${clientsFailed} of `
         + `${(clientResult.clients_synced ?? 0) + clientsFailed} clients FAILED` : ''}`
-      + `${itemsFailed > 0 ? ` · ${itemsFailed} items FAILED` : ''}`)
+      + `${itemsFailed > 0 ? ` · ${itemsFailed} items FAILED` : ''}`
+      + `${clientsLocked > 0 ? ` · ${clientsLocked} skipped, already syncing in a `
+        + `concurrent run (${(clientResult.locked_clients ?? []).join(', ')})` : ''}`)
     if (clientsFailed > 0) {
       errors.push(`⚠ ${clientsFailed} Zenventory client${clientsFailed > 1 ? 's' : ''} did `
         + `not sync, so ${clientsFailed > 1 ? 'their' : 'its'} orders and picks are `

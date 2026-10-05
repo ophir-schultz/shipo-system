@@ -183,3 +183,75 @@ describe('GET /api/agent/monitor: per-item sync failures reach has_issues', () =
     expect(h.sendEmail.mock.calls[0][0].subject).toMatch(/^🚨 Shipo Monitor — 1 issue need/)
   })
 })
+
+// ---------------------------------------------------------------------------
+// A pass that stepped aside, reported as such.
+//
+// Both syncs can now lose the sync_runs lock to a concurrent invocation, and
+// this route is where that becomes visible to a person. The failure mode this
+// guards is specific: a skipped pass returns the SAME all-zero counters a pass
+// with nothing to do returns, so without an explicit flag the handler prints
+// the same green line for each — and `✓ ShipStation sync: 0 new` read as
+// evidence of health is the precise mistake the rest of this file is a
+// post-mortem on.
+describe('GET /api/agent/monitor: a sync that skipped on the lock', () => {
+  it('says the ShipStation sync was skipped, rather than ticking a zero pass', async () => {
+    h.syncShipments.mockResolvedValue({
+      created: 0, updated: 0, adjustments: 0, refunds: 0,
+      errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
+      skipped: true, skipReason: 'another run of this source is already in progress',
+    })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.log.some((l) => l.includes('ShipStation sync skipped'))).toBe(true)
+    expect(body.log.some((l) => l.startsWith('✓ ShipStation sync:'))).toBe(false)
+  })
+
+  // Not an issue, and this is the half that matters. A lost lock means a
+  // SIBLING run is doing the work, so nothing is missing. The monitor fires on
+  // a cron and from every open browser tab every five minutes, so treating
+  // routine overlap as an issue would be an alert nobody reads within a day.
+  it('does not treat a skipped ShipStation sync as an issue', async () => {
+    h.syncShipments.mockResolvedValue({
+      created: 0, updated: 0, adjustments: 0, refunds: 0,
+      errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
+      skipped: true, skipReason: 'another run of this source is already in progress',
+    })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors).toEqual([])
+    expect(body.has_issues).toBe(false)
+  })
+
+  it('names the clients whose per-client lock was already held', async () => {
+    const body = await run({
+      ...cleanClientResult,
+      clients_synced: 6,
+      clients_locked: 2,
+      locked_clients: ['Nayax', 'Creative Pea'],
+    })
+
+    const line = body.log.find((l) => l.includes('Client mapping'))
+    expect(line).toContain('2 skipped')
+    expect(line).toContain('Nayax')
+    // Still a tick: locked is not failed, and the line must not acquire a ⚠.
+    expect(line!.startsWith('✓')).toBe(true)
+    expect(body.has_issues).toBe(false)
+  })
+
+  // The negative control for both of the above. Without it, a handler that
+  // ALWAYS printed 'skipped' would pass every assertion in this block.
+  it('an ordinary pass is still reported as an ordinary pass', async () => {
+    const body = await run(cleanClientResult)
+
+    // Scoped to the two lines this block changed. The charge stage prints its
+    // own 'skipped' on the throttle -- a different thing entirely, and the
+    // default in this file's beforeEach -- so a bare search for the word would
+    // fail here for a reason that has nothing to do with the lock.
+    expect(body.log.some((l) => l.includes('ShipStation sync skipped'))).toBe(false)
+    expect(body.log.some((l) => l.startsWith('✓ ShipStation sync:'))).toBe(true)
+    expect(body.log.find((l) => l.includes('Client mapping'))).not.toContain('skipped')
+  })
+})

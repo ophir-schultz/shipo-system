@@ -2,32 +2,72 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getShipments } from '@/lib/api/shipstation'
 import { calcDimWeightOz, calcBilledWeightOz } from '@/lib/billing/dim-weight'
 import { sourceForCarrier } from '@/lib/ledger/carrier'
-import { openSyncRun } from '@/lib/ledger/sync-run'
+import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
 
-export async function syncShipments(daysBack = 30) {
+// `skipped` exists so that "this run did nothing because another one is
+// already doing it" is distinguishable from "this run did nothing because
+// there was nothing to do". Both return all-zero counters, and without the
+// flag the monitor prints the same cheerful line for each.
+export interface ShipStationSyncResult {
+  created: number
+  updated: number
+  adjustments: number
+  refunds: number
+  errors: number
+  unknownCarrier: number
+  blankOrderNumber: number
+  skipped: boolean
+  skipReason: string | null
+}
+
+export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResult> {
   const dateFrom = new Date()
   dateFrom.setDate(dateFrom.getDate() - daysBack)
   const dateStr = dateFrom.toISOString().split('T')[0]
 
-  // Deliberately NOT caught. openSyncRun throws if the sync_runs row cannot be
-  // written, and this sync is the one that writes shipment cost rows -- running
-  // it with no record of the run is how a partial ingest becomes invisible. All
-  // three callers already wrap this function in try/catch and surface the
-  // message (agent/monitor, api/sync/shipments, api/sync/all), so the throw is
-  // reported rather than lost. Contrast zenventory.ts, which catches at its
-  // per-client boundary so one client cannot abandon the others.
-  const run = await openSyncRun({
-    source: 'shipstation',
-    mode: 'live',
-    windowStart: dateStr,
-    windowEnd: new Date().toISOString().split('T')[0],
-  })
-
   let page = 1
   let hasMore = true
-  const results = {
+  const results: ShipStationSyncResult = {
     created: 0, updated: 0, adjustments: 0, refunds: 0,
     errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
+    skipped: false, skipReason: null,
+  }
+
+  // Still deliberately NOT caught, with ONE exception. openSyncRun throws if
+  // the sync_runs row cannot be written, and this sync is the one that writes
+  // shipment cost rows -- running it with no record of the run is how a partial
+  // ingest becomes invisible. All three callers already wrap this function in
+  // try/catch and surface the message (agent/monitor, api/sync/shipments,
+  // api/sync/all), so the throw is reported rather than lost. Contrast
+  // zenventory.ts, which catches at its per-client boundary so one client
+  // cannot abandon the others.
+  //
+  // THE EXCEPTION is a lock conflict, which this source could not have before:
+  // until ledger_03d_sync_runs_mutex.sql it opened its row unconditionally.
+  // Now the loser of an overlapping pair gets 23505, and if that propagated it
+  // would surface as a 500 from api/sync/all and a 🚨 line from the monitor --
+  // an alarm raised because the system successfully prevented the problem it
+  // was built to prevent. Overlap here is routine, not exceptional: the monitor
+  // route budgets 300s and AutoSync polls it every five minutes from every open
+  // tab, so this is the ordinary case rather than a rare collision.
+  //
+  // Returned rather than thrown, every counter left at zero, because zero is
+  // the truth: this invocation created nothing, updated nothing, and failed at
+  // nothing. The sibling run holding the lock is doing the work and will report
+  // it against its own sync_runs row.
+  let run: Awaited<ReturnType<typeof openSyncRun>>
+  try {
+    run = await openSyncRun({
+      source: 'shipstation',
+      mode: 'live',
+      windowStart: dateStr,
+      windowEnd: new Date().toISOString().split('T')[0],
+    })
+  } catch (err) {
+    if (!isSyncRunLocked(err)) throw err
+    results.skipped = true
+    results.skipReason = err.message
+    return results
   }
 
   // The whole pull lives in a try/finally so the 'running' row cannot outlive

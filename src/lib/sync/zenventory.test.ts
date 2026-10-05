@@ -436,3 +436,117 @@ describe('syncClientAssignments: per-item failures reach the caller', () => {
     expect(result.item_failures).toHaveLength(10)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Losing a per-client sync_runs lock.
+//
+// This loop is sequential, so a client can never collide with itself -- a lock
+// conflict here means a SECOND invocation of syncClientAssignments is in flight
+// for the same client, and that invocation is mid-sync and will write
+// everything this one would have. So it is recorded, and it is not a failure.
+describe('syncClientAssignments: a client whose lock is already held', () => {
+  /** Fail the sync_runs INSERT for one client only, leaving the reap alone. */
+  const lockOut = (clientId: string | null) => {
+    h.db.failOn = (call) => {
+      if (call.table !== 'sync_runs' || call.verb !== 'insert') return null
+      if (clientId !== null && call.payload[0]?.client_id !== clientId) return null
+      return {
+        code: '23505',
+        message: 'duplicate key value violates unique constraint '
+               + '"sync_runs_running_source_client_key"',
+      }
+    }
+  }
+
+  it('does not report the locked client as an error', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    lockOut('c1')
+
+    const result = await syncClientAssignments(30)
+
+    // errors[] feeds the 🚨 alert email, naming the clients that did not sync.
+    // Naming a client that is at this moment syncing correctly in the sibling
+    // run is a false alarm, and the monitor runs every five minutes.
+    expect(result.clients_failed).toBe(0)
+    expect(result.errors).toEqual([])
+  })
+
+  it('counts it as locked, and names it', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    lockOut('c1')
+
+    const result = await syncClientAssignments(30)
+
+    expect(result.clients_locked).toBe(1)
+    expect(result.locked_clients).toEqual(['Nayax'])
+  })
+
+  // The assertion that makes the two above safe. clients_synced is computed by
+  // subtraction, so a locked client that was only kept out of clientErrors
+  // would be COUNTED AS SYNCED -- and in the realistic case, where a whole
+  // second invocation races the first, every client is locked and the run
+  // would report a full clean pass having touched nothing. That is a worse lie
+  // than the false alarm it was avoiding.
+  it('does not count a locked client as synced', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    lockOut('c1')
+
+    const result = await syncClientAssignments(30)
+
+    expect(result.clients_synced).toBe(1)
+  })
+
+  it('reports nothing synced when every client is locked, and does not throw', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    lockOut(null)
+
+    const result = await syncClientAssignments(30)
+
+    expect(result.clients_synced).toBe(0)
+    expect(result.clients_locked).toBe(2)
+    expect(result.clients_failed).toBe(0)
+  })
+
+  // One client's lock must not abandon the rest -- the same guarantee the 401s
+  // already have. Zenventory 2.0 credentials are missing for two clients today,
+  // so a partial pass is the normal state here, not an edge case.
+  it('still syncs the other clients', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    lockOut('c1')
+
+    await syncClientAssignments(30)
+
+    expect(runs().filter((r) => r.client_id === 'c2')).toHaveLength(1)
+    expect(runFor('c2').status).toBe('ok')
+  })
+
+  // Nothing is written for the locked client. If a row survived, the next run's
+  // watermark read would see it, and every overlap would leave a permanent
+  // 'failed' row behind.
+  it('leaves no run row behind for the locked client', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    lockOut('c1')
+
+    await syncClientAssignments(30)
+
+    expect(runs().filter((r) => r.client_id === 'c1')).toHaveLength(0)
+  })
+
+  // Only 23505 is a lock. Any other failure to open the row is still a failed
+  // client, because attributable failure is the entire reason the per-client
+  // rows exist.
+  it('a non-lock failure to open the row is still a failed client', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), client('c2', 'Creative Pea')]
+    h.db.failOn = (call) =>
+      call.table === 'sync_runs' && call.verb === 'insert'
+        && call.payload[0]?.client_id === 'c1'
+        ? { code: '42501', message: 'permission denied for table sync_runs' }
+        : null
+
+    const result = await syncClientAssignments(30)
+
+    expect(result.clients_failed).toBe(1)
+    expect(result.clients_locked).toBe(0)
+    expect(result.errors[0]).toContain('Nayax')
+  })
+})

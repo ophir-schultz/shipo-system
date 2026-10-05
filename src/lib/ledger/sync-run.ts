@@ -2,6 +2,8 @@
 // nothing to do. sync_runs makes the difference recordable, and collectErrors
 // keeps what went wrong rather than only how often.
 
+import { STALE_RUN_MINUTES, isLockConflict, staleRunCutoffISO } from '@/lib/ledger/run-lock'
+
 const MAX_STORED_ERRORS = 50
 const MAX_STORED_WARNINGS = 50
 
@@ -60,6 +62,36 @@ export function collectErrors() {
   }
 }
 
+/**
+ * Thrown when another run of the same (source, client_id) already holds the
+ * lock. NOT a failure: it is the mutex working, and the correct response is to
+ * skip quietly.
+ *
+ * A distinct type rather than a flag on the generic error because the three
+ * callers each had to be taught the difference, and a string match on the
+ * message would have been the fourth place this branch got bitten by matching
+ * on Postgres prose. `isSyncRunLocked()` duck-types rather than using
+ * `instanceof` so that it keeps working if this module is ever loaded twice
+ * (two bundles, or a test importing through a different alias), which is a
+ * silent and extremely confusing way for an `instanceof` guard to start
+ * answering false.
+ */
+export class SyncRunLockedError extends Error {
+  readonly isSyncRunLocked = true as const
+  constructor(readonly source: string, readonly clientId: string | null) {
+    super(
+      `openSyncRun(${source}${clientId ? `, client ${clientId}` : ''}): another `
+      + `run of this source is already in progress, so this one is skipping. `
+      + `This is the sync_runs mutex working, not a failure.`)
+    this.name = 'SyncRunLockedError'
+  }
+}
+
+export function isSyncRunLocked(err: unknown): err is SyncRunLockedError {
+  return typeof err === 'object' && err !== null
+    && (err as { isSyncRunLocked?: unknown }).isSyncRunLocked === true
+}
+
 export interface SyncRunHandle {
   // Non-nullable. openSyncRun now throws rather than handing back a handle with
   // no row behind it, so anything holding a SyncRunHandle holds a real
@@ -112,6 +144,79 @@ export async function openSyncRun(input: {
   // It also keeps the error object alive. The old shape logged it and dropped
   // it; close() then returned early on the null id and discarded errors.list()
   // as well, so the run's entire error record went nowhere.
+  // ---------------------------------------------------------------------
+  // THE MUTEX, HALF ONE: reap.
+  //
+  // supabase/ledger_03d_sync_runs_mutex.sql puts a partial unique index over
+  // the 'running' rows, so the insert below is now the single atomic point at
+  // which a run either takes the lock or discovers someone else has it. That
+  // replaces canStart()'s select-then-insert, which could never be atomic:
+  // two callers that both read before either wrote both passed the gate.
+  //
+  // But an index alone would be a REGRESSION, and a severe one. close() runs
+  // in a finally, so an ordinary throw still closes the row -- yet a lambda
+  // hard-killed at maxDuration (the monitor route budgets 300s and is polled
+  // every five minutes) never runs finally at all, and leaves 'running'
+  // behind for ever. Under a bare unique index that one timeout would lock
+  // the source out permanently: every later run refused, nothing written,
+  // and the table looking perfectly healthy. A transient failure would have
+  // become an unbounded outage of the money path.
+  //
+  // canStart() already has the answer and has had it all along -- a 'running'
+  // row older than STALE_RUN_MINUTES does not block (run-lock.ts:23). So this
+  // is not a new policy, it is the existing one made atomic: clear the rows
+  // canStart would already have ignored, then let the index arbitrate what is
+  // left. Both halves read the same constant, via staleRunCutoffISO().
+  //
+  // Scoped to this exact (source, client_id). zenventory opens a row PER
+  // CLIENT, so reaping by source alone would close a live sibling's row and
+  // hand its lock away mid-sync.
+  //
+  // Recorded as a WARNING, not an error, and that is deliberate: close()'s
+  // status formula and every error_count reader treat warnings as non-
+  // failures, so a reaped row does not fire the monitor's alarm. It did not
+  // fail; it stopped existing. The row still says 'failed' because that is
+  // the only terminal status the rest of the codebase knows, and because
+  // both readers that matter -- the charge throttle (status = 'ok') and the
+  // zenventory watermark (status in ok/partial) -- must not mistake an
+  // abandoned run for evidence of a completed one.
+  const now = new Date()
+  const reap = supabaseAdmin
+    .from('sync_runs')
+    .update({
+      status: 'failed',
+      finished_at: now.toISOString(),
+      errors: [{
+        kind: 'warning',
+        context: 'run abandoned',
+        message: `Still 'running' more than ${STALE_RUN_MINUTES} minutes after it `
+               + `started, so a later run of the same source presumed it dead and `
+               + `closed it. The usual cause is the lambda being killed at its `
+               + `maxDuration, which skips the finally that would have closed it.`,
+      }],
+    })
+    .eq('source', input.source)
+    .eq('status', 'running')
+    .lt('started_at', staleRunCutoffISO(now))
+
+  // `.is(null)` and `.eq(id)` are NOT interchangeable here. PostgREST renders
+  // eq against null as `client_id = null`, which is never true, so the
+  // source-wide rows (charges, shipstation) would never be reaped and would
+  // wedge exactly as described above.
+  const { error: reapError } = await (input.clientId
+    ? reap.eq('client_id', input.clientId)
+    : reap.is('client_id', null))
+
+  // Not fatal on its own. If the reap failed but no stale row exists, the
+  // insert below succeeds and nothing was lost; if one does exist, the insert
+  // returns 23505 and this run skips as though locked -- which is the safe
+  // direction. Worth a log either way, because a reap that keeps failing is
+  // how a source quietly stops syncing.
+  if (reapError) {
+    console.error('[openSyncRun] could not reap stale runs:', reapError)
+  }
+
+  // THE MUTEX, HALF TWO: take the lock, atomically.
   const { data, error: openError } = await supabaseAdmin
     .from('sync_runs')
     .insert({
@@ -124,6 +229,14 @@ export async function openSyncRun(input: {
     })
     .select('id')
     .maybeSingle()
+
+  // The expected, non-alarming outcome for the loser of an overlapping pair.
+  // Checked BEFORE the generic branch so a lock loss can never be reported as
+  // a database failure. See isLockConflict() for why this is matched on the
+  // SQLSTATE and not on the message.
+  if (isLockConflict(openError)) {
+    throw new SyncRunLockedError(input.source, input.clientId ?? null)
+  }
 
   if (openError) {
     console.error('[openSyncRun] could not create sync_runs row:', openError)
