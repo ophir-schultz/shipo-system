@@ -624,10 +624,20 @@ describe('syncShipments: the row and the counter agree at every fail site', () =
     expectOneFailure(result, 'match shipment 9102', 'failed')
   })
 
-  it('counts a failed rate-adjustment insert', async () => {
-    // A lost adjustment is money: billing/calculator.ts sums approved
-    // adjustment_amount into the client's weekly bill, so an adjustment that
-    // was never recorded is carrier spend that is never billed on.
+  it('counts a failed rate-adjustment insert as an ADJUSTMENT failure, not a shipment one', async () => {
+    // A lost adjustment is money. The reader is NOT billing/calculator.ts,
+    // which an earlier version of this comment named: that file is imported by
+    // nothing but its own test (grep, 2026-10-05), so citing it was citing dead
+    // code. The live readers are billing/page.tsx, reports/page.tsx,
+    // api/reports/download and the dashboard's pending-adjustments tile -- a
+    // rate_adjustments row is how carrier spend reaches a person to approve,
+    // and an adjustment never inserted is never billed on.
+    //
+    // And it never heals: the note at shipstation.ts:272 establishes that once
+    // actual_cost holds the new value the diff is 0 on every later run, so this
+    // branch is not re-entered. The shipment update below SUCCEEDS here, which
+    // is exactly what moves actual_cost -- so this adjustment is lost
+    // permanently, not until the next run.
     seedAttributed(9103, 'E-903', 5.00)
     h.db.failOn = (call) =>
       call.table === 'rate_adjustments' && call.verb === 'upsert'
@@ -639,11 +649,22 @@ describe('syncShipments: the row and the counter agree at every fail site', () =
     })
     const result = await syncShipments(30)
 
-    // The shipment update itself still succeeded, so this is a 'partial' kind
-    // of outcome in substance -- the counter must report the one real failure
-    // without swallowing it behind the successful write beside it.
-    expect(result).toMatchObject({ updated: 1, adjustments: 0, refunds: 0 })
-    expectOneFailure(result, 'adjustment insert 9103', 'partial')
+    // `errors: 0` is the correction, and it is the point of this test. The
+    // shipment WAS recorded -- updated: 1 -- so counting this in `errors` had
+    // the monitor email "1 ShipStation shipment could not be recorded ... their
+    // revenue and carrier cost are missing from the ledger until the next
+    // successful run picks them up", and every clause of that is false here.
+    // The adjustment is what was lost, and it gets its own counter.
+    expect(result).toMatchObject({
+      updated: 1, adjustments: 0, refunds: 0, errors: 0, adjustmentErrors: 1,
+    })
+    // Still recorded against the row, and the row is still off 'ok': this is a
+    // real failure, just not a failure of the shipment.
+    const run = theRun()
+    expect(run.status).toBe('partial')
+    const errors = run.errors as Array<{ kind: string; context: string }>
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ kind: 'error', context: 'adjustment insert 9103' })
   })
 
   it('counts a failed shipment update', async () => {
@@ -691,6 +712,151 @@ describe('syncShipments: the row and the counter agree at every fail site', () =
 // Losing the sync_runs lock.
 //
 // Before ledger_03d_sync_runs_mutex.sql this source opened its row
+// `errors` is rendered by the monitor as a count of SHIPMENTS -- "N ShipStation
+// shipment(s) could not be recorded" -- but it was incremented once per
+// FAILURE, by six different sites, two of which are sequential rather than
+// mutually exclusive. So one label could report as two missing shipments.
+//
+// Same class of defect as the Zenventory client count fixed on 2026-10-05: a
+// count of events read as a count of entities. Measured here before the fix,
+// one label, two routes:
+//
+//   adjustment insert + update both fail -> errors 2, contexts
+//     ["adjustment insert 9201","update 9201"]
+//   adjustment insert errors, update THROWS -> errors 2, contexts
+//     ["adjustment insert 9202","shipment 9202"]
+//
+// Lower blast radius than the Zenventory one -- nothing here is computed by
+// subtraction, so no count could go negative, and the monitor's only gate is
+// `errors > 0`, which a double count cannot flip either way. What it corrupted
+// was the MAGNITUDE in the alert email, and the file's own standard for that is
+// written at the 23505 branch: "An alert that is wrong about whether money is
+// missing is worse than no alert, because it spends the attention that a real
+// one needs."
+//
+// WHICH HALF OF THE FIX THESE TESTS ACTUALLY PIN, recorded as a correction
+// rather than left as first written. Both routes above are fixed by splitting
+// the adjustment site onto its own counter; the failedShipments set is not what
+// kills them. Mutation established it: with the split in place, reverting that
+// set to `results.errors++` leaves every test here green, because no route
+// through the loop as it stands reaches two failItem sites -- the update site
+// is the last statement in its branch and the insert site the last in the
+// other. The set is a structural guarantee against a future route doing so,
+// and the note on it in sync/shipstation.ts says so in those terms. Do not
+// read these tests as evidence for it.
+describe('syncShipments: one label, counted once', () => {
+  it('counts a label whose adjustment AND update both fail as one shipment', async () => {
+    // ROUTE A. The adjustment branch is entered only when the cost DIFFERS from
+    // the stored one, which is why the site-4 test above deliberately matches
+    // the seed cost -- it was avoiding this overlap rather than covering it.
+    seedAttributed(9201, 'E-921', 5.00)
+    h.db.failOn = (call) =>
+      (call.table === 'rate_adjustments' && call.verb === 'upsert')
+        || (call.table === 'shipments' && call.verb === 'update')
+        ? { message: 'database is in recovery mode', code: '57P03' }
+        : null
+    h.getShipments.mockResolvedValue({
+      shipments: [label(9201, 'E-921', { shipmentCost: 9.50 })], pages: 1,
+    })
+
+    const result = await syncShipments(30)
+
+    // One label, so one missing shipment -- plus one separately-counted lost
+    // adjustment. Was `errors: 2, adjustmentErrors: undefined`.
+    expect(result).toMatchObject({ errors: 1, adjustmentErrors: 1, updated: 0 })
+  })
+
+  it('counts a label whose adjustment fails and whose update THROWS as one shipment', async () => {
+    // ROUTE B. A rejection rather than a PostgREST error object, which reaches
+    // the per-label catch instead of the `if (updError)` branch -- a different
+    // pair of sites, the same double count.
+    seedAttributed(9202, 'E-922', 5.00)
+    h.db.failOn = (call) =>
+      call.table === 'rate_adjustments' && call.verb === 'upsert'
+        ? { message: 'deadlock detected', code: '40P01' }
+        : null
+    let seen = 0
+    const real = h.db.client.from.bind(h.db.client)
+    h.db.client.from = ((t: string) => {
+      if (t === 'shipments' && ++seen === 2) throw new TypeError('fetch failed')
+      return real(t)
+    }) as typeof h.db.client.from
+    h.getShipments.mockResolvedValue({
+      shipments: [label(9202, 'E-922', { shipmentCost: 9.50 })], pages: 1,
+    })
+
+    const result = await syncShipments(30)
+
+    expect(result).toMatchObject({ errors: 1, adjustmentErrors: 1 })
+  })
+
+  it('still records BOTH failures on the run row', async () => {
+    // The dedupe is on the CALLER's count only. The row is the forensic record
+    // and 'adjustment insert' beside 'update' says more than either alone --
+    // the same split the Zenventory fix kept.
+    seedAttributed(9203, 'E-923', 5.00)
+    h.db.failOn = (call) =>
+      (call.table === 'rate_adjustments' && call.verb === 'upsert')
+        || (call.table === 'shipments' && call.verb === 'update')
+        ? { message: 'database is in recovery mode', code: '57P03' }
+        : null
+    h.getShipments.mockResolvedValue({
+      shipments: [label(9203, 'E-923', { shipmentCost: 9.50 })], pages: 1,
+    })
+
+    await syncShipments(30)
+
+    const errors = theRun().errors as Array<{ context: string }>
+    expect(errors.map((e) => e.context)).toEqual([
+      'adjustment insert 9203', 'update 9203',
+    ])
+  })
+
+  it('does not collapse two DIFFERENT labels that each fail', async () => {
+    // The other half of the property, and the one a Set makes easy to get
+    // wrong. Deduping per label must not dedupe across labels.
+    h.db.failOn = (call) =>
+      call.table === 'shipments' && call.verb === 'insert'
+        ? { message: 'numeric field overflow', code: '22003' }
+        : null
+    h.getShipments.mockResolvedValue({
+      shipments: [label(9204, 'E-924'), label(9205, 'E-925')], pages: 1,
+    })
+
+    const result = await syncShipments(30)
+
+    expect(result.errors).toBe(2)
+  })
+
+  it('does not collapse two labels that BOTH lack a usable shipmentId', async () => {
+    // These fail before any id is known, so there is no id to key them on.
+    // Keying them on the same sentinel would report two dropped labels as one;
+    // they get an ordinal instead.
+    h.getShipments.mockResolvedValue({
+      shipments: [
+        { ...label(9206, 'E-926'), shipmentId: 'not-a-number' },
+        { ...label(9207, 'E-927'), shipmentId: null },
+      ],
+      pages: 1,
+    })
+
+    const result = await syncShipments(30)
+
+    expect(result.errors).toBe(2)
+  })
+
+  it('reports no adjustment failures on a clean pass', async () => {
+    // The new counter has to be 0 rather than absent, or `Number(x ?? 0)` in
+    // the monitor hides a missing field as a healthy zero.
+    h.getShipments.mockResolvedValue({ shipments: [label(9208, 'E-928')], pages: 1 })
+
+    const result = await syncShipments(30)
+
+    expect(result.adjustmentErrors).toBe(0)
+    expect(result.errors).toBe(0)
+  })
+})
+
 // unconditionally and could not have a lock conflict at all. Now the loser of
 // an overlapping pair gets 23505 -- and overlap here is the ORDINARY case, not
 // a rare collision: the monitor route budgets 300s and AutoSync polls it every

@@ -14,7 +14,29 @@ export interface ShipStationSyncResult {
   updated: number
   adjustments: number
   refunds: number
+  /**
+   * SHIPMENTS that could not be recorded. Distinct labels, not failures.
+   *
+   * It is a count of labels because that is what the only consumer renders it
+   * as: monitor/route.ts prints "N ShipStation shipment(s) could not be
+   * recorded ... Their revenue and carrier cost are missing from the ledger".
+   * Incrementing it once per failure made that sentence false about its own
+   * subject, because the fail sites are not mutually exclusive -- the
+   * adjustment branch and the update branch are sequential, so one label
+   * failing both reported two missing shipments.
+   */
   errors: number
+  /**
+   * Rate adjustments lost. NOT shipment failures, which is the whole point.
+   *
+   * A failed adjustment insert leaves the shipment recorded with its revenue
+   * and its new cost; what is lost is the audit row for the COST CHANGE. So it
+   * cannot be reported through `errors` without every clause of that sentence
+   * being wrong, and it must still be reported, because it never heals: once
+   * actual_cost holds the new value the diff is 0 on every later run and the
+   * branch is never re-entered. A lost adjustment is lost for good.
+   */
+  adjustmentErrors: number
   unknownCarrier: number
   blankOrderNumber: number
   skipped: boolean
@@ -74,7 +96,7 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
   let hasMore = true
   const results: ShipStationSyncResult = {
     created: 0, updated: 0, adjustments: 0, refunds: 0,
-    errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
+    errors: 0, adjustmentErrors: 0, unknownCarrier: 0, blankOrderNumber: 0,
     skipped: false, skipReason: null,
     attributed: 0, unmappedStore: 0, unmappedStoreIds: [],
     noStoreId: 0, attributionConflicts: 0, storeMapUnavailable: false,
@@ -136,9 +158,59 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
   //
   // NOT for the pull-level failure in the catch at the bottom -- see the note
   // there on why that one is deliberately unpaired.
+  //
+  // A SET OF LABELS, NOT A TALLY OF FAILURES. results.errors is published from
+  // this set's size at the bottom.
+  //
+  // BE PRECISE ABOUT WHAT THIS DOES AND DOES NOT FIX. The double count that
+  // shipped was the adjustment site sharing this counter: that site and the
+  // update site are sequential, not mutually exclusive, so one label failing
+  // both reported two missing shipments. What fixes that is failAdjustment
+  // below, which takes the adjustment site off this counter entirely -- not
+  // this set. Checked by mutation 2026-10-05: with the split in place,
+  // reverting this set to `results.errors++` leaves every test green, because
+  // no route through the loop as it stands today reaches two failItem sites.
+  // The update site is the last statement in its branch, the insert site is
+  // the last in the other, and both branch ends fall straight out of the try.
+  //
+  // So this is a STRUCTURAL guarantee, deliberately kept with its eyes open,
+  // not a fix for a live defect. It makes "errors counts shipments" true by
+  // construction rather than true by coincidence of statement order, which is
+  // the same reason failItem exists at all (see the pairing note above): the
+  // next person who adds a fail site after the update, or who removes a
+  // `continue`, cannot reintroduce the defect. The honest cost is that the
+  // mechanism has no test which can fail while the split is correct, and this
+  // comment is therefore the only thing protecting it.
+  //
+  // run.fail() is still called once per FAILURE, deliberately. The run row is
+  // the forensic record and two failures on one label are two real events with
+  // different causes; deduplicating THEM would discard the one that explains
+  // the other. Only the caller-facing count is per-label.
+  const failedShipments = new Set<number>()
+  // The label's ORDINAL in the pull, not its shipmentId, and that choice is
+  // load-bearing twice over. Site 1 fires precisely BECAUSE shipmentId is
+  // unusable, so an id-keyed set would collapse every id-less label in the
+  // window into one reported failure -- the same mistake as recording them all
+  // as shipment 0. And an ordinal needs no coercion, so there is no second
+  // place for Number(null) === 0 to be read as a valid key.
+  //
+  // Incremented at the top of each iteration, before anything can fail, so no
+  // fail site has to know this exists.
+  let labelOrdinal = 0
   const failItem = (context: string, err: unknown) => {
     run.fail(context, err)
-    results.errors++
+    failedShipments.add(labelOrdinal)
+  }
+
+  // A LOST ADJUSTMENT IS NOT A LOST SHIPMENT. Separate counter, separate
+  // sentence in the monitor, and deliberately NOT added to failedShipments:
+  // the shipment row is written, with its revenue and its new cost. Routing
+  // this through failItem claimed the label was missing from the ledger when
+  // it was sitting in it correctly -- provable from the existing test that
+  // asserts `updated: 1` alongside the failure.
+  const failAdjustment = (context: string, err: unknown) => {
+    run.fail(context, err)
+    results.adjustmentErrors++
   }
 
   // The store -> client map, read ONCE for the whole run.
@@ -202,6 +274,9 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
 
       for (const s of shipments) {
         run.seen()
+        // Counts labels across the whole pull rather than within a page, so
+        // two id-less labels on different pages stay distinct.
+        labelOrdinal++
         try {
           // DEFECT 1, FIXED. The old code matched on order_number, which is not
           // the identity of a label: a multi-package order has several, and a
@@ -527,7 +602,12 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
               // both runs used to count an adjustment and only one of them was
               // telling the truth. The run that loses the conflict now reports
               // nothing, which is what it did.
-              if (insError) failItem(`adjustment insert ${shipmentId}`, insError)
+              // failAdjustment, not failItem. The shipment is recorded and its
+              // new cost is about to be written by the update below; what was
+              // lost is the audit row for the change. Calling it a shipment
+              // failure sent an alert saying this label's revenue and cost were
+              // missing from the ledger while both were present.
+              if (insError) failAdjustment(`adjustment insert ${shipmentId}`, insError)
               else if ((insertedAdj ?? []).length > 0) {
                 if (diff > 0) results.adjustments++
                 else results.refunds++
@@ -627,6 +707,21 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
     }
     await run.close()
   }
+
+  // Published once, from the set, rather than incremented at each fail site.
+  //
+  // Assigned and not accumulated because the question "how many shipments
+  // could not be recorded" has one answer per run and it is only knowable once
+  // the pull is over -- a label that fails twice must not be able to move this
+  // number twice, and the only way to guarantee that structurally is for the
+  // fail sites to have no access to it.
+  //
+  // Not in the finally above, unlike run.close(). The catch rethrows, so on
+  // that path `results` never reaches a caller and there is nobody to read
+  // this; what reports a dead pull is the throw and the run row's own fail()
+  // record. The early return on a lost lock is before the loop, so the set is
+  // empty there and this correctly stays 0.
+  results.errors = failedShipments.size
 
   return results
 }

@@ -87,6 +87,28 @@ export async function GET(req: Request) {
         + `'shipstation'). Their revenue and carrier cost are missing from the `
         + `ledger until the next successful run picks them up.`)
     }
+    // A SEPARATE SENTENCE, because it is a different loss. Until the counter
+    // was split, a failed rate-adjustment insert incremented `errors` and was
+    // reported by the sentence above -- which was wrong in every clause: the
+    // shipment IS recorded, its revenue and cost ARE in the ledger, and no
+    // later run picks the adjustment up, because once actual_cost holds the new
+    // value the diff is 0 for ever and the branch is never re-entered
+    // (sync/shipstation.ts, the note above the rate_adjustments upsert).
+    //
+    // errors[] rather than log[], unlike unknownCarrier below, because this one
+    // is permanent and silent: an unmapped carrier leaves a null a person can
+    // still see and fix, whereas a lost adjustment leaves no trace at all in
+    // the ledger and no mechanism that will ever notice. The wording says what
+    // was lost and does not promise a self-heal that cannot happen.
+    const adjFailed = Number(syncResult.adjustmentErrors ?? 0)
+    if (adjFailed > 0) {
+      errors.push(`⚠ ${adjFailed} ShipStation rate adjustment${adjFailed > 1 ? 's' : ''} `
+        + `could not be recorded (see the latest sync_runs row for source = `
+        + `'shipstation'). The shipment${adjFailed > 1 ? 's are' : ' is'} recorded with `
+        + `the new carrier cost, so margin is correct, but the audit row for the `
+        + `cost CHANGE is lost and will not be retried -- the next run sees no `
+        + `difference to record. Recover it from the carrier invoice by hand.`)
+    }
     // Log, not errors[]: an unrecognised carrier code leaves the cost null
     // rather than wrong, and the shipment row is still written. It needs a
     // person eventually, not a 🚨 subject line every eight hours.

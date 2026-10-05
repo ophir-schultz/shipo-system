@@ -187,6 +187,75 @@ describe('GET /api/agent/monitor: per-item sync failures reach has_issues', () =
 // ---------------------------------------------------------------------------
 // A pass that stepped aside, reported as such.
 //
+// A lost rate adjustment and an unrecorded shipment are different losses, and
+// this route is the only place either becomes a sentence a person reads. Until
+// the counter was split they shared one: `errors` was incremented by the
+// adjustment fail site too, so a failed adjustment insert produced "1
+// ShipStation shipment could not be recorded ... Their revenue and carrier cost
+// are missing from the ledger until the next successful run picks them up" —
+// wrong in every clause, since the shipment is recorded with both, and nothing
+// ever retries the adjustment.
+describe('GET /api/agent/monitor: a lost rate adjustment is not a lost shipment', () => {
+  const withAdjFailure = {
+    created: 0, updated: 1, adjustments: 0, refunds: 0,
+    errors: 0, adjustmentErrors: 1, unknownCarrier: 0, blankOrderNumber: 0,
+    skipped: false, skipReason: null,
+  }
+
+  it('reports the lost adjustment as an issue', async () => {
+    h.syncShipments.mockResolvedValue(withAdjFailure)
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors.filter((e) => e.includes('rate adjustment'))).toHaveLength(1)
+    expect(body.has_issues).toBe(true)
+  })
+
+  it('does not claim a shipment is missing from the ledger', async () => {
+    // The assertion the old wording could not satisfy. This is the sentence
+    // that was false, so this is the sentence that has to stay absent.
+    h.syncShipments.mockResolvedValue(withAdjFailure)
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors.some((e) => e.includes('could not be recorded'))).toBe(true)
+    expect(body.errors.some((e) => e.includes('shipment could not be recorded'))).toBe(false)
+    expect(body.errors.some((e) => e.includes('shipments could not be recorded'))).toBe(false)
+  })
+
+  it('does not promise a self-heal that cannot happen', async () => {
+    // Once actual_cost holds the new value the diff is 0 for ever, so "the next
+    // successful run picks them up" is not merely optimistic, it is impossible.
+    h.syncShipments.mockResolvedValue(withAdjFailure)
+
+    const body = await run(cleanClientResult)
+
+    const adj = body.errors.find((e) => e.includes('rate adjustment'))!
+    expect(adj).not.toContain('next successful run picks them up')
+    expect(adj).toContain('will not be retried')
+  })
+
+  it('reports a shipment failure and an adjustment failure as two separate issues', async () => {
+    h.syncShipments.mockResolvedValue({ ...withAdjFailure, errors: 2, adjustmentErrors: 1 })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors.filter((e) => e.includes('shipments could not be recorded'))).toHaveLength(1)
+    expect(body.errors.filter((e) => e.includes('rate adjustment'))).toHaveLength(1)
+    // And the shipment sentence must still carry its own number, not the total.
+    expect(body.errors.some((e) => e.includes('2 ShipStation shipments'))).toBe(true)
+  })
+
+  it('says nothing about adjustments on a pass that lost none', async () => {
+    h.syncShipments.mockResolvedValue({ ...withAdjFailure, updated: 1, adjustmentErrors: 0 })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors).toEqual([])
+    expect(body.has_issues).toBe(false)
+  })
+})
+
 // Both syncs can now lose the sync_runs lock to a concurrent invocation, and
 // this route is where that becomes visible to a person. The failure mode this
 // guards is specific: a skipped pass returns the SAME all-zero counters a pass
