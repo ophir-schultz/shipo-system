@@ -1,3 +1,23 @@
+-- ###########################################################################
+-- RETRACTED 2026-10-05. DO NOT RUN THIS FILE.
+--
+-- The $1,807.80 below is a FLOOR, not September's labour total. Contractors are
+-- also paid by Zelle from a second account, and no Zelle payment appears
+-- anywhere on the ...6109 statement this file is built from. The note it writes
+-- into the database -- "Owner confirmed 2026-10-05 this is the complete month"
+-- -- is false.
+--
+-- This file's own reasoning, 20 lines down, called it: $904 per person per
+-- month is too low for warehouse work and the obvious reading is that the rest
+-- is paid from another account. That reading was set aside on the strength of a
+-- confirmation which did not hold. Kept rather than deleted because the four
+-- Cash App debits are still correctly itemised and will be part of the real
+-- total, and because the mistake is worth being able to find.
+--
+-- To undo it: supabase/operating_costs_2026_09_labor_retract.sql
+-- To redo it properly: the September statement for the Zelle account.
+-- ###########################################################################
+--
 -- September 2026 operating costs: contractor labour.
 --
 -- Companion to operating_costs_2026_09.sql (the $11,500 warehouse lease). Read
