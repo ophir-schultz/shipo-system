@@ -544,6 +544,150 @@ describe('syncShipments: a second run overlapping the first', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Every fail site reaches the counter the CALLER reads.
+//
+// These exist because of the 2026-10-03 defect: a sync_runs row closed 'failed'
+// with error_count 1 on 'shipment lookup #2500-2' while /api/agent/monitor
+// reported has_issues:false, painting the dashboard's sync indicator green over
+// a failed run. The cause was that the row's status (driven by run.fail ->
+// close()) and results.errors were two separate statements at every fail site,
+// so a site could record one and not the other.
+//
+// shipstation.ts now routes all six per-item sites through one failItem()
+// helper, but a helper is only a convention until something fails when it is
+// bypassed. Each test below pins ONE site, asserting the run row and the
+// returned counter TOGETHER -- the exact pair that came apart in production.
+// Before these, five of the six sites had no test that noticed a lost counter
+// bump: writing `run.fail()` instead of `failItem()` at any of them kept the
+// whole suite green.
+describe('syncShipments: the row and the counter agree at every fail site', () => {
+  /**
+   * The pair that drifted in production. A green `errors` over a row that
+   * recorded a failure IS the defect, and asserting either half alone cannot
+   * see it -- the 2026-10-03 row had the failure and the caller still read
+   * zero.
+   *
+   * `status` is a parameter rather than always 'failed' because close()'s
+   * formula is (no errors -> 'ok', else rows written -> 'partial', else
+   * 'failed'): a site that fails AFTER something was written closes 'partial'.
+   * Both are non-'ok', which is the property that matters here.
+   */
+  const expectOneFailure = (
+    result: { errors: number },
+    context: string,
+    status: 'failed' | 'partial',
+  ) => {
+    expect(result.errors).toBe(1)
+    const run = theRun()
+    expect(run.status).toBe(status)
+    expect(run.status).not.toBe('ok')
+    // `context` rather than `message`: it is the string the fail site itself
+    // passes, so it names WHICH of the six sites fired. Asserting on the
+    // message would pass for a failure raised anywhere in the function.
+    const errors = run.errors as Array<{ kind: string; context: string }>
+    expect(errors).toHaveLength(1)
+    expect(errors[0].kind).toBe('error')
+    expect(errors[0].context).toBe(context)
+  }
+
+  it('counts a label whose shipmentId is not a number', async () => {
+    // shipmentId is the identity of the row, so a label without a usable one
+    // cannot be written at all -- the whole label is dropped. That is a
+    // shipment whose carrier cost is missing from the ledger, which is exactly
+    // what results.errors is read to announce.
+    h.getShipments.mockResolvedValue({
+      shipments: [{ ...label(9101, 'E-901'), shipmentId: 'not-a-number' }],
+      pages: 1,
+    })
+
+    const result = await syncShipments(30)
+
+    expect(result.created).toBe(0)
+    expectOneFailure(result, 'missing shipmentId', 'failed')
+  })
+
+  it('counts a failed existence lookup', async () => {
+    // DEFECT 4's site. The select that decides insert-vs-update is the one
+    // whose failure the 2026-10-03 production row actually recorded
+    // ('shipment lookup #2500-2'), so this is the site that was green.
+    h.db.failOn = (call) =>
+      call.table === 'shipments' && call.verb === 'select'
+        ? { message: 'could not connect to server', code: '08006' }
+        : null
+
+    h.getShipments.mockResolvedValue({
+      shipments: [label(9102, 'E-902')], pages: 1,
+    })
+    const result = await syncShipments(30)
+
+    expect(result).toMatchObject({ created: 0, updated: 0 })
+    expectOneFailure(result, 'match shipment 9102', 'failed')
+  })
+
+  it('counts a failed rate-adjustment insert', async () => {
+    // A lost adjustment is money: billing/calculator.ts sums approved
+    // adjustment_amount into the client's weekly bill, so an adjustment that
+    // was never recorded is carrier spend that is never billed on.
+    seedAttributed(9103, 'E-903', 5.00)
+    h.db.failOn = (call) =>
+      call.table === 'rate_adjustments' && call.verb === 'upsert'
+        ? { message: 'deadlock detected', code: '40P01' }
+        : null
+
+    h.getShipments.mockResolvedValue({
+      shipments: [label(9103, 'E-903', { shipmentCost: 9.50 })], pages: 1,
+    })
+    const result = await syncShipments(30)
+
+    // The shipment update itself still succeeded, so this is a 'partial' kind
+    // of outcome in substance -- the counter must report the one real failure
+    // without swallowing it behind the successful write beside it.
+    expect(result).toMatchObject({ updated: 1, adjustments: 0, refunds: 0 })
+    expectOneFailure(result, 'adjustment insert 9103', 'partial')
+  })
+
+  it('counts a failed shipment update', async () => {
+    seedAttributed(9104, 'E-904', 7.25)
+    h.db.failOn = (call) =>
+      call.table === 'shipments' && call.verb === 'update'
+        ? { message: 'numeric field overflow', code: '22003' }
+        : null
+
+    // Same cost as the seed, so the adjustment branch is not entered and the
+    // update is the only thing that can fail.
+    h.getShipments.mockResolvedValue({
+      shipments: [label(9104, 'E-904', { shipmentCost: 7.25 })], pages: 1,
+    })
+    const result = await syncShipments(30)
+
+    expect(result).toMatchObject({ updated: 0, created: 0 })
+    expectOneFailure(result, 'update 9104', 'failed')
+  })
+
+  it('counts a label that throws while being read', async () => {
+    // The per-shipment catch. Unlike the sites above, this one fires on a
+    // THROWN error rather than a returned one -- a malformed payload, not a
+    // database result -- and it is the catch-all that keeps one bad label from
+    // abandoning the rest of the page. It still has to reach the counter.
+    const exploding: Record<string, unknown> = { ...label(9105, 'E-905') }
+    Object.defineProperty(exploding, 'dimensions', {
+      get() { throw new Error('payload exploded') },
+      enumerable: true,
+    })
+
+    h.getShipments.mockResolvedValue({
+      shipments: [exploding, label(9106, 'E-906')], pages: 1,
+    })
+    const result = await syncShipments(30)
+
+    // The second label is still written: the catch exists so one unreadable
+    // payload does not cost the page.
+    expect(result.created).toBe(1)
+    expectOneFailure(result, 'shipment 9105', 'partial')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Losing the sync_runs lock.
 //
 // Before ledger_03d_sync_runs_mutex.sql this source opened its row

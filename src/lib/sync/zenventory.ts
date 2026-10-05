@@ -153,11 +153,15 @@ export async function syncClientAssignments(daysBack = 30) {
       continue
     }
 
-    // One call, not two. sync/shipstation.ts pairs `results.errors++` with each
-    // run.fail() by hand, and that is exactly how these sites came to be
-    // unpaired — the row recorded the failure and nothing the caller reads did.
-    // Recording both from a single function is what stops the pairing drifting
-    // again the next time a fail() site is added.
+    // One call, not two. Pairing `run.fail()` with the caller-visible counter
+    // by hand is exactly how these sites came to be unpaired — the row recorded
+    // the failure and nothing the caller reads did. Recording both from a
+    // single function is what stops the pairing drifting again the next time a
+    // fail() site is added.
+    //
+    // sync/shipstation.ts did pair by hand, and was the file this note used to
+    // point at as the counter-example; it now has a failItem() of its own, so
+    // the two sources are structurally the same shape.
     const failItem = (context: string, err: unknown) => {
       run.fail(context, err)
       totalItemsFailed++

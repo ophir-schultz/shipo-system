@@ -70,6 +70,26 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
     return results
   }
 
+  // One call, not two. The row's status and the counter the CALLER reads are
+  // two different readers of the same fact, and until this helper existed every
+  // fail site had to remember to feed both by hand. On 2026-10-03 one of them
+  // did not: a run closed 'failed' with error_count 1 on 'shipment lookup
+  // #2500-2' while /api/agent/monitor reported has_issues:false, so the
+  // dashboard's sync indicator stayed green over a failed run. The pairing was
+  // the defect, so the pairing is now unforgettable rather than merely correct.
+  //
+  // run.fail() drives the row's status via close(); results.errors is what the
+  // three callers read. Recording both from one function is what stops them
+  // drifting again the next time a fail site is added. sync/zenventory.ts has
+  // a failItem() of its own, for the same reason and with the same name.
+  //
+  // NOT for the pull-level failure in the catch at the bottom -- see the note
+  // there on why that one is deliberately unpaired.
+  const failItem = (context: string, err: unknown) => {
+    run.fail(context, err)
+    results.errors++
+  }
+
   // The whole pull lives in a try/finally so the 'running' row cannot outlive
   // the function. getShipments() throws on a 401, a timeout or a rate limit,
   // and that throw is MEANT to propagate -- see the note on openSyncRun above:
@@ -118,8 +138,7 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
           // correct today is not a reason to read PGRST116 as "no row".
           const shipmentId = Number(s.shipmentId)
           if (!Number.isFinite(shipmentId)) {
-            run.fail('missing shipmentId', { orderNumber: s.orderNumber })
-            results.errors++
+            failItem('missing shipmentId', { orderNumber: s.orderNumber })
             continue
           }
 
@@ -131,8 +150,7 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
 
           // DEFECT 4, FIXED. The error is inspected, not discarded.
           if (matchError) {
-            run.fail(`match shipment ${shipmentId}`, matchError)
-            results.errors++
+            failItem(`match shipment ${shipmentId}`, matchError)
             continue
           }
 
@@ -300,7 +318,7 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
               // both runs used to count an adjustment and only one of them was
               // telling the truth. The run that loses the conflict now reports
               // nothing, which is what it did.
-              if (insError) { run.fail(`adjustment insert ${shipmentId}`, insError); results.errors++ }
+              if (insError) failItem(`adjustment insert ${shipmentId}`, insError)
               else if ((insertedAdj ?? []).length > 0) {
                 if (diff > 0) results.adjustments++
                 else results.refunds++
@@ -309,7 +327,7 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
 
             const { error: updError } = await supabaseAdmin
               .from('shipments').update(shipmentData).eq('id', existingShipment.id)
-            if (updError) { run.fail(`update ${shipmentId}`, updError); results.errors++ }
+            if (updError) failItem(`update ${shipmentId}`, updError)
             else { results.updated++; run.wrote() }
           } else {
             const { error: insError } = await supabaseAdmin
@@ -346,13 +364,12 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
             if (insError?.code === '23505') {
               run.warn(`insert ${shipmentId}`, 'already inserted by a concurrent run')
             }
-            else if (insError) { run.fail(`insert ${shipmentId}`, insError); results.errors++ }
+            else if (insError) failItem(`insert ${shipmentId}`, insError)
             else { results.created++; run.wrote() }
           }
         } catch (err) {
           // Still a catch, but it keeps what it caught.
-          run.fail(`shipment ${s?.shipmentId ?? 'unknown'}`, err)
-          results.errors++
+          failItem(`shipment ${s?.shipmentId ?? 'unknown'}`, err)
         }
       }
 
@@ -363,6 +380,18 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
     // error list. An unrecorded throw would close this row 'ok' -- a clean-
     // looking row sitting on top of a half-finished ingest, which is the one
     // outcome worse than no row at all.
+    //
+    // run.fail() and NOT failItem(), which is the one deliberate exception to
+    // the pairing rule above. The next line throws, so `results` never reaches
+    // a caller: nobody can read a counter bumped here, which makes the bump
+    // dead code rather than a safeguard. Audited 2026-10-05 -- this asymmetry
+    // is correct, not an instance of the 2026-10-03 defect. What reports this
+    // failure is the throw itself: the monitor route's step-1 catch turns it
+    // into the '✗ ShipStation sync FAILED' line and pushes it to the errors
+    // array the alert email reads (src/app/api/agent/monitor/route.ts -- grep
+    // that string rather than trusting a line number; this file has already
+    // outlived one). That, plus this fail() record on the row, is the whole
+    // report. Do not "fix" it by routing it through failItem.
     run.fail('shipstation pull', err)
     throw err
   } finally {
