@@ -42,8 +42,109 @@
 
 
 -- ===========================================================================
--- PART 1 -- PRECONDITIONS. All read-only. Run all five, read all five.
+-- PART 0 -- EVERY PRECONDITION IN ONE QUERY, ONE RESULT, FOUR COLUMNS.
 -- ===========================================================================
+-- Read-only. Run this ONE statement and send back the whole grid.
+--
+-- WHY THIS EXISTS, given PART 1 already asks the same questions: the Supabase
+-- SQL editor returns the result of the LAST statement in a batch. PART 1 is
+-- five statements, so pasting it whole shows 1E and silently discards the four
+-- that matter -- and "silently discards" is the failure this entire file is
+-- about. PART 1 is still correct, but it has to be run one statement at a
+-- time. This part does not.
+--
+-- Everything is cast to text and labelled, so the output is narrow enough to
+-- paste back as plain text rather than as an image.
+--
+-- IT ALSO ANSWERS 1C WITHOUT A SEPARATE QUERY: section B lists every scope the
+-- two clients' cards currently occupy, so a card already sitting at
+-- UPS_WALLETED would simply appear there. A collision cannot hide.
+with cli as (
+  select id, name, origin_zip
+    from clients
+   where name ilike 'orcam%' or name ilike 'crisp%'
+),
+card as (
+  select z.client_id, z.carrier, z.service, count(*) as n,
+         min(z.weight_lb) as wmin, max(z.weight_lb) as wmax,
+         min(z.zone) as zmin, max(z.zone) as zmax,
+         count(*) filter (where z.weight_lb > 20) as unreachable
+    from client_zone_rates z
+   where z.client_id in (select id from cli)
+   group by 1, 2, 3
+),
+shp as (
+  select s.client_id, s.carrier, s.service, count(*) as n,
+         sum(s.actual_cost) as cost, count(s.client_rate) as billed
+    from shipments s
+   where s.client_id in (select id from cli)
+   group by 1, 2, 3
+)
+select 'A-client' as section,
+       c.name     as item,
+       (select count(*) from cli)::text as n,
+       c.id::text as detail
+  from cli c
+union all
+-- The brackets are the point. A trailing or non-breaking space in 'UPS ' is
+-- invisible in any grid, and would make PART 2's exact-equality UPDATE miss
+-- while looking like it should have matched. `len` is the column a stray
+-- character cannot hide from.
+select 'B-card',
+       cl.name || '  [' || card.carrier || '] / [' || card.service || ']',
+       card.n::text,
+       'len ' || length(card.carrier) || '/' || length(card.service)
+         || '  lb ' || card.wmin || '-' || card.wmax
+         || '  zone ' || card.zmin || '-' || card.zmax
+         || '  unreachable ' || card.unreachable
+  from card join cli cl on cl.id = card.client_id
+union all
+select 'C-ship',
+       cl.name || '  [' || coalesce(shp.carrier, '<null>') || '] / ['
+              || coalesce(shp.service, '<null>') || ']',
+       shp.n::text,
+       'len ' || coalesce(length(shp.carrier), -1) || '/'
+              || coalesce(length(shp.service), -1)
+         || '  cost ' || coalesce(shp.cost, 0)
+         || '  billed ' || shp.billed
+  from shp join cli cl on cl.id = shp.client_id
+union all
+-- Without this section the rest is moot: calculator.ts:99 never consults a
+-- rate card for a shipment whose zone did not resolve, so if these three
+-- sources name no zone, rescoping the card changes nothing and the fix is the
+-- zone chart instead.
+select 'D-zone',
+       cl.name,
+       count(*)::text,
+       'zone_col ' || count(s.zone)
+         || '  raw ' || count(*) filter (
+              where (s.raw_data -> 'zone') is not null
+                 or (s.raw_data -> 'shipTo' -> 'zone') is not null)
+         || '  chart ' || count(*) filter (where zc.zone is not null)
+         || '  origin_zip ' || coalesce(cl.origin_zip, '<null>')
+  from shipments s
+  join cli cl on cl.id = s.client_id
+  left join zone_chart zc
+    on zc.origin_prefix = left(regexp_replace(coalesce(cl.origin_zip, ''), '\D', '', 'g'), 3)
+   and zc.dest_prefix   = left(regexp_replace(coalesce(s.recipient_zip, ''), '\D', '', 'g'), 3)
+ group by cl.name, cl.origin_zip
+order by 1, 2;
+
+-- WHAT TO LOOK FOR, in the order it decides things:
+--   A  must be exactly two rows, n = 2. More means a name pattern matches
+--      several clients and PART 2 would rescope the wrong card.
+--   B  vs C: is there a B row whose two bracketed strings EXACTLY match a C
+--      row's? Today, no -- that is the defect. PART 2's literals must come
+--      from C, not from my reading of carrier.ts.
+--   D  zone_col + raw + chart near zero -> stop, fix zoning first.
+
+
+-- ===========================================================================
+-- PART 1 -- THE SAME PRECONDITIONS, SEPARATELY. One statement at a time.
+-- ===========================================================================
+-- Kept because each query here is readable on its own and PART 0 is not. If
+-- PART 0 ran, these are redundant. RUN THEM ONE AT A TIME: pasted as a batch,
+-- the editor shows only 1E.
 
 -- 1A. The two client rows resolve to exactly one client each.
 --

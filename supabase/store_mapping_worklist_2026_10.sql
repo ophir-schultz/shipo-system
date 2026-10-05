@@ -50,6 +50,11 @@
 --
 -- NO DDL. PART 1-4 are select-only. PART 5 inserts into client_store_ids only
 -- and is commented out.
+--
+-- RUN ONE PART AT A TIME. The Supabase SQL editor returns the result of the
+-- LAST statement in a batch, so pasting several parts together shows the final
+-- grid and silently discards the rest. PART 2 is the one that matters and it is
+-- a single statement.
 
 
 -- ===========================================================================
