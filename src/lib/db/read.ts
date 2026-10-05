@@ -132,6 +132,79 @@ export function isMigrationMissing(
   return MIGRATION_MISSING_CODES.has(res?.error?.code ?? '')
 }
 
+/**
+ * A screen's whole payload: either usable data, or the reason there is none.
+ *
+ * This exists because of a gap in how the rest of this file can be checked.
+ * `read` and `readErrors` are in a .ts and carry tests, but the thing that
+ * actually goes wrong is one line of JSX in a page:
+ *
+ *     <BillingView data={data} />            // and no branch on the error
+ *
+ * which is not a type error, is not reachable by vitest (vitest.config.ts
+ * includes only `src/**\/*.test.ts`, so a page component cannot be given a test
+ * at all), and looks completely normal in review. Every page in this sweep is
+ * one deleted ternary away from silently going back to invoicing from a blind
+ * read.
+ *
+ * The `ok: boolean` literal is what closes it. It makes the union
+ * discriminated, so TypeScript narrows `data` to `undefined` until the page has
+ * checked -- and passing `T | undefined` to a component that requires `T` is
+ * TS2345. Deleting the check stops compiling, which is a stronger guarantee
+ * than a test for this particular regression and the only one available on a
+ * .tsx. `ok` is redundant with `error !== null` to a human and is carried
+ * anyway: a `string | null` discriminant does NOT narrow (probed -- all three
+ * correct forms failed), so the redundancy is the entire mechanism.
+ *
+ * Narrowing works through `l.ok`, through `l.error !== null`, and through
+ * destructuring `const { ok, data } = l`.
+ */
+export type Loaded<T> =
+  | { ok: false; error: string; data?: undefined }
+  | { ok: true; error: null; data: T }
+
+/**
+ * The data arm of a `Loaded`, so a page can annotate it and keep the gate.
+ *
+ * Needed because `Loaded` only gates a page whose component props are typed.
+ * `BillingView` and `ReportsTabs` take `{ data: any }`, and `T | undefined` is
+ * assignable to `any`, so on those two pages deleting the check compiled
+ * perfectly happily -- which I only found by deleting it and watching tsc pass
+ * on two of the three pages I had just claimed were protected.
+ *
+ * Writing the narrowed value into an annotated local puts the check back:
+ *
+ *     if (!billing.ok) return <ViewUnreadable message={billing.error} />
+ *     const data: LoadedData<typeof billing> = billing.data
+ *
+ * Delete the `if` and the annotation rejects the now-possibly-undefined value
+ * (TS2322) before it ever reaches the `any`. Derived from the Loaded rather
+ * than spelled out a second time, so it cannot drift away from the payload it
+ * is describing.
+ */
+export type LoadedData<L> = L extends { ok: true; data: infer T } ? T : never
+
+/**
+ * Build a page payload from the combined verdict of its reads.
+ *
+ * `build` is a thunk, not a value, and that is deliberate: on the failure path
+ * it is never called. Most of these pages do real work between the rows and the
+ * screen -- pnl aggregates six tables into per-client margin, referrals runs
+ * computeOwed over partners x invoices x payouts -- and running that over `[]`
+ * produces a complete set of plausible figures that then have to be thrown
+ * away. Not computing them means there is no moment at which a $0.00 margin for
+ * every client exists in the program to be accidentally rendered, logged or
+ * exported.
+ *
+ * Treats '' as success, matching readErrors, which filters empty reasons out
+ * for the same reason: a blank red box blanks a figure and says nothing about
+ * why.
+ */
+export function loaded<T>(error: string | null, build: () => T): Loaded<T> {
+  if (error !== null && error !== '') return { ok: false, error }
+  return { ok: true, error: null, data: build() }
+}
+
 /** One row, the reason we could not read it, or neither: it is simply absent. */
 export interface ReadOne<T> {
   row: T | null

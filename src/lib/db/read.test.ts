@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { read, readOne, readErrors, isMigrationMissing } from '@/lib/db/read'
+import { read, readOne, readErrors, isMigrationMissing, loaded } from '@/lib/db/read'
 
 // These two functions exist to keep "we looked and there is nothing" apart from
 // "we could not look". Both of the defects below were live on
@@ -100,6 +100,64 @@ describe('readErrors', () => {
     expect(shipments.rows).toHaveLength(1)
     expect(readErrors(shipments, warehouse))
       .toBe('warehouse_daily_log: canceling statement due to statement timeout')
+  })
+})
+
+describe('loaded', () => {
+  it('carries the data and an ok:true discriminant when every read worked', () => {
+    expect(loaded(null, () => ({ total: 42 })))
+      .toEqual({ ok: true, error: null, data: { total: 42 } })
+  })
+
+  it('carries the reason and NO data when a read failed', () => {
+    const l = loaded('bills: statement timeout', () => ({ total: 42 }))
+    expect(l.ok).toBe(false)
+    expect(l.error).toBe('bills: statement timeout')
+    expect(l.data).toBeUndefined()
+  })
+
+  it('does not run the build at all when a read failed', () => {
+    // The point of the thunk. pnl aggregates six tables into per-client margin
+    // and referrals runs computeOwed over partners x invoices x payouts; doing
+    // that over `[]` yields a full set of plausible $0.00 figures that then
+    // have to be remembered to be thrown away. This way they never exist.
+    let calls = 0
+    loaded('shipments: fetch failed', () => { calls++; return [] })
+    expect(calls).toBe(0)
+  })
+
+  it('runs the build exactly once on success', () => {
+    let calls = 0
+    loaded(null, () => { calls++; return [] })
+    expect(calls).toBe(1)
+  })
+
+  it('treats an empty reason as success, matching readErrors', () => {
+    // readErrors filters '' out for the same reason: a blank red box blanks a
+    // figure and explains nothing. If one ever reached here, failing closed on
+    // it would be a mystery rather than a refusal.
+    expect(loaded('', () => 1)).toEqual({ ok: true, error: null, data: 1 })
+  })
+
+  it('does not confuse falsy DATA with a failed read', () => {
+    // The near neighbour. Keyed on the error, never on the shape of the data,
+    // so a legitimately empty table and a legitimate $0 both stay ok:true.
+    expect(loaded(null, () => [])).toEqual({ ok: true, error: null, data: [] })
+    expect(loaded(null, () => 0)).toEqual({ ok: true, error: null, data: 0 })
+    expect(loaded(null, () => null)).toEqual({ ok: true, error: null, data: null })
+  })
+
+  it('composes with read and readErrors end to end', () => {
+    const shipments = read('shipments', { data: [{ client_rate: 10 }], error: null })
+    const bills = read('bills', { data: null, error: { message: 'statement timeout' } })
+
+    // Shipments arrived. A page that rendered what it had would show $10.00.
+    const l = loaded(readErrors(shipments, bills), () => ({
+      revenue: shipments.rows.reduce((s, r) => s + r.client_rate, 0),
+    }))
+    expect(l.ok).toBe(false)
+    expect(l.data).toBeUndefined()
+    expect(l.error).toContain('bills')
   })
 })
 

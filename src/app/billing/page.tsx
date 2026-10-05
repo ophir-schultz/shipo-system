@@ -1,5 +1,18 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
+import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import BillingView from '@/components/billing/BillingView'
+
+// This screen's output is an invoice. BillingView composes all five reads into
+// one per-client grand total -- shipments + warehouse lines + adjustments,
+// checked against the bills already generated -- so a read that failed and came
+// back `[]` does not make the page emptier, it makes the invoice SHORTER by an
+// unknown amount, with nothing on screen to say so.
+//
+// So the whole page refuses rather than degrading section by section. A partial
+// render is defensible on a dashboard; it is not defensible here. Composing a
+// bill from a database that is answering some questions and not others produces
+// a number that looks finished and is under-billed, and it gets sent.
 
 async function getBillingData() {
   const now = new Date()
@@ -22,25 +35,56 @@ async function getBillingData() {
       .order('week_start', { ascending: false }),
   ])
 
-  return {
-    clients: clientsRes.data ?? [],
-    shipments: shipmentsRes.data ?? [],
-    warehouse: warehouseRes.data ?? [],
-    adjustments: adjustmentsRes.data ?? [],
-    bills: billsRes.data ?? [],
-    defaultFrom: monthStart,
-    defaultTo: today,
-  }
+  const clients = read('clients', clientsRes)
+  const shipments = read('shipments', shipmentsRes)
+  const warehouse = read('warehouse_daily_log', warehouseRes)
+  const adjustments = read('rate_adjustments', adjustmentsRes)
+  const bills = read('bills', billsRes)
+
+  return loaded(
+    readErrors(clients, shipments, warehouse, adjustments, bills),
+    () => ({
+      clients: clients.rows,
+      shipments: shipments.rows,
+      warehouse: warehouse.rows,
+      adjustments: adjustments.rows,
+      bills: bills.rows,
+      defaultFrom: monthStart,
+      defaultTo: today,
+    }),
+  )
+}
+
+function Header() {
+  return (
+    <div>
+      <h2 className="text-2xl font-bold text-white">Billing</h2>
+      <p className="text-gray-400 text-sm mt-1">Full billing breakdown per client — shipments, warehouse, adjustments</p>
+    </div>
+  )
 }
 
 export default async function BillingPage() {
-  const data = await getBillingData()
+  const billing = await getBillingData()
+
+  if (!billing.ok) {
+    return (
+      <div className="space-y-6">
+        <Header />
+        <ViewUnreadable message={billing.error} />
+      </div>
+    )
+  }
+
+  // Annotated, not inferred. BillingView's prop is `data: any`, so handing it
+  // `BillingData | undefined` compiles silently -- the refusal above is not a
+  // gate on its own. This local is: delete the early return and the annotation
+  // rejects the value (TS2322) before `any` can swallow it. See LoadedData.
+  const data: LoadedData<typeof billing> = billing.data
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-white">Billing</h2>
-        <p className="text-gray-400 text-sm mt-1">Full billing breakdown per client — shipments, warehouse, adjustments</p>
-      </div>
+      <Header />
       <BillingView data={data} />
     </div>
   )

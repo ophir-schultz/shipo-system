@@ -1,16 +1,40 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import Link from 'next/link'
+import { read, loaded } from '@/lib/db/read'
+import ViewUnreadable from '@/components/ui/ViewUnreadable'
+
+// The empty state on this page does not merely fail to inform you, it gives you
+// an instruction:
+//
+//   "No clients yet - Add your first client to start managing their pricing
+//    and billing"                                   [ Add First Client ]
+//
+// Taking that instruction while the clients table is sitting there intact
+// creates a DUPLICATE client with an empty rate card, and from then on some
+// shipments price against the real client and some price against the new one at
+// no rate at all. Same failure mode as the notFound() on the client detail page
+// (see the note on readOne in clients/[id]/page.tsx): the strongest possible
+// absence claim made on the weakest possible evidence, with a button under it.
+//
+// The "+ Add Client" link in the header stays either way -- that is navigation,
+// and it does not assert anything about what is in the table. It is the
+// empty-state CTA that has to go, because its whole framing is "there are none,
+// so make one".
 
 async function getClients() {
-  const { data } = await supabaseAdmin
+  const clients = read('clients', await supabaseAdmin
     .from('clients')
     .select(`
       *,
       client_shipping_rates(count),
       client_warehouse_rates(count)
     `)
-    .order('name')
-  return data ?? []
+    .order('name'))
+  // `loaded` rather than returning the Read directly, so that `clients` below
+  // is `undefined` until the error has been checked. A Read's `rows` is always
+  // an array, which means deleting the refusal compiles cleanly -- I checked,
+  // and it did.
+  return loaded(clients.error, () => clients.rows)
 }
 
 export default async function ClientsPage() {
@@ -31,7 +55,9 @@ export default async function ClientsPage() {
         </Link>
       </div>
 
-      {clients.length === 0 ? (
+      {!clients.ok ? (
+        <ViewUnreadable message={clients.error} />
+      ) : clients.data.length === 0 ? (
         <div className="bg-gray-800 rounded-xl p-16 text-center">
           <p className="text-5xl mb-4">👥</p>
           <p className="text-gray-300 font-medium text-lg">No clients yet</p>
@@ -42,7 +68,7 @@ export default async function ClientsPage() {
         </div>
       ) : (
         <div className="grid gap-4">
-          {clients.map((client: any) => (
+          {clients.data.map((client: any) => (
             <div key={client.id} className="bg-gray-800 rounded-xl p-5 flex items-center justify-between hover:bg-gray-750">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-full bg-[#0090DD] flex items-center justify-center font-bold text-white">
