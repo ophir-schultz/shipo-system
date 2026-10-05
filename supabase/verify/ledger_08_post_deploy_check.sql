@@ -317,25 +317,39 @@ rollback;
 -- row, and an OK on one of those clusters was therefore STRONG.
 --
 -- ###########################################################################
--- THAT IS NO LONGER TRUE, AND THIS IS THE FIRST THING TO READ ABOUT PART B.
+-- THAT WAS BROKEN AND THEN REPAIRED, BOTH ON 2026-10-05. READ THIS FIRST.
 --
--- ledger_03d_sync_runs_mutex.sql (applied 2026-10-05 13:56 UTC) put a unique
--- partial index on the running rows. A second scheduler on ANY source is now
--- refused by the index and writes NOTHING -- which is exactly the property
--- that made 'charges' weak above. So all three clusters are now WEAK, and
--- PART B can no longer prove a single scheduler. An OK means "at most one
--- scheduler WON", not "at most one fired".
+-- BROKEN: ledger_03d_sync_runs_mutex.sql (applied 13:56 UTC) put a unique
+-- partial index on the running rows. A second scheduler on ANY source was
+-- refused by the index and wrote NOTHING -- exactly the property that makes
+-- 'charges' weak above. All three clusters went WEAK, and an OK degraded from
+-- "at most one scheduler fired" to "at most one WON". The root cause was that
+-- a refusal left no durable trace: openSyncRun() threw, the callers counted it
+-- in memory, the monitor printed a skip line into an HTTP response body, and
+-- then it was gone.
 --
--- MULTIPLE is unaffected and still proves duplicate schedulers outright: the
--- index suppresses concurrent rows, not sequential ones.
+-- REPAIRED: openSyncRun() now writes a sync_runs row for the refusal, with
+-- status = 'skipped' (sync-run.ts, LOCK_REFUSED_STATUS). The loser is visible
+-- again, so a contended hour shows one winner plus one row per refusal instead
+-- of a single row. That is why the query below splits winners from refusals
+-- rather than counting rows -- see the comment on the clusters CTE.
 --
--- The root cause is that a lock refusal leaves NO durable trace. openSyncRun()
--- throws SyncRunLockedError, the callers count it in memory (skipReason,
--- locked_clients) and the monitor prints a skip line into an HTTP response
--- body, after which it is gone. To restore a STRONG reading, a refusal has to
--- write something -- a sync_runs row with its own terminal status, or a
--- counter. Until then, use the Vercel Cron Jobs tab per project to count
--- schedulers; this query cannot.
+-- WHAT THE REPAIR DOES AND DOES NOT RESTORE. It restores OBSERVABILITY of
+-- contention, not the old STRONG reading, and the two are not the same claim.
+-- A refusal row proves something asked for the lock while it was held; it does
+-- not say what. AutoSync polls this route every five minutes from every open
+-- browser tab, and a colliding tab leaves a refusal indistinguishable in shape
+-- from a colliding scheduler. Hence the CONTENDED verdict rather than an
+-- alarm. To turn CONTENDED into an answer, use distinct_minutes (a cron fires
+-- on the hour; a tab does not) or the Vercel Cron Jobs tab per project.
+--
+-- MULTIPLE was unaffected throughout and still proves duplicate schedulers
+-- outright: the index suppresses concurrent rows, never sequential ones.
+--
+-- BEFORE READING ANY RESULT, confirm the deploy carrying the refusal row is
+-- live. Against an older build every refusal is still invisible and a
+-- CONTENDED verdict simply cannot appear -- which reads identically to "no
+-- contention", the same false-clean this block exists to warn about.
 -- ###########################################################################
 --
 -- The one thing an OK on those two does not rule out is a duplicate scheduler
@@ -357,10 +371,18 @@ begin;
 with clusters as (
   select
     source,
-    date_trunc('hour', started_at at time zone 'UTC') as cron_hour_utc,
-    count(*)                                          as runs,
-    count(distinct date_trunc('minute', started_at))  as distinct_minutes,
-    array_agg(distinct status)                        as statuses
+    date_trunc('hour', started_at at time zone 'UTC')  as cron_hour_utc,
+    count(*)                                           as rows_total,
+    -- Winners and refusals must be counted SEPARATELY, and a bare count(*) is
+    -- now actively misleading. Since openSyncRun started writing a 'skipped'
+    -- row per refusal, ONE scheduler plus two browser tabs polling
+    -- /api/agent/monitor leaves three rows in the hour -- which count(*) would
+    -- report as "3 runs <- duplicate scheduler", a false positive on the exact
+    -- question this section exists to answer.
+    count(*) filter (where status <> 'skipped')        as winners,
+    count(*) filter (where status =  'skipped')        as refusals,
+    count(distinct date_trunc('minute', started_at))   as distinct_minutes,
+    array_agg(distinct status)                         as statuses
   from sync_runs
   where started_at >= now() - interval '36 hours'
   group by 1, 2
@@ -370,11 +392,33 @@ scheduler_rows as (
     1 as ord,
     'SCHEDULER' as section,
     source || ' @ ' || to_char(cron_hour_utc, 'YYYY-MM-DD HH24:00') || ' UTC' as item,
-    case when runs = 1
-         then 'OK: 1 run'
-         else 'MULTIPLE: ' || runs::text || ' runs <- duplicate scheduler'
+    -- Three verdicts, because there are now three distinguishable worlds, and
+    -- the middle one could not be seen at all before refusals became durable.
+    --
+    --   winners > 1    Two runs both TOOK the lock in this hour. They cannot
+    --                  have overlapped -- the index would have refused the
+    --                  second -- so they ran SEQUENTIALLY, which is what a
+    --                  duplicate scheduler firing minutes apart looks like.
+    --                  Unchanged in meaning, and still proof.
+    --
+    --   refusals > 0   Something asked for the lock while it was held. That is
+    --                  the mutex working, and NOT on its own a duplicate
+    --                  scheduler: AutoSync polls this route every five minutes
+    --                  from every open browser tab, so each colliding poll
+    --                  leaves a refusal. Read it against distinct_minutes -- a
+    --                  refusal in the same minute as the cron boundary is
+    --                  suspicious; one at :23 is almost certainly a tab.
+    --
+    --   otherwise      One run took the lock and nothing contended for it.
+    case when winners > 1
+         then 'MULTIPLE: ' || winners::text || ' runs took the lock <- duplicate scheduler'
+         when refusals > 0
+         then 'CONTENDED: ' || winners::text || ' ran, ' || refusals::text
+              || ' refused <- scheduler or browser tab, check the minutes'
+         else 'OK: 1 run, nothing refused'
     end as verdict,
     'distinct_minutes=' || distinct_minutes::text
+      || '  rows=' || rows_total::text
       || '  statuses=' || array_to_string(statuses, ',') as detail
   from clusters
 ),

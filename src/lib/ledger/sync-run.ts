@@ -7,6 +7,37 @@ import { STALE_RUN_MINUTES, isLockConflict, staleRunCutoffISO } from '@/lib/ledg
 const MAX_STORED_ERRORS = 50
 const MAX_STORED_WARNINGS = 50
 
+/**
+ * The status written on the row that records a REFUSED run -- one that asked
+ * for the lock, was told another run of the same (source, client_id) holds it,
+ * and skipped.
+ *
+ * A fourth value in a money-path column, so it was checked against every
+ * reader of sync_runs.status in the codebase before being added. There are
+ * exactly six query sites, in three files, and none of them matches it:
+ *
+ *   persist-charges.ts:142   .eq('status', 'ok')              charge throttle
+ *   persist-charges.ts:175   .eq('status', 'running')         advisory gate
+ *   zenventory.ts:160        .in('status', ['ok','partial'])  pick watermark
+ *   sync-run.ts (reap)       .eq('status', 'running')         stale reaper
+ *   sync-run.ts (open)       writes 'running'
+ *   sync-run.ts (close)      updates by id
+ *
+ * No reader enumerates the statuses exhaustively, there is no CHECK constraint
+ * on the column (ledger_01_orders.sql:95), and no view or function reads it.
+ * The two properties that matter fall out of that list: a refusal row is never
+ * mistaken for a completed run by the throttle or the watermark, and -- because
+ * the reaper only touches 'running' -- it is never reaped, so it survives as
+ * evidence.
+ *
+ * It also cannot take the lock it just lost. Both unique indexes in
+ * ledger_03d_sync_runs_mutex.sql are partial on `status = 'running'`, so a
+ * 'skipped' row is in neither index. That is what makes it safe to write one
+ * per refusal: four schedulers racing leave one 'running' row and three
+ * 'skipped' ones, with no second conflict and nothing serialised.
+ */
+export const LOCK_REFUSED_STATUS = 'skipped'
+
 function messageOf(err: unknown): string {
   if (err instanceof Error) return err.message
   if (typeof err === 'string') return err
@@ -235,6 +266,78 @@ export async function openSyncRun(input: {
   // a database failure. See isLockConflict() for why this is matched on the
   // SQLSTATE and not on the message.
   if (isLockConflict(openError)) {
+    // THE MUTEX, HALF THREE: record the refusal before throwing.
+    //
+    // Until this block existed, a refusal left NO DURABLE TRACE ANYWHERE. The
+    // throw was caught by the caller, counted in memory (skipReason,
+    // locked_clients), printed as a '⏭' into one HTTP response body, and then
+    // gone. The database -- the only thing that outlives the lambda -- could
+    // not answer "was anything refused?", which has two consequences:
+    //
+    //   1. A permanently wedged source looks identical to a healthy idle one.
+    //      Every run refused, no row written, no error raised, table healthy.
+    //   2. It blunted the instrument that watches for duplicate schedulers.
+    //      PART B of supabase/verify/ledger_08_post_deploy_check.sql counts
+    //      runs per cron boundary, and its STRONG reading rested on
+    //      shipstation and zenventory having no lock to lose: a second
+    //      scheduler WOULD have left a second row. ledger_03d gave them a lock
+    //      and so took that away -- an OK degraded from "at most one scheduler
+    //      fired" to "at most one WON". Writing a row here restores it: the
+    //      loser is visible again, just under a different status.
+    //
+    // 'skipped' and not 'failed', which is the opposite of what the reaper ten
+    // lines up does, and the asymmetry is the point. The reaper UPDATES a row
+    // that already exists for a run that really started, so it has to land on
+    // a terminal status the throttle and the watermark will not mistake for a
+    // completion -- 'failed' is the only one that was available. This INSERTS a
+    // new row for a run that never started; nothing read it before, so it is
+    // free to carry an honest status, and 'failed' would actively lie. A
+    // refusal is the mutex working. Recording it as a failure would turn the
+    // normal outcome of an overlap into an alarm, which is how a monitor gets
+    // ignored.
+    //
+    // kind:'warning' for the same reason: every error_count reader in the app
+    // treats warnings as non-failures.
+    //
+    // finished_at is set here rather than left null because the row is born
+    // terminal -- there is no close() coming for it. A 'skipped' row with a
+    // null finished_at would be an unfinished run that nothing will ever
+    // finish, i.e. exactly the shape this block exists to eliminate.
+    //
+    // Its own failure is logged and then DISCARDED, and must stay that way.
+    // The caller's correct behaviour is to skip, and that is determined by the
+    // lock, not by whether we managed to write a note about it. Letting this
+    // insert throw would convert a working mutex into a hard failure of the
+    // sync -- strictly worse than the missing trace it is trying to fix.
+    const { error: refusalError } = await supabaseAdmin
+      .from('sync_runs')
+      .insert({
+        source: input.source,
+        client_id: input.clientId ?? null,
+        mode: input.mode,
+        window_start: input.windowStart ?? null,
+        window_end: input.windowEnd ?? null,
+        status: LOCK_REFUSED_STATUS,
+        finished_at: new Date().toISOString(),
+        rows_seen: 0,
+        rows_written: 0,
+        errors: [{
+          kind: 'warning',
+          context: 'lock refused',
+          message: `Another run of this source was already holding the sync_runs `
+                 + `lock, so this one did no work and stopped. This is the mutex `
+                 + `in ledger_03d_sync_runs_mutex.sql working, not a failure. `
+                 + `Repeated refusals at the same cron boundary mean more than `
+                 + `one scheduler is firing; refusals at EVERY boundary with no `
+                 + `'ok' run in between mean a live run is wedged and holding `
+                 + `the lock.`,
+        }],
+      })
+
+    if (refusalError) {
+      console.error('[openSyncRun] could not record the lock refusal:', refusalError)
+    }
+
     throw new SyncRunLockedError(input.source, input.clientId ?? null)
   }
 

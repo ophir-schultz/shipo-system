@@ -18,7 +18,8 @@ vi.mock('@/lib/supabase', () => ({
   get supabaseAdmin() { return h.db.client },
 }))
 
-const { openSyncRun, isSyncRunLocked } = await import('@/lib/ledger/sync-run')
+const { openSyncRun, isSyncRunLocked, LOCK_REFUSED_STATUS } =
+  await import('@/lib/ledger/sync-run')
 const { STALE_RUN_MINUTES } = await import('@/lib/ledger/run-lock')
 
 const runs = () => (h.db.tables.sync_runs ?? []) as FakeRow[]
@@ -47,11 +48,25 @@ const UNIQUE_VIOLATION = {
   message: 'duplicate key value violates unique constraint "sync_runs_running_source_key"',
 }
 
-/** Make the sync_runs INSERT fail with `error`, leaving the reap alone. */
-function failTheInsert(error: { code?: string; message: string }) {
+/** Fail whichever sync_runs INSERT carries `status`, leaving the reap alone. */
+function failInsertOfStatus(status: string, error: { code?: string; message: string }) {
   h.db.failOn = (call) =>
-    call.table === 'sync_runs' && call.verb === 'insert' ? error : null
+    call.table === 'sync_runs' && call.verb === 'insert'
+      && call.payload[0]?.status === status ? error : null
 }
+
+/**
+ * Make the LOCK-TAKE insert fail, leaving the reap AND the refusal row alone.
+ *
+ * Discriminating on the status in the payload, rather than just on the verb,
+ * is load-bearing now that losing the lock writes a second row. A blanket
+ * "fail every sync_runs insert" would suppress the refusal insert too, and
+ * every assertion below about the refusal row would then be passing for the
+ * wrong reason: the row would be missing because the test broke it, not
+ * because the code failed to write it.
+ */
+const failTheInsert = (error: { code?: string; message: string }) =>
+  failInsertOfStatus('running', error)
 
 beforeEach(() => {
   h.db = createFakeSupabase({ sync_runs: [] })
@@ -230,13 +245,140 @@ describe('openSyncRun: losing the lock', () => {
     expect(err.message).toContain('permission denied')
   })
 
-  // Nothing is written when the lock is lost. Not an incidental detail: the
-  // loser must leave no trace, or every overlap would add a 'failed' row to
-  // sync_runs and the monitor's error counts would climb with normal traffic.
-  it('writes no run row when the lock is lost', async () => {
+  // The loser writes exactly one row, and it is NOT a 'running' one.
+  //
+  // This replaces an earlier test that asserted the loser wrote nothing at
+  // all, on the reasoning that a trace would make the monitor's error counts
+  // climb with normal traffic. The premise was right and the conclusion was
+  // wrong: the cost of writing nothing is that a refusal becomes unobservable
+  // after the lambda exits, so a permanently wedged source is indistinguishable
+  // from a healthy idle one and PART B of ledger_08_post_deploy_check.sql can
+  // no longer see a second scheduler. The error counts stay flat anyway,
+  // because the row is a warning and not an error -- asserted below.
+  it('records the refusal as a sync_runs row', async () => {
     failTheInsert(UNIQUE_VIOLATION)
 
     await openSyncRun({ source: 'charges', mode: 'live' }).catch(() => {})
+
+    expect(runs()).toHaveLength(1)
+    expect(runs()[0].status).toBe(LOCK_REFUSED_STATUS)
+  })
+
+  // The trap this whole change had to avoid. The refusal row must record the
+  // refusal WITHOUT occupying the lock it just lost. Both indexes in
+  // ledger_03d_sync_runs_mutex.sql are partial on `status = 'running'`, so the
+  // one value this row may never carry is 'running' -- a refusal that wrote
+  // one would collide with the winner it just lost to (if the insert even
+  // succeeded) and, worse, would still be sitting there holding the source
+  // after the winner closed. Every subsequent run of that source would then be
+  // refused, each one writing another 'running' row, until the reaper's
+  // 30-minute window happened to clear it. Asserted separately from the test
+  // above because that one would still pass if the constant changed.
+  it('does not write a running row, so the refusal cannot hold the lock', async () => {
+    failTheInsert(UNIQUE_VIOLATION)
+
+    await openSyncRun({ source: 'charges', mode: 'live' }).catch(() => {})
+
+    expect(runs().filter((r) => r.status === 'running')).toHaveLength(0)
+  })
+
+  // Born terminal: there is no close() coming for this row. A refusal row left
+  // with a null finished_at would be an unfinished run that nothing will ever
+  // finish -- precisely the shape ("started, never came back") that the row
+  // exists to make distinguishable.
+  it('closes the refusal row at birth', async () => {
+    failTheInsert(UNIQUE_VIOLATION)
+
+    await openSyncRun({ source: 'charges', mode: 'live' }).catch(() => {})
+
+    expect(runs()[0].finished_at).toBeTruthy()
+  })
+
+  // A refusal is the mutex working, not a failure, and the monitor's alarm is
+  // driven by error counts. If this were recorded as kind:'error' then every
+  // ordinary overlap -- the normal outcome the mutex is designed to produce --
+  // would raise an alarm, and an alarm that fires on correct behaviour is one
+  // nobody reads by the end of the week.
+  it('records the refusal as a warning, not an error', async () => {
+    failTheInsert(UNIQUE_VIOLATION)
+
+    await openSyncRun({ source: 'charges', mode: 'live' }).catch(() => {})
+
+    const entries = runs()[0].errors as Array<{ kind: string; context: string }>
+    expect(entries).toHaveLength(1)
+    expect(entries[0].kind).toBe('warning')
+    expect(entries[0].context).toBe('lock refused')
+  })
+
+  // The row has to say WHICH lock was lost, or it cannot be counted per
+  // cluster. zenventory refuses per client, so a refusal row that dropped the
+  // client_id would be unattributable: three clients refused and one succeeded
+  // would look the same as the reverse.
+  it('names the source and client of the refused run', async () => {
+    failTheInsert(UNIQUE_VIOLATION)
+
+    await openSyncRun({
+      source: 'zenventory', clientId: 'client-A', mode: 'live',
+      windowStart: '2026-09-01', windowEnd: '2026-09-30',
+    }).catch(() => {})
+
+    expect(runs()[0]).toMatchObject({
+      source: 'zenventory',
+      client_id: 'client-A',
+      mode: 'live',
+      window_start: '2026-09-01',
+      window_end: '2026-09-30',
+    })
+  })
+
+  // The refusal row must survive to be evidence. The reaper runs at the top of
+  // every later openSyncRun and matches on status = 'running', so a terminal
+  // 'skipped' row is outside it -- but only as long as the reaper keeps
+  // filtering on that exact status. Widening it to, say, `neq('status','ok')`
+  // would silently rewrite the refusal history into 'failed' rows, turning the
+  // quiet record of a working mutex into a backlog of fake failures.
+  it('never reaps a refusal row, however old', async () => {
+    const old = seedRun({
+      status: LOCK_REFUSED_STATUS,
+      started_at: minutesAgo(STALE_RUN_MINUTES * 10),
+      finished_at: minutesAgo(STALE_RUN_MINUTES * 10),
+    })
+
+    await openSyncRun({ source: 'charges', mode: 'live' })
+
+    expect(old.status).toBe(LOCK_REFUSED_STATUS)
+  })
+
+  // Losing the lock and being unable to write the note about it are different
+  // facts, and only the first one decides what the caller does. If a failed
+  // refusal insert could mask or replace the lock error, a database hiccup
+  // would turn a correctly-working mutex into either a hard sync failure or --
+  // far worse -- a caller that no longer knows it must skip.
+  it('still reports the lock loss when the refusal row cannot be written', async () => {
+    h.db.failOn = (call) =>
+      call.table === 'sync_runs' && call.verb === 'insert'
+        ? (call.payload[0]?.status === 'running'
+            ? UNIQUE_VIOLATION
+            : { code: '42501', message: 'permission denied for table sync_runs' })
+        : null
+
+    const err = await openSyncRun({ source: 'charges', mode: 'live' }).catch((e) => e)
+
+    expect(isSyncRunLocked(err)).toBe(true)
+    expect(runs()).toHaveLength(0)
+  })
+
+  // Only a 23505 means "someone else holds it". A permission error or a
+  // dropped connection means we could not tell, and writing a 'skipped' row
+  // for it would put a specific, confident, false statement into the audit
+  // trail -- the row says another run was holding the lock, and no such run
+  // need exist. That lie is worse than the silence, because PART B counts
+  // these rows.
+  it('writes no refusal row when the insert failed for any other reason', async () => {
+    failTheInsert({ code: '42501', message: 'permission denied for table sync_runs' })
+
+    await openSyncRun({ source: 'charges', mode: 'live' }).catch(() => {})
+
     expect(runs()).toHaveLength(0)
   })
 
