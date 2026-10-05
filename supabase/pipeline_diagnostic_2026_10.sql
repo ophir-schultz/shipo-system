@@ -149,20 +149,30 @@ from shipments;
 -- ---------------------------------------------------------------------------
 -- PART 5 -- WHERE, specifically. Worst clients, then worst services.
 -- ---------------------------------------------------------------------------
+-- CORRECTED 2026-10-05. This part originally selected `client_name` from
+-- shipments, which DOES NOT EXIST -- 42703, confirmed against the live
+-- database. The column is `client_id`, and the name lives in `clients`; the
+-- app reads it as select('client_id, ..., clients(name)'). The mistake was
+-- assuming a denormalised name column rather than reading the schema.
+--
+-- LEFT join, not inner: a shipment whose client_id is null must still appear.
+-- An inner join would silently drop it, and unattributed shipments are exactly
+-- the rows worth seeing in a billing-coverage query.
 select
-  client_name,
+  c.name                                     as client,
   count(*)                                   as shipments,
-  sum(client_rate)                           as billed,
-  sum(actual_cost)                           as carrier_cost,
-  sum(client_rate) - sum(actual_cost)        as margin,
+  sum(s.client_rate)                         as billed,
+  sum(s.actual_cost)                         as carrier_cost,
+  sum(s.client_rate) - sum(s.actual_cost)    as margin,
   round(
-    100.0 * (sum(client_rate) - sum(actual_cost)) / nullif(sum(client_rate), 0), 1
+    100.0 * (sum(s.client_rate) - sum(s.actual_cost)) / nullif(sum(s.client_rate), 0), 1
   )                                          as margin_pct,
-  count(*) filter (where is_loss)            as losing_shipments
-from shipments
-where client_rate is not null
-  and actual_cost is not null
-  and ship_date >= date_trunc('month', current_date) - interval '3 months'
+  count(*) filter (where s.is_loss)          as losing_shipments
+from shipments s
+left join clients c on c.id = s.client_id
+where s.client_rate is not null
+  and s.actual_cost is not null
+  and s.ship_date >= date_trunc('month', current_date) - interval '3 months'
 group by 1
 order by margin asc
 limit 25;
@@ -183,6 +193,43 @@ limit 25;
 --    group by 1, 2
 --    order by margin asc
 --    limit 25;
+--
+-- (`carrier` and `service` are UNVERIFIED column names -- unlike the join
+-- above, they have not been checked against the schema. If this errors with
+-- 42703, that is why, and the fix is to read the column list rather than
+-- guess a second time.)
+
+
+-- ---------------------------------------------------------------------------
+-- PART 5B -- BILLING COVERAGE per client. The question this database actually
+-- answers right now.
+-- ---------------------------------------------------------------------------
+-- Measured 2026-10-05: actual_cost is populated on 100% of 890 shipments,
+-- client_rate on 213. So the live problem is not margin, it is that 677
+-- shipments have a known carrier cost and no known revenue -- $9,674.52 of
+-- carrier spend against which nothing was billed. PART 5 above ranks margin
+-- among the BILLED minority; this ranks the gap itself.
+select
+  c.name                                                  as client,
+  count(*)                                                as shipments,
+  count(*) filter (where s.client_rate is null)           as unbilled,
+  sum(s.actual_cost) filter (where s.client_rate is null) as cost_on_unbilled,
+  sum(s.client_rate)                                      as billed,
+  min(s.ship_date) filter (where s.client_rate is null)   as oldest_unbilled,
+  max(s.ship_date)                                        as last_shipment
+from shipments s
+left join clients c on c.id = s.client_id
+where s.ship_date >= '2026-07-01'
+group by 1
+order by cost_on_unbilled desc nulls last;
+
+-- cost_on_unbilled is the money already paid to carriers on work nobody was
+-- invoiced for. oldest_unbilled says how stale each client's gap is, which is
+-- the difference between raising an invoice and having a conversation.
+--
+-- `client` NULL in the output -> shipments with no client_id at all. Those
+-- cannot be billed to anyone until they are attributed, so they are the first
+-- thing to fix, not the last.
 
 
 -- ---------------------------------------------------------------------------
