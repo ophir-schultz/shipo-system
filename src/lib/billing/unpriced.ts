@@ -90,6 +90,37 @@ export function formatSignedPrice(value: unknown): string {
   return `${n >= 0 ? '+' : ''}${formatPrice(n)}`
 }
 
+/**
+ * Several money columns on ONE row added together, or null if ANY of them is
+ * UNKNOWN.
+ *
+ * For a figure assembled from parts, where a missing part makes the whole
+ * meaningless rather than smaller. The P&L's campaign spend is
+ * `monthly_cost + one_time_cost`, and `(c.monthly_cost ?? 0) + (c.one_time_cost
+ * ?? 0)` reported a campaign nobody had costed as a campaign that cost
+ * nothing -- then divided by it, producing an ROI percentage and a CAC of
+ * $0.00 per client won. Those are not flattering estimates, they are fabricated
+ * ones, and they are what decides next month's budget.
+ *
+ * Note the difference from `sumPriced`, which is deliberate. That one sums a
+ * column DOWN many rows and reports a partial total beside the count it
+ * withheld, because two of five shipments priced is still a real figure about
+ * those two. This one sums ACROSS the parts of a single figure, where there is
+ * no honest partial: half of a campaign's spend is not a smaller spend.
+ *
+ * No arguments is 0, not unknown -- the sum over an empty set, the same
+ * distinction `totalOrUnknown` draws for `counted === 0`.
+ */
+export function sumAllOrUnknown(...values: unknown[]): number | null {
+  let cents = 0
+  for (const value of values) {
+    const n = priceOf(value)
+    if (n === null) return null
+    cents += Math.round(n * 100)
+  }
+  return cents / 100
+}
+
 export interface PricedSum {
   /** Sum of the rows that have a price. Rounded to the cent. */
   total: number
@@ -137,6 +168,42 @@ export function sumPriced(
   rows: ReadonlyArray<Record<string, unknown>> | null | undefined,
   key: string,
 ): PricedSum {
+  return sumMapped(rows, key, n => n)
+}
+
+/**
+ * The same, over the MAGNITUDE of each value.
+ *
+ * For the loss report, whose figures are all "how much did we lose" -- a
+ * positive number read off a negative column. That was five copies of
+ * `s + Math.abs(r.profit_loss ?? 0)`, one per breakdown, which is the shape
+ * this module exists to delete: `?? 0` cannot tell a loss of nothing from a
+ * loss nobody has measured, and `Math.abs('')` is 0, so a column arriving
+ * empty became a confident $0.00 loss in the middle of a loss total.
+ *
+ * Taking |n| AFTER priceOf rather than before is the whole point: the decision
+ * about whether there is a number at all is made first, and only then is its
+ * sign discarded.
+ */
+export function sumAbsPriced(
+  rows: ReadonlyArray<Record<string, unknown>> | null | undefined,
+  key: string,
+): PricedSum {
+  return sumMapped(rows, key, Math.abs)
+}
+
+/**
+ * Shared body of the two sums above.
+ *
+ * Extracted rather than copied because the cents rule below is the one piece
+ * of arithmetic in this module that is easy to get subtly wrong, and the
+ * header's warning about two copies drifting applies most of all to it.
+ */
+function sumMapped(
+  rows: ReadonlyArray<Record<string, unknown>> | null | undefined,
+  key: string,
+  map: (n: number) => number,
+): PricedSum {
   let cents = 0
   let unpriced = 0
   let counted = 0
@@ -148,7 +215,7 @@ export function sumPriced(
     // the business has ever made, and `0.1 + 0.2` is the standard reason a
     // figure like that ends in a stray fraction of a cent.
     if (n === null) unpriced++
-    else cents += Math.round(n * 100)
+    else cents += Math.round(map(n) * 100)
   }
   return { total: cents / 100, unpriced, counted }
 }

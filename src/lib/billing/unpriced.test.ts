@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  priceOf, isPriced, formatPrice, formatSignedPrice, sumPriced, combinePriced,
-  unpricedNote, totalOrUnknown,
+  priceOf, isPriced, formatPrice, formatSignedPrice, sumPriced, sumAbsPriced,
+  combinePriced, sumAllOrUnknown, unpricedNote, totalOrUnknown,
   UNPRICED_DASH, UNPRICED_CELL,
 } from './unpriced'
 
@@ -224,6 +224,140 @@ describe('sumPriced', () => {
     expect(r.counted - r.unpriced + r.unpriced).toBe(r.counted)
     expect(r.counted).toBe(4)
     expect(r.unpriced).toBe(2)
+  })
+})
+
+describe('sumAbsPriced', () => {
+  it('sums the magnitudes of a negative column', () => {
+    // The loss report's own shape: profit_loss is stored negative and every
+    // figure on the screen is "how much did we lose", a positive number.
+    const r = sumAbsPriced([{ p: -10 }, { p: -5.5 }], 'p')
+    expect(r.total).toBe(15.5)
+    expect(r.unpriced).toBe(0)
+    expect(r.counted).toBe(2)
+  })
+
+  it('adds magnitudes instead of letting opposite signs cancel', () => {
+    // Distinguishes this from `Math.abs(sumPriced(...).total)`, which would
+    // answer 6 here. That is not a pedantic difference: the breakdowns slice
+    // the loss set by client, service, zone and weight, and a bucket holding
+    // one +4 row would have quietly netted it off against a real -10 loss.
+    const r = sumAbsPriced([{ p: -10 }, { p: 4 }], 'p')
+    expect(r.total).toBe(14)
+  })
+
+  it('does not treat an unmeasured loss as a loss of nothing', () => {
+    const unknown = sumAbsPriced([{ p: -10 }, { p: null }], 'p')
+    const zero = sumAbsPriced([{ p: -10 }, { p: 0 }], 'p')
+    expect(unknown.total).toBe(zero.total)
+    expect(unknown.unpriced).toBe(1)
+    expect(zero.unpriced).toBe(0)
+  })
+
+  it('does not let an empty string become a $0.00 loss', () => {
+    // `Math.abs('')` is 0, so the `Math.abs(x ?? 0)` this replaces absorbed an
+    // empty column silently -- `?? 0` never fires for '', and the coercion
+    // finishes the job. priceOf calls it UNKNOWN.
+    const r = sumAbsPriced([{ p: -10 }, { p: '' }], 'p')
+    expect(r.total).toBe(10)
+    expect(r.unpriced).toBe(1)
+  })
+
+  it('reads a numeric that arrived as a string', () => {
+    // numeric(10,2) over PostgREST is routinely a string.
+    const r = sumAbsPriced([{ p: '-12.34' }], 'p')
+    expect(r.total).toBe(12.34)
+    expect(r.unpriced).toBe(0)
+  })
+
+  // -1.1 and -2.2 chosen because they DISTINGUISH the two implementations:
+  // without the cent rounding this is 3.3000000000000007. 0.1 and 0.2 are the
+  // famous pair but they do not distinguish -- `0.1*100 + 0.2*100` over 100
+  // lands back on exactly 0.3, so a test built on them passes either way and
+  // proves nothing about the rounding it claims to check.
+  it('accumulates in cents rather than drifting as floats', () => {
+    const r = sumAbsPriced([{ p: -1.1 }, { p: -2.2 }], 'p')
+    expect(r.total).toBe(3.3)
+  })
+
+  it('counts a deliberate zero as measured', () => {
+    const r = sumAbsPriced([{ p: 0 }], 'p')
+    expect(r.unpriced).toBe(0)
+    expect(r.counted).toBe(1)
+    expect(r.total).toBe(0)
+  })
+
+  it('is an empty, not unknown, total over no rows', () => {
+    const r = sumAbsPriced([], 'p')
+    expect(r).toEqual({ total: 0, unpriced: 0, counted: 0 })
+  })
+})
+
+describe('sumAllOrUnknown', () => {
+  it('adds the parts of a figure that are all known', () => {
+    expect(sumAllOrUnknown(100, 25)).toBe(125)
+  })
+
+  // The pair. A campaign costing nothing and a campaign nobody has costed are
+  // the two readings of the old `(monthly ?? 0) + (one_time ?? 0)`, and only
+  // one of them is a spend of zero.
+  it('is 0 when every part is a deliberate 0', () => {
+    expect(sumAllOrUnknown(0, 0)).toBe(0)
+  })
+
+  it('is UNKNOWN when any one part is UNKNOWN', () => {
+    expect(sumAllOrUnknown(100, null)).toBeNull()
+    expect(sumAllOrUnknown(null, 25)).toBeNull()
+    expect(sumAllOrUnknown(null, null)).toBeNull()
+  })
+
+  // The whole reason this is not `a + b`: a known part must not carry the
+  // figure on its own. 100 + unknown is not 100.
+  it('does not fall back to the parts it could read', () => {
+    expect(sumAllOrUnknown(100, undefined)).not.toBe(100)
+    expect(sumAllOrUnknown(100, '')).not.toBe(100)
+  })
+
+  it('treats an unreadable part as UNKNOWN, not as 0', () => {
+    expect(sumAllOrUnknown(100, '')).toBeNull()
+    expect(sumAllOrUnknown(100, undefined)).toBeNull()
+    expect(sumAllOrUnknown(100, 'tbd')).toBeNull()
+    expect(sumAllOrUnknown(100, NaN)).toBeNull()
+  })
+
+  it('coerces parts that arrived as numeric strings', () => {
+    expect(sumAllOrUnknown('100.50', '25.25')).toBe(125.75)
+  })
+
+  // `0 + '12.34'` is the string '012.34'. A figure assembled by `+` from
+  // PostgREST numerics concatenates rather than adds.
+  it('adds string parts rather than concatenating them', () => {
+    expect(sumAllOrUnknown('12.34')).toBe(12.34)
+    expect(sumAllOrUnknown('1', '2')).toBe(3)
+  })
+
+  // Same reasoning as the sumAbsPriced case above: these two values differ
+  // between the rounded and unrounded accumulators (3.3000000000000007), where
+  // 0.1 and 0.2 do not.
+  it('accumulates in cents rather than drifting as floats', () => {
+    expect(sumAllOrUnknown(1.1, 2.2)).toBe(3.3)
+    expect(sumAllOrUnknown(19.99, 0.01)).toBe(20)
+  })
+
+  it('sums more than two parts', () => {
+    expect(sumAllOrUnknown(1, 2, 3, 4)).toBe(10)
+    expect(sumAllOrUnknown(1, 2, null, 4)).toBeNull()
+  })
+
+  // An empty set, not a gap: the same distinction totalOrUnknown draws for
+  // `counted === 0`. Dashing this would hide a real zero behind the mark for
+  // UNKNOWN, which is the error this module exists to stop.
+  it('is 0, not UNKNOWN, over no parts at all', () => {
+    expect(sumAllOrUnknown()).toBe(0)
+  })
+
+  it('keeps a negative part negative', () => {
+    expect(sumAllOrUnknown(100, -25)).toBe(75)
   })
 })
 

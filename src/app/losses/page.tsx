@@ -1,5 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
-import { formatPrice, sumPriced, unpricedNote } from '@/lib/billing/unpriced'
+import {
+  formatPrice, priceOf, sumPriced, sumAbsPriced, unpricedNote, UNPRICED_DASH,
+} from '@/lib/billing/unpriced'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 
@@ -59,45 +61,47 @@ async function getLossData() {
     const unpricedShipments = revenueSum.unpriced
     const totalCost = sumPriced(all, 'actual_cost').total
     const totalProfit = sumPriced(all, 'profit_loss').total
-    const totalLossAmt = losses.reduce((s, r) => s + Math.abs(r.profit_loss ?? 0), 0)
+    const lossSum = sumAbsPriced(losses, 'profit_loss')
 
-    // By client
-    const byClient: Record<string, { name: string; count: number; lossAmt: number }> = {}
-    for (const s of losses) {
-      const name = (s.clients as any)?.name ?? 'Unassigned'
-      if (!byClient[name]) byClient[name] = { name, count: 0, lossAmt: 0 }
-      byClient[name].count++
-      byClient[name].lossAmt += Math.abs(s.profit_loss ?? 0)
+    // Five breakdowns that each carried their own
+    // `s + Math.abs(r.profit_loss ?? 0)` accumulator -- five copies of a rule
+    // about money, which is the shape lib/billing/unpriced.ts exists to delete.
+    // Group first, then let the one tested accumulator make all three decisions
+    // the hand-rolled version got wrong: `Math.abs('')` is 0, so a column
+    // arriving as an empty string became a confident $0.00 loss; adding dollars
+    // as floats drifts; and `?? 0` cannot tell a loss of nothing from a loss
+    // nobody has measured.
+    // `typeof losses[number]` rather than a bare `any`: today the rows are
+    // untyped, so it resolves to the same thing, but it says "whatever a loss
+    // row is" instead of "anything at all" -- and it follows along for free if
+    // these rows ever get a type.
+    const breakdown = (
+      keyOf: (s: typeof losses[number]) => string,
+    ): [string, { count: number; lossAmt: number }][] => {
+      // A Map, not an object literal, because the keys here are client names
+      // and carrier strings off the wire -- `__proto__` is a real string and
+      // `byClient['__proto__'] = ...` does not do what it looks like.
+      const groups = new Map<string, typeof losses>()
+      for (const s of losses) {
+        const key = keyOf(s)
+        const g = groups.get(key)
+        if (g) g.push(s)
+        else groups.set(key, [s])
+      }
+      return [...groups].map(([key, rows]) => [
+        key,
+        { count: rows.length, lossAmt: sumAbsPriced(rows, 'profit_loss').total },
+      ])
     }
 
-    // By carrier/service
-    const byService: Record<string, { count: number; lossAmt: number }> = {}
-    for (const s of losses) {
-      const key = `${s.carrier ?? '?'} · ${s.service ?? '?'}`
-      if (!byService[key]) byService[key] = { count: 0, lossAmt: 0 }
-      byService[key].count++
-      byService[key].lossAmt += Math.abs(s.profit_loss ?? 0)
-    }
-
-    // By zone
-    const byZone: Record<string, { count: number; lossAmt: number }> = {}
-    for (const s of losses) {
-      const key = s.zone ? `Zone ${s.zone}` : 'Zone unknown'
-      if (!byZone[key]) byZone[key] = { count: 0, lossAmt: 0 }
-      byZone[key].count++
-      byZone[key].lossAmt += Math.abs(s.profit_loss ?? 0)
-    }
-
-    // By weight bracket (lb)
-    const byWeight: Record<string, { count: number; lossAmt: number }> = {}
-    for (const s of losses) {
+    const byService = breakdown(s => `${s.carrier ?? '?'} · ${s.service ?? '?'}`)
+    const byZone = breakdown(s => (s.zone ? `Zone ${s.zone}` : 'Zone unknown'))
+    const byClient = breakdown(s => (s.clients as any)?.name ?? 'Unassigned')
+    const byWeight = breakdown(s => {
       const oz = s.billed_weight ?? s.weight ?? 0
       const lb = Math.ceil(oz / 16)
-      const key = lb <= 1 ? '≤1 lb' : lb <= 5 ? '2–5 lb' : lb <= 10 ? '6–10 lb' : lb <= 20 ? '11–20 lb' : '20+ lb'
-      if (!byWeight[key]) byWeight[key] = { count: 0, lossAmt: 0 }
-      byWeight[key].count++
-      byWeight[key].lossAmt += Math.abs(s.profit_loss ?? 0)
-    }
+      return lb <= 1 ? '≤1 lb' : lb <= 5 ? '2–5 lb' : lb <= 10 ? '6–10 lb' : lb <= 20 ? '11–20 lb' : '20+ lb'
+    })
 
     return {
       losses,
@@ -106,13 +110,18 @@ async function getLossData() {
       unpricedShipments,
       totalCost,
       totalProfit,
-      totalLossAmt,
+      totalLossAmt: lossSum.total,
+      // Should always be 0 -- see the banner that renders it. Carried rather
+      // than asserted: the sum knows what it withheld, and dropping the number
+      // here is exactly how the old accumulators managed to understate a loss
+      // total with nothing on the screen to say so.
+      unmeasuredLosses: lossSum.unpriced,
       lossCount: losses.length,
       lossRate: totalShipments > 0 ? (losses.length / totalShipments) * 100 : 0,
-      byClient: Object.values(byClient).sort((a, b) => b.lossAmt - a.lossAmt),
-      byService: Object.entries(byService).sort((a, b) => b[1].lossAmt - a[1].lossAmt).slice(0, 10),
-      byZone: Object.entries(byZone).sort((a, b) => a[0].localeCompare(b[0])),
-      byWeight: Object.entries(byWeight),
+      byClient: byClient.map(([name, v]) => ({ name, ...v })).sort((a, b) => b.lossAmt - a.lossAmt),
+      byService: byService.sort((a, b) => b[1].lossAmt - a[1].lossAmt).slice(0, 10),
+      byZone: byZone.sort((a, b) => a[0].localeCompare(b[0])),
+      byWeight,
     }
   })
 }
@@ -142,6 +151,14 @@ export default async function LossesPage() {
   // rather than a silent return to printing "-$0.00" over an unread table.
   const d: LoadedData<typeof page> = page.data
   const fmt = (n: number) => `$${Math.abs(n).toFixed(2)}`
+  // '-$12.34' for a measured loss, a dash when the row's profit will not read
+  // as a number at all. `Math.abs(s.profit_loss ?? 0)` printed '-$0.00' in that
+  // case, which in a column headed "Loss" reads as "we lost nothing on this
+  // one" -- the most misleading thing it could say about a row it cannot read.
+  const lossFigure = (value: unknown) => {
+    const n = priceOf(value)
+    return n === null ? UNPRICED_DASH : `-$${Math.abs(n).toFixed(2)}`
+  }
 
   return (
     <div className="space-y-6">
@@ -163,6 +180,25 @@ export default async function LossesPage() {
             are not in the loss table — a shipment whose price is unknown cannot be shown
             to be a loss. They are not $0. Fix the client&rsquo;s rate card, then re-run the
             sync to price them.
+          </p>
+        </div>
+      )}
+
+      {/* Instrumenting an invariant rather than trusting it. Every row on this
+          page has is_loss = true, which shipmentProfit can only set on the
+          branch where both figures came back finite, so this count should be
+          zero forever. If it is ever not, every total and breakdown below is
+          understated by an unknown amount -- which is precisely the failure the
+          five `Math.abs(x ?? 0)` accumulators were silently absorbing. */}
+      {d.unmeasuredLosses > 0 && (
+        <div className="rounded-xl border border-red-700/60 bg-red-950/30 px-5 py-3">
+          <p className="text-red-300 text-sm font-semibold">
+            ⚠ {d.unmeasuredLosses} loss shipment{d.unmeasuredLosses === 1 ? '' : 's'} have an unreadable loss amount
+          </p>
+          <p className="text-red-200/70 text-xs mt-1">
+            They are flagged as losses, but their profit figure will not read as a number,
+            so every total and breakdown on this page is understating the loss by an unknown
+            amount. They are not $0. This should not be reachable — worth reporting.
           </p>
         </div>
       )}
@@ -351,7 +387,7 @@ export default async function LossesPage() {
                       <td className="py-2 pr-3 text-right text-gray-400">{s.recipient_state ?? '—'}</td>
                       <td className="py-2 pr-3 text-right text-gray-300">{formatPrice(s.actual_cost)}</td>
                       <td className="py-2 pr-3 text-right text-gray-300">{formatPrice(s.client_rate)}</td>
-                      <td className="py-2 text-right font-bold text-red-400">-${Math.abs(s.profit_loss ?? 0).toFixed(2)}</td>
+                      <td className="py-2 text-right font-bold text-red-400">{lossFigure(s.profit_loss)}</td>
                     </tr>
                   ))}
                 </tbody>
