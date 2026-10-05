@@ -992,12 +992,21 @@ select
            end
     when s.is_partial is distinct from s.want_partial
       then case
-             when not s.want_partial
+             -- Split on want_unique, not on want_partial alone. The 42P10 trap
+             -- needs an on_conflict target and only a unique index can be one,
+             -- so the sentence below is true of exactly one of these five rows.
+             when not s.want_partial and s.want_unique
                then 'PREDICATE ADDED <- Postgres cannot infer a partial index '
                     || 'from the bare column list PostgREST emits for '
                     || 'on_conflict, so supabase-js .upsert() raises 42P10 on '
                     || 'every write and the table stays clean by never being '
                     || 'written to at all'
+             when not s.want_partial
+               then 'PREDICATE ADDED <- NOT the 42P10 trap: a non-unique index '
+                    || 'cannot be an on_conflict target, so no write fails. The '
+                    || 'cost is reach -- the rows outside the predicate have '
+                    || 'left the index, and the read it exists for scans for '
+                    || 'them instead'
              when s.want_unique
                then 'PREDICATE MISSING <- the predicate IS the unlock, so the '
                     || 'first run ever recorded holds its source for ever and '
