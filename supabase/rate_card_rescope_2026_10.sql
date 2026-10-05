@@ -289,47 +289,89 @@ group by 1, c.id;
 -- literally "some shipment of this client would match the new scope", which is
 -- the only thing that makes the rescope worth doing.
 
--- 2A. Orcam: UPS/Ground -> the UPS_WALLETED ground lane.
+-- MEASURED 2026-10-05 BY PART 0. Both statements that used to be here would
+-- have updated ZERO rows, and correctly so. The draft targeted
+-- service='ups_ground' on the strength of carrier.ts and shipstation.ts. The
+-- database says there is no such shipment. What is actually there:
 --
--- `service = 'ups_ground'` and NOT 'ups_ground_saver'. Ground Saver is UPS's
--- cheapest surface tier and the client did not agree Ground's price for it;
--- billing one at the other's rate is the wrong price. Ground Saver gets its
--- own card in PART 4 or stays visibly unpriced. Unpriced is recoverable.
-update client_zone_rates z
-   set carrier = 'UPS_WALLETED',
-       service = 'ups_ground'
- where z.client_id = (select id from clients where name ilike 'orcam%')
-   and z.carrier = 'UPS'
-   and z.service = 'Ground'
-   and exists (
-     select 1 from shipments s
-      where s.client_id = z.client_id
-        and s.carrier = 'UPS_WALLETED'
-        and s.service = 'ups_ground'
-   );
+--   Orcam        card  [UPS] / [Ground]              800 rows, lb 1-100
+--                ships [UPS_WALLETED]/[ups_ground_saver]    11   $100.07
+--                      [STAMPS_COM]/[usps_parcel_select]    12   $121.69
+--                      [STAMPS_COM]/[usps_ground_advantage]  2    $16.83
+--   Crisp Power  card  [UPS] / []                    216 rows, lb 1-27
+--                ships [STAMPS_COM]/[usps_ground_advantage]  1    $36.64
+--
+-- So this was never a string-casing problem. NEITHER CLIENT HAS EVER SHIPPED
+-- THE SERVICE THEIR RATE CARD PRICES. Orcam's card prices UPS Ground; Orcam
+-- ships Ground Saver and USPS. Crisp Power's card prices UPS; Crisp Power has
+-- only ever shipped USPS. Relabelling cannot fix a card that prices the wrong
+-- product -- that is a quote question, not a data question, and it is why 2A
+-- below is gated on a decision instead of just being corrected.
+--
+-- The guard is the only reason this is a finding rather than a silent
+-- mislabelling. It did exactly the job it was put there for.
 
--- 2B. Crisp Power: UPS -> UPS_WALLETED, service left as it is.
+-- 2A. Orcam: UPS/Ground -> UPS_WALLETED/ups_ground_saver.
 --
--- Their card is carrier-scoped only, so `service` keeps whatever it holds --
--- '' there means "any service for this carrier", which zones.ts does NOT treat
--- as a wildcard (it is an exact match on the empty string, and only the
--- carrier=''/service='' pair is tried as a fallback). If 1B shows service='',
--- this rescope alone will still not match: a carrier-scoped-only card is
--- unreachable by design. 1B decides whether 2B is worth running at all.
-update client_zone_rates z
-   set carrier = 'UPS_WALLETED'
- where z.client_id = (select id from clients where name ilike 'crisp%')
-   and z.carrier = 'UPS'
-   and exists (
-     select 1 from shipments s
-      where s.client_id = z.client_id
-        and s.carrier = 'UPS_WALLETED'
-        and s.service = z.service
-   );
+-- DO NOT RUN UNTIL THE COMMERCIAL QUESTION IS ANSWERED. The draft of this file
+-- argued the opposite case and the argument still stands on its own terms:
+--
+--     Ground Saver is UPS's cheapest surface tier and the client did not agree
+--     Ground's price for it; billing one at the other's rate is the wrong price.
+--
+-- What changed is that there is no third option. Orcam has no Ground volume at
+-- all, so "give Ground Saver its own card" is not a smaller step than this one
+-- -- it is the SAME step, and the only question is whose number goes in the
+-- cells. Two readings, and only the person who agreed the rate can pick:
+--
+--   (a) The card is the agreed PRICE and Ground Saver is how fulfilment chose
+--       to meet it. Then this UPDATE is right and 11 shipments become billable
+--       at the agreed rate, which is what the client expects to be charged.
+--   (b) The card was quoted FOR Ground specifically, and shipping Ground Saver
+--       is a downgrade in service level. Then billing Ground's rate overcharges
+--       for a slower product, and Ground Saver needs its own quote.
+--
+-- Running this under reading (b) produces 11 invoiceable, plausible, wrong
+-- numbers -- the failure this codebase keeps removing. Leaving it unrun under
+-- reading (a) costs $100.07 of billing that is simply late. Those are not
+-- symmetric, which is why the default is to leave it unrun.
+--
+-- update client_zone_rates z
+--    set carrier = 'UPS_WALLETED',
+--        service = 'ups_ground_saver'
+--  where z.client_id = (select id from clients where name ilike 'orcam%')
+--    and z.carrier = 'UPS'
+--    and z.service = 'Ground'
+--    and exists (
+--      select 1 from shipments s
+--       where s.client_id = z.client_id
+--         and s.carrier = 'UPS_WALLETED'
+--         and s.service = 'ups_ground_saver'
+--    );
+
+-- 2B. Crisp Power: WITHDRAWN. Blocked twice over, and not by the carrier name.
+--
+-- Their card is [UPS] / [] -- carrier-scoped, service empty. zones.ts does NOT
+-- treat '' as a wildcard: it tries {carrier, service} and then the
+-- {carrier:'', service:''} PAIR, so a card at ('UPS','') can only match a
+-- shipment whose service is literally the empty string. No shipment has one.
+-- THAT CARD HAS BEEN STRUCTURALLY UNREACHABLE SINCE THE DAY IT WAS LOADED,
+-- whatever the carrier string said, and rescoping the carrier alone would not
+-- have changed that. The draft of 2B guessed this might be so; PART 0's
+-- `len 3/0` confirms it.
+--
+-- And even a perfectly scoped card would still bill nothing: PART 0 section D
+-- reports zone_col 0, raw 0, chart 0 for their single shipment. No zone
+-- resolves, so calculator.ts:99 never consults any card at all.
+--
+-- One shipment, $36.64. The binding constraint is the zone chart, not the rate
+-- card, and fixing it is worth doing only after Orcam's $238.59 and the 599
+-- unattributed shipments' $8,980.99.
 
 -- A row count of 0 from either statement is a FINDING, not a no-op: it means
--- the target scope matches no shipment, and PART 1's 1B says which string to
--- use instead. Do not widen the guard to force the update through.
+-- the target scope matches no shipment, and PART 0 says which string to use
+-- instead. Do not widen the guard to force the update through. That is not a
+-- hypothetical -- it is what happened here on 2026-10-05.
 
 
 -- ===========================================================================
@@ -434,13 +476,19 @@ order by 1, carrier_cost desc;
 -- ===========================================================================
 -- PART 4 -- THE REMAINING SERVICES. INERT. Needs a price per service.
 -- ===========================================================================
--- PART 2 fixes one lane. It does not fix these, and they are the majority of
--- the volume:
+-- PART 2 fixes one lane AT BEST. It does not fix these, and PART 0 measured
+-- them as the majority of the volume:
 --
---   Orcam        ~56% USPS, via carrier STAMPS_COM
---   system-wide  ups_ground_saver 88 shipments, 4 billed
---                usps_parcel_select 467 shipments, 152 billed
---                usps_ground_advantage 293 shipments, 39 billed
+--   Orcam  [STAMPS_COM]/[usps_parcel_select]     12 shipments  $121.69
+--          [STAMPS_COM]/[usps_ground_advantage]   2 shipments   $16.83
+--                                                 -- 14 of 25, $138.52, 56%
+--   Crisp  [STAMPS_COM]/[usps_ground_advantage]   1 shipment    $36.64
+--                                                 -- their ONLY shipment
+--   system-wide  usps_parcel_select     467 shipments, 152 billed
+--                usps_ground_advantage  293 shipments,  39 billed
+--
+-- Note what the Crisp Power line means: their entire shipping history is a
+-- service they have no card for, under a carrier their card does not name.
 --
 -- There is no card for them at any scope, and I will not derive one. Copying
 -- Orcam's UPS matrix onto usps_parcel_select would produce 160 cells of
