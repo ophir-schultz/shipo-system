@@ -36,8 +36,6 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { priceOf } from '@/lib/billing/unpriced'
 import { billedWeightOf } from '@/lib/billing/shipment-rate'
 
-const MAX_WEIGHT_LB = 20 // matrix tops out at 20 LB
-
 /** The lowest and highest zone the chart is allowed to name. */
 const MIN_ZONE = 1
 const MAX_ZONE = 8
@@ -46,7 +44,31 @@ const MAX_ZONE = 8
  * Convert a weight in ounces to the matrix row (whole pounds, rounded UP), or
  * null when no row can be named for it.
  *
- * 17 oz -> 2 LB. Anything above the chart max is capped to the top row.
+ * 17 oz -> 2 LB. There is NO upper cap, and the absence of one is the point of
+ * the paragraph below.
+ *
+ * THERE USED TO BE A CAP: `const MAX_WEIGHT_LB = 20 // matrix tops out at 20
+ * LB`, with `if (lb > MAX_WEIGHT_LB) return MAX_WEIGHT_LB`. Both halves of its
+ * justification were measured false on 2026-10-05.
+ *
+ *   1. The matrix does not top out at 20. client_zone_rates holds rows to
+ *      100 LB for Orcam and to 27 LB for Crisp Power. 640 of Orcam's 800 cells
+ *      were unreachable through this function, so a 25 LB parcel was billed the
+ *      20 LB cell while the 25 LB cell its contract names sat in the table
+ *      unread -- an under-bill, in the client's favour, invisible because the
+ *      number produced is a real agreed rate for a real row.
+ *   2. "Without the cap this would ask for a row that cannot exist, miss, and
+ *      reprice off the legacy card" -- the old test comment. A miss does not
+ *      reprice wrongly. resolveZoneRate answers a miss as
+ *      `{ rate: null, error: null }`, the caller falls through to
+ *      matchLegacyRate, and that function REFUSES a weight outside every band
+ *      with the bands named in the reason (shipment-rate.ts: "The heaviest band
+ *      is NOT used as a fallback"). So the uncapped failure is an unpriced
+ *      shipment with an explanation, which is the fact.
+ *
+ * Capping was therefore the one thing the legacy path was fixed to stop doing:
+ * billing the heaviest row to a parcel that is heavier than it, off a ceiling
+ * hardcoded at 20 that matches neither card in the database.
  *
  * It used to be `Math.ceil((weightOz || 0) / 16)` with `if (lb < 1) return 1`,
  * which sent an absent, zero or NaN weight to row 1 -- the CHEAPEST row of the
@@ -63,9 +85,7 @@ const MAX_ZONE = 8
 export function weightToLb(weightOz: unknown): number | null {
   const oz = billedWeightOf(weightOz)
   if (oz === null) return null
-  const lb = Math.ceil(oz / 16)
-  if (lb > MAX_WEIGHT_LB) return MAX_WEIGHT_LB
-  return lb
+  return Math.ceil(oz / 16)
 }
 
 /** A resolved zone, the reason there is none, or neither: no source named one. */

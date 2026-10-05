@@ -33,15 +33,19 @@
 // calls and the same one matchLegacyRate calls, which is the point: it is the
 // shared authority for both rate cards a shipment can be priced off.
 //
-// What remains restated below is the arithmetic either side of it: `ceil(oz/16)`
-// and the 20 LB cap. That is the drift risk in this file, and it is pinned by
+// What remains restated below is the arithmetic on the far side of it:
+// `ceil(oz/16)`. That is the drift risk in this file, and it is pinned by
 // src/lib/billing/zone-weight-parity.test.ts, which imports the real
 // `weightToLb` and this function and asserts they agree -- vitest can resolve
 // the alias even though Node cannot.
+//
+// This file also used to export `MAX_WEIGHT_LB = 20` and cap to it. The cap is
+// gone from zones.ts, for the reason recorded in that function's docstring --
+// the live cards hold rows to 100 LB, so the cap was billing the 20 LB cell to
+// heavier parcels that have their own agreed cell. Removed here in the same
+// pass: a diagnostic that still capped would report the 20 LB rate for a
+// shipment the live biller now prices from row 25, or refuses.
 import { billedWeightOf } from '../src/lib/billing/shipment-rate.ts'
-
-/** The matrix tops out at 20 LB, as `MAX_WEIGHT_LB` in zones.ts does. */
-export const MAX_WEIGHT_LB = 20
 
 /**
  * The matrix row (whole pounds, rounded UP) a shipment may be billed from, or
@@ -54,12 +58,15 @@ export const MAX_WEIGHT_LB = 20
  * that reports "1 LB, zone N, rate X" for a shipment the live biller refuses to
  * price is wrong about exactly the shipments it gets run to investigate.
  *
+ * There is no ceiling. A row above the heaviest one a client's card carries is
+ * returned as itself and misses the lookup, which is the honest answer: the
+ * card has no cell for that parcel.
+ *
  * Callers must test `=== null` and branch, not pass the result into a
  * `weight_lb` equality filter.
  */
 export function weightToLb(weightOz) {
   const oz = billedWeightOf(weightOz)
   if (oz === null) return null
-  const lb = Math.ceil(oz / 16)
-  return lb > MAX_WEIGHT_LB ? MAX_WEIGHT_LB : lb
+  return Math.ceil(oz / 16)
 }

@@ -65,12 +65,39 @@ describe('weightToLb', () => {
     expect(weightToLb(0.5)).toBe(1)
   })
 
-  it('caps at the top row the matrix has', () => {
-    // 20 LB is the last column of the chart. Without the cap this would ask for
-    // a row that cannot exist, miss, and reprice off the legacy card.
+  it('names the row the parcel actually weighs, with no ceiling', () => {
+    // THIS TEST USED TO ASSERT THE OPPOSITE, and both halves of the comment
+    // justifying it were measured false on 2026-10-05. It read:
+    //
+    //   it('caps at the top row the matrix has')
+    //   // 20 LB is the last column of the chart. Without the cap this would
+    //   // ask for a row that cannot exist, miss, and reprice off the legacy
+    //   // card.
+    //
+    // 20 LB is NOT the last column. client_zone_rates holds rows 1..100 for
+    // Orcam and 1..27 for Crisp Power, so 640 of Orcam's 800 cells were
+    // unreachable and a 25 LB parcel was billed the 20 LB rate while its own
+    // agreed cell sat unread. The cap was an under-bill nobody could see,
+    // because the figure it produced was a real rate from a real row.
+    //
+    // And a miss does not reprice wrongly. resolveZoneRate answers a miss as
+    // `{ rate: null, error: null }`; the caller falls through to
+    // matchLegacyRate, which REFUSES a weight outside every band and names the
+    // bands in the reason. So the uncapped failure is an unpriced shipment with
+    // an explanation -- the same refusal this whole module exists to preserve.
     expect(weightToLb(320)).toBe(20)
-    expect(weightToLb(321)).toBe(20)
-    expect(weightToLb(10_000)).toBe(20)
+    expect(weightToLb(321)).toBe(21)
+    expect(weightToLb(400)).toBe(25)
+    expect(weightToLb(1600)).toBe(100)
+  })
+
+  it('returns a row past the heaviest card row rather than clamping into a billable one', () => {
+    // The case the cap made unreachable, and the one that decides whether
+    // removing it is safe. A row no card carries must be ASKED FOR and missed,
+    // so the shipment lands unpriced with a reason. Clamping it to the heaviest
+    // row anyone agreed is how a 600 LB pallet gets invoiced at the 20 LB rate.
+    expect(weightToLb(10_000)).toBe(625)
+    expect(weightToLb(1601)).toBe(101)
   })
 
   it.each([

@@ -10,7 +10,8 @@ const { weightToLb: real } = await import('@/lib/billing/zones')
 // `@/*` alias above via vite-tsconfig-paths; plain Node cannot, which is the
 // whole reason scripts/zone-weight.mjs exists instead of the scripts importing
 // zones.ts directly. See the header of that file.
-const { weightToLb: script, MAX_WEIGHT_LB } = await import('../../../scripts/zone-weight.mjs')
+const scriptModule = await import('../../../scripts/zone-weight.mjs')
+const { weightToLb: script } = scriptModule
 
 // This file exists for one reason: scripts/diag-zone-rate-delta.mjs and
 // scripts/diag-zone-rate-lookup.mjs each carried their own hand-written copy of
@@ -56,10 +57,16 @@ const CASES: Array<[unknown, number | null, string]> = [
   ['17', 2, 'numeric weight as a string'],
   ['12.34', 1, 'fractional string weight'],
 
-  // The cap.
-  [320, 20, 'exactly the top row (20 LB)'],
-  [321, 20, 'one ounce over the top row is capped, not refused'],
-  [100000, 20, 'far above the chart is still the top row'],
+  // Where the cap used to be. Every one of these answered 20 until
+  // 2026-10-05, and the first two are rows that exist in the live table:
+  // client_zone_rates carries 1..100 for Orcam and 1..27 for Crisp Power, so
+  // `21` and `25` are agreed cells the capped function could never ask for.
+  [320, 20, 'exactly 20 LB, which used to be the ceiling and is now just a row'],
+  [321, 21, 'one ounce over 20 LB is row 21, which Orcam and Crisp both have'],
+  [400, 25, '25 LB: a real cell on both measured cards, formerly billed as 20'],
+  [1600, 100, '100 LB: the heaviest row Orcam actually agreed to'],
+  [1601, 101, 'past the heaviest card row is returned as itself, to miss honestly'],
+  [100000, 6250, 'an absurd weight is not clamped into a billable row either'],
 ]
 
 describe('scripts/zone-weight.mjs matches the real weightToLb', () => {
@@ -68,18 +75,31 @@ describe('scripts/zone-weight.mjs matches the real weightToLb', () => {
     expect(script(input)).toBe(expected)
   })
 
-  it('agrees with zones.ts across every whole ounce up to twice the cap', () => {
+  it('agrees with zones.ts across every whole ounce through the heaviest card row', () => {
     // Exhaustive over the range that matters, so a boundary moved by one in
-    // either file is caught without anybody having to think of the ounce.
-    for (let oz = 1; oz <= 640; oz++) {
+    // either file is caught without anybody having to think of the ounce. The
+    // bound is 1600 oz = 100 LB because that is the heaviest row
+    // client_zone_rates holds (Orcam, measured 2026-10-05), plus a margin past
+    // it so a cap reintroduced ABOVE the cards is caught too.
+    for (let oz = 1; oz <= 1760; oz++) {
       expect(script(oz)).toBe(real(oz))
     }
   })
 
-  it('caps at the same row zones.ts caps at', () => {
-    expect(MAX_WEIGHT_LB).toBe(20)
-    expect(script(99999)).toBe(MAX_WEIGHT_LB)
-    expect(real(99999)).toBe(MAX_WEIGHT_LB)
+  it('has no ceiling in either copy', () => {
+    // The regression this replaces a parity assertion with. Both files used to
+    // clamp to 20 LB on the stated grounds that "the matrix tops out at 20 LB";
+    // it does not, and the clamp was billing the 20 LB cell to parcels whose
+    // own cell was sitting in the table unread. A reintroduced cap at ANY row
+    // fails here, and the exported constant is asserted gone so the diagnostic
+    // scripts cannot import a ceiling back.
+    // Cast because tsc knows the export is gone and rejects the property
+    // access outright. That is the compile-time half of the same assertion;
+    // this is the runtime half, which is what the .mjs scripts actually load.
+    expect((scriptModule as unknown as Record<string, unknown>).MAX_WEIGHT_LB)
+      .toBeUndefined()
+    expect(script(99999)).toBe(6250)
+    expect(real(99999)).toBe(6250)
   })
 
   it('never answers 0 or a negative row for any input', () => {
