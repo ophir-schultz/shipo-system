@@ -111,6 +111,76 @@ export async function GET(req: Request) {
         + `assigned a client or billed — this is unrecoverable revenue until someone `
         + `identifies them by hand in ShipStation.`)
     }
+
+    // ── Attribution findings ────────────────────────────────────────────────
+    // syncShipments now assigns client_id from client_store_ids. Six counters
+    // come back from it, and NONE of them is folded into syncResult.errors,
+    // because that counter is rendered forty lines above as "could not be
+    // recorded ... revenue and carrier cost are missing from the ledger", and
+    // every clause of that is false here: in all six cases the shipment row IS
+    // written, with its revenue and its carrier cost. What is missing is only
+    // the name of who to invoice.
+    //
+    // The errors[]-vs-log split below is the same one unknownCarrier and
+    // blankOrderNumber are sorted by: errors[] is for unbilled revenue that
+    // nothing else re-reports, log is for a finding that needs a person
+    // eventually and not a 🚨 subject line every eight hours.
+    if (Number(syncResult.attributed ?? 0) > 0) {
+      log.push(`✓ ${syncResult.attributed} shipments attributed to a client from their `
+        + `store id`)
+    }
+    // errors[]. A failed read of client_store_ids is NOT an empty
+    // client_store_ids, and the difference is a whole pass's billing: every
+    // shipment in it stays unattributed. The next run does recover them --
+    // client_id is still blank, so 'attribute' fires then -- which is why this
+    // does not claim the revenue is lost. It is in errors[] anyway because a
+    // PERSISTENT failure (a dropped grant, an RLS change, a renamed column)
+    // reads identically to a healthy run with no new stores, and "attributed 0"
+    // beside three happy numbers is the exact shape of green-over-broken this
+    // route's section 4 is a post-mortem on.
+    if (syncResult.storeMapUnavailable) {
+      errors.push(`⚠ The client store map (client_store_ids) could not be read, so NO `
+        + `shipment in this pass was attributed to a client. The shipments and their `
+        + `carrier costs were still recorded; only the client assignment was skipped, `
+        + `and the next successful run will attribute them. If this repeats, the sync `
+        + `is billing nobody for everything it pulls — check the latest sync_runs row `
+        + `for source = 'shipstation'.`)
+    }
+    // errors[], and the store ids are in the message because they ARE the
+    // action: one client_store_ids row attributes every shipment that store has
+    // ever sent and every one it will send. This recurs every eight hours until
+    // somebody inserts the row, and that recurrence is deliberate -- it is
+    // unbilled revenue accruing, not a transient.
+    if (Number(syncResult.unmappedStore ?? 0) > 0) {
+      const ids = (syncResult.unmappedStoreIds ?? []) as string[]
+      errors.push(`⚠ ${syncResult.unmappedStore} shipments came from `
+        + `${ids.length} store${ids.length > 1 ? 's' : ''} with no client_store_ids row `
+        + `(${ids.join(', ')}), so they have NO CLIENT and cannot be invoiced. One row `
+        + `per store id fixes every shipment that store has sent and will send.`)
+    }
+    // errors[]. A conflict means the store map names a different client than the
+    // shipment row already holds -- and client_store_ids is unique on store_id
+    // ALONE (ledger_01_orders.sql), so one store cannot legitimately map to two
+    // clients. The stored value was left standing, so nothing moved; but one of
+    // the two is wrong and the wrong one is somebody's invoice. No rule can pick
+    // between them, which is why this needs a person and not a retry.
+    if (Number(syncResult.attributionConflicts ?? 0) > 0) {
+      errors.push(`⚠ ${syncResult.attributionConflicts} shipment`
+        + `${syncResult.attributionConflicts > 1 ? 's' : ''} are already assigned to a `
+        + `different client than their store id maps to. The stored assignment was kept `
+        + `and nothing was moved, so no invoice changed — but one of the two is wrong. `
+        + `The per-shipment warnings in the latest sync_runs row for source = `
+        + `'shipstation' name both clients.`)
+    }
+    // Log, not errors[], and the reason is that there is no action to offer. An
+    // unmapped store is fixed by one insert; a shipment carrying NO store key at
+    // all cannot be fixed from this database, because there is nothing to map.
+    // It needs looking up in ShipStation by hand, which is the unknownCarrier
+    // case: a person eventually, not an alert every eight hours.
+    if (Number(syncResult.noStoreId ?? 0) > 0) {
+      log.push(`⚠ ${syncResult.noStoreId} shipments carry no store id at all, so there is `
+        + `nothing to map them by (client left null, not guessed)`)
+    }
   } catch (err: any) {
     const msg = `✗ ShipStation sync FAILED: ${err.message}`
     log.push(msg)

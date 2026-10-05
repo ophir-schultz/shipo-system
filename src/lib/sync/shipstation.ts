@@ -3,6 +3,7 @@ import { getShipments } from '@/lib/api/shipstation'
 import { calcDimWeightOz, calcBilledWeightOz } from '@/lib/billing/dim-weight'
 import { sourceForCarrier } from '@/lib/ledger/carrier'
 import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
+import { loadStoreMap, decideAttribution } from '@/lib/sync/store-attribution'
 
 // `skipped` exists so that "this run did nothing because another one is
 // already doing it" is distinguishable from "this run did nothing because
@@ -18,6 +19,50 @@ export interface ShipStationSyncResult {
   blankOrderNumber: number
   skipped: boolean
   skipReason: string | null
+
+  // ATTRIBUTION. Six counters rather than one, and none of them is `errors`.
+  //
+  // This sync has never answered which client a label belongs to. Until this
+  // commit `shipmentData` carried no client_id key at all -- the comment said
+  // "for now match by order source" and nothing ever replaced it -- so every
+  // shipment it wrote landed with client_id null and stayed there unless
+  // zenventory.ts happened to match it by order_number. Measured 2026-10-05:
+  // 599 of 890 shipments unattributed, carrying $8,980.99 of carrier cost
+  // billed to nobody, 94% of everything unbilled. The gap was not historical;
+  // it grew three times a day, because the sync that records the cost could not
+  // name the payer.
+  //
+  // WHY NOT `errors`. monitor/route.ts renders that counter as "N ShipStation
+  // shipments could not be recorded ... Their revenue and carrier cost are
+  // missing from the ledger until the next successful run picks them up." Every
+  // clause of that is false for all six cases below: the row IS recorded, the
+  // cost IS stored, and no later run picks anything up, because an unmapped
+  // store stays unmapped until a person inserts a row. An alert that is wrong
+  // about whether money is missing is worse than no alert -- it spends the
+  // attention a real one needs.
+  //
+  // And they are separated from EACH OTHER because each names a different piece
+  // of work. "Attribution problems: 47" cannot be acted on; "3 unmapped stores,
+  // ids 12345/12346/98765" is one INSERT per store.
+  /** client_id written where there was none. The only case that changes a row. */
+  attributed: number
+  /** Real store, nobody has mapped it. One client_store_ids row fixes every shipment from it. */
+  unmappedStore: number
+  /** WHICH stores, deduplicated. The entire actionable content of that finding. */
+  unmappedStoreIds: string[]
+  /** No store key on the label. No SQL can attribute these; someone reads ShipStation. */
+  noStoreId: number
+  /** A stored attribution and the store map name DIFFERENT clients. Nothing written. */
+  attributionConflicts: number
+  /**
+   * The store map could not be READ, so attribution did not run this pass.
+   *
+   * A boolean, not a count, and that is the whole point of its shape. One
+   * failed select would otherwise be reported as 890 problems -- and worse,
+   * reported as 890 of the WRONG problem, because an empty map makes every
+   * store look unmapped and would send someone to map stores already mapped.
+   */
+  storeMapUnavailable: boolean
 }
 
 export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResult> {
@@ -31,7 +76,13 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
     created: 0, updated: 0, adjustments: 0, refunds: 0,
     errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
     skipped: false, skipReason: null,
+    attributed: 0, unmappedStore: 0, unmappedStoreIds: [],
+    noStoreId: 0, attributionConflicts: 0, storeMapUnavailable: false,
   }
+  // Deduplicated as it is collected rather than at the end, because the useful
+  // number is "3 stores need mapping", not "412 shipments came from stores that
+  // need mapping" -- the second reads like 412 pieces of work.
+  const unmappedStores = new Set<string>()
 
   // Still deliberately NOT caught, with ONE exception. openSyncRun throws if
   // the sync_runs row cannot be written, and this sync is the one that writes
@@ -88,6 +139,41 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
   const failItem = (context: string, err: unknown) => {
     run.fail(context, err)
     results.errors++
+  }
+
+  // The store -> client map, read ONCE for the whole run.
+  //
+  // Once, and not per shipment, for two reasons. The obvious one is that a
+  // 30-day window is ~900 labels and the table has a handful of rows. The one
+  // that matters is consistency: a map re-read mid-run could attribute the
+  // first half of a page to one client and the second half to another if
+  // somebody edited client_store_ids while the pull was in flight, and the two
+  // halves would be indistinguishable afterwards.
+  //
+  // Placed AFTER openSyncRun on purpose. A run that lost the lock has already
+  // returned above, and a run that is doing nothing should not be reading
+  // lookup tables -- nor reporting a store map problem it has no shipments to
+  // apply the map to.
+  //
+  // A FAILED READ DOES NOT FAIL THE RUN. The shipments still need recording:
+  // their carrier cost is the largest variable cost in the business and it
+  // arrives from this pull alone. So the pull proceeds, every row is written
+  // with its cost, and attribution is skipped for the pass with one flag set.
+  // `storeMap` stays null, which is exactly the value decideAttribution reads as
+  // 'map-unavailable' -- the null is carried into the decision rather than
+  // being flattened to an empty Map here, because an empty Map is a legitimate
+  // state meaning "nobody has mapped a store yet" and would make every label
+  // report its store as needing a mapping row.
+  const { map: storeMap, error: storeMapError } = await loadStoreMap()
+  if (storeMapError) {
+    results.storeMapUnavailable = true
+    // warn(), not failItem(): nothing failed to be RECORDED. Every shipment in
+    // this pull is written with its cost; what is missing is the client_id on
+    // the new ones, which the next pass picks up for free because the backfill
+    // rule and the live rule are the same function. fail() would close the row
+    // 'failed' and drive the monitor's "could not be recorded" alert, which
+    // would be false about which money is at risk.
+    run.warn('store map unreadable, so no shipment was attributed this pass', storeMapError)
   }
 
   // The whole pull lives in a try/finally so the 'running' row cannot outlive
@@ -203,7 +289,103 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
             run.warn('unreadable shipment cost', { shipmentId, shipmentCost: rawCost })
           }
 
+          // WHICH CLIENT IS THIS? The question this sync has never asked.
+          //
+          // The whole rule lives in store-attribution.ts, shared verbatim with
+          // supabase/backfill_store_attribution_2026_10.sql, because a rule
+          // implemented twice is a rule that will eventually disagree with
+          // itself and the disagreement would be over who gets invoiced.
+          //
+          // `s`, the raw payload, is passed whole: storeIdOf reads
+          // advancedOptions.storeId with a top-level storeId fallback, and `s`
+          // is the same object stored as raw_data below, so the live decision
+          // and the backfill's SQL read the same bytes.
+          const attribution = decideAttribution({
+            storeMap,
+            payload: s,
+            existingClientId: existingShipment?.client_id,
+          })
+
+          // The client this shipment belongs to as of THIS pass: the one already
+          // stored, or the one we are about to store.
+          //
+          // It exists because of the rate_adjustments gate forty lines down,
+          // which read `existingShipment.client_id` -- the value from BEFORE
+          // attribution. With that gate, a refund or void arriving on a
+          // shipment this very run is attributing was dropped on the floor: the
+          // row gained its client_id and the adjustment was computed, found no
+          // client, and was never written. Nor would a later run recover it,
+          // because once actual_cost holds the new value the diff is 0 for ever
+          // and this branch is never re-entered. That is the mechanism by which
+          // every refund and void on the 599 unattributed shipments was lost,
+          // and leaving it in place would have kept losing them for one more
+          // pass per newly-mapped store.
+          //
+          // A conflict contributes the STORED id, not the mapped one. The stored
+          // attribution stands until a person resolves it, so the adjustment
+          // belongs to the same client the shipment is currently billed to --
+          // writing it against the mapped client would put a refund on the
+          // invoice of a client who was never charged the original.
+          const attributedClientId = attribution.action === 'attribute'
+            ? attribution.clientId
+            : (existingShipment?.client_id ?? null)
+
+          switch (attribution.action) {
+            case 'attribute':
+              // Counted here rather than after the write, and that is a known
+              // imprecision worth naming: if the update or insert below fails,
+              // this counter has already incremented. It is the same shape as
+              // blankOrderNumber above, which counts the finding and not the
+              // write, and the failure is separately counted and reported by
+              // failItem. Counting after the write would mean threading the
+              // decision through both branches to no benefit.
+              results.attributed++
+              break
+            case 'unmapped-store':
+              results.unmappedStore++
+              unmappedStores.add(attribution.storeId)
+              break
+            case 'no-store-id':
+              results.noStoreId++
+              break
+            case 'conflict':
+              // The one case that gets a per-shipment warn as well as a count.
+              // A conflict means one store maps to two clients somewhere -- the
+              // invariant client_store_ids is unique on store_id ALONE to
+              // prevent (ledger_01_orders.sql) -- so it cannot be resolved by a
+              // rule, and whoever resolves it needs the shipment, not a total.
+              results.attributionConflicts++
+              run.warn(`attribution conflict on shipment ${shipmentId}`, {
+                orderNumber,
+                storedClientId: attribution.existingClientId,
+                storeMapSays: attribution.mappedClientId,
+              })
+              break
+            case 'keep':
+            case 'map-unavailable':
+              // Nothing. 'keep' is the ordinary case for the 291 rows attributed
+              // by hand and everything zenventory.ts matched. 'map-unavailable'
+              // is already reported once for the whole run by the flag above;
+              // counting it per shipment would turn one failed select into ~900
+              // findings.
+              break
+          }
+
           const shipmentData = {
+            // Written ONLY on 'attribute', which decideAttribution returns only
+            // when the stored client_id is blank. So neither branch below can
+            // overwrite an existing attribution: on the update path the key is
+            // absent from the object and PostgREST leaves the column alone.
+            //
+            // This is the property the whole module exists for. 291 of the 890
+            // rows in this database were attributed by hand, and a sync running
+            // three times a day that "corrected" one of them would move a real
+            // invoice from one client to another with no record that it moved.
+            // Where the map disagrees with a stored value, the stored value
+            // stands and the conflict is announced.
+            ...(attribution.action === 'attribute'
+              ? { client_id: attribution.clientId }
+              : {}),
             shipstation_shipment_id: shipmentId,
             order_number: orderNumber,
             order_date: s.orderDate,
@@ -253,7 +435,12 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
               ? parseFloat((newCost - prevCost).toFixed(2))
               : null
 
-            if (diff !== null && Math.abs(diff) > 0.01 && existingShipment.client_id) {
+            // attributedClientId, not existingShipment.client_id -- see the
+            // note where it is defined. The gate still refuses to write an
+            // adjustment with no client, because rate_adjustments.client_id
+            // feeds billing/calculator.ts straight into a client's weekly bill
+            // and there is no such thing as an adjustment belonging to nobody.
+            if (diff !== null && Math.abs(diff) > 0.01 && attributedClientId) {
               // DEFECT 5, FIXED. This used to be a select on
               // (shipment_id, adjustment_amount) followed by an insert when the
               // select came back empty -- a check-then-act with NO constraint
@@ -292,7 +479,7 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
                 .from('rate_adjustments')
                 .upsert({
                   shipment_id: existingShipment.id,
-                  client_id: existingShipment.client_id,
+                  client_id: attributedClientId,
                   order_number: orderNumber,
                   original_cost: prevCost,
                   adjusted_cost: newCost,
@@ -395,6 +582,27 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
     run.fail('shipstation pull', err)
     throw err
   } finally {
+    // Published in the finally, not after the return, because the throw path
+    // above is reached. A pull that died on page 6 of 11 has still LEARNED
+    // which stores need mapping from pages 1-5, and that is a finding worth
+    // keeping even though this `results` object never reaches a caller on that
+    // path -- the run row's own warn() record below is what survives.
+    //
+    // Sorted so two runs that found the same stores print the same line, which
+    // is what makes "the same three stores again" readable as a standing
+    // problem rather than as new information every eight hours.
+    results.unmappedStoreIds = [...unmappedStores].sort()
+    if (results.unmappedStoreIds.length > 0) {
+      // One warn for the whole run naming every store, rather than one per
+      // shipment. The actionable unit is the STORE: a single client_store_ids
+      // row attributes every shipment that store has ever sent and every one it
+      // will send, so 412 identical warnings would bury the three ids that are
+      // the entire content of the finding.
+      run.warn('stores with no client_store_ids row', {
+        storeIds: results.unmappedStoreIds,
+        shipmentsAffectedThisRun: results.unmappedStore,
+      })
+    }
     await run.close()
   }
 

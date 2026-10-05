@@ -255,3 +255,124 @@ describe('GET /api/agent/monitor: a sync that skipped on the lock', () => {
     expect(body.log.find((l) => l.includes('Client mapping'))).not.toContain('skipped')
   })
 })
+
+// syncShipments assigns client_id from client_store_ids, and returns six
+// counters saying what happened. This block is about which of them wake
+// somebody up, because that decision is the entire value of the counters: a
+// finding that lands in log[] on a route nobody reads the log of has not been
+// reported, and a finding that lands in errors[] every eight hours forever
+// stops being read at all. Both failure modes are already documented in
+// route.ts, and this is where the split is held still.
+//
+// The default syncShipments mock in beforeEach omits all six fields, so every
+// test here opts in explicitly and the negative control above stays clean.
+const attributing = (over: Record<string, unknown>) => {
+  h.syncShipments.mockResolvedValue({
+    created: 3, updated: 0, adjustments: 0, refunds: 0,
+    errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
+    attributed: 0, unmappedStore: 0, unmappedStoreIds: [],
+    noStoreId: 0, attributionConflicts: 0, storeMapUnavailable: false,
+    ...over,
+  })
+}
+
+describe('GET /api/agent/monitor: what the attribution counters escalate', () => {
+  // THE DEGRADED CASE ANNOUNCING ITSELF. A failed read of client_store_ids is
+  // not an empty client_store_ids, and the difference is a whole pass's
+  // billing. The shape being guarded against is that this reads EXACTLY like a
+  // healthy run with no new stores -- created: 3, errors: 0, attributed: 0 --
+  // so if it does not reach errors[], the sync bills nobody for everything it
+  // pulls behind a subject line that says All clear.
+  it('escalates an unreadable store map, which otherwise looks like a clean pass', async () => {
+    attributing({ storeMapUnavailable: true })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.has_issues).toBe(true)
+    const err = body.errors.find((e) => e.includes('client_store_ids'))
+    expect(err).toBeDefined()
+    expect(err).toContain('NO')
+    // And it must not claim the revenue is lost, because it is not: client_id
+    // is still blank, so the next successful run attributes these rows. An
+    // alert that overstates gets triaged as noise.
+    expect(err).toContain('next successful run')
+  })
+
+  // The store ids are the actionable content, not the count. One
+  // client_store_ids row attributes every shipment that store has ever sent
+  // and every one it will send, so an alert that says "41 shipments from 2
+  // stores" without naming them has reported a number and withheld the fix.
+  it('names the unmapped store ids, because the ids are the action', async () => {
+    attributing({ unmappedStore: 41, unmappedStoreIds: ['900', '901'] })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.has_issues).toBe(true)
+    const err = body.errors.find((e) => e.includes('no client_store_ids row'))
+    expect(err).toBeDefined()
+    expect(err).toContain('41 shipments')
+    expect(err).toContain('900')
+    expect(err).toContain('901')
+    expect(err).toContain('cannot be invoiced')
+  })
+
+  // A conflict cannot be resolved by a rule -- client_store_ids is unique on
+  // store_id alone, so one store mapping to two clients means the invariant is
+  // already broken somewhere. It escalates, and it must say that nothing moved,
+  // because "2 shipments are assigned to the wrong client" would otherwise read
+  // as an invoice having already been changed under someone.
+  it('escalates an attribution conflict and says nothing was moved', async () => {
+    attributing({ attributionConflicts: 2 })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.has_issues).toBe(true)
+    const err = body.errors.find((e) => e.includes('different client'))
+    expect(err).toBeDefined()
+    expect(err).toContain('nothing was moved')
+    expect(err).toContain('sync_runs')
+  })
+
+  // THE ONE THAT MUST NOT ALERT, and the reason is that there is no action to
+  // offer. An unmapped store is fixed by one insert; a shipment carrying no
+  // store key at all cannot be fixed from this database, because there is
+  // nothing to map it by. It is the unknownCarrier case: a person eventually,
+  // not a 🚨 every eight hours. Without this assertion the cheapest way to
+  // "handle" the counter is to push it to errors[] with the others, and the
+  // cost of that is the whole alert channel.
+  it('reports a shipment with no store id at all without waking anyone', async () => {
+    attributing({ noStoreId: 7 })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors).toEqual([])
+    expect(body.has_issues).toBe(false)
+    expect(body.log.some((l) => l.includes('no store id at all'))).toBe(true)
+  })
+
+  it('logs a successful attribution without calling it an issue', async () => {
+    attributing({ attributed: 38 })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors).toEqual([])
+    expect(body.has_issues).toBe(false)
+    expect(body.log.some((l) => l.includes('38 shipments attributed'))).toBe(true)
+  })
+
+  // The negative control for this whole block. Every assertion above is a
+  // search for a substring, and all five would pass against a handler that
+  // emitted all six lines unconditionally on every pass -- which would put
+  // three permanent errors[] entries in every email. This pins the silence.
+  it('says nothing about attribution when there is nothing to say', async () => {
+    attributing({})
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors).toEqual([])
+    expect(body.has_issues).toBe(false)
+    expect(body.log.some((l) => l.includes('attributed'))).toBe(false)
+    expect(body.log.some((l) => l.includes('no store id'))).toBe(false)
+    expect(body.log.some((l) => l.includes('client_store_ids'))).toBe(false)
+  })
+})
