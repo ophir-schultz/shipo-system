@@ -64,6 +64,13 @@ export interface FakeCall {
   filters: Filter[]
   payload: FakeRow[]
   onConflict?: string
+  /**
+   * The `ignoreDuplicates` option passed to .upsert(). Recorded as well as
+   * acted on, because the difference between DO NOTHING and DO UPDATE is not
+   * always visible in the resulting rows — on a fixture where the incoming
+   * payload happens to equal the stored row, both produce the same table.
+   */
+  ignoreDuplicates?: boolean
   range?: [number, number]
   limit?: number
   /** The `count` option passed to .select(), if any. */
@@ -193,10 +200,14 @@ class Builder implements PromiseLike<FakeResult> {
     return this
   }
 
-  upsert(payload: FakeRow | FakeRow[], options?: { onConflict?: string }): this {
+  upsert(
+    payload: FakeRow | FakeRow[],
+    options?: { onConflict?: string; ignoreDuplicates?: boolean },
+  ): this {
     this.call.verb = 'upsert'
     this.call.payload = Array.isArray(payload) ? payload : [payload]
     this.call.onConflict = options?.onConflict
+    this.call.ignoreDuplicates = options?.ignoreDuplicates
     return this
   }
 
@@ -370,6 +381,30 @@ class Builder implements PromiseLike<FakeResult> {
           const existing = keys.length > 0
             ? table.find((r) => keys.every((k) => valuesEqual(r[k], incoming[k])))
             : undefined
+          if (existing && this.call.ignoreDuplicates) {
+            // `resolution=ignore-duplicates`, which is ON CONFLICT DO NOTHING.
+            // Two things have to be modelled, and the second is the one worth
+            // the comment.
+            //
+            // First, the stored row is left ALONE -- not merged with the
+            // payload. That is the whole reason a caller asks for it: an
+            // adjustment that a person has already moved to 'approved' must
+            // not be shoved back to 'pending' by a re-sync carrying the
+            // default.
+            //
+            // Second, the skipped row is ABSENT from the returned
+            // representation. `insert ... on conflict do nothing returning *`
+            // returns only the rows it actually inserted, so an empty array is
+            // how a caller learns the row was already there. shipstation.ts
+            // now counts adjustments from exactly that signal, so a double
+            // that helpfully returned the existing row would report an
+            // adjustment on every run for ever and the test would be green.
+            //
+            // `continue`, not `break`: this is inside the per-row loop over the
+            // batch, so breaking would silently drop every row AFTER the first
+            // duplicate.
+            continue
+          }
           if (existing) { Object.assign(existing, incoming); affected.push(existing) }
           else {
             const row = { id: incoming.id ?? `fake-${this.call.table}-${table.length + 1}`, ...incoming }

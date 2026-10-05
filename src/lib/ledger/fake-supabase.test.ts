@@ -219,3 +219,98 @@ describe('fake-supabase — the onConflict target', () => {
     expect(db.tables.order_charges).toHaveLength(3)
   })
 })
+
+describe('fake-supabase — upsert({ ignoreDuplicates })', () => {
+  // supabase-js turns this option into `Prefer: resolution=ignore-duplicates`,
+  // which is `ON CONFLICT DO NOTHING` rather than `DO UPDATE`. Two consequences
+  // are load-bearing for sync/shipstation.ts's rate-adjustment write and
+  // neither is visible in a fixture where the incoming payload happens to match
+  // the stored row, so both get their own test:
+  //
+  //   1. the stored row is LEFT ALONE. An already-approved adjustment must not
+  //      be reset to 'pending' by a second overlapping sync, and its
+  //      adjustment_date must not move.
+  //   2. the skipped row is ABSENT from the returned representation. That is
+  //      the only signal the caller has for "I did not write this", and
+  //      shipstation.ts counts results.adjustments off exactly that.
+  it('leaves the stored row alone instead of merging the incoming payload', async () => {
+    const db = createFakeSupabase({
+      rate_adjustments: [
+        { id: 'a1', shipment_id: 's1', adjustment_amount: 1.5, status: 'approved' },
+      ],
+    })
+
+    await db.client.from('rate_adjustments').upsert(
+      { shipment_id: 's1', adjustment_amount: 1.5, status: 'pending' },
+      { onConflict: 'shipment_id,adjustment_amount', ignoreDuplicates: true },
+    )
+
+    expect(db.tables.rate_adjustments).toHaveLength(1)
+    expect(db.tables.rate_adjustments[0]).toMatchObject({ status: 'approved' })
+  })
+
+  it('returns an EMPTY representation for a row it skipped', async () => {
+    const db = createFakeSupabase({
+      rate_adjustments: [{ id: 'a1', shipment_id: 's1', adjustment_amount: 1.5 }],
+    })
+
+    const { data, error } = await db.client.from('rate_adjustments').upsert(
+      { shipment_id: 's1', adjustment_amount: 1.5, status: 'pending' },
+      { onConflict: 'shipment_id,adjustment_amount', ignoreDuplicates: true },
+    ).select('id')
+
+    expect(error).toBeNull()
+    expect(data).toEqual([])
+  })
+
+  it('returns the row when there was no conflict, so [] really means "skipped"', async () => {
+    // The positive control for the test above. Without it, a double that
+    // returned [] from every ignoreDuplicates upsert -- conflict or not --
+    // would pass, and shipstation.ts would then be proven to count nothing at
+    // all rather than to count only what it wrote.
+    const db = createFakeSupabase({ rate_adjustments: [] })
+
+    const { data } = await db.client.from('rate_adjustments').upsert(
+      { shipment_id: 's1', adjustment_amount: 1.5, status: 'pending' },
+      { onConflict: 'shipment_id,adjustment_amount', ignoreDuplicates: true },
+    ).select('id')
+
+    expect(data).toHaveLength(1)
+  })
+
+  it('keeps processing a batch after the first duplicate', async () => {
+    // The skip is `continue` inside the per-row loop, not `break`. A `break`
+    // passes every single-row test in this file and silently discards every
+    // row AFTER the first conflict in a batch -- the kind of hole that only
+    // shows up once some future caller upserts an array.
+    const db = createFakeSupabase({
+      rate_adjustments: [{ id: 'a1', shipment_id: 's1', adjustment_amount: 1.5 }],
+    })
+
+    await db.client.from('rate_adjustments').upsert([
+      { shipment_id: 's1', adjustment_amount: 1.5 },
+      { shipment_id: 's1', adjustment_amount: 2.5 },
+      { shipment_id: 's2', adjustment_amount: 1.5 },
+    ], { onConflict: 'shipment_id,adjustment_amount', ignoreDuplicates: true })
+
+    expect(db.tables.rate_adjustments).toHaveLength(3)
+  })
+
+  it('still merges on conflict when ignoreDuplicates is not asked for', async () => {
+    // The default must not have moved. Every other upsert in the codebase --
+    // orders, order_items, order_charges -- relies on DO UPDATE, and a change
+    // that made skipping universal would break them in a way no test above
+    // distinguishes.
+    const db = createFakeSupabase({
+      order_charges: [{ id: 'c1', order_id: 'o1', charge_key: 'item:a:pick', amount: 1 }],
+    })
+
+    await db.client.from('order_charges').upsert(
+      { order_id: 'o1', charge_key: 'item:a:pick', amount: 99 },
+      { onConflict: 'order_id,charge_key' },
+    )
+
+    expect(db.tables.order_charges).toHaveLength(1)
+    expect(db.tables.order_charges[0]).toMatchObject({ amount: 99 })
+  })
+})

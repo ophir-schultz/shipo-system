@@ -338,3 +338,207 @@ describe('syncShipments: running it twice over the same window', () => {
     expect(adjustments()).toHaveLength(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// OVERLAPPING RUNS.
+//
+// syncShipments takes no lock. The 'shipstation' sync_runs row is audit only --
+// unlike the 'charges' row, which IS the lock recalculateCharges gates on -- so
+// two of these can run at once, and they do: /api/agent/monitor declares
+// maxDuration = 300 while AutoSync polls it every five minutes, and the
+// single-flight guard that is supposed to prevent that is a React ref, which
+// dedupes within ONE browser tab. A second tab, or the cron landing on a
+// tab-driven pass, is two separate processes and neither can see the other.
+//
+// WHAT THESE TESTS CAN AND CANNOT DO. They do not run two syncs concurrently --
+// the fake database is synchronous and there is nothing to interleave. What
+// they do instead is reconstruct the exact state the LOSING run observes, which
+// is the only state where behaviour differs, and assert on what it does from
+// there. That is a weaker claim than a true concurrency test and a stronger one
+// than idempotency: the seeded fixtures below are states that a single-threaded
+// re-sync can never produce, so nothing above this line covers them.
+// ---------------------------------------------------------------------------
+describe('syncShipments: a second run overlapping the first', () => {
+  /** The adjustment the winning run already wrote. */
+  function seedAdjustment(shipmentId: number, amount: number, over: FakeRow = {}) {
+    (h.db.tables.rate_adjustments as FakeRow[]).push({
+      id: `adj-${shipmentId}`,
+      shipment_id: `seed-${shipmentId}`,
+      client_id: 'c-known',
+      adjustment_amount: amount,
+      original_cost: 9.5,
+      adjusted_cost: 11,
+      reason: 'Carrier rate adjustment',
+      adjustment_date: '2026-09-02T00:00:00.000Z',
+      status: 'pending',
+      ...over,
+    })
+  }
+
+  it('writes no second rate_adjustments row for an adjustment the other run already recorded', async () => {
+    // THE LOSING RUN'S VIEW, exactly. Both runs read actual_cost at 9.50 before
+    // either wrote 11.00 back, so this run still sees the OLD cost and computes
+    // the same +1.50 -- while the adjustment row for it is already there. A
+    // single-threaded re-sync cannot reach this state, because by its second
+    // pass actual_cost is 11.00 and the diff is 0.
+    //
+    // The old code's select-then-insert would have found the row here and
+    // skipped. What it could NOT do is survive the two runs reaching the select
+    // before either reached the insert, which is the actual race; the upsert is
+    // what closes that, and this fixture is the closest reachable proof.
+    seedAttributed(8401, 'E-500', 9.5)
+    seedAdjustment(8401, 1.5)
+
+    h.getShipments.mockResolvedValue({
+      shipments: [label(8401, 'E-500', { shipmentCost: 11.0 })], pages: 1,
+    })
+    const run = await syncShipments(30)
+
+    expect(adjustments()).toHaveLength(1)
+    // A duplicate is not an error. The other run recorded it; there is nothing
+    // wrong and nothing for anyone to do.
+    expect(run).toMatchObject({ errors: 0 })
+  })
+
+  it('does not count an adjustment it did not write', async () => {
+    // The counter half, and it is a separate failure from the row count. Both
+    // runs reporting `adjustments: 1` for one real re-bill is how the monitor
+    // email comes to describe twice as much carrier movement as happened --
+    // and the row count assertion above passes either way, because the counter
+    // lives in the return value and not in the table.
+    seedAttributed(8402, 'E-501', 9.5)
+    seedAdjustment(8402, 1.5)
+
+    h.getShipments.mockResolvedValue({
+      shipments: [label(8402, 'E-501', { shipmentCost: 11.0 })], pages: 1,
+    })
+    const run = await syncShipments(30)
+
+    expect(run).toMatchObject({ adjustments: 0, refunds: 0 })
+  })
+
+  it('leaves an already-approved adjustment approved, and does not move its date', async () => {
+    // WHY ignoreDuplicates IS LOAD-BEARING. Drop it and the upsert becomes
+    // ON CONFLICT DO UPDATE: the row count stays at 1, so both assertions in
+    // the first test still pass, while this run quietly overwrites the stored
+    // row with its own payload -- status back to 'pending' from 'approved', and
+    // adjustment_date moved to today.
+    //
+    // That is worse than the duplicate it replaced. 'approved' is a person's
+    // decision and the state billing/calculator.ts sums from, so reverting it
+    // drops a real adjustment OUT of the client's next bill; and moving
+    // adjustment_date walks the row forward a day at a time, three crons a day,
+    // through whatever billing week it is eventually read in.
+    seedAttributed(8403, 'E-502', 9.5)
+    seedAdjustment(8403, 1.5, { status: 'approved' })
+
+    h.getShipments.mockResolvedValue({
+      shipments: [label(8403, 'E-502', { shipmentCost: 11.0 })], pages: 1,
+    })
+    await syncShipments(30)
+
+    expect(adjustments()).toHaveLength(1)
+    expect(adjustments()[0]).toMatchObject({
+      status: 'approved',
+      adjustment_date: '2026-09-02T00:00:00.000Z',
+    })
+  })
+
+  it('still records an adjustment whose amount differs from the one already there', async () => {
+    // The positive control for the conflict target, and the reason it is two
+    // columns rather than one. A shipment legitimately collects several
+    // adjustments over its life -- a re-bill, then a partial refund -- so an
+    // index or an onConflict narrowed to shipment_id alone would silently
+    // swallow every one after the first. Both of the two preceding tests assert
+    // `toHaveLength(1)`, and an over-constrained key satisfies them perfectly.
+    seedAttributed(8404, 'E-503', 9.5)
+    seedAdjustment(8404, 1.5)
+
+    h.getShipments.mockResolvedValue({
+      shipments: [label(8404, 'E-503', { shipmentCost: 12.0 })], pages: 1,
+    })
+    const run = await syncShipments(30)
+
+    expect(adjustments()).toHaveLength(2)
+    expect(adjustments().map((a) => a.adjustment_amount).sort()).toEqual([1.5, 2.5])
+    expect(run).toMatchObject({ adjustments: 1 })
+  })
+
+  it('names the real conflict target, so a typo cannot pass as a clean run', async () => {
+    // The statement, not its effect. fake-supabase throws if an onConflict key
+    // is absent from the payload, but nothing checks that the key is the one
+    // the database actually has an index on -- and PostgREST answers 42P10 for
+    // a target no unique index matches, which would mean NO adjustment is ever
+    // written. Asserting the string here is what ties this file to
+    // supabase/ledger_03c_rate_adjustments_uniq.sql; the two have to be changed
+    // together or this goes red.
+    seedAttributed(8405, 'E-504', 9.5)
+
+    h.getShipments.mockResolvedValue({
+      shipments: [label(8405, 'E-504', { shipmentCost: 11.0 })], pages: 1,
+    })
+    await syncShipments(30)
+
+    const upserts = h.db.calls.filter(
+      (c) => c.table === 'rate_adjustments' && c.verb === 'upsert')
+    expect(upserts).toHaveLength(1)
+    expect(upserts[0].onConflict).toBe('shipment_id,adjustment_amount')
+    expect(upserts[0].ignoreDuplicates).toBe(true)
+  })
+
+  it('treats a 23505 on the shipments insert as a concurrent write, not a lost shipment', async () => {
+    // The same overlap from the other side. Both runs matched no existing row
+    // at the select, so both take the insert branch, and the slower one hits
+    // shipments_shipstation_id_key. The row IS there -- written by the sibling
+    // from the same payload -- so counting this in results.errors drove
+    // monitor/route.ts:75 to email "N ShipStation shipments could not be
+    // recorded ... their revenue and carrier cost are missing from the ledger",
+    // which is false in every clause.
+    h.db.failOn = (call) =>
+      call.table === 'shipments' && call.verb === 'insert'
+        ? { message: 'duplicate key value violates unique constraint '
+                   + '"shipments_shipstation_id_key"', code: '23505' }
+        : null
+
+    h.getShipments.mockResolvedValue({
+      shipments: [label(8501, 'E-600')], pages: 1,
+    })
+    const result = await syncShipments(30)
+
+    expect(result).toMatchObject({ errors: 0, created: 0 })
+    const run = theRun()
+    // 'ok', not 'partial'. close() derives the status from the error count, so
+    // a fail() here also reddens the row for a run that did nothing wrong.
+    expect(run.status).toBe('ok')
+    // Recorded, though. A rise in these is the only evidence available of how
+    // often the two syncs actually overlap, so it must not be swallowed either.
+    const errors = run.errors as Array<{ kind: string; message: string }>
+    expect(errors).toHaveLength(1)
+    expect(errors[0].kind).toBe('warning')
+    expect(errors[0].message).toContain('concurrent')
+  })
+
+  it('still fails loudly on an insert error that is NOT a duplicate key', async () => {
+    // The guard on the guard. `insError?.code === '23505'` is one typo away
+    // from swallowing every insert failure this sync can have -- a numeric
+    // overflow, a not-null violation, a dead connection -- and every one of
+    // those really does mean a shipment's revenue and carrier cost are missing
+    // from the ledger. The test above cannot tell the difference; this one can.
+    h.db.failOn = (call) =>
+      call.table === 'shipments' && call.verb === 'insert'
+        ? { message: 'numeric field overflow', code: '22003' }
+        : null
+
+    h.getShipments.mockResolvedValue({
+      shipments: [label(8502, 'E-601')], pages: 1,
+    })
+    const result = await syncShipments(30)
+
+    expect(result).toMatchObject({ errors: 1, created: 0 })
+    const run = theRun()
+    expect(run.status).toBe('failed')
+    const errors = run.errors as Array<{ kind: string; message: string }>
+    expect(errors[0].kind).toBe('error')
+    expect(errors[0].message).toContain('overflow')
+  })
+})

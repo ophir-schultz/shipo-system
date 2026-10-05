@@ -196,31 +196,73 @@ export async function syncShipments(daysBack = 30) {
               : null
 
             if (diff !== null && Math.abs(diff) > 0.01 && existingShipment.client_id) {
-              const { data: existingAdj, error: adjError } = await supabaseAdmin
+              // DEFECT 5, FIXED. This used to be a select on
+              // (shipment_id, adjustment_amount) followed by an insert when the
+              // select came back empty -- a check-then-act with NO constraint
+              // underneath it, because rate_adjustments carried no index at all
+              // beyond its primary key.
+              //
+              // The race is between this block and the shipments update forty
+              // lines down. Two overlapping syncs both read the OLD actual_cost
+              // at the select above, so both compute the same diff, both find no
+              // existing adjustment, and both insert. Overlap is reachable:
+              // /api/agent/monitor declares maxDuration = 300 and AutoSync polls
+              // it every five minutes, and the single-flight guard it relies on
+              // is a React ref -- it dedupes within one browser TAB, not across
+              // tabs and not against the cron.
+              //
+              // The duplicate never heals. Once actual_cost holds the new value
+              // the diff is 0 on every later run and this branch is never
+              // re-entered, so the pair sits there for ever. billing/calculator.ts
+              // sums adjustment_amount where status = 'approved' into the client's
+              // weekly bill, so an approved duplicate DOUBLE-BILLS a real client.
+              //
+              // The fix is the unique index in
+              // supabase/ledger_03c_rate_adjustments_uniq.sql, which enforces the
+              // pair that verify/ledger_03b_verify.sql query 2 was already
+              // asserting. The dedup rule has not changed -- it has moved from
+              // application code that could be raced to a constraint that cannot.
+              //
+              // ignoreDuplicates IS LOAD-BEARING, not a default being spelled
+              // out. Without it this is ON CONFLICT DO UPDATE, which would
+              // overwrite the stored row -- resetting an adjustment a person had
+              // already moved to 'approved' back to 'pending' and moving its
+              // adjustment_date to today, three times a day. DO NOTHING keeps
+              // the existing row exactly as it is, which is what the old
+              // select-then-skip did.
+              const { data: insertedAdj, error: insError } = await supabaseAdmin
                 .from('rate_adjustments')
+                .upsert({
+                  shipment_id: existingShipment.id,
+                  client_id: existingShipment.client_id,
+                  order_number: orderNumber,
+                  original_cost: prevCost,
+                  adjusted_cost: newCost,
+                  adjustment_amount: diff,
+                  reason: diff > 0 ? 'Carrier rate adjustment' : 'Refund or void',
+                  adjustment_date: new Date().toISOString(),
+                  status: 'pending',
+                }, {
+                  // Must match rate_adjustments_shipment_amount_key, which is
+                  // deliberately NON-PARTIAL: PostgREST emits a bare column list
+                  // here and Postgres cannot infer a partial index from it, so a
+                  // predicate on that index turns every one of these into 42P10
+                  // and no adjustment is ever recorded. See the migration.
+                  onConflict: 'shipment_id,adjustment_amount',
+                  ignoreDuplicates: true,
+                })
                 .select('id')
-                .eq('shipment_id', existingShipment.id)
-                .eq('adjustment_amount', diff)
-                .maybeSingle()
 
-              if (adjError) {
-                run.fail(`adjustment lookup ${shipmentId}`, adjError)
-                results.errors++
-              } else if (!existingAdj) {
-                const { error: insError } = await supabaseAdmin
-                  .from('rate_adjustments').insert({
-                    shipment_id: existingShipment.id,
-                    client_id: existingShipment.client_id,
-                    order_number: orderNumber,
-                    original_cost: prevCost,
-                    adjusted_cost: newCost,
-                    adjustment_amount: diff,
-                    reason: diff > 0 ? 'Carrier rate adjustment' : 'Refund or void',
-                    adjustment_date: new Date().toISOString(),
-                    status: 'pending',
-                  })
-                if (insError) { run.fail(`adjustment insert ${shipmentId}`, insError); results.errors++ }
-                else if (diff > 0) results.adjustments++
+              // `insert ... on conflict do nothing returning id` returns only the
+              // rows it actually inserted, so an empty array means the adjustment
+              // was already recorded. That is now the counter's signal, and it is
+              // EXACT where the old pre-check was racy: under the overlap above,
+              // both runs used to count an adjustment and only one of them was
+              // telling the truth. The run that loses the conflict now reports
+              // nothing, which is what it did.
+              if (insError) { run.fail(`adjustment insert ${shipmentId}`, insError); results.errors++ }
+              else if ((insertedAdj ?? []).length > 0) {
+                if (diff > 0) results.adjustments++
                 else results.refunds++
               }
             }
@@ -232,7 +274,39 @@ export async function syncShipments(daysBack = 30) {
           } else {
             const { error: insError } = await supabaseAdmin
               .from('shipments').insert(shipmentData)
-            if (insError) { run.fail(`insert ${shipmentId}`, insError); results.errors++ }
+
+            // 23505 here is NOT this run's failure. It is the same overlap the
+            // rate-adjustment note above describes, seen from the other side:
+            // two syncs both matched no existing row at the select near the top,
+            // and the slower one arrives to find the label already inserted.
+            //
+            // shipments_shipstation_id_key (ledger_03_charges.sql:24) is the only
+            // unique index on this table apart from the uuid primary key, which
+            // is generated and cannot collide, so a 23505 can only mean this
+            // shipmentId is already present -- recorded, by the sibling run, from
+            // the same ShipStation payload this run is holding.
+            //
+            // Counting that as an error was actively misleading, not merely
+            // noisy. It drove monitor/route.ts:75 to email "N ShipStation
+            // shipments could not be recorded ... their revenue and carrier cost
+            // are missing from the ledger until the next successful run picks
+            // them up", which is false in every clause: the row is there, the
+            // cost is there, and there is nothing for a later run to pick up.
+            // An alert that is wrong about whether money is missing is worse
+            // than no alert, because it spends the attention that a real one
+            // needs.
+            //
+            // warn(), so it is still recorded against the run and findable --
+            // a sudden rise in these is real evidence of how often the syncs
+            // overlap -- but it does not move the row off 'ok' and does not
+            // reach the alert email. Not counted in results.created either:
+            // this run did not create it. Any drift between the two runs'
+            // payloads is reconciled by the next run's update path, which is the
+            // same guarantee the ordinary re-sync relies on.
+            if (insError?.code === '23505') {
+              run.warn(`insert ${shipmentId}`, 'already inserted by a concurrent run')
+            }
+            else if (insError) { run.fail(`insert ${shipmentId}`, insError); results.errors++ }
             else { results.created++; run.wrote() }
           }
         } catch (err) {
