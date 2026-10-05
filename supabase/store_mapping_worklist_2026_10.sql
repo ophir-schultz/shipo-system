@@ -48,6 +48,29 @@
 -- invariant is ALREADY violated in the data, and the correct response is to
 -- stop and find out why -- not to pick the more common one.
 --
+-- THE STORE ID IS READ THE SAME WAY IN THREE PLACES, and it has to stay that
+-- way. storeIdOf() in src/lib/sync/store-attribution.ts is the live rule: it
+-- prefers advancedOptions.storeId, falls back to a top-level storeId, TRIMS,
+-- and answers null for the empty string. backfill_store_attribution_2026_10.sql
+-- matches it with nullif(trim(coalesce(...)), ''). This file did NOT -- every
+-- extraction here was a bare coalesce, with no trim and no ''-to-null.
+--
+-- That is not cosmetic, because PART 5 WRITES. A bare coalesce would have
+-- inserted a client_store_ids row keyed on ' 900 ' or on '', and storeIdOf
+-- trims and nullifs before it looks the store up, so neither key can ever
+-- match: the '' row is unreachable because storeIdOf returns null and the map
+-- is never consulted at all, and the ' 900 ' row is missed because the live
+-- lookup asks for '900'. Either way the mapping reads as done and attributes
+-- nothing, for ever, with no error anywhere -- the sync would go on counting
+-- those shipments as unmapped-store while the table says they are handled.
+--
+-- The read-only parts had a quieter version of the same fault: ' 900 ' and
+-- '900' group as two different stores, which splits one store's hand-attributed
+-- evidence across two rows and can turn a confident mapping into two thin ones.
+--
+-- All seven extractions below are now nullif(trim(coalesce(...)), ''). If you
+-- change one, change storeIdOf and the backfill in the same pass.
+--
 -- NO DDL. PART 1-4 are select-only. PART 5 inserts into client_store_ids only
 -- and is commented out.
 --
@@ -80,8 +103,8 @@
 with s as (
   select sh.client_id, sh.actual_cost, sh.client_rate, sh.ship_date,
          sh.order_number,
-         coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
-                  sh.raw_data ->> 'storeId') as store_id
+         nullif(trim(coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
+                  sh.raw_data ->> 'storeId')), '') as store_id
     from shipments sh
 ),
 -- The training set: store -> client, ONLY from rows a human already attributed
@@ -191,10 +214,10 @@ from shipments s;
 with s as (
   select
     sh.*,
-    coalesce(
+    nullif(trim(coalesce(
       sh.raw_data -> 'advancedOptions' ->> 'storeId',
       sh.raw_data ->> 'storeId'
-    ) as store_id
+    )), '') as store_id
   from shipments sh
 ),
 -- The training set: store -> client, only from rows a human already attributed.
@@ -267,10 +290,10 @@ order by cost_on_unattributed desc nulls last;
 with s as (
   select
     sh.client_id, sh.actual_cost, sh.ship_date, sh.order_number,
-    coalesce(
+    nullif(trim(coalesce(
       sh.raw_data -> 'advancedOptions' ->> 'storeId',
       sh.raw_data ->> 'storeId'
-    ) as store_id
+    )), '') as store_id
   from shipments sh
 )
 select
@@ -297,8 +320,8 @@ order by 1, cost desc;
 -- permits it.
 with s as (
   select sh.client_id,
-         coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
-                  sh.raw_data ->> 'storeId') as store_id
+         nullif(trim(coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
+                  sh.raw_data ->> 'storeId')), '') as store_id
   from shipments sh
 )
 select c.name as client, count(distinct s.store_id) as stores,
@@ -343,21 +366,21 @@ select
 --          t.store_id,
 --          'derived from ' || t.n || ' hand-attributed shipments 2026-10-05'
 --     from (
---       select coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
---                       sh.raw_data ->> 'storeId') as store_id,
+--       select nullif(trim(coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
+--                       sh.raw_data ->> 'storeId')), '') as store_id,
 --              sh.client_id,
 --              count(*) as n
 --         from shipments sh
 --        where sh.client_id is not null
---          and coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
---                       sh.raw_data ->> 'storeId') is not null
+--          and nullif(trim(coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
+--                       sh.raw_data ->> 'storeId')), '') is not null
 --        group by 1, 2
 --     ) t
 --    where t.store_id not in (
 --      -- the conflict exclusion, restated here so this statement is safe on
 --      -- its own and does not depend on somebody having read PART 3
---      select coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
---                      sh.raw_data ->> 'storeId')
+--      select nullif(trim(coalesce(sh.raw_data -> 'advancedOptions' ->> 'storeId',
+--                      sh.raw_data ->> 'storeId')), '')
 --        from shipments sh
 --       where sh.client_id is not null
 --       group by 1
