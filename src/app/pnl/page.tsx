@@ -326,8 +326,35 @@ async function getPnlData() {
     // Derived from the per-row decision above rather than re-summing the
     // columns, so the headline figure and the table can never disagree about
     // which campaigns were counted.
-    const totalSpend = campaignPnl.reduce((s, c) => (c.spend === null ? s : s + c.spend), 0)
-    const unknownSpend = campaignPnl.filter(c => c.spend === null).length
+    //
+    // sumPriced over the rows rather than `reduce((s, c) => s + c.spend, 0)`
+    // beside a separate `.filter(...).length`, for two reasons, only one of
+    // which is the arithmetic:
+    //
+    //   - The total and the count of what it left out came from two separate
+    //     passes that had to agree with each other by hand. That is the
+    //     coupling this module exists to delete, and the statement that gets
+    //     forgotten is always the count.
+    //   - It accumulates in cents. Campaign spends are 2dp figures and adding
+    //     them as floats drifts: `1752.10 + 297.94 + 2934.02` is
+    //     4984.0599999999995. Measured before being asserted -- 29.8% of
+    //     realistic 2-to-7-campaign spend sets drift this way, and NONE of two
+    //     million of them rendered differently, because `fmt` is toFixed(2) and
+    //     the exact sum of 2dp values lands ON a cent, a full 0.005 from the
+    //     nearest rounding boundary against a drift of ~7e-12. So this half
+    //     moves no figure on the page today and is not claimed to. It is here
+    //     because toFixed(2) is a property of the two call sites, not of the
+    //     value: the moment this total is divided, exported, or compared
+    //     against the cent-accurate sums beside it, the drift is live, and a
+    //     second rule for rounding the same money is the thing that disagrees
+    //     in the last cent.
+    const spendSum = sumPriced(campaignPnl, 'spend')
+    // A spend of $0.00 across every campaign is the same defect the three cards
+    // above were just fixed for: when NOBODY has entered a spend, the old
+    // reduce returned 0 and the card read "Marketing Spend $0.00", which is the
+    // most reassuring thing this page can say about a budget nobody recorded.
+    const totalSpend = totalOrUnknown(spendSum)
+    const unknownSpend = spendSum.unpriced
     // The campaign table's revenue footer, computed here for the same reason:
     // it was `reduce((s, c) => s + c.revenue, 0)` inline in the JSX, which a
     // nullable revenue turns into the string 'NaN' on screen. Reducing money in
@@ -439,11 +466,16 @@ export default async function PnlPage() {
             ? 'No readable revenue or cost to compute it from'
             : 'Gross of warehouse labor'}
           color={d.totalProfit === null ? 'unknown' : d.totalProfit >= 0 ? 'green' : 'red'} />
-        <StatCard label="Marketing Spend" value={fmt(d.totalSpend)}
-          sub={d.unknownSpend > 0
-            ? `${d.activeCampaigns} active campaigns — ${d.unknownSpend} with no spend entered, excluded`
-            : `${d.activeCampaigns} active campaigns`}
-          color="gray" />
+        {/* A dash, not $0.00, when not one campaign has a spend entered. The
+            count in `sub` was already telling the truth underneath a figure
+            that was not. */}
+        <StatCard label="Marketing Spend" value={fmtOrDash(d.totalSpend)}
+          sub={d.totalSpend === null
+            ? `${d.activeCampaigns} active campaigns — no spend entered for any of them`
+            : d.unknownSpend > 0
+              ? `${d.activeCampaigns} active campaigns — ${d.unknownSpend} with no spend entered, excluded`
+              : `${d.activeCampaigns} active campaigns`}
+          color={d.totalSpend === null ? 'unknown' : 'gray'} />
       </div>
 
       {/* ---- Marketing Campaign P&L ---- */}
@@ -515,7 +547,7 @@ export default async function PnlPage() {
                         </span>
                       )}
                     </td>
-                    <td className="pt-3 text-right text-gray-300 text-sm">{fmt(d.totalSpend)}</td>
+                    <td className="pt-3 text-right text-gray-300 text-sm">{fmtOrDash(d.totalSpend)}</td>
                     <td className="pt-3 text-right text-gray-400 text-sm">{d.campaignPnl.reduce((s, c) => s + c.clientsWon, 0)}</td>
                     <td className="pt-3 text-right text-gray-300 text-sm">{fmtOrDash(d.campaignRevenue)}</td>
                     <td className="pt-3 text-right text-sm text-gray-300" colSpan={3}></td>
