@@ -81,10 +81,12 @@ export default async function ReportsPage() {
     )
   }
 
-  // Annotated, not inferred -- ReportsTabs takes `data: any`, which would
-  // accept `undefined` without complaint. This is what makes deleting the
-  // refusal above a compile error rather than a silent return to exporting a
-  // spreadsheet built from a read that failed. See LoadedData.
+  // Annotated, not inferred. ReportsTabs used to take `data: any`, which would
+  // accept `undefined` without complaint; this local was the only thing making
+  // deletion of the refusal above a compile error rather than a silent return
+  // to exporting a spreadsheet built from a read that failed. The prop now
+  // declares ReportsData, so the gate is doubled rather than moved. Keep both:
+  // this one fails here, naming the read, instead of at the JSX. See LoadedData.
   const data: LoadedData<typeof reports> = reports.data
 
   return (

@@ -51,6 +51,37 @@ export const UNPRICED_CELL = 'UNPRICED'
  * finite number is UNKNOWN, not 0: a column holding something unreadable has
  * not told us the price is nothing.
  */
+/**
+ * A money column as it arrives from a read: `unknown`, deliberately.
+ *
+ * An alias rather than writing `unknown` at each of the forty-odd declaration
+ * sites, so the reason lives in one place -- and the reason is that every
+ * narrower type anyone would reach for here is a lie that compiles.
+ *
+ * Probed against a real `tsc --strict` run, on the three shapes these columns
+ * are actually read with:
+ *
+ *                              (x ?? 0).toFixed(2)   s + (x ?? 0)   x != null && x.toFixed(2)
+ *   number | null                     compiles         compiles         compiles
+ *   number | string | null            TS2339           TS2365           TS2339
+ *   unknown                           TS2339           TS2365           TS2339
+ *
+ * `number | null` is the tempting one and the dangerous one: it makes all three
+ * broken forms type-check, so it would have silently blessed every defect this
+ * module exists to remove. It is only defensible if `numeric(10,2)` is
+ * guaranteed to arrive as a JS number, which is exactly the thing not verified
+ * against this database.
+ *
+ * `unknown` is chosen over `number | string | null` because they reject the
+ * same three forms and `unknown` claims less. Asserting the union would be
+ * recording an unverified guess about the wire format in the type system, where
+ * it reads as established fact; `unknown` records what is actually known, which
+ * is that the value must pass through `priceOf` before anything is done with
+ * it. If the shape is ever pinned down against the live database, narrowing
+ * this one alias is the whole change.
+ */
+export type Money = unknown
+
 export function priceOf(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
   if (typeof value !== 'number' && typeof value !== 'string') return null

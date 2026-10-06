@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { read, readOne, readErrors, isMigrationMissing, loaded } from '@/lib/db/read'
+import { read, readOne, readErrors, isMigrationMissing, loaded, embedOne } from '@/lib/db/read'
 
 // These two functions exist to keep "we looked and there is nothing" apart from
 // "we could not look". Both of the defects below were live on
@@ -278,5 +278,59 @@ describe('readOne', () => {
     // through to the absent branch would restore the exact bug above, silently.
     const r = readOne('clients', { data: null, error: { message: 'network error' } })
     expect(r.error).toBe('clients: network error')
+  })
+})
+
+describe('embedOne', () => {
+  // The question this answers is unresolved, on purpose: nobody here has
+  // checked whether `clients(name)` arrives from PostgREST as an object or as
+  // a one-element array. Fourteen call sites in this repo assume object;
+  // supabase-js's select-string parser assumes array. These tests pin that
+  // BOTH readings produce the same name, so the answer stops mattering.
+
+  it('passes an object embed straight through', () => {
+    expect(embedOne<{ name: string }>({ name: 'Acme' })).toEqual({ name: 'Acme' })
+  })
+
+  it('unwraps a one-element array embed to the same row', () => {
+    expect(embedOne<{ name: string }>([{ name: 'Acme' }])).toEqual({ name: 'Acme' })
+  })
+
+  it('agrees with itself across the two shapes', () => {
+    // The actual contract. If this ever fails, /reports renders a client name
+    // on one shape and a dash on the other, which is the defect `data: any`
+    // was hiding: `({ name: 'Acme' } as any).name` works and
+    // `([{ name: 'Acme' }] as any).name` is silently undefined.
+    const row = { name: 'Acme' }
+    expect(embedOne<typeof row>(row)).toEqual(embedOne<typeof row>([row]))
+  })
+
+  it('reads an empty array as absent rather than undefined', () => {
+    // `e[0]` alone would hand back undefined here, which passes a `!= null`
+    // check differently from null at some call sites and defeats `=== null`
+    // at others. An embed with no match is an absence; say so in one word.
+    expect(embedOne<{ name: string }>([])).toBeNull()
+  })
+
+  it('reads a null or absent embed as absent', () => {
+    // PostgREST sends null for a left-join miss; the column is also simply
+    // missing when a page's select string never asked for it.
+    expect(embedOne<{ name: string }>(null)).toBeNull()
+    expect(embedOne<{ name: string }>(undefined)).toBeNull()
+  })
+
+  it('keeps a legitimately null field distinct from a missing row', () => {
+    // clients.name is nullable. `embedOne(x)?.name` must be able to say "there
+    // is a client and it has no name" -- distinct from "there is no client" --
+    // or an unnamed client and a broken join render identically.
+    expect(embedOne<{ name: string | null }>({ name: null })).toEqual({ name: null })
+    expect(embedOne<{ name: string | null }>(null)).toBeNull()
+  })
+
+  it('takes the first row when an array embed somehow has several', () => {
+    // Should not happen for a many-to-one, but if the cardinality guess is
+    // wrong in the other direction, picking one deterministically beats
+    // rendering `[object Object]`.
+    expect(embedOne<{ name: string }>([{ name: 'A' }, { name: 'B' }])).toEqual({ name: 'A' })
   })
 })

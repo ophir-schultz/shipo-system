@@ -76,10 +76,12 @@ export default async function BillingPage() {
     )
   }
 
-  // Annotated, not inferred. BillingView's prop is `data: any`, so handing it
-  // `BillingData | undefined` compiles silently -- the refusal above is not a
-  // gate on its own. This local is: delete the early return and the annotation
-  // rejects the value (TS2322) before `any` can swallow it. See LoadedData.
+  // Annotated, not inferred. BillingView's prop used to be `data: any`, which
+  // accepted `BillingData | undefined` silently, so the refusal above was not a
+  // gate on its own -- this local was. The prop is now typed, so there are two
+  // independent gates; the annotation stays because it fails nearer the cause
+  // (TS2322 here, naming this read) and because it keeps holding if the
+  // component's prop ever loosens again.
   const data: LoadedData<typeof billing> = billing.data
 
   return (

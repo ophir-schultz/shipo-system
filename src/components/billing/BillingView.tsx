@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { downloadBillingExcel, downloadBillingPDF } from '@/lib/billing/download'
 import {
   combinePriced, formatPrice, formatSignedPrice, isPriced, sumPriced,
-  totalOrUnknown, unpricedNote,
+  totalOrUnknown, unpricedNote, type Money,
 } from '@/lib/billing/unpriced'
 
 // `client_rate` and `warehouse_daily_log.total` are nullable: recalculate.ts
@@ -26,32 +26,139 @@ import {
 // so the rules live in lib/billing/unpriced.ts, which is tested and
 // mutation-checked, and this file only calls them.
 
-export default function BillingView({ data }: { data: any }) {
+// The payload, declared rather than inferred. `data: any` was not merely
+// untidy here: it is the hole that read.ts's LoadedData exists to patch. A
+// `Loaded<T>` only gates a page if the component it feeds rejects `undefined`,
+// and `any` accepts it, so /billing's refusal-to-render check could be deleted
+// and tsc stayed silent. See the LoadedData docstring in src/lib/db/read.ts.
+//
+// Written as `type` and not `interface` on purpose: an interface has no
+// implicit index signature, so `BillingShipment[]` would not be assignable to
+// sumPriced's `ReadonlyArray<Record<string, unknown>>` and every call below
+// would stop compiling. Type aliases of object literals do get one.
+//
+// These describe what the two `.select()` strings in src/app/billing/page.tsx
+// ask for, which is not the same claim as what supabase/schema.sql defines --
+// see the note on `manual_total` below.
+type ClientOption = { id: string; name: string | null }
+
+type BillingShipment = {
+  client_id: string | null
+  order_number: string
+  ship_date: string | null
+  carrier: string | null
+  service: string | null
+  actual_cost: Money
+  client_rate: Money
+  profit_loss: Money
+  is_loss: boolean | null
+}
+
+type BillingWarehouseLine = {
+  client_id: string | null
+  log_date: string
+  service_type: string | null
+  // Not Money -- it is a count, it is rendered raw rather than summed, and
+  // `numeric(10,2)` still means the wire shape is not guaranteed, hence the
+  // union rather than `number`.
+  quantity: number | string | null
+  rate: Money
+  total: Money
+  notes: string | null
+}
+
+type BillingAdjustment = {
+  client_id: string | null
+  order_number: string
+  adjustment_amount: Money
+  reason: string | null
+  adjustment_date: string | null
+  status: string | null
+}
+
+type BillingBill = {
+  client_id: string | null
+  week_start: string
+  week_end: string
+  shipping_total: Money
+  warehouse_total: Money
+  adjustments_total: Money
+  // UNVERIFIED. src/app/billing/page.tsx:34 selects `manual_total`, but
+  // supabase/schema.sql:111 declares the column as `manual_charges_total`, and
+  // `manual_total` appears in no migration in supabase/. calculator.ts:298
+  // writes `manual_charges_total` and api/reports/download/route.ts:146 reads
+  // it; only the two page selects disagree, both since the initial commit.
+  //
+  // If the live database matches schema.sql then PostgREST fails this whole
+  // select with 42703 and the bills read has never once succeeded. This field
+  // is typed because the select asks for it, which is all that is known; it is
+  // NOT evidence that the column exists. Settle it with
+  //   select column_name from information_schema.columns where table_name='bills';
+  // and then either fix the select or the schema file, not this type.
+  manual_total: Money
+  grand_total: Money
+  status: string | null
+}
+
+export type BillingData = {
+  clients: ClientOption[]
+  shipments: BillingShipment[]
+  warehouse: BillingWarehouseLine[]
+  adjustments: BillingAdjustment[]
+  bills: BillingBill[]
+  defaultFrom: string
+  defaultTo: string
+}
+
+type BillingTab = 'shipments' | 'warehouse' | 'adjustments' | 'bills'
+
+/**
+ * Behaviour-preserving, and the reason it had to be written down.
+ *
+ * Both filters below read `const d = row.date?.split('T')[0]`, so `d` is
+ * `string | undefined`, and then compared it with `d >= dateFrom`. Against
+ * `undefined` that comparison is not an error and is not true -- it is
+ * silently false -- so a row whose date column is null disappeared from this
+ * screen whenever either bound was set, which with both bounds defaulted is
+ * always. Typing the prop is what surfaced it (TS18048, four times); with
+ * `data: any` there was nothing to notice.
+ *
+ * The outcome is deliberately unchanged -- `return !from && !to` reproduces
+ * the old result in all four bound combinations -- because whether an undated
+ * shipment belongs on an invoice is a billing question, not a typing one.
+ * Flagged rather than decided, and worth deciding, because ReportsTabs'
+ * filterRows answers it the OTHER way: `dateFrom && d && d < dateFrom` KEEPS
+ * undated rows. The same row is on one screen and off the other today.
+ */
+function inDateRange(d: string | undefined, from: string, to: string): boolean {
+  if (d === undefined) return !from && !to
+  return (!from || d >= from) && (!to || d <= to)
+}
+
+export default function BillingView({ data }: { data: BillingData }) {
   const [selectedClient, setSelectedClient] = useState<string>(data.clients[0]?.id ?? '')
   const [dateFrom, setDateFrom] = useState(data.defaultFrom)
   const [dateTo, setDateTo] = useState(data.defaultTo)
-  const [activeTab, setActiveTab] = useState<'shipments' | 'warehouse' | 'adjustments' | 'bills'>('shipments')
+  const [activeTab, setActiveTab] = useState<BillingTab>('shipments')
 
-  const client = data.clients.find((c: any) => c.id === selectedClient)
+  const client = data.clients.find(c => c.id === selectedClient)
 
-  const shipments = data.shipments.filter((s: any) => {
+  const shipments = data.shipments.filter(s => {
     if (s.client_id !== selectedClient) return false
-    const d = s.ship_date?.split('T')[0]
-    return (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo)
+    return inDateRange(s.ship_date?.split('T')[0], dateFrom, dateTo)
   })
 
-  const warehouse = data.warehouse.filter((w: any) => {
+  const warehouse = data.warehouse.filter(w => {
     if (w.client_id !== selectedClient) return false
     return (!dateFrom || w.log_date >= dateFrom) && (!dateTo || w.log_date <= dateTo)
   })
 
-  const adjustments = data.adjustments.filter((a: any) => {
+  const adjustments = data.adjustments.filter(a => {
     if (a.client_id !== selectedClient) return false
-    const d = a.adjustment_date?.split('T')[0]
-    return (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo)
+    return inDateRange(a.adjustment_date?.split('T')[0], dateFrom, dateTo)
   })
 
-  const bills = data.bills.filter((b: any) => {
+  const bills = data.bills.filter(b => {
     if (b.client_id !== selectedClient) return false
     return (!dateFrom || b.week_start >= dateFrom) && (!dateTo || b.week_end <= dateTo)
   })
@@ -67,7 +174,7 @@ export default function BillingView({ data }: { data: any }) {
   const shippingRevenue = shippingRevenueSum.total
   const shippingCost = shippingCostSum.total
   const warehouseTotal = warehouseSum.total
-  const pendingAdjRows = adjustments.filter((a: any) => a.status === 'pending')
+  const pendingAdjRows = adjustments.filter(a => a.status === 'pending')
   const pendingAdjSum = sumPriced(pendingAdjRows, 'adjustment_amount')
   const pendingAdj = pendingAdjSum.total
   const billedSum = sumPriced(bills, 'grand_total')
@@ -83,7 +190,7 @@ export default function BillingView({ data }: { data: any }) {
   const billTotal = combinePriced(billable, pendingAdjSum)
   const grandTotal = billTotal.total
   const unbillableNote = unpricedNote(billTotal.unpriced, 'line')
-  const lossCount = shipments.filter((s: any) => s.is_loss).length
+  const lossCount = shipments.filter(s => s.is_loss).length
 
   const [dlLoading, setDlLoading] = useState<'excel' | 'pdf' | null>(null)
 
@@ -113,7 +220,10 @@ export default function BillingView({ data }: { data: any }) {
     setDlLoading(null)
   }
 
-  const tabs = [
+  // Annotated so `tab.id` is the union rather than `string`. It used to be
+  // `setActiveTab(tab.id as any)`, which would have accepted a typo'd id and
+  // left the panel permanently blank.
+  const tabs: Array<{ id: BillingTab; label: string; count: number }> = [
     { id: 'shipments', label: 'Shipments', count: shipments.length },
     { id: 'warehouse', label: 'Warehouse', count: warehouse.length },
     { id: 'adjustments', label: 'Adjustments', count: adjustments.length },
@@ -128,7 +238,7 @@ export default function BillingView({ data }: { data: any }) {
           <label className="block text-xs text-gray-400 mb-1">Client</label>
           <select value={selectedClient} onChange={e => setSelectedClient(e.target.value)}
             className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF] min-w-48">
-            {data.clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {data.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
         <div>
@@ -188,7 +298,7 @@ export default function BillingView({ data }: { data: any }) {
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-900 rounded-xl p-1">
         {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
               activeTab === tab.id ? 'text-white' : 'text-gray-400 hover:text-white'
             }`}
@@ -224,7 +334,7 @@ export default function BillingView({ data }: { data: any }) {
                 <tbody>
                   {shipments.length === 0
                     ? <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-500">No shipments in this period</td></tr>
-                    : shipments.map((s: any) => (
+                    : shipments.map(s => (
                       <tr key={s.order_number} className={`border-b border-gray-700/40 hover:bg-gray-700/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{s.order_number}</td>
                         <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
@@ -253,7 +363,7 @@ export default function BillingView({ data }: { data: any }) {
             <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
               <Stat label="Entries" value={warehouse.length} />
               <Stat label="Total Charges" value={`$${warehouseTotal.toFixed(2)}`} />
-              <Stat label="Unique Days" value={new Set(warehouse.map((w: any) => w.log_date)).size} />
+              <Stat label="Unique Days" value={new Set(warehouse.map(w => w.log_date)).size} />
             </div>
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
@@ -270,7 +380,7 @@ export default function BillingView({ data }: { data: any }) {
                 <tbody>
                   {warehouse.length === 0
                     ? <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-500">No warehouse activity in this period</td></tr>
-                    : warehouse.map((w: any, i: number) => (
+                    : warehouse.map((w, i) => (
                       <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
                         <td className="px-5 py-2.5 text-gray-400 text-xs">{w.log_date ? new Date(w.log_date + 'T12:00:00').toLocaleDateString() : '—'}</td>
                         <td className="px-4 py-2.5 text-gray-300 capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
@@ -294,7 +404,7 @@ export default function BillingView({ data }: { data: any }) {
             <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
               <Stat label="Total Adjustments" value={adjustments.length} />
               <Stat label="Pending" value={formatSignedPrice(totalOrUnknown(pendingAdjSum))} note={unpricedNote(pendingAdjSum.unpriced, 'adjustment')} color="orange" />
-              <Stat label="Resolved" value={adjustments.filter((a: any) => a.status !== 'pending').length} />
+              <Stat label="Resolved" value={adjustments.filter(a => a.status !== 'pending').length} />
             </div>
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
@@ -310,7 +420,7 @@ export default function BillingView({ data }: { data: any }) {
                 <tbody>
                   {adjustments.length === 0
                     ? <tr><td colSpan={5} className="px-5 py-10 text-center text-gray-500">No adjustments in this period</td></tr>
-                    : adjustments.map((a: any, i: number) => (
+                    : adjustments.map((a, i) => (
                       <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{a.order_number}</td>
                         <td className="px-4 py-2.5 text-gray-300 text-xs">{a.reason ?? 'Carrier reweigh'}</td>
@@ -336,7 +446,7 @@ export default function BillingView({ data }: { data: any }) {
             <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
               <Stat label="Bills Generated" value={bills.length} />
               <Stat label="Total Billed" value={formatPrice(totalOrUnknown(billedSum))} note={unpricedNote(billedSum.unpriced, 'bill')} />
-              <Stat label="Paid" value={bills.filter((b: any) => b.status === 'paid').length} color="green" />
+              <Stat label="Paid" value={bills.filter(b => b.status === 'paid').length} color="green" />
             </div>
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
@@ -354,7 +464,7 @@ export default function BillingView({ data }: { data: any }) {
                 <tbody>
                   {bills.length === 0
                     ? <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-500">No bills generated yet for this client</td></tr>
-                    : bills.map((b: any, i: number) => (
+                    : bills.map((b, i) => (
                       <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
                         <td className="px-5 py-2.5 text-gray-400 text-xs">{b.week_start} → {b.week_end}</td>
                         <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.shipping_total)}</td>
@@ -404,7 +514,7 @@ function SummaryCard({ label, value, sub, color }: { label: string; value: strin
 // `note` renders only when there is something to say, so the ordinary panel is
 // unchanged. A partial total with no count beside it is the shape sumPriced
 // exists to prevent, and these two Stats are now partial totals.
-function Stat({ label, value, note, color }: { label: string; value: any; note?: string; color?: string }) {
+function Stat({ label, value, note, color }: { label: string; value: string | number; note?: string; color?: string }) {
   return (
     <div className="px-5 py-3">
       <p className="text-xs text-gray-400">{label}</p>

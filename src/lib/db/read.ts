@@ -167,10 +167,14 @@ export type Loaded<T> =
  * The data arm of a `Loaded`, so a page can annotate it and keep the gate.
  *
  * Needed because `Loaded` only gates a page whose component props are typed.
- * `BillingView` and `ReportsTabs` take `{ data: any }`, and `T | undefined` is
- * assignable to `any`, so on those two pages deleting the check compiled
- * perfectly happily -- which I only found by deleting it and watching tsc pass
- * on two of the three pages I had just claimed were protected.
+ * `BillingView` and `ReportsTabs` used to take `{ data: any }`, and
+ * `T | undefined` is assignable to `any`, so on those two pages deleting the
+ * check compiled perfectly happily -- which I only found by deleting it and
+ * watching tsc pass on two of the three pages I had just claimed were
+ * protected. Both now declare real payload types (`BillingData`,
+ * `ReportsData`), so the prop itself rejects `undefined` and the gate holds on
+ * all three; this type stays because it is what made those two safe in the
+ * interim and because the next `any`-propped component will need it again.
  *
  * Writing the narrowed value into an annotated local puts the check back:
  *
@@ -178,7 +182,7 @@ export type Loaded<T> =
  *     const data: LoadedData<typeof billing> = billing.data
  *
  * Delete the `if` and the annotation rejects the now-possibly-undefined value
- * (TS2322) before it ever reaches the `any`. Derived from the Loaded rather
+ * (TS2322) before it ever reaches the prop. Derived from the Loaded rather
  * than spelled out a second time, so it cannot drift away from the payload it
  * is describing.
  */
@@ -203,6 +207,57 @@ export type LoadedData<L> = L extends { ok: true; data: infer T } ? T : never
 export function loaded<T>(error: string | null, build: () => T): Loaded<T> {
   if (error !== null && error !== '') return { ok: false, error }
   return { ok: true, error: null, data: build() }
+}
+
+/**
+ * An embedded relation, whose cardinality nobody here can prove.
+ *
+ * `.select('order_number, clients(name)')` is a PostgREST embed. For a
+ * many-to-one -- a shipment has ONE client -- PostgREST returns an object, and
+ * all fourteen consumers of a `clients(name)` join in this repo read it that
+ * way (`s.clients?.name`): dashboard/page.tsx, the Excel download route,
+ * warehouse/page.tsx, ShipmentsTable, AdjustmentsClient, and the five sites in
+ * ReportsTabs. The Excel route demonstrably produces client names in a shipped
+ * spreadsheet, which is the strongest evidence available that the object
+ * reading is the correct one.
+ *
+ * Against that: supabase-js parses the select STRING at compile time and types
+ * this embed as `{ name: any }[]` -- an array. It is not reading the database
+ * either; it defaults to array whenever it cannot see the foreign key, so its
+ * guess is a guess. Neither position has been checked against the live DB.
+ *
+ * The honest move is not to pick. A type assertion here would be a lie that
+ * compiles: if the array guess is the right one, `e.name` is `undefined` and
+ * every client column on /reports silently renders a dash forever -- which is
+ * exactly the failure mode `data: any` was hiding on this page. Accepting both
+ * shapes costs one `Array.isArray` and cannot be wrong in either direction.
+ */
+export type Embed<T> = T | T[] | null
+
+/**
+ * The one row of an embed, whichever shape PostgREST sent.
+ *
+ * `[]` folds to null rather than throwing: an embed with no match is an
+ * absence, not a failure, and the caller's `?? '—'` is already the right
+ * rendering for it. `e[0] ?? null` rather than `e[0]` so a sparse or
+ * null-headed array cannot hand back `undefined` and defeat a `=== null` check
+ * at the call site.
+ *
+ * The `e === null` arm of the guard is redundant and kept anyway: `Array
+ * .isArray(null)` is false, so a null embed already falls through and returns
+ * itself. Removing it survives the whole test suite because no input can
+ * distinguish the two -- an equivalent mutant, not a gap. It is spelled out
+ * because the guard is what the reader is being asked to trust, and a guard
+ * that handles two cases by handling one of them accidentally is worse
+ * documentation than a redundant line.
+ *
+ * Assumes the embedded thing is a row, not itself an array. `Embed<string[]>`
+ * would unwrap the wrong level. Every embed in this app is `table(cols)`, so
+ * this has not been parameterised away.
+ */
+export function embedOne<T>(e: Embed<T> | undefined): T | null {
+  if (e === null || e === undefined) return null
+  return Array.isArray(e) ? (e[0] ?? null) : e
 }
 
 /** One row, the reason we could not read it, or neither: it is simply absent. */

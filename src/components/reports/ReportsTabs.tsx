@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { showError, showSuccess } from '@/components/ui/Toast'
 import {
   formatPrice, formatSignedPrice, isPriced, sumPriced, totalOrUnknown,
-  unpricedNote,
+  unpricedNote, type Money,
 } from '@/lib/billing/unpriced'
+import { embedOne, type Embed } from '@/lib/db/read'
 
 // `client_rate`, the profit derived from it, and `warehouse_daily_log.total`
 // are all nullable: recalculate.ts and the daily-log route write null when they
@@ -36,6 +37,113 @@ import {
 // So the columns below go through priceOf, which coerces rather than assuming
 // either shape. If the column really is never null, nothing on screen changes.
 
+// The payload, declared rather than inferred -- see the LoadedData docstring in
+// src/lib/db/read.ts for why `data: any` here was load-bearing rather than
+// untidy: it let /reports' refusal-to-render check be deleted without tsc
+// noticing, on the one screen in the app that writes a .xlsx file.
+//
+// `type` and not `interface`, because an interface has no implicit index
+// signature and so would not satisfy sumPriced's `Record<string, unknown>`.
+//
+// Note the row shapes are NOT shared with BillingView even where the table is
+// the same. /billing selects `client_id`; /reports selects `clients(name)` and
+// joins. A single shared row type would have to make both optional, which
+// would describe neither page and would let a field that is always undefined
+// on this page compile.
+type ClientOption = { id: string; name: string | null }
+
+/**
+ * The `clients(name)` join.
+ *
+ * Written as an Embed rather than as the object this file's five render sites
+ * already assume, because the cardinality is genuinely unverified here: the
+ * fourteen consumers in this repo read `.name` off an object, supabase-js's
+ * select-string parser types the same embed as an array, and nobody has asked
+ * the database. See the Embed docstring in src/lib/db/read.ts. Reading it
+ * through embedOne costs one call per cell and is right either way.
+ */
+type ClientRef = Embed<{ name: string | null }>
+
+type ReportLossShipment = {
+  order_number: string
+  clients: ClientRef
+  ship_date: string | null
+  carrier: string | null
+  service: string | null
+  actual_cost: Money
+  client_rate: Money
+  profit_loss: Money
+}
+
+/** The shipments select is the losses select plus these two. */
+type ReportShipment = ReportLossShipment & {
+  tracking_number: string | null
+  is_loss: boolean | null
+}
+
+type ReportAdjustment = {
+  order_number: string
+  clients: ClientRef
+  reason: string | null
+  adjustment_date: string | null
+  original_cost: Money
+  // UNVERIFIED, and the stronger of this file's two phantom columns.
+  // src/app/reports/page.tsx:31 selects `new_cost`; supabase/schema.sql:67
+  // declares `adjusted_cost`, shipstation.ts:582 writes `adjusted_cost`, and
+  // api/reports/download/route.ts:123 plus AdjustmentsClient.tsx read
+  // `adjusted_cost`. `new_cost` occurs nowhere else in the repo and in no
+  // migration. Typed because the select asks for it, not because it exists.
+  new_cost: Money
+  adjustment_amount: Money
+  status: string | null
+}
+
+type ReportBill = {
+  clients: ClientRef
+  week_start: string
+  week_end: string
+  shipping_total: Money
+  warehouse_total: Money
+  adjustments_total: Money
+  // UNVERIFIED -- schema.sql:111 declares `manual_charges_total`. Same note as
+  // the one on BillingView's BillingBill; both page selects carry it and no
+  // migration defines it.
+  manual_total: Money
+  grand_total: Money
+  status: string | null
+}
+
+type ReportWarehouseLine = {
+  clients: ClientRef
+  log_date: string
+  service_type: string | null
+  // A count rather than a price, rendered raw rather than summed -- so not
+  // Money, but still a `numeric` column whose wire shape is not guaranteed.
+  quantity: number | string | null
+  rate: Money
+  total: Money
+  notes: string | null
+}
+
+export type ReportsData = {
+  clients: ClientOption[]
+  shipments: ReportShipment[]
+  lossShipments: ReportLossShipment[]
+  adjustments: ReportAdjustment[]
+  bills: ReportBill[]
+  warehouse: ReportWarehouseLine[]
+  defaultFrom: string
+  defaultTo: string
+}
+
+/** What every one of the five tables below is handed. */
+type TableProps<T> = {
+  rows: T[]
+  clientId: string
+  dateFrom: string
+  dateTo: string
+}
+
 const TABS = [
   { id: 'shipments', label: 'Shipments', icon: '🚚' },
   { id: 'loss', label: 'Losses', icon: '⚠️' },
@@ -44,7 +152,7 @@ const TABS = [
   { id: 'warehouse', label: 'Warehouse', icon: '📦' },
 ]
 
-export default function ReportsTabs({ data }: { data: any }) {
+export default function ReportsTabs({ data }: { data: ReportsData }) {
   const [activeTab, setActiveTab] = useState('shipments')
   const [clientId, setClientId] = useState('')
   const [dateFrom, setDateFrom] = useState(data.defaultFrom)
@@ -105,7 +213,7 @@ export default function ReportsTabs({ data }: { data: any }) {
           <select value={clientId} onChange={e => setClientId(e.target.value)}
             className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]">
             <option value="">All Clients</option>
-            {data.clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {data.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
         <div className="ml-auto flex gap-2">
@@ -137,18 +245,43 @@ export default function ReportsTabs({ data }: { data: any }) {
       {/* Tab content */}
       <div className="bg-gray-800 rounded-xl overflow-hidden">
         {activeTab === 'shipments' && <ShipmentsTable rows={data.shipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
-        {activeTab === 'loss' && <LossTable rows={data.lossShipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} clients={data.clients} />}
-        {activeTab === 'adjustments' && <AdjustmentsTable rows={data.adjustments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} clients={data.clients} />}
-        {activeTab === 'billing' && <BillingTable rows={data.bills} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} clients={data.clients} />}
-        {activeTab === 'warehouse' && <WarehouseTable rows={data.warehouse} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} clients={data.clients} />}
+        {activeTab === 'loss' && <LossTable rows={data.lossShipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+        {activeTab === 'adjustments' && <AdjustmentsTable rows={data.adjustments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+        {activeTab === 'billing' && <BillingTable rows={data.bills} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+        {activeTab === 'warehouse' && <WarehouseTable rows={data.warehouse} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
       </div>
     </div>
   )
 }
 
-function filterRows(rows: any[], clientId: string, dateFrom: string, dateTo: string, dateKey: string, clientKey = 'client_id') {
+/**
+ * Date-range filter, generic over the row so `dateKey` cannot be a key the row
+ * does not have.
+ *
+ * Two things typing this made visible, neither of them changed here:
+ *
+ *   * `clientId` is accepted and never read. Picking a client in the dropdown
+ *     above filters NOTHING on screen -- while the Excel button next to it DOES
+ *     pass clientId to /api/reports/download, so the table and the spreadsheet
+ *     you export from it disagree about which client you asked for. It cannot
+ *     be fixed here: src/app/reports/page.tsx selects `clients(name)` and no
+ *     `client_id`, so the column to filter on is not in the payload. The
+ *     parameter stays in the signature because every caller passes it and
+ *     because deleting it would hide the defect rather than fix it.
+ *   * A dead `clientKey = 'client_id'` parameter, never referenced and never
+ *     passed, removed -- it was the file's one eslint warning.
+ *
+ * A row whose date column is null or absent is KEPT, which is what `dateFrom &&
+ * d && ...` already did. Note BillingView's inDateRange answers that the other
+ * way; see the note there.
+ */
+function filterRows<T>(rows: T[], clientId: string, dateFrom: string, dateTo: string, dateKey: keyof T & string): T[] {
   return rows.filter(r => {
-    const d = r[dateKey]?.split('T')[0]
+    const raw = r[dateKey]
+    // Previously `r[dateKey]?.split(...)`, which would have thrown on a
+    // non-string. Guarding the type instead treats it as undated, which is the
+    // branch this function already had.
+    const d = typeof raw === 'string' ? raw.split('T')[0] : undefined
     if (dateFrom && d && d < dateFrom) return false
     if (dateTo && d && d > dateTo) return false
     return true
@@ -159,7 +292,7 @@ function Empty({ msg }: { msg: string }) {
   return <div className="px-6 py-12 text-center text-gray-500 text-sm">{msg}</div>
 }
 
-function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
+function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShipment>) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
   const paidSum = sumPriced(filtered, 'actual_cost')
   const chargedSum = sumPriced(filtered, 'client_rate')
@@ -204,10 +337,10 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? <tr><td colSpan={8}><Empty msg="No shipments in this range" /></td></tr> : filtered.map((s: any) => (
+            {filtered.length === 0 ? <tr><td colSpan={8}><Empty msg="No shipments in this range" /></td></tr> : filtered.map(s => (
               <tr key={s.order_number} className={`border-b border-gray-700/40 hover:bg-gray-700/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
                 <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{s.order_number}</td>
-                <td className="px-4 py-2.5">{s.clients?.name ?? <span className="text-gray-500">—</span>}</td>
+                <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? <span className="text-gray-500">—</span>}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-2.5 text-gray-300 text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{s.tracking_number ?? '—'}</td>
@@ -231,7 +364,7 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
   )
 }
 
-function LossTable({ rows, clientId, dateFrom, dateTo }: any) {
+function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossShipment>) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
   const plSum = sumPriced(filtered, 'profit_loss')
   const total = Math.abs(plSum.total)
@@ -270,10 +403,10 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: any) {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? <tr><td colSpan={7}><Empty msg="✓ No loss shipments in this range" /></td></tr> : filtered.map((s: any) => (
+            {filtered.length === 0 ? <tr><td colSpan={7}><Empty msg="✓ No loss shipments in this range" /></td></tr> : filtered.map(s => (
               <tr key={s.order_number} className="border-b border-gray-700/40 hover:bg-red-950/20">
                 <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{s.order_number}</td>
-                <td className="px-4 py-2.5">{s.clients?.name ?? '—'}</td>
+                <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-2.5 text-gray-300 text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
@@ -292,11 +425,16 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: any) {
   )
 }
 
-function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
+function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportAdjustment>) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'adjustment_date')
-  const pending = filtered.filter((r: any) => r.status === 'pending')
+  const pending = filtered.filter(r => r.status === 'pending')
   const pendingSum = sumPriced(pending, 'adjustment_amount')
-  const statusBadge = (s: string) => s === 'pending'
+  // `string | null` and not `string`: bills.status and rate_adjustments.status
+  // are both nullable, and widening is behaviour-preserving -- null never
+  // equalled any of the labels, so it fell to the grey default before and
+  // falls to it now. Narrowing instead would mean a non-null assertion, which
+  // is a claim about the column nobody here has checked.
+  const statusBadge = (s: string | null) => s === 'pending'
     ? 'bg-orange-900/60 text-orange-300'
     : s === 'charged' ? 'bg-green-900/60 text-green-300' : 'bg-gray-700 text-gray-400'
 
@@ -330,10 +468,10 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? <tr><td colSpan={8}><Empty msg="No adjustments in this range" /></td></tr> : filtered.map((a: any, i: number) => (
+            {filtered.length === 0 ? <tr><td colSpan={8}><Empty msg="No adjustments in this range" /></td></tr> : filtered.map((a, i) => (
               <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
                 <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{a.order_number}</td>
-                <td className="px-4 py-2.5">{a.clients?.name ?? '—'}</td>
+                <td className="px-4 py-2.5">{embedOne(a.clients)?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-gray-300 text-xs">{a.reason ?? 'Carrier reweigh'}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(a.original_cost)}</td>
@@ -351,10 +489,11 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
   )
 }
 
-function BillingTable({ rows, clientId, dateFrom, dateTo }: any) {
+function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBill>) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'week_start')
   const billedSum = sumPriced(filtered, 'grand_total')
-  const statusBadge = (s: string) => s === 'paid' ? 'bg-green-900/60 text-green-300' : s === 'sent' ? 'bg-[#00AAFF]/10 text-[#00AAFF]' : 'bg-gray-700 text-gray-400'
+  // Nullable for the same reason as the one in AdjustmentsTable above.
+  const statusBadge = (s: string | null) => s === 'paid' ? 'bg-green-900/60 text-green-300' : s === 'sent' ? 'bg-[#00AAFF]/10 text-[#00AAFF]' : 'bg-gray-700 text-gray-400'
 
   return (
     <>
@@ -362,7 +501,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: any) {
         {([
           ['Bills', filtered.length, ''],
           ['Total Billed', formatPrice(totalOrUnknown(billedSum)), unpricedNote(billedSum.unpriced, 'bill')],
-          ['Paid', filtered.filter((r: any) => r.status === 'paid').length, ''],
+          ['Paid', filtered.filter(r => r.status === 'paid').length, ''],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-gray-400">{l}</p>
@@ -386,9 +525,9 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: any) {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? <tr><td colSpan={8}><Empty msg="No bills in this range" /></td></tr> : filtered.map((b: any, i: number) => (
+            {filtered.length === 0 ? <tr><td colSpan={8}><Empty msg="No bills in this range" /></td></tr> : filtered.map((b, i) => (
               <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
-                <td className="px-5 py-2.5 font-medium">{b.clients?.name ?? '—'}</td>
+                <td className="px-5 py-2.5 font-medium">{embedOne(b.clients)?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{b.week_start} → {b.week_end}</td>
                 <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.shipping_total)}</td>
                 <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.warehouse_total)}</td>
@@ -407,7 +546,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: any) {
   )
 }
 
-function WarehouseTable({ rows, clientId, dateFrom, dateTo }: any) {
+function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportWarehouseLine>) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'log_date')
   const revenueSum = sumPriced(filtered, 'total')
   const totalRevenue = revenueSum.total
@@ -418,7 +557,7 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: any) {
         {([
           ['Entries', filtered.length, ''],
           ['Total Revenue', `$${totalRevenue.toFixed(2)}`, unpricedNote(revenueSum.unpriced, 'day')],
-          ['Unique Days', new Set(filtered.map((r: any) => r.log_date)).size, ''],
+          ['Unique Days', new Set(filtered.map(r => r.log_date)).size, ''],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-gray-400">{l}</p>
@@ -441,10 +580,10 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: any) {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? <tr><td colSpan={7}><Empty msg="No warehouse activity in this range" /></td></tr> : filtered.map((w: any, i: number) => (
+            {filtered.length === 0 ? <tr><td colSpan={7}><Empty msg="No warehouse activity in this range" /></td></tr> : filtered.map((w, i) => (
               <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
                 <td className="px-5 py-2.5 text-gray-400 text-xs">{w.log_date ? new Date(w.log_date + 'T12:00:00').toLocaleDateString() : '—'}</td>
-                <td className="px-4 py-2.5 font-medium">{w.clients?.name ?? '—'}</td>
+                <td className="px-4 py-2.5 font-medium">{embedOne(w.clients)?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-gray-300 capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                 <td className="px-4 py-2.5 text-right">{w.quantity}</td>
                 <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(w.rate)}</td>
