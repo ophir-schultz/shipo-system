@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { downloadBillingExcel, downloadBillingPDF } from '@/lib/billing/download'
 import {
   combinePriced, formatPrice, formatSignedPrice, isPriced, sumPriced,
-  unpricedNote,
+  totalOrUnknown, unpricedNote,
 } from '@/lib/billing/unpriced'
 
 // `client_rate` and `warehouse_daily_log.total` are nullable: recalculate.ts
@@ -13,6 +13,14 @@ import {
 // anywhere else -- it is where the invoice is read off -- because `?? 0` left
 // the unpriced lines out of "Total to Bill" while the counts beside it still
 // included them.
+//
+// The `rate_adjustments` and `bills` columns below were missed by that sweep
+// and are fixed here on a second ground that applies whatever the columns
+// contain: `?? 0` only defends against null and undefined, and `numeric(10,2)`
+// does not necessarily arrive as a number. `(x ?? 0).toFixed(2)` on the string
+// '12.34' throws, and `s + (x ?? 0)` on it yields the string '012.34' and
+// corrupts every later addition in the same reduce. `priceOf` coerces instead
+// of guessing which of the two it is.
 //
 // This file cannot be unit-tested here (vitest.config.ts excludes `.test.tsx`),
 // so the rules live in lib/billing/unpriced.ts, which is tested and
@@ -59,12 +67,22 @@ export default function BillingView({ data }: { data: any }) {
   const shippingRevenue = shippingRevenueSum.total
   const shippingCost = shippingCostSum.total
   const warehouseTotal = warehouseSum.total
-  const pendingAdj = adjustments.filter((a: any) => a.status === 'pending').reduce((s: number, r: any) => s + (r.adjustment_amount ?? 0), 0)
+  const pendingAdjRows = adjustments.filter((a: any) => a.status === 'pending')
+  const pendingAdjSum = sumPriced(pendingAdjRows, 'adjustment_amount')
+  const pendingAdj = pendingAdjSum.total
+  const billedSum = sumPriced(bills, 'grand_total')
   // combinePriced rather than `+`: adding the two totals is exactly where the
   // withheld counts would be dropped, and this is the number that gets billed.
   const billable = combinePriced(shippingRevenueSum, warehouseSum)
-  const grandTotal = billable.total + pendingAdj
-  const unbillableNote = unpricedNote(billable.unpriced, 'line')
+  // The adjustments join the total here rather than at `billable`, which stays
+  // the rate-card figure the amber banner below speaks for. An adjustment with
+  // no amount shortens "Total to Bill" just as surely as an unpriced shipment
+  // does, so the count has to reach the figure it affects -- but the banner's
+  // copy is about rate cards, and widening it would make it say something about
+  // adjustments that is not true.
+  const billTotal = combinePriced(billable, pendingAdjSum)
+  const grandTotal = billTotal.total
+  const unbillableNote = unpricedNote(billTotal.unpriced, 'line')
   const lossCount = shipments.filter((s: any) => s.is_loss).length
 
   const [dlLoading, setDlLoading] = useState<'excel' | 'pdf' | null>(null)
@@ -161,8 +179,8 @@ export default function BillingView({ data }: { data: any }) {
         <div className="grid grid-cols-5 gap-3">
           <SummaryCard label="Shipping Revenue" value={`$${shippingRevenue.toFixed(2)}`} sub={unpricedNote(shippingRevenueSum.unpriced) || `Cost: $${shippingCost.toFixed(2)}`} color={shippingRevenueSum.unpriced > 0 ? 'orange' : 'blue'} />
           <SummaryCard label="Warehouse Charges" value={`$${warehouseTotal.toFixed(2)}`} sub={unpricedNote(warehouseSum.unpriced, 'day') || `${warehouse.length} entries`} color={warehouseSum.unpriced > 0 ? 'orange' : 'gray'} />
-          <SummaryCard label="Pending Adjustments" value={`+$${pendingAdj.toFixed(2)}`} sub={`${adjustments.filter((a: any) => a.status === 'pending').length} pending`} color="orange" />
-          <SummaryCard label="Total to Bill" value={`$${grandTotal.toFixed(2)}`} sub={unbillableNote || 'Shipping + WH + Adj'} color={billable.unpriced > 0 ? 'orange' : 'green'} />
+          <SummaryCard label="Pending Adjustments" value={formatSignedPrice(totalOrUnknown(pendingAdjSum))} sub={unpricedNote(pendingAdjSum.unpriced, 'adjustment') || `${pendingAdjRows.length} pending`} color="orange" />
+          <SummaryCard label="Total to Bill" value={formatPrice(totalOrUnknown(billTotal))} sub={unbillableNote || 'Shipping + WH + Adj'} color={billTotal.unpriced > 0 ? 'orange' : 'green'} />
           <SummaryCard label="Loss Shipments" value={lossCount.toString()} sub={lossCount > 0 ? '⚠️ Needs review' : '✓ All profitable'} color={lossCount > 0 ? 'red' : 'gray'} />
         </div>
       )}
@@ -275,7 +293,7 @@ export default function BillingView({ data }: { data: any }) {
           <>
             <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
               <Stat label="Total Adjustments" value={adjustments.length} />
-              <Stat label="Pending" value={`+$${pendingAdj.toFixed(2)}`} color="orange" />
+              <Stat label="Pending" value={formatSignedPrice(totalOrUnknown(pendingAdjSum))} note={unpricedNote(pendingAdjSum.unpriced, 'adjustment')} color="orange" />
               <Stat label="Resolved" value={adjustments.filter((a: any) => a.status !== 'pending').length} />
             </div>
             <div className="overflow-auto max-h-96">
@@ -297,7 +315,7 @@ export default function BillingView({ data }: { data: any }) {
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{a.order_number}</td>
                         <td className="px-4 py-2.5 text-gray-300 text-xs">{a.reason ?? 'Carrier reweigh'}</td>
                         <td className="px-4 py-2.5 text-gray-400 text-xs">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-orange-400">+${(a.adjustment_amount ?? 0).toFixed(2)}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-orange-400">{formatSignedPrice(a.adjustment_amount)}</td>
                         <td className="px-4 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             a.status === 'pending' ? 'bg-orange-900/60 text-orange-300' :
@@ -317,7 +335,7 @@ export default function BillingView({ data }: { data: any }) {
           <>
             <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
               <Stat label="Bills Generated" value={bills.length} />
-              <Stat label="Total Billed" value={`$${bills.reduce((s: number, b: any) => s + (b.grand_total ?? 0), 0).toFixed(2)}`} />
+              <Stat label="Total Billed" value={formatPrice(totalOrUnknown(billedSum))} note={unpricedNote(billedSum.unpriced, 'bill')} />
               <Stat label="Paid" value={bills.filter((b: any) => b.status === 'paid').length} color="green" />
             </div>
             <div className="overflow-auto max-h-96">
@@ -339,11 +357,11 @@ export default function BillingView({ data }: { data: any }) {
                     : bills.map((b: any, i: number) => (
                       <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
                         <td className="px-5 py-2.5 text-gray-400 text-xs">{b.week_start} → {b.week_end}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300">${(b.shipping_total ?? 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300">${(b.warehouse_total ?? 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300">${(b.adjustments_total ?? 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300">${(b.manual_total ?? 0).toFixed(2)}</td>
-                        <td className="px-4 py-2.5 text-right font-bold">${(b.grand_total ?? 0).toFixed(2)}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.shipping_total)}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.warehouse_total)}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.adjustments_total)}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.manual_total)}</td>
+                        <td className="px-4 py-2.5 text-right font-bold">{formatPrice(b.grand_total)}</td>
                         <td className="px-4 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             b.status === 'paid' ? 'bg-green-900/60 text-green-300' :
@@ -383,11 +401,15 @@ function SummaryCard({ label, value, sub, color }: { label: string; value: strin
   )
 }
 
-function Stat({ label, value, color }: { label: string; value: any; color?: string }) {
+// `note` renders only when there is something to say, so the ordinary panel is
+// unchanged. A partial total with no count beside it is the shape sumPriced
+// exists to prevent, and these two Stats are now partial totals.
+function Stat({ label, value, note, color }: { label: string; value: any; note?: string; color?: string }) {
   return (
     <div className="px-5 py-3">
       <p className="text-xs text-gray-400">{label}</p>
       <p className={`font-bold text-lg ${color === 'green' ? 'text-green-400' : color === 'red' ? 'text-red-400' : color === 'orange' ? 'text-orange-400' : 'text-white'}`}>{value}</p>
+      {note && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {note}</p>}
     </div>
   )
 }

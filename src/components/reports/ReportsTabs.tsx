@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { showError, showSuccess } from '@/components/ui/Toast'
 import {
-  formatPrice, formatSignedPrice, isPriced, sumPriced, unpricedNote,
+  formatPrice, formatSignedPrice, isPriced, sumPriced, totalOrUnknown,
+  unpricedNote,
 } from '@/lib/billing/unpriced'
 
 // `client_rate`, the profit derived from it, and `warehouse_daily_log.total`
@@ -16,8 +17,24 @@ import {
 // so the rules live in lib/billing/unpriced.ts, which is tested and
 // mutation-checked, and this file only calls them.
 //
-// `adjustment_amount` below is deliberately left on `?? 0`: nothing writes null
-// to that column, so changing it would be a guess dressed up as a fix.
+// `adjustment_amount` was previously left on `?? 0` here, on the grounds that
+// nothing writes null to that column so changing it would be a guess dressed up
+// as a fix. That reasoning is withdrawn, for two reasons neither of which was
+// available when it was written:
+//
+//   1. It is not true as stated. schema.sql:68 declares `adjustment_amount
+//      numeric(10,2)` with no `not null`, so the column accepts null whatever
+//      today's writers happen to do. "No current writer emits null" is a fact
+//      about four call sites, not about the data this page reads.
+//   2. It answers the wrong question. `?? 0` guards null and undefined only,
+//      and the hazard on a `numeric` column is the wire shape: PostgREST is
+//      entitled to hand back '12.34', on which `.toFixed` is not a function and
+//      `s + x` is string concatenation -- `0 + '12.34'` is '012.34', which then
+//      poisons every remaining addition in the same reduce. Nullability was
+//      never the only thing `?? 0` was failing to handle.
+//
+// So the columns below go through priceOf, which coerces rather than assuming
+// either shape. If the column really is never null, nothing on screen changes.
 
 const TABS = [
   { id: 'shipments', label: 'Shipments', icon: '🚚' },
@@ -278,7 +295,7 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: any) {
 function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'adjustment_date')
   const pending = filtered.filter((r: any) => r.status === 'pending')
-  const pendingTotal = pending.reduce((s: number, r: any) => s + (r.adjustment_amount ?? 0), 0)
+  const pendingSum = sumPriced(pending, 'adjustment_amount')
   const statusBadge = (s: string) => s === 'pending'
     ? 'bg-orange-900/60 text-orange-300'
     : s === 'charged' ? 'bg-green-900/60 text-green-300' : 'bg-gray-700 text-gray-400'
@@ -286,10 +303,15 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
   return (
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
-        {[['Total', filtered.length], ['Pending', pending.length], ['To Recover', `+$${pendingTotal.toFixed(2)}`]].map(([l, v]) => (
+        {([
+          ['Total', filtered.length, ''],
+          ['Pending', pending.length, ''],
+          ['To Recover', formatSignedPrice(totalOrUnknown(pendingSum)), unpricedNote(pendingSum.unpriced, 'adjustment')],
+        ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-gray-400">{l}</p>
             <p className={`font-bold text-lg ${l === 'To Recover' ? 'text-orange-400' : 'text-white'}`}>{v}</p>
+            {n && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {n}</p>}
           </div>
         ))}
       </div>
@@ -314,9 +336,9 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
                 <td className="px-4 py-2.5">{a.clients?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-gray-300 text-xs">{a.reason ?? 'Carrier reweigh'}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
-                <td className="px-4 py-2.5 text-right text-gray-400">{a.original_cost != null ? `$${a.original_cost.toFixed(2)}` : '—'}</td>
-                <td className="px-4 py-2.5 text-right text-gray-400">{a.new_cost != null ? `$${a.new_cost.toFixed(2)}` : '—'}</td>
-                <td className="px-4 py-2.5 text-right font-bold text-orange-400">+${(a.adjustment_amount ?? 0).toFixed(2)}</td>
+                <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(a.original_cost)}</td>
+                <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(a.new_cost)}</td>
+                <td className="px-4 py-2.5 text-right font-bold text-orange-400">{formatSignedPrice(a.adjustment_amount)}</td>
                 <td className="px-4 py-2.5 text-center">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge(a.status)}`}>{a.status}</span>
                 </td>
@@ -331,16 +353,21 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: any) {
 
 function BillingTable({ rows, clientId, dateFrom, dateTo }: any) {
   const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'week_start')
-  const totalBilled = filtered.reduce((s: number, r: any) => s + (r.grand_total ?? 0), 0)
+  const billedSum = sumPriced(filtered, 'grand_total')
   const statusBadge = (s: string) => s === 'paid' ? 'bg-green-900/60 text-green-300' : s === 'sent' ? 'bg-[#00AAFF]/10 text-[#00AAFF]' : 'bg-gray-700 text-gray-400'
 
   return (
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
-        {[['Bills', filtered.length], ['Total Billed', `$${totalBilled.toFixed(2)}`], ['Paid', filtered.filter((r: any) => r.status === 'paid').length]].map(([l, v]) => (
+        {([
+          ['Bills', filtered.length, ''],
+          ['Total Billed', formatPrice(totalOrUnknown(billedSum)), unpricedNote(billedSum.unpriced, 'bill')],
+          ['Paid', filtered.filter((r: any) => r.status === 'paid').length, ''],
+        ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-gray-400">{l}</p>
             <p className="font-bold text-lg text-white">{v}</p>
+            {n && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {n}</p>}
           </div>
         ))}
       </div>
@@ -363,11 +390,11 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: any) {
               <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
                 <td className="px-5 py-2.5 font-medium">{b.clients?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{b.week_start} → {b.week_end}</td>
-                <td className="px-4 py-2.5 text-right text-gray-300">${(b.shipping_total ?? 0).toFixed(2)}</td>
-                <td className="px-4 py-2.5 text-right text-gray-300">${(b.warehouse_total ?? 0).toFixed(2)}</td>
-                <td className="px-4 py-2.5 text-right text-gray-300">${(b.adjustments_total ?? 0).toFixed(2)}</td>
-                <td className="px-4 py-2.5 text-right text-gray-300">${(b.manual_total ?? 0).toFixed(2)}</td>
-                <td className="px-4 py-2.5 text-right font-bold">${(b.grand_total ?? 0).toFixed(2)}</td>
+                <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.shipping_total)}</td>
+                <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.warehouse_total)}</td>
+                <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.adjustments_total)}</td>
+                <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.manual_total)}</td>
+                <td className="px-4 py-2.5 text-right font-bold">{formatPrice(b.grand_total)}</td>
                 <td className="px-4 py-2.5 text-center">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge(b.status)}`}>{b.status}</span>
                 </td>
@@ -420,7 +447,7 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: any) {
                 <td className="px-4 py-2.5 font-medium">{w.clients?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-gray-300 capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                 <td className="px-4 py-2.5 text-right">{w.quantity}</td>
-                <td className="px-4 py-2.5 text-right text-gray-400">${(w.rate ?? 0).toFixed(2)}</td>
+                <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(w.rate)}</td>
                 <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-green-400' : 'text-amber-400'}`}
                     title={isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day'}>
                   {formatPrice(w.total)}
