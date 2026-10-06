@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import {
   formatPrice, priceOf, sumPriced, sumAbsPriced, unpricedNote, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
+import { billedOz, weightBracket } from '@/lib/billing/weight-bracket'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 
@@ -97,11 +98,7 @@ async function getLossData() {
     const byService = breakdown(s => `${s.carrier ?? '?'} · ${s.service ?? '?'}`)
     const byZone = breakdown(s => (s.zone ? `Zone ${s.zone}` : 'Zone unknown'))
     const byClient = breakdown(s => (s.clients as any)?.name ?? 'Unassigned')
-    const byWeight = breakdown(s => {
-      const oz = s.billed_weight ?? s.weight ?? 0
-      const lb = Math.ceil(oz / 16)
-      return lb <= 1 ? '≤1 lb' : lb <= 5 ? '2–5 lb' : lb <= 10 ? '6–10 lb' : lb <= 20 ? '11–20 lb' : '20+ lb'
-    })
+    const byWeight = breakdown(weightBracket)
 
     return {
       losses,
@@ -378,7 +375,10 @@ export default async function LossesPage() {
                       <td className="py-2 pr-3 font-mono text-gray-300">{s.order_number}</td>
                       <td className="py-2 pr-3 text-gray-300">{(s.clients as any)?.name ?? <span className="text-gray-600 italic">unassigned</span>}</td>
                       <td className="py-2 pr-3 text-gray-400">{s.carrier} · {s.service}</td>
-                      <td className="py-2 pr-3 text-right text-gray-400">{(s.billed_weight ?? s.weight ?? 0).toFixed(1)}</td>
+                      {/* A dash, not '0.0'. A printed weight of zero is a
+                          measurement, and this column is the evidence someone
+                          checks when a bracket above looks wrong. */}
+                      <td className="py-2 pr-3 text-right text-gray-400">{billedOz(s)?.toFixed(1) ?? '—'}</td>
                       <td className="py-2 pr-3 text-center">
                         {s.zone
                           ? <span className="px-1.5 py-0.5 rounded text-xs" style={{ background: '#00AAFF22', color: '#00AAFF' }}>Z{s.zone}</span>

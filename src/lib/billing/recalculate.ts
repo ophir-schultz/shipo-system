@@ -118,6 +118,20 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
 
   for (const s of shipments ?? []) {
     const label = s.order_number ?? s.id
+    // These five `?? 0`s look like the defect they resemble elsewhere, and are
+    // not, because every consumer of the 0 refuses it rather than believing it.
+    // Left alone deliberately, and recorded here so that neither half of the
+    // pairing gets "tidied" on the strength of how the line reads:
+    //
+    //   weight -> matchLegacyRate refuses billedWeightOf(w) === null, i.e. any
+    //     weight <= 0, so an unweighed shipment gets a null rate and a stated
+    //     reason instead of the LIGHTEST band's price.
+    //   weight -> the write below stores `billed_weight: null`, not 0, under
+    //     the same billedWeightOf guard.
+    //   l/w/h -> calcDimWeightOz returns null unless all three are > 0, which
+    //     means "DIM does not apply, bill on actual weight alone" -- a missing
+    //     dimension cannot be invented, and declining to apply a surcharge is
+    //     the only direction that does not overcharge on no evidence.
     const weightOz = s.weight ?? 0
     const l = s.length ?? 0
     const w = s.width ?? 0
