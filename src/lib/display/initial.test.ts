@@ -19,8 +19,12 @@ describe('nameInitial', () => {
   it('does not throw on the empty string', () => {
     // This is the whole point. `name[0]` is undefined and `.toUpperCase()` on
     // undefined is a TypeError; in a server component that is the page, not
-    // the avatar. NOT NULL on clients.name does not exclude '' -- and PATCH
-    // /api/clients/[id] writes the request body through unvalidated.
+    // the avatar. NOT NULL on clients.name does not exclude ''.
+    //
+    // This note used to add "and PATCH /api/clients/[id] writes the request
+    // body through unvalidated", which is no longer true -- see the recorded
+    // correction at the top of initial.ts. A '' written before the allowlist
+    // existed can still be in the table, so this case stays.
     expect(() => nameInitial('')).not.toThrow()
     expect(nameInitial('')).toBe(NO_INITIAL)
   })
@@ -28,7 +32,8 @@ describe('nameInitial', () => {
   it('returns the placeholder for a whitespace-only name, not an invisible space', () => {
     // ' ' never threw -- it rendered one blank character, so a nameless client
     // looked like a rendering glitch rather than bad data. `!name` is false for
-    // ' ', so the add-client POST route lets it through untrimmed.
+    // ' ', which is how the add-client POST route used to let it through
+    // untrimmed; parseNewClient now refuses it.
     expect(nameInitial(' ')).toBe(NO_INITIAL)
     expect(nameInitial('   ')).toBe(NO_INITIAL)
     expect(nameInitial('\t\n')).toBe(NO_INITIAL)

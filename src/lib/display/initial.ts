@@ -9,14 +9,25 @@
 //     avatar in one row -- it takes out the whole render and the operator gets
 //     an error boundary instead of their client list. Nothing on the screen
 //     names the row that caused it. `name text not null` in schema.sql does
-//     NOT stop this: NOT NULL permits the empty string, and PATCH
-//     /api/clients/[id] passes the request body straight into .update() with
-//     no validation at all.
+//     NOT stop this: NOT NULL permits the empty string.
 //
 //   - name === ' '       -> no throw, but the avatar renders one invisible
-//     space. The POST guard is `if (!name)`, and ' ' is truthy, so a
-//     whitespace-only name survives the form (HTML `required` accepts a
-//     space) and is stored untrimmed.
+//     space, and the name is stored untrimmed.
+//
+// CORRECTION, recorded rather than quietly edited. Those two notes used to end
+// "and PATCH /api/clients/[id] passes the request body straight into .update()
+// with no validation at all" and "the POST guard is `if (!name)`, and ' ' is
+// truthy, so a whitespace-only name survives the form (HTML `required` accepts
+// a space)". Both described the API as it was, and both are now out of date:
+// src/lib/clients/editable-fields.ts gives each route an allowlist that trims
+// and refuses a blank name. supabase/clients_name_not_blank.sql adds the same
+// rule as a check constraint -- status UNKNOWN until that file is applied and
+// supabase/verify/clients_name_not_blank_verify.sql confirms it.
+//
+// This function is still load-bearing for two reasons. A row written BEFORE
+// those layers existed can still be in the table, and /clients has to render
+// it rather than die on it. And the constraint is added NOT VALID on purpose,
+// so the database tolerates such a row by design.
 //
 // Trimming before taking the first character also fixes ' Acme', which today
 // renders a blank avatar for a perfectly good client.
