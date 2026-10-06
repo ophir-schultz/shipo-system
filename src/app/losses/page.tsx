@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import {
-  formatPrice, priceOf, sumPriced, sumAbsPriced, unpricedNote, UNPRICED_DASH,
+  formatPrice, priceOf, sumPriced, sumAbsPriced, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 import { billedOz, weightBracket } from '@/lib/billing/weight-bracket'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
@@ -57,11 +57,16 @@ async function getLossData() {
     const all = allRead.rows
 
     const totalShipments = all.length
+    // Three sums over three different columns, which withhold three different
+    // sets of rows -- and only the first one's count was kept. A shipment with
+    // an agreed rate but an unreadable carrier cost is IN totalRevenue, out of
+    // totalCost and out of totalProfit, while `unpricedShipments` stayed 0 and
+    // the screen said everything was priced. Each figure now carries the count
+    // that belongs to it, and the cards below quote the matching one.
     const revenueSum = sumPriced(all, 'client_rate')
-    const totalRevenue = revenueSum.total
+    const costSum = sumPriced(all, 'actual_cost')
+    const profitSum = sumPriced(all, 'profit_loss')
     const unpricedShipments = revenueSum.unpriced
-    const totalCost = sumPriced(all, 'actual_cost').total
-    const totalProfit = sumPriced(all, 'profit_loss').total
     const lossSum = sumAbsPriced(losses, 'profit_loss')
 
     // Five breakdowns that each carried their own
@@ -103,10 +108,15 @@ async function getLossData() {
     return {
       losses,
       totalShipments,
-      totalRevenue,
+      // totalOrUnknown, not `.total`: a column of nothing but nulls sums to 0,
+      // and 0 rendered in green beside a ✓ is the most reassuring thing this
+      // page can print on the strength of having read nothing at all.
+      totalRevenue: totalOrUnknown(revenueSum),
+      totalCost: totalOrUnknown(costSum),
+      totalProfit: totalOrUnknown(profitSum),
       unpricedShipments,
-      totalCost,
-      totalProfit,
+      uncostedShipments: costSum.unpriced,
+      unknownProfits: profitSum.unpriced,
       totalLossAmt: lossSum.total,
       // Should always be 0 -- see the banner that renders it. Carried rather
       // than asserted: the sum knows what it withheld, and dropping the number
@@ -148,6 +158,8 @@ export default async function LossesPage() {
   // rather than a silent return to printing "-$0.00" over an unread table.
   const d: LoadedData<typeof page> = page.data
   const fmt = (n: number) => `$${Math.abs(n).toFixed(2)}`
+  /** A figure whose every contributing row was withheld is a dash, not $0.00. */
+  const fmtOrDash = (n: number | null) => (n === null ? UNPRICED_DASH : fmt(n))
   // '-$12.34' for a measured loss, a dash when the row's profit will not read
   // as a number at all. `Math.abs(s.profit_loss ?? 0)` printed '-$0.00' in that
   // case, which in a column headed "Loss" reads as "we lost nothing on this
@@ -181,6 +193,24 @@ export default async function LossesPage() {
         </div>
       )}
 
+      {/* Its own banner, and not folded into the one above, because the remedy
+          is a different one. A missing RATE is a rate-card job; a missing
+          CARRIER COST is waiting on, or importing, the carrier invoice. Telling
+          someone to fix a rate card for a shipment whose rate is already fine
+          sends them to the wrong screen. */}
+      {d.uncostedShipments > 0 && (
+        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-3">
+          <p className="text-amber-300 text-sm font-semibold">
+            ⚠ {d.uncostedShipments} shipment{d.uncostedShipments === 1 ? '' : 's'} have no carrier cost
+          </p>
+          <p className="text-amber-200/70 text-xs mt-1">
+            They are excluded from the cost and profit figures below, so both understate by
+            an unknown amount. They are not $0 — a shipment the carrier has not invoiced yet
+            still cost us something. Import the carrier invoice to fill them in.
+          </p>
+        </div>
+      )}
+
       {/* Instrumenting an invariant rather than trusting it. Every row on this
           page has is_loss = true, which shipmentProfit can only set on the
           branch where both figures came back finite, so this count should be
@@ -204,16 +234,25 @@ export default async function LossesPage() {
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Loss Shipments" value={d.lossCount.toString()} sub={`${d.lossRate.toFixed(1)}% of all shipments`} color="red" />
         <StatCard label="Total Loss Amount" value={`-${fmt(d.totalLossAmt)}`} sub="Money we lost on those shipments" color="red" />
-        <StatCard label="Net Profit (all)" value={`${d.totalProfit >= 0 ? '+' : '-'}${fmt(d.totalProfit)}`}
-          sub={d.unpricedShipments > 0
-            ? `${d.totalShipments - d.unpricedShipments} of ${d.totalShipments} priced shipments`
+        {/* Each of the three cards below quotes the count belonging to ITS OWN
+            column. They were all quoting the rate count, which describes only
+            the revenue figure. Colour follows the same rule: an UNKNOWN profit
+            is not green, because the neutral card is the one that does not
+            answer a question it cannot answer. */}
+        <StatCard label="Net Profit (all)"
+          value={d.totalProfit === null ? UNPRICED_DASH : `${d.totalProfit >= 0 ? '+' : '-'}${fmt(d.totalProfit)}`}
+          sub={d.unknownProfits > 0
+            ? `${d.totalShipments - d.unknownProfits} of ${d.totalShipments} shipments have a readable profit`
             : `${d.totalShipments} assigned shipments`}
-          color={d.totalProfit >= 0 ? 'green' : 'red'} />
-        <StatCard label="Revenue vs Cost" value={`${fmt(d.totalRevenue)} / ${fmt(d.totalCost)}`}
-          sub={d.unpricedShipments > 0
-            ? `Revenue / Carrier cost — ${unpricedNote(d.unpricedShipments)}`
-            : 'Revenue / Carrier cost'}
-          color="blue" />
+          color={d.totalProfit === null ? 'unknown' : d.totalProfit >= 0 ? 'green' : 'red'} />
+        <StatCard label="Revenue vs Cost"
+          value={`${fmtOrDash(d.totalRevenue)} / ${fmtOrDash(d.totalCost)}`}
+          sub={[
+            'Revenue / Carrier cost',
+            d.unpricedShipments > 0 ? `${d.unpricedShipments} with no agreed rate` : '',
+            d.uncostedShipments > 0 ? `${d.uncostedShipments} with no carrier cost` : '',
+          ].filter(Boolean).join(' — ')}
+          color={d.totalRevenue === null && d.totalCost === null ? 'unknown' : 'blue'} />
       </div>
 
       {/* Breakdown panels */}
@@ -418,6 +457,9 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
     red: 'border-red-800/50 bg-red-950/40',
     green: 'border-green-800/50 bg-green-950/40',
     blue: 'border-[#00AAFF]/20 bg-[#00AAFF]/5',
+    // Deliberately not green and not red. A figure nobody could compute should
+    // not borrow the styling of a good result or a bad one.
+    unknown: 'border-gray-700 bg-gray-800',
   }
   return (
     <div className={`rounded-xl p-5 border ${colors[color] ?? 'bg-gray-800 border-gray-700'}`}>
