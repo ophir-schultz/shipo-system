@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   priceOf, isPriced, formatPrice, formatSignedPrice, sumPriced, sumAbsPriced,
-  combinePriced, sumAllOrUnknown, unpricedNote, totalOrUnknown,
+  combinePriced, sumAllOrUnknown, unpricedNote, totalOrUnknown, pricedTally,
   UNPRICED_DASH, UNPRICED_CELL,
 } from './unpriced'
 
@@ -390,6 +390,113 @@ describe('combinePriced', () => {
 
   it('combines a single sum to itself', () => {
     expect(combinePriced(ship)).toEqual(ship)
+  })
+})
+
+describe('pricedTally', () => {
+  // The differential test. sumPriced is the tested accumulator; this one exists
+  // only because /pnl's revenue arrives in three loops rather than one array,
+  // so the two MUST agree figure for figure. A divergence here is the bug this
+  // test is for: two sums of the same money, one per shape of call site.
+  it('agrees with sumPriced over the same figures', () => {
+    const figures = [12.5, null, '7.25', 0, undefined, -3]
+    const t = pricedTally()
+    for (const f of figures) t.take(f)
+    expect(t.sum()).toEqual(sumPriced(figures.map(p => ({ p })), 'p'))
+  })
+
+  // The distinction the whole module is for, at the one level this type adds:
+  // no figures offered vs. no figures readable.
+  it('is a real zero when nothing was offered to it', () => {
+    expect(pricedTally().sum()).toEqual({ total: 0, unpriced: 0, counted: 0 })
+    // A client with no shipments, no warehouse days and no inbound genuinely
+    // has $0.00 of revenue. Dashing it would hide a real zero behind the mark
+    // for UNKNOWN.
+    expect(totalOrUnknown(pricedTally().sum())).toBe(0)
+  })
+
+  it('is UNKNOWN when every figure offered was unreadable', () => {
+    const t = pricedTally()
+    t.take(null); t.take(undefined); t.take('')
+    expect(t.sum()).toEqual({ total: 0, unpriced: 3, counted: 3 })
+    // The defect: this used to be a total of 0, which /pnl divided into to
+    // print a margin of 0% in green.
+    expect(totalOrUnknown(t.sum())).toBeNull()
+  })
+
+  it('is a real zero when the figures offered were zeros', () => {
+    const t = pricedTally()
+    t.take(0); t.take('0.00')
+    expect(t.sum()).toEqual({ total: 0, unpriced: 0, counted: 2 })
+    expect(totalOrUnknown(t.sum())).toBe(0)
+  })
+
+  it('keeps a partial total beside the count it withheld', () => {
+    const t = pricedTally()
+    t.take(10); t.take(null); t.take(5)
+    expect(t.sum()).toEqual({ total: 15, unpriced: 1, counted: 3 })
+    // Partials still report their total, deliberately -- $15 is a real figure
+    // about two of the three lines, and the caller renders the count with it.
+    expect(totalOrUnknown(t.sum())).toBe(15)
+  })
+
+  it('accumulates in cents, so a long column does not drift', () => {
+    const t = pricedTally()
+    t.take(8.21); t.take(0.07)
+    expect(t.sum().total).toBe(8.28)
+    // These figures and not 0.1 + 0.2. The canonical float example does not
+    // distinguish the implementations here, because scaling by 100 before
+    // adding removes that particular error on its own -- `0.1*100 + 0.2*100`
+    // is exactly 30. It is `Math.round` that is load-bearing, and these are
+    // figures that show it: 8.21*100 is 821.0000000000001, and summing the
+    // unrounded scalings gives 8.280000000000001. Verified by mutation --
+    // dropping the round survives the 0.1/0.2 version of this test and fails
+    // this one.
+    const u = pricedTally()
+    u.take(0.29); u.take(0.57)
+    expect(u.sum().total).toBe(0.86)
+  })
+
+  it('reads the numerics PostgREST sends as strings', () => {
+    const t = pricedTally()
+    t.take('12.50'); t.take('0.01')
+    expect(t.sum().total).toBe(12.51)
+  })
+
+  // An implementation that reset its counters when read would pass every test
+  // above, because each one calls sum() once at the end.
+  it('reports a running total without consuming it', () => {
+    const t = pricedTally()
+    t.take(10)
+    expect(t.sum()).toEqual({ total: 10, unpriced: 0, counted: 1 })
+    t.take(null)
+    t.take(5)
+    expect(t.sum()).toEqual({ total: 15, unpriced: 1, counted: 2 + 1 })
+  })
+
+  it('does not share state between two tallies', () => {
+    const a = pricedTally()
+    const b = pricedTally()
+    a.take(10)
+    expect(b.sum()).toEqual({ total: 0, unpriced: 0, counted: 0 })
+  })
+
+  // /pnl's actual composite: revenue is shipping + warehouse + inbound, each
+  // its own tally, and it is UNKNOWN only when no part of it could be read.
+  it('composes into a figure that is unknown only if all of its parts are', () => {
+    const shipRev = pricedTally()
+    const whRev = pricedTally()
+    const inRev = pricedTally()
+    shipRev.take(null); shipRev.take(null)
+    // No warehouse days and no inbound lines for this client -- empty, not
+    // unknown, and so they must not rescue the figure from UNKNOWN either.
+    expect(totalOrUnknown(combinePriced(shipRev.sum(), whRev.sum(), inRev.sum())))
+      .toBeNull()
+    // One readable figure anywhere makes the total a real, partial number.
+    whRev.take(40)
+    const combined = combinePriced(shipRev.sum(), whRev.sum(), inRev.sum())
+    expect(totalOrUnknown(combined)).toBe(40)
+    expect(combined.unpriced).toBe(2)
   })
 })
 

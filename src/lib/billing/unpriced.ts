@@ -221,6 +221,56 @@ function sumMapped(
 }
 
 /**
+ * A PricedSum assembled one figure at a time.
+ *
+ * `sumPriced` covers the common shape: one column, many rows, all in hand at
+ * once. This covers the other one -- a figure built from several columns of
+ * several tables, visited in several loops. /pnl's per-client revenue is
+ * shipping plus warehouse plus inbound, three separate reads with a loop each,
+ * so there is no single array to hand to `sumPriced`.
+ *
+ * Written out by hand that becomes `a.rev += n` beside a separate
+ * `a.unpriced++`, two statements that have to be kept in step by whoever edits
+ * the loop next, and the one that gets forgotten is the count -- which is
+ * exactly the figure `totalOrUnknown` needs to tell a revenue of zero from a
+ * revenue nobody could read. `take` makes the addition and the count one
+ * statement, so forgetting the count is no longer possible.
+ *
+ * `counted` goes up for every figure offered, readable or not, which is what
+ * makes "every figure was withheld" distinguishable from "there were no
+ * figures". A tally nothing was offered to is a real $0: the sum over an empty
+ * set, the same distinction `totalOrUnknown` draws.
+ */
+export interface PricedTally {
+  /** Record one figure, readable or not. */
+  take(value: unknown): void
+  /** What has been recorded so far. */
+  sum(): PricedSum
+}
+
+export function pricedTally(): PricedTally {
+  let cents = 0
+  let unpriced = 0
+  let counted = 0
+  return {
+    take(value: unknown) {
+      counted++
+      const n = priceOf(value)
+      // Cents, for the reason given in sumMapped: these totals are sums over
+      // every shipment a client has ever had, and dollars added as floats
+      // drift. Keeping the rule identical to the other accumulator in this
+      // module is the point -- two sums of the same money that round
+      // differently would disagree in the last cent on screen.
+      if (n === null) unpriced++
+      else cents += Math.round(n * 100)
+    },
+    sum() {
+      return { total: cents / 100, unpriced, counted }
+    },
+  }
+}
+
+/**
  * Add two or more incomplete totals without losing what they left out.
  *
  * The dashboard's weekly revenue is shipment revenue plus warehouse revenue

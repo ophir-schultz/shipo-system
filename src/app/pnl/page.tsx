@@ -1,7 +1,10 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import {
-  formatPrice, priceOf, sumPriced, sumAllOrUnknown, unpricedNote, UNPRICED_DASH,
+  formatPrice, sumPriced, sumAllOrUnknown, unpricedNote, UNPRICED_DASH,
+  pricedTally, combinePriced, totalOrUnknown,
+  type PricedTally, type PricedSum,
 } from '@/lib/billing/unpriced'
+import { pnlFigures, campaignFigures, attributedRevenue } from '@/lib/billing/margin'
 import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 
@@ -113,49 +116,64 @@ async function getPnlData() {
     // zero against a real carrier cost, which understates the margin by the
     // whole of their price -- on the screen whose only job is to report the
     // margin. They are excluded and counted instead.
+    //
+    // Excluding and counting was only half the fix, and this is the other half.
+    // A client whose figures were ALL withheld came out of the loops below with
+    // `shipRev: 0, shipCost: 0`, and `0 - 0` is a profit of 0, and
+    // `revenue > 0 ? ... : 0` made that a margin of 0%, printed in green beside
+    // a $0.00 revenue and a $0.00 cost. The amber count was on the row, but
+    // every figure on the row read as a decided, break-even zero. A client
+    // nobody has priced is not a client who broke even.
+    //
+    // So each column is a tally rather than a running number: the count of
+    // figures it could not read travels with its total, and `totalOrUnknown`
+    // turns "counted some, read none" into null while leaving "counted none"
+    // -- a client with no shipments at all -- as the real $0 it is.
     type Agg = {
-      name: string; shipRev: number; shipCost: number; whRev: number
-      inRev: number; inCost: number; unpriced: number
+      name: string
+      shipRev: PricedTally; shipCost: PricedTally; whRev: PricedTally
+      inRev: PricedTally; inCost: PricedTally
     }
     const byClient: Record<string, Agg> = {}
     const ensure = (id: string | null, name: string) => {
       const key = id ?? 'unassigned'
-      if (!byClient[key]) byClient[key] = { name, shipRev: 0, shipCost: 0, whRev: 0, inRev: 0, inCost: 0, unpriced: 0 }
+      if (!byClient[key]) {
+        byClient[key] = {
+          name,
+          shipRev: pricedTally(), shipCost: pricedTally(), whRev: pricedTally(),
+          inRev: pricedTally(), inCost: pricedTally(),
+        }
+      }
       return byClient[key]
     }
 
     let unassignedCount = 0
-    let unassignedCost = 0
-    let unassignedUnpriced = 0
+    // A tally for the same reason as the per-client columns. The banner this
+    // feeds said "these N shipments carry $0.00 in carrier cost" when not one
+    // of their costs could be read, and then said so again in the next
+    // sentence; one of the two had to be the dash.
+    const unassignedCostTally = pricedTally()
     for (const s of shipments) {
       if (!s.client_id) {
         unassignedCount++
-        const cost = priceOf(s.actual_cost)
-        if (cost === null) unassignedUnpriced++
-        else unassignedCost += cost
+        unassignedCostTally.take(s.actual_cost)
         continue
       }
       const a = ensure(s.client_id, (s.clients as any)?.name ?? 'Unassigned')
-      const rate = priceOf(s.client_rate)
-      if (rate === null) a.unpriced++
-      else a.shipRev += rate
+      a.shipRev.take(s.client_rate)
       // An unknown COST is the dangerous direction and used to be the one
       // handled carelessly: `priceOf(s.actual_cost) ?? 0` wore the sanctioned
       // coercion and then threw its answer away. An excluded revenue
       // understates profit, which is at worst a pessimistic figure; a cost
       // read as 0 against real revenue OVERSTATES profit, which is the figure
       // nobody double-checks. Both are now withheld and counted.
-      const cost = priceOf(s.actual_cost)
-      if (cost === null) a.unpriced++
-      else a.shipCost += cost
+      a.shipCost.take(s.actual_cost)
     }
     for (const w of warehouse) {
       const a = ensure(w.client_id, 'Unassigned')
       // warehouse_daily_log.total is nullable for the same reason: the daily-log
       // route writes null for a line whose rate is not on the card.
-      const total = priceOf(w.total)
-      if (total === null) a.unpriced++
-      else a.whRev += total
+      a.whRev.take(w.total)
     }
     for (const i of inbound) {
       const a = ensure(i.client_id, (i.clients as any)?.name ?? 'Unassigned')
@@ -168,34 +186,79 @@ async function getPnlData() {
       // neither amount readable has withheld two numbers from this client's
       // margin, and the note beside the row says "not included", which is true
       // of both of them.
-      const inRev = priceOf(i.billed_amount)
-      if (inRev === null) a.unpriced++
-      else a.inRev += inRev
-      const inCost = priceOf(i.our_cost)
-      if (inCost === null) a.unpriced++
-      else a.inCost += inCost
+      a.inRev.take(i.billed_amount)
+      a.inCost.take(i.our_cost)
     }
 
-    const clientPnl = Object.entries(byClient).map(([id, a]) => {
-      const revenue = a.shipRev + a.whRev + a.inRev
-      const cost = a.shipCost + a.inCost
-      const profit = revenue - cost
-      const margin = revenue > 0 ? (profit / revenue) * 100 : 0
-      return { id, ...a, revenue, cost, profit, margin }
-    }).sort((x, y) => y.profit - x.profit)
+    // Unknowns sort last, by a comparator that says so. `y.profit - x.profit`
+    // with a null in it is NaN, and a NaN comparator is specified to mean
+    // "equal", so the unknown rows would land wherever the sort happened to
+    // leave them -- which in practice means scattered through a table ordered
+    // by profit, reading as though their position meant something.
+    const byDescUnknownLast = (a: number | null, b: number | null) =>
+      a === null ? (b === null ? 0 : 1) : b === null ? -1 : b - a
 
-    // client_id -> total fulfillment revenue (for campaign attribution)
-    const clientRevenue: Record<string, number> = {}
+    // The sum over no figures at all, which `totalOrUnknown` reads as a real $0
+    // rather than UNKNOWN. Taken from combinePriced, which is tested to return
+    // exactly this for no parts, rather than restating the literal here.
+    const EMPTY_SUM = combinePriced()
+
+    const clientPnl = Object.entries(byClient).map(([id, a]) => {
+      // combinePriced rather than adding the totals, so the counts survive the
+      // addition: revenue is UNKNOWN only when no part of it could be read, and
+      // a client with warehouse revenue but no readable shipment rate still has
+      // a real -- partial, and labelled -- revenue figure.
+      const revSum = combinePriced(a.shipRev.sum(), a.whRev.sum(), a.inRev.sum())
+      const costSum = combinePriced(a.shipCost.sum(), a.inCost.sum())
+      // The four figures come from lib/billing/margin.ts rather than being
+      // written out here, because reverting any of them to a zero compiles
+      // cleanly in this file -- see that module's header, which records the
+      // positive control. Composed, the rule is covered by tests; inline, it
+      // was covered by nothing, this file being a .tsx.
+      const figures = pnlFigures(revSum, costSum)
+      // Built explicitly rather than `{ id, ...a, ...figures }`, because
+      // spreading the Agg would put the five tallies on the row and shadow
+      // `cost` with one of them.
+      return {
+        id,
+        name: a.name,
+        // Per column as well as in total, so that a client with real warehouse
+        // revenue and no readable shipment rate shows which of the two it is
+        // rather than $0.00 in both.
+        shipRev: totalOrUnknown(a.shipRev.sum()),
+        whRev: totalOrUnknown(a.whRev.sum()),
+        inRev: totalOrUnknown(a.inRev.sum()),
+        revSum,
+        costSum,
+        revenue: figures.revenue,
+        cost: figures.cost,
+        profit: figures.profit,
+        margin: figures.margin,
+        unpriced: figures.unread,
+      }
+    }).sort((x, y) => byDescUnknownLast(x.profit, y.profit))
+
+    // client_id -> total fulfillment revenue (for campaign attribution).
+    // `number | null` rather than `number`, so that an unknown revenue cannot
+    // reach a campaign's ROI as a zero.
+    const clientRevenue: Record<string, number | null> = {}
     for (const c of clientPnl) clientRevenue[c.id] = c.revenue
 
     // ---- Campaign ROI ----
     const clientsByCampaign: Record<string, number> = {}
-    const revByCampaign: Record<string, number> = {}
+    const revByCampaign: Record<string, PricedTally> = {}
     for (const c of clients) {
       const cid = (c as any).acquisition_campaign_id
       if (cid) {
         clientsByCampaign[cid] = (clientsByCampaign[cid] ?? 0) + 1
-        revByCampaign[cid] = (revByCampaign[cid] ?? 0) + (clientRevenue[c.id] ?? 0)
+        if (!revByCampaign[cid]) revByCampaign[cid] = pricedTally()
+        // Three cases where `(clientRevenue[c.id] ?? 0)` had one: a client with
+        // no rows at all contributes a real $0, a client whose figures could not
+        // be read contributes nothing and is counted, and a number is itself.
+        // The distinction is in lib/billing/margin.ts because `?? 0` reads as
+        // the obvious tidy-up of it and would re-merge the two states it exists
+        // to separate.
+        revByCampaign[cid].take(attributedRevenue(clientRevenue[c.id]))
       }
     }
 
@@ -208,7 +271,8 @@ async function getPnlData() {
     // the type in place, `fmt(c.spend)` is TS2345.
     type CampaignPnl = {
       id: string; name: string; channel: string; status: string
-      spend: number | null; clientsWon: number; revenue: number
+      spend: number | null; clientsWon: number; revenue: number | null
+      revSum: PricedSum
       profit: number | null; roi: number | null; cac: number | null
     }
     const campaignPnl = campaigns.map((c: any): CampaignPnl => {
@@ -230,22 +294,47 @@ async function getPnlData() {
       // decision moved.
       const spend = sumAllOrUnknown(c.monthly_cost, c.one_time_cost)
       const clientsWon = clientsByCampaign[c.id] ?? 0
-      const revenue = revByCampaign[c.id] ?? 0
-      const profit = spend === null ? null : revenue - spend
-      const roi = spend !== null && spend > 0 ? ((revenue - spend) / spend) * 100 : null
-      const cac = spend !== null && clientsWon > 0 ? spend / clientsWon : null
-      return { ...c, spend, clientsWon, revenue, profit, roi, cac }
-    }).sort((a, b) => b.revenue - a.revenue)
+      // A campaign nobody has been tagged to has no tally, and its $0.00 of
+      // attributed revenue is a real zero -- that is what an untagged campaign
+      // has earned. A campaign whose every tagged client has unreadable revenue
+      // is a different statement, and now makes a different one.
+      const revSum = revByCampaign[c.id]?.sum() ?? EMPTY_SUM
+      const revenue = totalOrUnknown(revSum)
+      // Profit, ROI and CAC from the same tested module, for the same reason.
+      // ROI in particular: an unknown revenue against a real spend used to give
+      // a confident -100%, "this campaign lost its entire budget", which is an
+      // argument for cancelling it assembled from figures nobody had read.
+      const { profit, roi, cac } = campaignFigures(revenue, spend, clientsWon)
+      return { ...c, spend, clientsWon, revenue, revSum, profit, roi, cac }
+    }).sort((a, b) => byDescUnknownLast(a.revenue, b.revenue))
 
     // ---- Totals ----
-    const totalRevenue = clientPnl.reduce((s, c) => s + c.revenue, 0)
-    const totalCost = clientPnl.reduce((s, c) => s + c.cost, 0)
-    const totalProfit = totalRevenue - totalCost
+    //
+    // Derived from the per-row sums rather than re-read off the tables, so the
+    // headline cards and the table footer can never disagree with the rows
+    // about which figures were counted. A total is UNKNOWN only when every
+    // figure under it was withheld; one readable client rescues it, and the
+    // count beside it is what says the rest are missing.
+    const revenueSum = combinePriced(...clientPnl.map(c => c.revSum))
+    const costSum = combinePriced(...clientPnl.map(c => c.costSum))
+    // The same function the rows use, so the footer cannot decide differently
+    // from the table above it about what counts as unknown.
+    const totals = pnlFigures(revenueSum, costSum)
+    const totalRevenue = totals.revenue
+    const totalCost = totals.cost
+    const totalProfit = totals.profit
     // Derived from the per-row decision above rather than re-summing the
     // columns, so the headline figure and the table can never disagree about
     // which campaigns were counted.
     const totalSpend = campaignPnl.reduce((s, c) => (c.spend === null ? s : s + c.spend), 0)
     const unknownSpend = campaignPnl.filter(c => c.spend === null).length
+    // The campaign table's revenue footer, computed here for the same reason:
+    // it was `reduce((s, c) => s + c.revenue, 0)` inline in the JSX, which a
+    // nullable revenue turns into the string 'NaN' on screen. Reducing money in
+    // a template is how this defect keeps coming back, so the reduction moves
+    // into the data layer where the null is visible.
+    const campaignRevenueSum = combinePriced(...campaignPnl.map(c => c.revSum))
+    const campaignRevenue = totalOrUnknown(campaignRevenueSum)
     // `referral_payouts.amount` is `not null`, so the old `?? 0` was
     // unreachable -- but `numeric(10,2)` still arrives as a string over
     // PostgREST, and `0 + '12.34'` is '012.34'. sumPriced is here for the
@@ -263,15 +352,24 @@ async function getPnlData() {
       totalRevenue,
       totalCost,
       totalProfit,
+      // The counts that belong to each of those three figures, so a card can
+      // say what its own total left out. Three sums over three different
+      // columns withhold three different sets of figures; one count quoted for
+      // all of them is a figure described by somebody else's footnote.
+      unreadRevenue: revenueSum.unpriced,
+      unreadCost: costSum.unpriced,
+      countedFigures: revenueSum.counted + costSum.counted,
       totalSpend,
       unknownSpend,
+      campaignRevenue,
+      unreadCampaignRevenue: campaignRevenueSum.unpriced,
       totalPayouts,
       unmeasuredPayouts: payoutSum.unpriced,
       pendingPayouts,
       rawShipmentCount: shipments.length,
       unassignedCount,
-      unassignedCost,
-      unassignedUnpriced,
+      unassignedCost: totalOrUnknown(unassignedCostTally.sum()),
+      unassignedUnpriced: unassignedCostTally.sum().unpriced,
       activeCampaigns: campaigns.filter((c: any) => c.status === 'active').length,
       clientCount: clientPnl.filter(c => c.id !== 'unassigned').length,
     }
@@ -323,9 +421,24 @@ export default async function PnlPage() {
 
       {/* Summary bar */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard label="Total Revenue" value={fmt(d.totalRevenue)} sub={`${d.clientCount} active clients`} color="blue" />
-        <StatCard label="Total Cost" value={fmt(d.totalCost)} sub="Carrier + receiving cost" color="gray" />
-        <StatCard label="Net Profit" value={fmt(d.totalProfit)} sub="Gross of warehouse labor" color={d.totalProfit >= 0 ? 'green' : 'red'} />
+        <StatCard label="Total Revenue" value={fmtOrDash(d.totalRevenue)}
+          sub={d.unreadRevenue > 0
+            ? `${d.clientCount} active clients — ${d.unreadRevenue} revenue figure${d.unreadRevenue === 1 ? '' : 's'} unreadable, excluded`
+            : `${d.clientCount} active clients`}
+          color={d.totalRevenue === null ? 'unknown' : 'blue'} />
+        <StatCard label="Total Cost" value={fmtOrDash(d.totalCost)}
+          sub={d.unreadCost > 0
+            ? `Carrier + receiving cost — ${d.unreadCost} unreadable, excluded`
+            : 'Carrier + receiving cost'}
+          color={d.totalCost === null ? 'unknown' : 'gray'} />
+        {/* Not green when it is unknown. A Net Profit of $0.00 in green is the
+            single most reassuring thing this page can say, and it was what it
+            said when every figure under it had been withheld. */}
+        <StatCard label="Net Profit" value={fmtOrDash(d.totalProfit)}
+          sub={d.totalProfit === null
+            ? 'No readable revenue or cost to compute it from'
+            : 'Gross of warehouse labor'}
+          color={d.totalProfit === null ? 'unknown' : d.totalProfit >= 0 ? 'green' : 'red'} />
         <StatCard label="Marketing Spend" value={fmt(d.totalSpend)}
           sub={d.unknownSpend > 0
             ? `${d.activeCampaigns} active campaigns — ${d.unknownSpend} with no spend entered, excluded`
@@ -368,7 +481,12 @@ export default async function PnlPage() {
                       <td className="py-2.5 pr-3 text-right text-gray-300"
                         title={c.spend === null ? 'Spend not entered for this campaign. Not $0 — ROI and CAC cannot be computed.' : undefined}>{fmtOrDash(c.spend)}</td>
                       <td className="py-2.5 pr-3 text-right text-gray-400">{c.clientsWon}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-300">{fmt(c.revenue)}</td>
+                      <td className="py-2.5 pr-3 text-right text-gray-300"
+                        title={c.revenue === null
+                          ? 'Every client tagged to this campaign has unreadable fulfillment revenue. Not $0 — ROI and profit cannot be computed.'
+                          : c.revSum.unpriced > 0
+                            ? `${c.revSum.unpriced} of ${c.revSum.counted} tagged clients have unreadable revenue and are not in this figure.`
+                            : undefined}>{fmtOrDash(c.revenue)}</td>
                       {/* Grey, not green. The old `c.profit >= 0` was decided
                           on a profit computed from a spend of zero, so an
                           un-costed campaign showed a green profit equal to its
@@ -388,10 +506,18 @@ export default async function PnlPage() {
                           ⚠ {d.unknownSpend} campaign{d.unknownSpend === 1 ? '' : 's'} with no spend entered, not included
                         </span>
                       )}
+                      {/* Its own line, because the remedy is a different one:
+                          a missing spend is a figure to enter here, an
+                          unreadable client revenue is a rate card to fix. */}
+                      {d.unreadCampaignRevenue > 0 && (
+                        <span className="block text-amber-400/90 text-xs font-normal normal-case mt-0.5">
+                          ⚠ {d.unreadCampaignRevenue} tagged client{d.unreadCampaignRevenue === 1 ? '' : 's'} with unreadable revenue, not included
+                        </span>
+                      )}
                     </td>
                     <td className="pt-3 text-right text-gray-300 text-sm">{fmt(d.totalSpend)}</td>
                     <td className="pt-3 text-right text-gray-400 text-sm">{d.campaignPnl.reduce((s, c) => s + c.clientsWon, 0)}</td>
-                    <td className="pt-3 text-right text-gray-300 text-sm">{fmt(d.campaignPnl.reduce((s, c) => s + c.revenue, 0))}</td>
+                    <td className="pt-3 text-right text-gray-300 text-sm">{fmtOrDash(d.campaignRevenue)}</td>
                     <td className="pt-3 text-right text-sm text-gray-300" colSpan={3}></td>
                   </tr>
                 </tfoot>
@@ -409,10 +535,15 @@ export default async function PnlPage() {
         </div>
         {d.unassignedCount > 0 && (
           <div className="mb-4 rounded-lg px-4 py-3 border border-orange-800/40 bg-orange-950/20 text-xs text-orange-300/90">
-            <span className="font-medium text-orange-300">{d.unassignedCount} unassigned shipments</span> carry {fmt(d.unassignedCost)} in carrier cost not yet attributed to any client or priced. Assign them to clients + run rate calculation to move this cost into per-client margin.
+            <span className="font-medium text-orange-300">{d.unassignedCount} unassigned shipments</span> carry {fmtOrDash(d.unassignedCost)} in carrier cost not yet attributed to any client or priced. Assign them to clients + run rate calculation to move this cost into per-client margin.
             {d.unassignedUnpriced > 0 && (
               <span className="block mt-1 text-orange-200/80">
-                {d.unassignedUnpriced} of them have no readable carrier cost and are not in that figure — it is understated by an unknown amount.
+                {/* Two sentences, because "understated by an unknown amount"
+                    describes a figure, and when every cost was unreadable there
+                    is no figure above to understate -- only a dash. */}
+                {d.unassignedCost === null
+                  ? `None of their carrier costs could be read, so there is no total above. It is not $0.00.`
+                  : `${d.unassignedUnpriced} of them have no readable carrier cost and are not in that figure — it is understated by an unknown amount.`}
               </span>
             )}
           </div>
@@ -456,19 +587,41 @@ export default async function PnlPage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-2.5 pr-3 text-right text-gray-400">{fmt(c.shipRev)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-400">{fmt(c.whRev)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-400">{fmt(c.inRev)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-300">{fmt(c.revenue)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-300">{fmt(c.cost)}</td>
-                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmt(c.profit)}</td>
+                      {/* A dash per column rather than one for the row, because
+                          the columns fail independently: a client can have real
+                          warehouse revenue and no readable shipment rate, and
+                          that is worth seeing. The alternative was $0.00 in
+                          every one of them. */}
+                      <td className="py-2.5 pr-3 text-right text-gray-400">{fmtOrDash(c.shipRev)}</td>
+                      <td className="py-2.5 pr-3 text-right text-gray-400">{fmtOrDash(c.whRev)}</td>
+                      <td className="py-2.5 pr-3 text-right text-gray-400">{fmtOrDash(c.inRev)}</td>
+                      <td className="py-2.5 pr-3 text-right text-gray-300">{fmtOrDash(c.revenue)}</td>
+                      <td className="py-2.5 pr-3 text-right text-gray-300">{fmtOrDash(c.cost)}</td>
+                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit === null ? 'text-gray-500' : c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(c.profit)}</td>
                       <td className="py-2.5 pl-1">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${c.profit >= 0 ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${Math.min(100, Math.abs(c.margin))}%` }} />
-                          </div>
-                          <span className={`text-xs shrink-0 ${c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{c.margin.toFixed(0)}%</span>
-                        </div>
+                        {/* No bar at all for an unknown margin, and no colour.
+                            `revenue > 0 ? ... : 0` gave a client whose every
+                            figure was withheld a margin of 0% in green with an
+                            empty bar, which is what a client trading exactly at
+                            cost looks like. The bar is now absent rather than
+                            empty, so the two cannot be mistaken for each
+                            other. */}
+                        {c.margin === null
+                          ? (
+                            <span className="text-xs text-gray-500"
+                              title="No readable revenue to compute a margin from. Not 0%.">
+                              {UNPRICED_DASH}
+                            </span>
+                          )
+                          : (
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full ${c.margin >= 0 ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${Math.min(100, Math.abs(c.margin))}%` }} />
+                              </div>
+                              <span className={`text-xs shrink-0 ${c.margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{c.margin.toFixed(0)}%</span>
+                            </div>
+                          )
+                        }
                       </td>
                     </tr>
                   ))}
@@ -484,9 +637,9 @@ export default async function PnlPage() {
                       )}
                     </td>
                     <td colSpan={3}></td>
-                    <td className="pt-3 text-right text-gray-300 text-sm">{fmt(d.totalRevenue)}</td>
-                    <td className="pt-3 text-right text-gray-300 text-sm">{fmt(d.totalCost)}</td>
-                    <td className={`pt-3 text-right text-sm font-bold ${d.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmt(d.totalProfit)}</td>
+                    <td className="pt-3 text-right text-gray-300 text-sm">{fmtOrDash(d.totalRevenue)}</td>
+                    <td className="pt-3 text-right text-gray-300 text-sm">{fmtOrDash(d.totalCost)}</td>
+                    <td className={`pt-3 text-right text-sm font-bold ${d.totalProfit === null ? 'text-gray-500' : d.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(d.totalProfit)}</td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -597,6 +750,10 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
     green: 'border-green-800/50 bg-green-950/40',
     blue: 'border-[#00AAFF]/20 bg-[#00AAFF]/5',
     gray: 'border-gray-700 bg-gray-800',
+    // The same neutral as `gray`, under its own name, so that a card reading
+    // `color="unknown"` says it is deliberately neither green nor red rather
+    // than looking like somebody thought grey suited it.
+    unknown: 'border-gray-700 bg-gray-800',
   }
   return (
     <div className={`rounded-xl p-5 border ${colors[color] ?? 'bg-gray-800 border-gray-700'}`}>
