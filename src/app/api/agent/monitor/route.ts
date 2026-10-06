@@ -334,6 +334,41 @@ export async function GET(req: Request) {
         errors.push(`⚠ Charge calculation did NOT run: ${chargeResult.reason} `
           + `Charges are not up to date until a run completes.`)
       }
+    } else if (chargeResult.orders === 0) {
+      // THE SEVERED PIPELINE, and until 2026-10-06 it was the quietest state
+      // this handler could report. A run that loads nothing fails nothing, so
+      // failedOrders, staleDeleteRefused and unpricedOrders are all zero and
+      // every escalation below stayed silent -- leaving `✓ Charges: 0 orders`
+      // and an "All clear" subject line over an empty ledger. Measured that
+      // day: pnl_monthly returned zero rows, which for a full outer join of two
+      // unfiltered aggregates means order_charges held nothing at all, while
+      // the cron had been ticking green for weeks.
+      //
+      // No ✓, for the same reason the storage block below withholds one: a
+      // green tick beside a zero is the claim, not the count. This route's
+      // header is a post-mortem on that exact sentence.
+      //
+      // `orders` and not `built`: zero orders is upstream of pricing entirely,
+      // and the message has to name where orders come from or it is just a
+      // number. syncClientAssignments is the ONLY writer of the table
+      // (src/lib/sync/zenventory.ts:303), so that is the one place to look.
+      log.push(`· Charges: 0 orders in the window — nothing was calculated`)
+      errors.push(`⚠ The charge run completed but found no orders at all in the `
+        + `last 30 days, so NO revenue or cost was recorded and the P&L is empty `
+        + `for that period. Orders are written only by the Zenventory client `
+        + `sync, so check that step above and each client's Zenventory `
+        + `credentials — a charge run cannot invent the orders it prices.`)
+    } else if (chargeResult.built === 0) {
+      // Orders arrived and not one produced a charge row. Upstream is fine, so
+      // naming the Zenventory sync here would send someone to the wrong place:
+      // this is the rate cards, the cost_rates effective dates, or the
+      // order/shipment join. Separate branch, separate message, on the same
+      // principle the two unpriced causes are split in calculate-charges.ts.
+      log.push(`· Charges: ${chargeResult.orders} orders read, 0 charge rows built`)
+      errors.push(`⚠ The charge run read ${chargeResult.orders} orders and built `
+        + `no charge rows from any of them, so nothing was billed for that work. `
+        + `The orders are arriving, so this is pricing rather than the sync — `
+        + `check the rate cards and the cost_rates effective dates.`)
     } else {
       log.push(`✓ Charges: ${chargeResult.orders} orders · ${chargeResult.upserted} written · ${chargeResult.deleted} stale removed`)
       if (chargeResult.failedOrders > 0) {

@@ -445,3 +445,112 @@ describe('GET /api/agent/monitor: what the attribution counters escalate', () =>
     expect(body.log.some((l) => l.includes('client_store_ids'))).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// A charge run that completes and writes nothing.
+//
+// Measured 2026-10-06: pnl_monthly returned zero rows, which for a FULL OUTER
+// JOIN of two unfiltered aggregates proves order_charges AND operating_costs
+// are both empty. The charge cron had been running for weeks. It was reporting
+//
+//     ✓ Charges: 0 orders · 0 written · 0 stale removed
+//
+// with a green tick and nothing in errors[], because the else-branch only
+// escalated failedOrders, staleDeleteRefused and unpricedOrders -- all of which
+// are zero when the run had no input to fail on. So the one state that means
+// "the pipeline is severed" was indistinguishable from "a quiet hour".
+//
+// This route's own header is a post-mortem on exactly this shape of lie: "the
+// ledger stayed empty behind an email whose subject said All clear". That fix
+// (maxDuration = 300) addressed the kill. It did not address the silence.
+//
+// The two causes are split because they send someone to different places: no
+// orders loaded at all is upstream, in the Zenventory sync that is the ONLY
+// writer of `orders` (zenventory.ts:303); orders loaded that produced no charge
+// is the rate cards or the order/shipment join.
+// ---------------------------------------------------------------------------
+
+const charging = (over: Record<string, unknown>) => {
+  h.recalculateCharges.mockResolvedValue({
+    skipped: false,
+    orders: 0, built: 0, upserted: 0, deleted: 0,
+    staleDeleteRefused: 0, failedOrders: 0,
+    unknownCostCharges: 0, unknownCarrierCharges: 0, unpricedOrders: 0,
+    ...over,
+  })
+  // A non-skipped charge run opens step 3c. 'missing-table' is log-only by
+  // design, so storage cannot contribute an errors[] entry and make the
+  // assertions below pass for the wrong reason.
+  h.persistStorageCharges.mockResolvedValue({
+    skipped: true, cause: 'missing-table', reason: 'client_storage_months does not exist',
+  })
+}
+
+describe('GET /api/agent/monitor: a charge run that wrote nothing', () => {
+  it('escalates a run that loaded no orders at all, and names the sync that feeds them', async () => {
+    charging({ orders: 0, built: 0, upserted: 0 })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.has_issues).toBe(true)
+    const line = body.errors.find((e) => e.includes('no orders'))
+    expect(line).toBeDefined()
+    // Has to point somewhere. A bare count repeats what the log already said.
+    expect(line).toContain('Zenventory')
+  })
+
+  it('does not put a green tick beside a zero-row charge run', async () => {
+    // The tick is the actual carrier of the false claim. Escalating to errors[]
+    // while still logging "✓ Charges: 0 orders" leaves the contradiction in the
+    // email body, and the body is what gets read.
+    charging({ orders: 0, built: 0, upserted: 0 })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.log.some((l) => l.startsWith('✓ Charges'))).toBe(false)
+  })
+
+  it('tells orders-that-built-nothing apart from no-orders-at-all', async () => {
+    // 40 orders in the window and not one charge row produced. Upstream is
+    // fine; pricing or the order/shipment join is not. The no-orders message
+    // would send someone to the Zenventory sync, which is working.
+    charging({ orders: 40, built: 0, upserted: 0 })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.has_issues).toBe(true)
+    const line = body.errors.find((e) => e.includes('built no charge'))
+    expect(line).toBeDefined()
+    expect(line).toContain('40')
+    // Must NOT blame the upstream sync: it delivered 40 orders.
+    expect(body.errors.some((e) => e.includes('no orders'))).toBe(false)
+  })
+
+  it('stays silent on a run that loaded orders and wrote charges', async () => {
+    // The negative control. Both assertions above are substring searches and
+    // both would pass against a handler that emitted the warnings on every
+    // pass -- which would mean a permanent 🚨 on every one of the three daily
+    // crons forever.
+    charging({ orders: 40, built: 120, upserted: 120 })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors).toEqual([])
+    expect(body.has_issues).toBe(false)
+    expect(body.log.some((l) => l.includes('✓ Charges: 40 orders'))).toBe(true)
+  })
+
+  it('stays silent on a throttled skip, which is the one healthy skip cause', async () => {
+    // Guards the boundary from the other side. The throttle is the ONE skip
+    // cause that must stay quiet, and a zero-orders check written in the wrong
+    // branch would start alerting on it three times a day.
+    h.recalculateCharges.mockResolvedValue({
+      skipped: true, cause: 'throttled', reason: 'ran 2 minutes ago',
+    })
+
+    const body = await run(cleanClientResult)
+
+    expect(body.errors).toEqual([])
+    expect(body.has_issues).toBe(false)
+  })
+})
