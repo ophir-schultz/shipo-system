@@ -385,14 +385,23 @@ describe('verify fixtures do not collide with seeded cost rates', () => {
       // above are the only reason that was noticed rather than shipped as a
       // check that silently examined a third of its input.
       for (const m of stmt.slice(at).matchAll(/\(\s*'([^']*)'\s*,\s*(?:'([^']*)'|null\b)/gi)) {
-        out.add(`${m[1]} ${m[2] ?? ''}`)
+        // The separator is written `\x00`, never as a raw 0x00 byte. One raw
+        // NUL makes `file` classify this source as "data", and the grep on the
+        // PATH here is ugrep with `-I`, which then skips the whole file
+        // SILENTLY -- exit 1, no "binary file matches" notice -- so every line
+        // of this test becomes invisible to search and reads as though it does
+        // not exist. NUL is still the right separator and should stay: it
+        // joins cost_type to variant to form one Set key, so it has to be a
+        // character that neither value can possibly contain. Change the
+        // encoding if you like; do not change it to `^`, `|` or `::`.
+        out.add(`${m[1]}\x00${m[2] ?? ''}`)
       }
     }
     return out
   }
 
   const show = (g: string) => {
-    const [type, variant] = g.split(' ')
+    const [type, variant] = g.split('\x00')
     return `('${type}', ${variant === '' ? 'null' : `'${variant}'`})`
   }
 
