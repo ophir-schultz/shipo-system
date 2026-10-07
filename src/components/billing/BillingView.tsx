@@ -6,6 +6,7 @@ import {
   combinePriced, formatPrice, formatSignedPrice, isPriced, sumPriced,
   totalOrUnknown, unpricedNote, type Money,
 } from '@/lib/billing/unpriced'
+import { filterByDate, undatedNote } from '@/lib/billing/date-range'
 
 // `client_rate` and `warehouse_daily_log.total` are nullable: recalculate.ts
 // and the daily-log route write null when they cannot read a rate, instead of
@@ -113,26 +114,15 @@ export type BillingData = {
 type BillingTab = 'shipments' | 'warehouse' | 'adjustments' | 'bills'
 
 /**
- * Behaviour-preserving, and the reason it had to be written down.
+ * Two notes on one line, in the order the reader needs them.
  *
- * Both filters below read `const d = row.date?.split('T')[0]`, so `d` is
- * `string | undefined`, and then compared it with `d >= dateFrom`. Against
- * `undefined` that comparison is not an error and is not true -- it is
- * silently false -- so a row whose date column is null disappeared from this
- * screen whenever either bound was set, which with both bounds defaulted is
- * always. Typing the prop is what surfaced it (TS18048, four times); with
- * `data: any` there was nothing to notice.
- *
- * The outcome is deliberately unchanged -- `return !from && !to` reproduces
- * the old result in all four bound combinations -- because whether an undated
- * shipment belongs on an invoice is a billing question, not a typing one.
- * Flagged rather than decided, and worth deciding, because ReportsTabs'
- * filterRows answers it the OTHER way: `dateFrom && d && d < dateFrom` KEEPS
- * undated rows. The same row is on one screen and off the other today.
+ * The figures below can be short for two unrelated reasons -- a line with no
+ * price, and a line with no date -- and a card showing one of them while hiding
+ * the other would be a new instance of the defect it was built to report.
+ * `·` matches the separator used in the empty states elsewhere in this app.
  */
-function inDateRange(d: string | undefined, from: string, to: string): boolean {
-  if (d === undefined) return !from && !to
-  return (!from || d >= from) && (!to || d <= to)
+function notes(...parts: string[]): string {
+  return parts.filter(p => p !== '').join(' · ')
 }
 
 export default function BillingView({ data }: { data: BillingData }) {
@@ -143,21 +133,33 @@ export default function BillingView({ data }: { data: BillingData }) {
 
   const client = data.clients.find(c => c.id === selectedClient)
 
-  const shipments = data.shipments.filter(s => {
-    if (s.client_id !== selectedClient) return false
-    return inDateRange(s.ship_date?.split('T')[0], dateFrom, dateTo)
-  })
+  // Client first, then period, through the one predicate both screens now
+  // share -- see src/lib/billing/date-range.ts. This screen's row selection is
+  // UNCHANGED by that move: it already dropped undated rows when a bound was
+  // set, which is what Postgres and the Excel export do. What is new is that
+  // the drop is now counted, so a shipment missing from the invoice because
+  // nobody recorded its ship date says so instead of just not being there.
+  const shipmentsFiltered = filterByDate(
+    data.shipments.filter(s => s.client_id === selectedClient), 'ship_date', dateFrom, dateTo)
+  const shipments = shipmentsFiltered.rows
 
-  const warehouse = data.warehouse.filter(w => {
-    if (w.client_id !== selectedClient) return false
-    return (!dateFrom || w.log_date >= dateFrom) && (!dateTo || w.log_date <= dateTo)
-  })
+  // log_date is `date not null` (schema.sql:80), so the undated branch is
+  // unreachable here and this is a pure refactor. Routed through the same
+  // predicate anyway: if the column is ever made nullable, the count is
+  // already wired rather than needing to be remembered.
+  const warehouseFiltered = filterByDate(
+    data.warehouse.filter(w => w.client_id === selectedClient), 'log_date', dateFrom, dateTo)
+  const warehouse = warehouseFiltered.rows
 
-  const adjustments = data.adjustments.filter(a => {
-    if (a.client_id !== selectedClient) return false
-    return inDateRange(a.adjustment_date?.split('T')[0], dateFrom, dateTo)
-  })
+  const adjustmentsFiltered = filterByDate(
+    data.adjustments.filter(a => a.client_id === selectedClient), 'adjustment_date', dateFrom, dateTo)
+  const adjustments = adjustmentsFiltered.rows
 
+  // Bills keep their own predicate, deliberately. This is not a single column
+  // in a range: it is containment of a [week_start, week_end] interval inside
+  // the window, which filterByDate cannot express and should not try to.
+  // Both columns are `date not null` (schema.sql:106,107), so there is no
+  // undated case here to disagree about.
   const bills = data.bills.filter(b => {
     if (b.client_id !== selectedClient) return false
     return (!dateFrom || b.week_start >= dateFrom) && (!dateTo || b.week_end <= dateTo)
@@ -287,10 +289,13 @@ export default function BillingView({ data }: { data: BillingData }) {
       {/* Client summary cards */}
       {client && (
         <div className="grid grid-cols-5 gap-3">
-          <SummaryCard label="Shipping Revenue" value={`$${shippingRevenue.toFixed(2)}`} sub={unpricedNote(shippingRevenueSum.unpriced) || `Cost: $${shippingCost.toFixed(2)}`} color={shippingRevenueSum.unpriced > 0 ? 'orange' : 'blue'} />
-          <SummaryCard label="Warehouse Charges" value={`$${warehouseTotal.toFixed(2)}`} sub={unpricedNote(warehouseSum.unpriced, 'day') || `${warehouse.length} entries`} color={warehouseSum.unpriced > 0 ? 'orange' : 'gray'} />
-          <SummaryCard label="Pending Adjustments" value={formatSignedPrice(totalOrUnknown(pendingAdjSum))} sub={unpricedNote(pendingAdjSum.unpriced, 'adjustment') || `${pendingAdjRows.length} pending`} color="orange" />
-          <SummaryCard label="Total to Bill" value={formatPrice(totalOrUnknown(billTotal))} sub={unbillableNote || 'Shipping + WH + Adj'} color={billTotal.unpriced > 0 ? 'orange' : 'green'} />
+          {/* Each `sub` carries BOTH reasons the figure above it can be short:
+              lines with no price, and lines left out for having no date. The
+              `||` fallback is only reached when there is nothing to report. */}
+          <SummaryCard label="Shipping Revenue" value={`$${shippingRevenue.toFixed(2)}`} sub={notes(unpricedNote(shippingRevenueSum.unpriced), undatedNote(shipmentsFiltered.undated)) || `Cost: $${shippingCost.toFixed(2)}`} color={shippingRevenueSum.unpriced > 0 || shipmentsFiltered.undated > 0 ? 'orange' : 'blue'} />
+          <SummaryCard label="Warehouse Charges" value={`$${warehouseTotal.toFixed(2)}`} sub={notes(unpricedNote(warehouseSum.unpriced, 'day'), undatedNote(warehouseFiltered.undated, 'day')) || `${warehouse.length} entries`} color={warehouseSum.unpriced > 0 || warehouseFiltered.undated > 0 ? 'orange' : 'gray'} />
+          <SummaryCard label="Pending Adjustments" value={formatSignedPrice(totalOrUnknown(pendingAdjSum))} sub={notes(unpricedNote(pendingAdjSum.unpriced, 'adjustment'), undatedNote(adjustmentsFiltered.undated, 'adjustment')) || `${pendingAdjRows.length} pending`} color="orange" />
+          <SummaryCard label="Total to Bill" value={formatPrice(totalOrUnknown(billTotal))} sub={notes(unbillableNote, undatedNote(shipmentsFiltered.undated + adjustmentsFiltered.undated, 'line')) || 'Shipping + WH + Adj'} color={billTotal.unpriced > 0 || shipmentsFiltered.undated + adjustmentsFiltered.undated > 0 ? 'orange' : 'green'} />
           <SummaryCard label="Loss Shipments" value={lossCount.toString()} sub={lossCount > 0 ? '⚠️ Needs review' : '✓ All profitable'} color={lossCount > 0 ? 'red' : 'gray'} />
         </div>
       )}

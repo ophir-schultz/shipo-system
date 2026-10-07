@@ -7,6 +7,7 @@ import {
   unpricedNote, type Money,
 } from '@/lib/billing/unpriced'
 import { embedOne, type Embed } from '@/lib/db/read'
+import { filterByDate, undatedNote, type DateFiltered } from '@/lib/billing/date-range'
 
 // `client_rate`, the profit derived from it, and `warehouse_daily_log.total`
 // are all nullable: recalculate.ts and the daily-log route write null when they
@@ -271,21 +272,28 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
  *   * A dead `clientKey = 'client_id'` parameter, never referenced and never
  *     passed, removed -- it was the file's one eslint warning.
  *
- * A row whose date column is null or absent is KEPT, which is what `dateFrom &&
- * d && ...` already did. Note BillingView's inDateRange answers that the other
- * way; see the note there.
+ * The date logic itself now lives in src/lib/billing/date-range.ts, shared with
+ * BillingView, because the two screens disagreed about undated rows and this one
+ * was wrong. `if (dateFrom && d && d < dateFrom)` skips the comparison
+ * altogether when `d` is absent, so a row with a null ship_date was KEPT in
+ * every range it was ever asked for -- while BillingView dropped it, and more
+ * to the point while the Excel export beside this table dropped it too, because
+ * /api/reports/download filters in SQL where `null >= '2026-10-01'` is null and
+ * therefore not true. The table disagreed with its own download button.
+ *
+ * Undated rows are now dropped when a bound is set, and COUNTED, so the drop is
+ * stated instead of silent. Only ship_date and adjustment_date are nullable
+ * (schema.sql:42,70); for week_start and log_date the count is always 0 and
+ * nothing on screen changes.
+ *
+ * Kept as a wrapper rather than calling filterByDate at the five sites so the
+ * dead-`clientId` finding above stays recorded in one place instead of being
+ * repeated or quietly dropped.
  */
-function filterRows<T>(rows: T[], clientId: string, dateFrom: string, dateTo: string, dateKey: keyof T & string): T[] {
-  return rows.filter(r => {
-    const raw = r[dateKey]
-    // Previously `r[dateKey]?.split(...)`, which would have thrown on a
-    // non-string. Guarding the type instead treats it as undated, which is the
-    // branch this function already had.
-    const d = typeof raw === 'string' ? raw.split('T')[0] : undefined
-    if (dateFrom && d && d < dateFrom) return false
-    if (dateTo && d && d > dateTo) return false
-    return true
-  })
+function filterRows<T>(
+  rows: T[], clientId: string, dateFrom: string, dateTo: string, dateKey: keyof T & string,
+): DateFiltered<T> {
+  return filterByDate(rows, dateKey, dateFrom, dateTo)
 }
 
 function Empty({ msg }: { msg: string }) {
@@ -293,7 +301,8 @@ function Empty({ msg }: { msg: string }) {
 }
 
 function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShipment>) {
-  const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
+  const period = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
+  const filtered = period.rows
   const paidSum = sumPriced(filtered, 'actual_cost')
   const chargedSum = sumPriced(filtered, 'client_rate')
   const plSum = sumPriced(filtered, 'profit_loss')
@@ -305,7 +314,7 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
   // for the panel: "We Paid" and "Charged" can be short by different rows, and
   // a single number would not say which figure to distrust.
   const stats: Array<[string, string | number, string]> = [
-    ['Shipments', filtered.length, ''],
+    ['Shipments', filtered.length, undatedNote(period.undated)],
     ['We Paid', `$${totalPaid.toFixed(2)}`, unpricedNote(paidSum.unpriced)],
     ['Charged', `$${totalCharged.toFixed(2)}`, unpricedNote(chargedSum.unpriced)],
     ['Net P/L', `${totalPL >= 0 ? '+' : ''}$${totalPL.toFixed(2)}`, unpricedNote(plSum.unpriced)],
@@ -365,7 +374,8 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
 }
 
 function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossShipment>) {
-  const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
+  const period = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
+  const filtered = period.rows
   const plSum = sumPriced(filtered, 'profit_loss')
   const total = Math.abs(plSum.total)
   // Averaged over the rows that actually contributed, not over every row in the
@@ -378,7 +388,7 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700" style={{ background: '#1a0a0a' }}>
         {([
-          ['Loss Shipments', filtered.length, ''],
+          ['Loss Shipments', filtered.length, undatedNote(period.undated)],
           ['Total Lost', `-$${total.toFixed(2)}`, note],
           ['Avg Loss', priced ? `-$${(total / priced).toFixed(2)}` : '$0.00', note],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
@@ -426,7 +436,8 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
 }
 
 function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportAdjustment>) {
-  const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'adjustment_date')
+  const period = filterRows(rows, clientId, dateFrom, dateTo, 'adjustment_date')
+  const filtered = period.rows
   const pending = filtered.filter(r => r.status === 'pending')
   const pendingSum = sumPriced(pending, 'adjustment_amount')
   // `string | null` and not `string`: bills.status and rate_adjustments.status
@@ -442,7 +453,7 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<Repor
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
         {([
-          ['Total', filtered.length, ''],
+          ['Total', filtered.length, undatedNote(period.undated, 'adjustment')],
           ['Pending', pending.length, ''],
           ['To Recover', formatSignedPrice(totalOrUnknown(pendingSum)), unpricedNote(pendingSum.unpriced, 'adjustment')],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
@@ -490,7 +501,8 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<Repor
 }
 
 function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBill>) {
-  const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'week_start')
+  const period = filterRows(rows, clientId, dateFrom, dateTo, 'week_start')
+  const filtered = period.rows
   const billedSum = sumPriced(filtered, 'grand_total')
   // Nullable for the same reason as the one in AdjustmentsTable above.
   const statusBadge = (s: string | null) => s === 'paid' ? 'bg-green-900/60 text-green-300' : s === 'sent' ? 'bg-[#00AAFF]/10 text-[#00AAFF]' : 'bg-gray-700 text-gray-400'
@@ -499,7 +511,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBil
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
         {([
-          ['Bills', filtered.length, ''],
+          ['Bills', filtered.length, undatedNote(period.undated, 'bill')],
           ['Total Billed', formatPrice(totalOrUnknown(billedSum)), unpricedNote(billedSum.unpriced, 'bill')],
           ['Paid', filtered.filter(r => r.status === 'paid').length, ''],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
@@ -547,7 +559,8 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBil
 }
 
 function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportWarehouseLine>) {
-  const filtered = filterRows(rows, clientId, dateFrom, dateTo, 'log_date')
+  const period = filterRows(rows, clientId, dateFrom, dateTo, 'log_date')
+  const filtered = period.rows
   const revenueSum = sumPriced(filtered, 'total')
   const totalRevenue = revenueSum.total
 
@@ -555,7 +568,7 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportW
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
         {([
-          ['Entries', filtered.length, ''],
+          ['Entries', filtered.length, undatedNote(period.undated, 'day')],
           ['Total Revenue', `$${totalRevenue.toFixed(2)}`, unpricedNote(revenueSum.unpriced, 'day')],
           ['Unique Days', new Set(filtered.map(r => r.log_date)).size, ''],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
