@@ -153,17 +153,64 @@ describe.each(ALL_COPIES)('%s states the standing terms the system pays on', (do
     expect(s3).toContain('first paid invoice')
   })
 
-  it('states the qualification threshold and that it is per calendar month', () => {
-    expect(REFERRAL_TERMS.QUALIFY_MIN_REVENUE).toBe(500)
+  it('says in terms that there is NO qualification threshold', () => {
+    // Both gates were dropped on 2026-10-12. Until then this read
+    // `QUALIFY_MIN_REVENUE === 500` and looked for "$500 USD or more in a
+    // single calendar month".
+    //
+    // Asserted in BOTH directions, and the positive half is the important
+    // half. A removed term leaves no word behind to search for, so an
+    // absence check on its own would stay green on a Section 3 that had lost
+    // the subject altogether — and a partner reading a contract that is
+    // merely SILENT on thresholds has no answer when Shipo later asserts
+    // one. The clause has to say the absence out loud.
+    expect(REFERRAL_TERMS.QUALIFY_MIN_REVENUE).toBeNull()
+    expect(REFERRAL_TERMS.QUALIFY_MIN_UNITS).toBeNull()
+    expect(REFERRAL_TERMS.QUALIFY_MIN_ORDERS).toBeNull()
+
     const s3 = operativeSection3(doc)
-    expect(s3).toContain('$500 USD or more in a single calendar month')
-    // at-or-above, not above — the published wording, and what the code does.
-    expect(s3).toContain('at-or-above $500, not more than $500')
+    expect(s3).toContain('no minimum invoice amount')
+    expect(s3).toContain('no minimum number of orders, units')
+    expect(s3).toContain('No minimum thresholds')
+    // What the bonus DOES turn on, now that it does not turn on a figure.
+    expect(s3).toContain('pays its first invoice for Services')
+
+    // And the withdrawn threshold's own wording is gone. The bare $500 scan
+    // is the broad one: it catches the figure reappearing in any clause, in
+    // any phrasing, including one nobody thought to write a check for.
+    expect(s3).not.toContain('$500 USD or more in a single calendar month')
+    expect(s3, 'a $500 figure is back in the operative Section 3').not.toMatch(/\$500/)
   })
 
-  it('states the 60-day release condition', () => {
-    expect(REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE).toBe(60)
-    expect(operativeSection3(doc)).toContain('at least **60 days**')
+  it('says in terms that there is NO waiting period', () => {
+    // Was `QUALIFY_MIN_DAYS_ACTIVE === 60` and "at least **60 days**".
+    //
+    // 0 is asserted exactly, not `<= 0` or falsy: the code switches the gate
+    // off by name on this constant, so a stray 1 here would re-arm a gate
+    // the contract now says does not exist.
+    expect(REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE).toBe(0)
+
+    const s3 = operativeSection3(doc)
+    expect(s3).toContain('No waiting period')
+    expect(s3).toContain('will not withhold it pending any minimum period')
+    // Scoped phrases, not a bare "60 days": clauses 3.8 and 3.9 both run real
+    // sixty-day windows (statement objections, and the clawback that is now
+    // the ONLY churn protection left). A blanket scan here would demand the
+    // deletion of the protection this change makes load-bearing.
+    expect(s3).not.toContain('at least **60 days**')
+    expect(s3).not.toContain('60 days active')
+    expect(s3).not.toContain('Release condition')
+  })
+
+  it('points the reader from the absent waiting period to the remedy that replaces it', () => {
+    // So that the absence of a waiting period and the remedy standing in for
+    // it are not two unrelated facts a reader has to connect for themselves.
+    // The substance of 3.9 is asserted separately, and only against execution
+    // copies — see the block further down. It cannot be asserted here,
+    // because in the attorney-review draft 3.9 is still an open question
+    // ("[refund it / have it offset]", "[60]"), and that is the correct state
+    // for that document.
+    expect(operativeSection3(doc)).toContain('in place of any waiting period')
   })
 
   it('states the minimum payment and that a short balance carries forward', () => {
@@ -235,6 +282,92 @@ describe.each(ALL_COPIES)('%s states the standing terms the system pays on', (do
     const s7 = operativeSection(doc, '## 7. Term & Termination', '\n## 8.')
     expect(s7).toContain('Termination does not end the twelve-month')
     expect(s7).toContain('until that client')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The cover note that goes WITH the agreement.
+// ---------------------------------------------------------------------------
+//
+// docs/referral-agreement-attorney-cover-note.md briefs the attorney on the
+// commercial deal before they read the contract. It is not the contract, so
+// none of the clause checks above touched it — and on 2026-10-12 it was found
+// describing the economics as "a one-time $300" with the 5% revenue share
+// missing altogether, gated by a "$500/month minimum" that had just been
+// removed, and citing §3.4 for a clawback that lives at §3.9. Three errors, in
+// the one document whose entire job is to tell a lawyer what they are reviewing.
+//
+// POSITIVE ASSERTIONS ONLY, and deliberately so. The note's whole value is that
+// it explains what changed and why, so it legitimately contains the strings
+// "$500" and "60 days" as HISTORY — an absence scan of the kind used on Section
+// 3 above would demand the deletion of the paragraph that makes the note
+// useful. What actually went wrong was an OMISSION, so the guard asserts the
+// note still states each limb of the deal.
+describe('the attorney cover note briefs the real deal', () => {
+  const note = readFileSync(join(DOCS, 'referral-agreement-attorney-cover-note.md'), 'utf8')
+
+  it('states both limbs of the compensation, not just the bonus', () => {
+    // The omission that actually happened: a lawyer told the commission is
+    // "one-time $300" has no reason to scrutinise a 5%-of-net-profit clause
+    // running twelve months, which is the larger and longer liability.
+    expect(note).toContain(`$${REFERRAL_TERMS.SIGNUP_BONUS}`)
+    expect(note).toContain(`${REFERRAL_TERMS.COMMISSION_RATE * 100}% of the net profit`)
+    expect(note).toContain(`${REFERRAL_TERMS.COMMISSION_MONTHS} months`)
+    expect(note, 'the note must say a partner gets BOTH, not one or the other').toMatch(/two parts|plus/i)
+  })
+
+  it('tells the attorney the thresholds were removed and what now carries the risk', () => {
+    // The gates went on 2026-10-12 and §3.9 became the only churn protection.
+    // §3.9 is also still an open question in the draft, so the note has to ask
+    // for it — an attorney who is not told this is the load-bearing clause may
+    // reasonably leave a half-drafted one alone.
+    expect(note).toContain('no minimum invoice amount and no waiting period')
+    expect(note).toContain('§3.9')
+    expect(note, 'the note no longer flags §3.9 as the only remaining protection').toMatch(
+      /only protection/i,
+    )
+  })
+
+  it('cites clause numbers that exist in the agreement it is attached to', () => {
+    // Weak on its own — see the test below, which is the one that catches the
+    // error that really happened. This only catches a citation to a clause
+    // number that is not in the document at all.
+    const cited = [...note.matchAll(/§(3\.\d+)/g)].map((m) => m[1])
+    expect(cited.length, 'the note cites no Section 3 clauses at all').toBeGreaterThan(0)
+    const s3 = operativeSection3(DRAFT)
+    for (const clause of new Set(cited)) {
+      expect(s3, `the note cites §${clause}, which is not a clause of Section 3`).toContain(
+        `${clause} `,
+      )
+    }
+  })
+
+  it('points the clawback question at the clause that actually holds the clawback', () => {
+    // The real error was §3.4 for the clawback — a clause that EXISTS and says
+    // something else entirely (the revenue share). Existence checking cannot
+    // see that, and nor can a `toContain('§3.9')`: the note cites §3.9 three
+    // times, so corrupting one of them leaves the other two to satisfy the
+    // search. Both of those weaker checks were written first and both stayed
+    // green when this exact error was re-introduced.
+    //
+    // So the number is DERIVED from the agreement and matched against the
+    // citation in the note's own clawback item. That also means renumbering
+    // Section 3 fails here instead of silently repointing a lawyer — which
+    // matters more than usual now, because this is the clause that replaced
+    // the removed 60-day gate as the only churn protection.
+    // NOT `^`-anchored: operative() collapses every run of whitespace to a
+    // single space, so the string has no line starts to anchor to and an
+    // /m-anchored pattern can never match. Written that way first, and it made
+    // this test stuck-RED — which the E2 and E4 reversions then "caught"
+    // meaninglessly, since a test that always fails detects nothing. A clause
+    // number is preceded by a space once collapsed, or starts the slice.
+    const s3 = operativeSection3(DRAFT)
+    const clawback = s3.match(/(?:^|\s)(3\.\d+) \*\*Clawback/)
+    expect(clawback, 'Section 3 has no clause headed "Clawback" any more').not.toBeNull()
+
+    const noteLine = note.split('\n').find((l) => /clawback/i.test(l))
+    expect(noteLine, 'the cover note no longer raises the clawback at all').toBeTruthy()
+    expect(noteLine).toContain(`§${clawback![1]}`)
   })
 })
 
@@ -447,6 +580,14 @@ describe.each(PDF_PAIRS)('%s — the rendered PDF matches the markdown', (doc) =
       ['twelve (12) consecutive months', 'revenue-share window'],
       ['Warehouse labor is NOT deducted', 'labor carve-out'],
       ['There is no promotional, launch, or founding tier', 'no promotional tier'],
+      // The two gates dropped on 2026-10-12. In the PDF as well as the
+      // markdown, because the PDF is what a partner signs and the markdown is
+      // not: on 2026-10-12 the draft PDF was found to be a render of the
+      // document as it stood before a whole Section 3 rewrite. A contract
+      // signed off a stale render would bind Shipo to a $500 threshold its
+      // own billing code no longer enforces.
+      ['no minimum invoice amount', 'absence of a qualification threshold'],
+      ['No waiting period', 'absence of a waiting period'],
     ]
     for (const [phrase, what] of figures) {
       expect(text, `${pdf} does not state the ${what}: "${phrase}"`).toContain(flatten(phrase))
@@ -522,6 +663,22 @@ describe.each(executionCopies())('%s is actually ready to send', (doc) => {
     // These are internal commentary about what might be wrong with the clause
     // they sit under. In a signed document they are an admission.
     expect(contractSlice(doc)).not.toContain('ATTORNEY NOTE')
+  })
+
+  it('still runs the sixty-day clawback that is now the only churn protection', () => {
+    // Execution copies only: the draft's 3.9 is deliberately still an open
+    // question, so this cannot go in the parameterised block above.
+    //
+    // Not a restatement of an existing check — nothing else asserts 3.9's
+    // substance, and until 2026-10-12 nothing needed to. The 60-day tenure
+    // gate used to stop a bonus being paid on a client that signed and left;
+    // with it gone, 3.9 is the whole of Shipo's protection. If someone
+    // "tidies" 3.9 while clearing out sixty-day references, this is what
+    // fails instead of a partner keeping $300 on a client who never stayed.
+    const s3 = operativeSection3(doc)
+    expect(s3).toContain('3.9 ')
+    expect(s3).toContain('by offset against amounts next becoming')
+    expect(s3, '3.9 has lost the window the clawback runs on').toContain('sixty (60) days')
   })
 
   it('has a drafted 3.8, not a note promising one', () => {

@@ -228,6 +228,10 @@ Extend the existing Referral Payouts section rather than adding a page:
 ## Out of scope
 
 - No change to the economics: $300, 5%, 12 months, $500/month bar.
+  - _(Historical. The $500/month bar and the 60-day wait were both removed on 2026-10-12,
+    the day after this spec. They were out of scope for this piece of work and still are —
+    the line is left as written. For the current terms read `REFERRAL_TERMS` in
+    `src/lib/referrals.ts`, which is the single source of truth.)_
 - No change to `computeOwed()` or the founding-client cap.
 - No automatic payment. A human still approves every payout.
 - Processing fees stay a manual monthly input. Deriving them needs a payment processor

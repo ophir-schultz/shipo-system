@@ -52,21 +52,34 @@ bonus (3.3) and a monthly share of net profit for twelve months (3.4). They are
 **additive** — earning one does not reduce or replace the other.
 
 3.1 **Qualified Referral.** A Referral becomes a "Qualified Referral" when the referred
-client (a) signs a Shipo services agreement, and (b) is invoiced **$500 USD or more in a
-single calendar month** for Services. The test is at-or-above $500, not more than $500,
-and it is measured per calendar month — not as a running total across months.
+client (a) signs a Shipo services agreement, and (b) pays its first invoice for Services.
+Both limbs are required: an invoice that issues but is not paid does not qualify a
+Referral. There is **no minimum invoice amount** and no minimum number of orders, units,
+or months — an invoice of any size qualifies once it is paid.
 
-3.2 **Release condition (60 days active).** No signup bonus is payable until the referred
-client has been an active, invoiced Shipo client for at least **60 days**, even if the
-client cleared the $500 threshold in its first month. This exists so that a bonus is not
-paid on an account that signs and immediately churns. [ATTORNEY NOTE: confirm whether
-"active" should be defined as "invoiced in each of the intervening months" or merely
-"not terminated"; the system currently measures it from the earliest invoiced month.]
+> **ATTORNEY NOTE (3.1 / 3.2, rewritten 2026-10-12).** Until this date 3.1 required the
+> referred client to be invoiced **$500 or more in a single calendar month**, and 3.2
+> withheld the bonus until the client had been active for **60 days**. Both were removed
+> on the client's instruction, with the commercial exposure put to him first and accepted:
+> (i) a referred client billing a small amount each month may never return the $300 out of
+> the 5% share, and (ii) without the 60-day wait the bonus is payable on a client that
+> signs, is invoiced and paid once, and leaves. 3.9 (clawback on cancellation, chargeback
+> or refund) is now the ONLY protection against that, which raises the stakes on the two
+> questions 3.9 already leaves open below — the mechanism and the cure period. Please
+> advise on both with that in mind, and in particular on whether an offset-only remedy is
+> worth anything against a partner who refers once and never refers again, there being
+> nothing further to offset against. If a minimum-term or repayment covenant is wanted, it
+> belongs here.
+
+3.2 **No waiting period.** Nothing further need elapse before the signup bonus becomes
+payable. Once a Referral is a Qualified Referral under 3.1 the bonus is payable under 3.3,
+and Shipo will not withhold it pending any minimum period of client activity, tenure, or
+continued trading. Shipo's protection against a referred client that does not stay is 3.9
+(clawback), which applies in place of any waiting period.
 
 3.3 **Signup bonus.** For each Qualified Referral, Shipo will pay Partner a one-time
-bonus of **$300 USD**, payable after the conditions in 3.1 and 3.2 are both met and the
-referred client has paid its first qualifying invoice. The bonus is paid once per referred
-client, never per month and never per order.
+bonus of **$300 USD**, payable once the conditions in 3.1 are met. The bonus is paid once
+per referred client, never per month and never per order.
 
 3.4 **Revenue share — 5% of net profit for 12 months.** In addition to the bonus, Shipo
 will pay Partner **5% of the Net Profit** (as defined in 3.5) earned on the referred
@@ -120,9 +133,11 @@ refund such that the qualifying month is not actually paid within [60] days, no 
 share is owed on that month; if already paid, Partner will [refund it / have it offset
 against future amounts]. [ATTORNEY NOTE: choose mechanism and cure period.]
 
-3.10 **Minimum thresholds.** No bonus is owed on a referred account that never reaches
-$500 invoiced in a calendar month. The revenue share in 3.4 is not subject to that
-threshold once the client has qualified.
+3.10 **No minimum thresholds.** Neither amount is subject to a minimum. The signup bonus
+under 3.3 is owed on every Qualified Referral whatever the size of the referred client's
+invoices, and the revenue share under 3.4 is owed on the Net Profit of every month in the
+twelve-month window however small that month's figure is — subject only to 3.7, which
+defers payment of a balance under $50 USD to the following month without forfeiting it.
 
 3.11 **One set of terms.** There is no promotional, launch, or founding tier. Every
 Qualified Referral earns the same bonus under 3.3 and the same revenue share under 3.4,

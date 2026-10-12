@@ -15,8 +15,11 @@
 //     carrier charges, packaging and prep materials, storage, and
 //     payment-processing fees. Warehouse labor is NOT deducted.
 //   • A balance under $50 rolls into the following month.
-//   • The client must QUALIFY before the bonus is owed: $500 or
-//     more billed in a calendar month.
+//   • NO qualification threshold and NO waiting period. The bonus
+//     is owed once the referred client signs and pays its first
+//     invoice, whatever the amount. (Until 2026-10-12 this read
+//     "$500 or more billed in a calendar month" plus "60 days
+//     active"; both were dropped.)
 //
 // Nothing here moves money. It computes what is OWED so Ophir can
 // review each line and approve it. Every payout stays `pending`
@@ -29,16 +32,17 @@
 // it is 5% of net profit on whatever was invoiced, so it works for
 // both without knowing which is which.
 //
-// The bonus half does care, because a qualification written in units
+// The bonus half used to care, because a qualification written in units
 // is an FBA-only qualification: `units_shipped` is typed by hand on
 // the invoice form and defaults to 0, so a DTC referral would sit at
 // "not yet owed" forever with nothing on screen to explain why.
 //
-// So a client qualifies on WHICHEVER bar it clears in a calendar
-// month — units, orders, or revenue. No service-line flag on the
-// client, no field for anyone to forget to set. An FBA account clears
-// on units, a DTC account clears on orders, and an account doing both
-// clears on whichever comes first.
+// The STANDING programme no longer has any bar, so that whole hazard is
+// gone for it: FBA and DTC referrals are both owed on the first paid
+// invoice. The machinery below stays because a signed partner may still
+// hold a BESPOKE bar on their own row, and a client held to one
+// qualifies on WHICHEVER of its bars it clears in a calendar month —
+// units, orders, or revenue, whichever comes first.
 // ============================================================
 
 export const REFERRAL_TERMS = {
@@ -47,26 +51,48 @@ export const REFERRAL_TERMS = {
   COMMISSION_MONTHS: 12, // window length, from first paid invoice
   MIN_PAYOUT: 50, // below this a balance rolls to the next month
 
-  // Qualification, as published at shipousa.com/partner-program/:
-  // "A client counts once they're billing $500 or more in a calendar
-  // month." At-or-above, not strictly above.
-  QUALIFY_MIN_REVENUE: 500,
-
-  // There is no UNIT or ORDER bar — the published qualification is
-  // stated in dollars only. null means "revenue is the only path".
+  // ---- NO QUALIFICATION THRESHOLD -------------------------------
   //
-  // A partner row may still carry its own unit or order bar
-  // (bonus_min_units / bonus_min_orders), which is a bespoke contracted
-  // term for one signed partner, not a program-wide offer. Those
-  // columns stay; the launch offer that used to populate them does not.
+  // All three bars are null, and all three being null on the STANDING
+  // programme means "every referred client qualifies on its first
+  // invoice, whatever the amount". Agreement clause 3.1.
+  //
+  // Dropped by Ophir on 2026-10-12. This used to be
+  // QUALIFY_MIN_REVENUE: 500 — "a client counts once they're billing
+  // $500 or more in a calendar month", published on
+  // shipousa.com/partner-program/ and written into agreement 3.1. The
+  // website copy and the agreement were changed on the same day; if you
+  // find one of them still saying $500, that one is the stale copy, not
+  // this file. `src/lib/referral-agreement-terms.test.ts` asserts the
+  // agreement agrees with these constants.
+  //
+  // ⚠️ null here is NOT the same as a partner row storing 0. See
+  // `QualifyBars.unbarred` — the two shapes are identical in the data
+  // and opposite in meaning, which is why the answer is carried as a
+  // flag rather than inferred from the nulls.
+  //
+  // A partner row may still carry its own revenue, unit or order bar
+  // (bonus_min_revenue / bonus_min_units / bonus_min_orders), which is a
+  // bespoke contracted term for one signed partner, not a program-wide
+  // offer. Those columns stay, and a row that carries one is still held
+  // to it even though the standing programme no longer has any.
+  QUALIFY_MIN_REVENUE: null as number | null,
   QUALIFY_MIN_UNITS: null as number | null,
   QUALIFY_MIN_ORDERS: null as number | null,
 
-  // "60 days active", as published. The bonus is not released until
-  // the client has been on the books this long, even if they cleared
-  // the money bar in their very first month. It exists to stop a
-  // bonus being paid on an account that churns immediately.
-  QUALIFY_MIN_DAYS_ACTIVE: 60,
+  // ---- NO WAITING PERIOD ----------------------------------------
+  //
+  // Was 60: "60 days active", published and written into agreement 3.2.
+  // The bonus was not released until the client had been on the books
+  // that long, so a bonus was not paid on an account that signed and
+  // churned in week two. Dropped by Ophir on 2026-10-12 alongside the
+  // revenue bar; the exposure was put to him and he chose to proceed.
+  //
+  // 0 means the gate does not apply at all, and the code says so by
+  // name rather than by arithmetic — a "0-day wait" that still computes
+  // a release date would put "releases after 0 days active" on a
+  // partner's statement.
+  QUALIFY_MIN_DAYS_ACTIVE: 0,
 } as const
 
 // ---- the withdrawn launch offer ----------------------------------
@@ -243,6 +269,26 @@ export interface QualifyBars {
   minRevenue: number | null
   minUnits: number | null
   minOrders: number | null
+
+  /**
+   * True only for the STANDING programme when the standing programme has
+   * no bar at all: every referred client qualifies on its first invoice,
+   * whatever the amount.
+   *
+   * ⚠️ This flag exists because "no bars" is ambiguous and the two meanings
+   * are opposites. Three nulls can arrive here two ways:
+   *
+   *   1. the standing programme sets no threshold  -> qualify on invoice 1
+   *   2. a partner's bespoke row zeroes its bars   -> qualify on nothing
+   *
+   * `bar()` maps 0 to null, deliberately, because `amount >= 0` is true of
+   * every invoice ever written and a live 0 bar would release a bonus on
+   * every client instantly. So case 2 MUST stay fail-closed. Reading the
+   * nulls alone cannot tell the cases apart, which is why the answer is
+   * carried as a flag set at the branch that knows, instead of inferred
+   * downstream from the shape of the data.
+   */
+  unbarred: boolean
 }
 
 /** A stored bar, normalised. null or <= 0 means "this path is closed". */
@@ -282,16 +328,32 @@ export function qualifyBars(partner: ReferralPartner): QualifyBars {
         : partner.bonus_min_orders !== null && partner.bonus_min_orders !== undefined
 
   if (own) {
+    // A bespoke row is the WHOLE offer, and a bespoke row that resolves
+    // to no bars at all is fail-closed on purpose: `unbarred` is false
+    // here unconditionally. Typing 0 into a contracted bar looks like
+    // "nothing required" and must not become it, because `amount >= 0`
+    // is true of every invoice ever written. If a signed partner is
+    // genuinely meant to have no threshold, the fix is to NULL their
+    // bespoke columns so they fall to the standing programme — not to
+    // zero them.
     return {
       minRevenue: bar(partner.bonus_min_revenue),
       minUnits: bar(partner.bonus_min_units),
       minOrders: bar(partner.bonus_min_orders),
+      unbarred: false,
     }
   }
+  const minRevenue = bar(REFERRAL_TERMS.QUALIFY_MIN_REVENUE)
+  const minUnits = bar(REFERRAL_TERMS.QUALIFY_MIN_UNITS)
+  const minOrders = bar(REFERRAL_TERMS.QUALIFY_MIN_ORDERS)
   return {
-    minRevenue: bar(REFERRAL_TERMS.QUALIFY_MIN_REVENUE),
-    minUnits: bar(REFERRAL_TERMS.QUALIFY_MIN_UNITS),
-    minOrders: bar(REFERRAL_TERMS.QUALIFY_MIN_ORDERS),
+    minRevenue,
+    minUnits,
+    minOrders,
+    // Computed, not hardcoded true. Re-introducing a standing threshold
+    // is one edit to REFERRAL_TERMS and this follows it; writing `true`
+    // here would leave a programme-wide bar silently unenforced.
+    unbarred: minRevenue === null && minUnits === null && minOrders === null,
   }
 }
 
@@ -319,6 +381,11 @@ export function bonusAmount(partner: ReferralPartner): number {
  * a recorded number is compared.
  */
 export function qualifiesInMonth(inv: FbaInvoice, bars: QualifyBars): boolean {
+  // The standing programme has no bar: any invoice qualifies. Checked
+  // FIRST and off the flag, never off "all three are null" — a bespoke
+  // row whose bars resolved away has the same nulls and the opposite
+  // answer.
+  if (bars.unbarred) return true
   if (bars.minRevenue !== null && num(inv.amount) >= bars.minRevenue) return true
   if (bars.minUnits !== null && inv.units_shipped != null && num(inv.units_shipped) > bars.minUnits)
     return true
@@ -370,13 +437,36 @@ export function tenureReleaseDate(invoices: FbaInvoice[], minDays: number): Date
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10)
 
-/** Human sentence for why a bonus is or is not owed yet. */
+/**
+ * Human sentence for why a bonus is or is not owed yet. Only ever
+ * reached when NO invoice qualified.
+ *
+ * Which makes the unbarred case a different sentence, not a shorter
+ * one. Under the standing programme every invoice qualifies, so "no
+ * invoice qualified" can now only mean there is no invoice — and saying
+ * anything about a threshold would send the reader looking for a bar
+ * that does not exist.
+ */
 function qualifyNote(bars: QualifyBars): string {
+  if (bars.unbarred) return 'Not yet owed — the client has not been invoiced yet'
+
   const parts: string[] = []
   if (bars.minRevenue !== null) parts.push(`$${bars.minRevenue.toLocaleString()} billed`)
   if (bars.minUnits !== null) parts.push(`more than ${bars.minUnits.toLocaleString()} units`)
   if (bars.minOrders !== null) parts.push(`more than ${bars.minOrders.toLocaleString()} orders`)
-  if (parts.length === 0) return 'No qualification set for this partner'
+
+  // Not unbarred, yet no bar survived: a bespoke partner row carrying
+  // 0s, which `bar()` closes rather than opens. Nothing will ever
+  // qualify this partner's referrals, so the note has to say that out
+  // loud and say what to do about it — the old wording ("no
+  // qualification set") read like the opposite, as though there was
+  // nothing to clear.
+  if (parts.length === 0) {
+    return (
+      'Never owed — this partner row sets its contracted thresholds to 0, which closes ' +
+      'every path. Clear those columns to put them on the standing terms.'
+    )
+  }
   return `Not yet owed — needs ${parts.join(' or ')} in one calendar month`
 }
 
@@ -386,6 +476,10 @@ function qualifyNote(bars: QualifyBars): string {
  * sentence can never name a bar that was not the one that fired.
  */
 function clearedBy(inv: FbaInvoice, bars: QualifyBars): string {
+  // No bar to name. `qualifyingInvoice` returns the EARLIEST invoice, so
+  // under an unbarred offer the one handed in here is the first one —
+  // which is exactly the event agreement 3.1 now turns on.
+  if (bars.unbarred) return `its first invoice ($${num(inv.amount).toLocaleString()})`
   if (bars.minRevenue !== null && num(inv.amount) >= bars.minRevenue) {
     return `$${num(inv.amount).toLocaleString()} billed`
   }
@@ -461,31 +555,48 @@ export function computeOwed(
     //
     // TWO conditions, both required, and they are not the same thing:
     //   1. the client has PAID  (referral_first_payment_date is set)
-    //   2. the client has QUALIFIED (cleared the revenue, unit or
-    //      order bar in some calendar month)
+    //   2. the client has QUALIFIED (cleared whatever bar applies in
+    //      some calendar month — and under the standing programme, as
+    //      of 2026-10-12, there is no bar, so any invoice does it)
     //
-    // A client can pay $200/month forever and never qualify. Before
-    // this gate existed the bonus was released on payment alone, which
-    // does not match what is published on the partner page.
+    // Both survive the dropped threshold, and the pair is not redundant.
+    // (2) is "Shipo has invoiced this client at all"; (1) is "the money
+    // arrived", which nothing in the invoice table knows and a human
+    // sets by hand. Agreement 3.1 turns on BOTH — "signs … and pays its
+    // first invoice" — so a client invoiced but not yet paid is
+    // correctly not owed.
+    //
+    // A partner still holding a BESPOKE bar on their row is held to it,
+    // and for them (2) is the real gate it always was.
     {
       const bars = qualifyBars(partner)
       const qualifier = qualifyingInvoice(clientInvoices, bars)
 
-      // "60 days active", the third published condition. A client can
-      // clear the money bar in month one and still not be released —
-      // the wait is there so a bonus is not paid on an account that
-      // churns immediately.
-      const releaseOn = tenureReleaseDate(clientInvoices, REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE)
-      const tenureMet = releaseOn !== null && now >= releaseOn
+      // The waiting period, if there is one. There is NOT one today
+      // (QUALIFY_MIN_DAYS_ACTIVE is 0, dropped 2026-10-12), and 0 is
+      // handled by switching the gate OFF rather than by computing a
+      // zero-length wait.
+      //
+      // Arithmetic alone would very nearly work — `tenureReleaseDate`
+      // with 0 returns the first invoice's own date, which `now` is
+      // past — but "very nearly" is the problem. A client invoiced for a
+      // FUTURE period (a prepaid or post-dated month, which the invoice
+      // form accepts) would have a release date in the future and sit
+      // at "not yet owed" for a wait that does not exist, under a note
+      // reading "releases after 0 days active". The gate is off, so it
+      // is off.
+      const minDays = REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE
+      const releaseOn = minDays > 0 ? tenureReleaseDate(clientInvoices, minDays) : null
+      const tenureMet = minDays <= 0 || (releaseOn !== null && now >= releaseOn)
 
       const amount = bonusAmount(partner)
 
       const releasable = !!qualifier && !!anchor && tenureMet
 
       // 'awaiting' keeps an unreleased bonus OUT of the owed totals and
-      // off the partner's statement. Only a bonus that has cleared all
-      // three published conditions carries a real month, and that month
-      // is the one they QUALIFIED in — not the one they paid in.
+      // off the partner's statement. Only a bonus that has cleared every
+      // condition that applies carries a real month, and that month is
+      // the one they QUALIFIED in — not the one they paid in.
       const period = releasable ? monthLabel(qualifier!.period) : 'awaiting'
       const key = dedupeKey(client.id, 'signup_bonus', period)
       const { status, recordId } = statusFor(key)
@@ -494,9 +605,14 @@ export function computeOwed(
       if (!qualifier) note = qualifyNote(bars)
       else if (!anchor) note = 'Qualified — set the first-payment date to release'
       else if (!tenureMet) {
+        // Unreachable while minDays is 0, and deliberately kept rather
+        // than deleted: it reads off the constant, so restoring a
+        // waiting period is one edit to REFERRAL_TERMS and this sentence
+        // comes back correct. It can never print "after 0 days" because
+        // `tenureMet` is unconditionally true at 0.
         note =
           `Qualified on ${clearedBy(qualifier, bars)} in ${monthLabel(qualifier.period)} — ` +
-          `releases after ${REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE} days active` +
+          `releases after ${minDays} days active` +
           (releaseOn ? `, on ${isoDay(releaseOn)}` : '')
       } else {
         note = `Owed — qualified on ${clearedBy(qualifier, bars)} in ${monthLabel(qualifier.period)}`

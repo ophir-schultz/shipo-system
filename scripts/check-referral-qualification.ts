@@ -46,8 +46,19 @@ const inv = (o: Partial<FbaInvoice>): FbaInvoice => ({
 })
 
 // ---- bars resolve from the partner row, then the standing terms ----
-check('standing bars', qualifyBars(standing), { minRevenue: 500, minUnits: null, minOrders: null })
-check('founding bars', qualifyBars(founding), { minRevenue: null, minUnits: 1500, minOrders: 500 })
+//
+// The standing programme has NO bar as of 2026-10-12 — Ophir dropped
+// both the $500/month threshold and the 60-day wait. So the standing row
+// resolves to three nulls PLUS `unbarred: true`, and the flag is the
+// load-bearing half: three nulls on their own are also what a bespoke
+// row full of zeroes resolves to, and that case must fail closed. See
+// the 0-bar section at the bottom of this file.
+check('standing bars — no threshold at all', qualifyBars(standing), {
+  minRevenue: null, minUnits: null, minOrders: null, unbarred: true,
+})
+check('founding bars', qualifyBars(founding), {
+  minRevenue: null, minUnits: 1500, minOrders: 500, unbarred: false,
+})
 check('standing bonus amount', bonusAmount(standing), 300)
 check('founding bonus amount', bonusAmount(founding), 500)
 
@@ -66,11 +77,24 @@ check(
   false,
 )
 
-// ---- DTC standing: no unit count at all, must still qualify on revenue ----
+// ---- STANDING TERMS: every invoice qualifies, whatever the amount ----
+//
+// This is the dropped threshold, asserted from both sides. The old
+// checks here were "$500 qualifies / $499 does not"; the $499 line is
+// the one that flipped, and it flipped on purpose. Keeping a small
+// amount in the fixture is the point — a regression that quietly
+// restored a bar would pass a "$3,000 qualifies" check unchanged.
 const sb = qualifyBars(standing)
-check('standing DTC $500 billed -> qualifies', qualifiesInMonth(inv({ amount: 500 }), sb), true)
-check('standing DTC $499 billed -> does not', qualifiesInMonth(inv({ amount: 499 }), sb), false)
-check('standing DTC $3000, units null -> qualifies', qualifiesInMonth(inv({ amount: 3000, units_shipped: null }), sb), true)
+check('standing $40 billed -> qualifies (no threshold)', qualifiesInMonth(inv({ amount: 40 }), sb), true)
+check('standing $499 billed -> qualifies (it used not to)', qualifiesInMonth(inv({ amount: 499 }), sb), true)
+check('standing $1 billed -> qualifies', qualifiesInMonth(inv({ amount: 1 }), sb), true)
+check('standing $3000, units null -> qualifies', qualifiesInMonth(inv({ amount: 3000, units_shipped: null }), sb), true)
+// A $0 invoice qualifies too, and that is not an oversight: with no
+// threshold there is nothing for it to fall under. What stops a $0
+// invoice releasing $300 is the OTHER condition — a human has to set
+// referral_first_payment_date, and nothing pays $0. Asserted so the
+// behaviour is on the record rather than discovered later.
+check('standing $0 invoice also clears the (absent) bar', qualifiesInMonth(inv({ amount: 0 }), sb), true)
 
 // ---- FBA founding: clears on units, with no dollar help ----
 const fb = qualifyBars(founding)
@@ -86,19 +110,22 @@ check('DTC 600 orders and no unit count -> qualifies', qualifiesInMonth(inv({ or
 // ---- null is NOT zero ----
 // The whole point of the nullable columns. A month nobody has entered
 // volume for must not answer "does not qualify" as if it were a fact.
-check('units null is not read as 0', qualifiesInMonth(inv({ units_shipped: null }), { minRevenue: null, minUnits: 0, minOrders: null }), false)
-check('orders null is not read as 0', qualifiesInMonth(inv({ orders_shipped: null }), { minRevenue: null, minUnits: null, minOrders: 0 }), false)
+// `unbarred: false` on these hand-built bars is not boilerplate — it is
+// the condition under test. These are bespoke-shaped bars, and an
+// unbarred offer short-circuits before any of them is read.
+check('units null is not read as 0', qualifiesInMonth(inv({ units_shipped: null }), { minRevenue: null, minUnits: 0, minOrders: null, unbarred: false }), false)
+check('orders null is not read as 0', qualifiesInMonth(inv({ orders_shipped: null }), { minRevenue: null, minUnits: null, minOrders: 0, unbarred: false }), false)
 
 // ---- the regression this whole change is about ----
 check(
   'DTC referral under a units-ONLY bar would never qualify',
-  qualifiesInMonth(inv({ amount: 9999, orders_shipped: 4000 }), { minRevenue: null, minUnits: 2000, minOrders: null }),
+  qualifiesInMonth(inv({ amount: 9999, orders_shipped: 4000 }), { minRevenue: null, minUnits: 2000, minOrders: null, unbarred: false }),
   false,
 )
 
 // ---- end to end through computeOwed ----
 //
-// A FIXED `now` well past the 60-day gate. Using the real clock here
+// A FIXED `now` well clear of every fixture's invoices. Using the real clock here
 // would make these checks pass today and fail on a machine whose date
 // is a week earlier — a test that depends on when it is run is not a
 // test.
@@ -107,6 +134,17 @@ const NOW = new Date('2027-06-01T00:00:00Z')
 const client = (id: string, paid: string | null, seq: number | null = null): ReferredClient => ({
   id, name: id, referral_partner_id: 'p2', referral_signup_date: null, referral_first_payment_date: paid,
   founding_bonus_seq: seq,
+})
+
+/**
+ * The same, referred by the STANDING partner (p1) instead of the bespoke
+ * one (p2). Which partner a fixture hangs off decides which code path it
+ * exercises, so it is not interchangeable: p2 carries contracted bars and
+ * never reaches the unbarred branch at all.
+ */
+const client2 = (id: string, paid: string | null): ReferredClient => ({
+  ...client(id, paid),
+  referral_partner_id: 'p1',
 })
 
 const owed = computeOwed(
@@ -131,33 +169,91 @@ console.log(`        small client note: "${byClient.small.note}"`)
 console.log(`        fba client note:   "${byClient.fba.note}"`)
 console.log(`        dtc client note:   "${byClient.dtc.note}"`)
 
-// ---- THE 60-DAY GATE ----
-// Published on the partner page and, until now, enforced nowhere:
-// "bills >= $500 in a calendar month, 60 days active, and first invoice
-// paid in full." Three conditions, two of which were implemented.
+// ---- THERE IS NO WAITING PERIOD ----
+//
+// Dropped by Ophir on 2026-10-12 along with the revenue threshold. The
+// partner page used to publish three conditions — ">= $500 in a calendar
+// month, 60 days active, first invoice paid in full" — and only the last
+// survives.
+//
+// `tenureReleaseDate` is left in place and still tested, because it
+// takes minDays as an ARGUMENT rather than reading the constant: it is
+// the mechanism, and the mechanism is correct whether or not anything
+// calls it with a non-zero wait. Keeping it proven means restoring a
+// waiting period is one edit to REFERRAL_TERMS.
 check(
-  'release date is 60 days after the first invoiced month',
+  'the mechanism still works when given a wait: 60 days from the first invoiced month',
   tenureReleaseDate([inv({ period: '2026-10-01' })], 60)?.toISOString().slice(0, 10),
   '2026-11-30',
 )
+check(
+  'a zero wait releases on the first invoiced day itself',
+  tenureReleaseDate([inv({ period: '2026-10-01' })], 0)?.toISOString().slice(0, 10),
+  '2026-10-01',
+)
+check('and the constant it is called with is now 0', REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE, 0)
 
-const earlyOwed = computeOwed(
+// The behavioural inversion. This fixture used to assert "qualified on
+// day 14 -> still awaiting"; it is now owed on day 14, which is the
+// whole change. 14 days is kept deliberately — a restored 60-day gate
+// would fail here, where a fixture dated a year out would not notice.
+const early = computeOwed(
   [founding],
   [client('fast', '2026-10-01')],
   [inv({ id: 'e', client_id: 'fast', amount: 9000, units_shipped: 5000 })],
   [],
   { now: new Date('2026-10-15T00:00:00Z') }, // 14 days in
-)
-const early = earlyOwed.find((l) => l.kind === 'signup_bonus')!
-check('qualified on day 14 -> still awaiting, not owed', early.period, 'awaiting')
+).find((l) => l.kind === 'signup_bonus')!
+check('qualified on day 14 -> OWED, no waiting period', early.period, '2026-10')
 console.log(`        day-14 note: "${early.note}"`)
+
+// A client invoiced for a FUTURE period. This is the case plain
+// arithmetic got wrong: `tenureReleaseDate(.., 0)` returns the first
+// invoiced DATE, so a post-dated invoice has a release date `now` has
+// not reached, and the bonus would have sat at 'awaiting' for a wait
+// that does not exist. The gate is switched off by name, not computed,
+// so this is owed.
+const future = computeOwed(
+  [standing],
+  [client2('prepaid', '2026-10-01')],
+  [inv({ id: 'f', client_id: 'prepaid', period: '2027-12-01', amount: 2000 })],
+  [],
+  { now: new Date('2026-10-15T00:00:00Z') },
+).find((l) => l.kind === 'signup_bonus')!
+check('a post-dated invoice is not held back by a zero-length wait', future.period, '2027-12')
+
+// No note may ever say "0 days active" — the sentence that would have
+// shipped if the gate were computed rather than switched off.
 check(
-  'the same client past 60 days -> owed',
-  computeOwed([founding], [client('fast', '2026-10-01')],
-    [inv({ id: 'e', client_id: 'fast', amount: 9000, units_shipped: 5000 })], [], { now: NOW })
-    .find((l) => l.kind === 'signup_bonus')!.period,
-  '2026-10',
+  'no bonus note mentions a 0-day wait',
+  [early.note, future.note].some((n) => /0 days/.test(n ?? '')),
+  false,
 )
+
+// And the OTHER condition is untouched: no recorded payment, no bonus.
+// Agreement 3.1 still turns on "signs ... and pays its first invoice",
+// so dropping the threshold must not have dropped this too.
+const unpaid = computeOwed(
+  [standing],
+  [client2('nopay', null)],
+  [inv({ id: 'g', client_id: 'nopay', amount: 5000 })],
+  [],
+  { now: NOW },
+).find((l) => l.kind === 'signup_bonus')!
+check('qualified but unpaid -> still awaiting', unpaid.period, 'awaiting')
+console.log(`        unpaid note: "${unpaid.note}"`)
+
+// A referred client with NO invoice at all. Under an unbarred offer
+// "nothing qualified" can only mean "nothing was invoiced", and the note
+// has to say that rather than name a threshold that does not exist.
+const dormant = computeOwed([standing], [client2('dormant', '2026-10-01')], [], [], { now: NOW })
+  .find((l) => l.kind === 'signup_bonus')!
+check('never invoiced -> awaiting', dormant.period, 'awaiting')
+check('...and the note names the missing invoice, not a missing threshold', {
+  invoice: /invoiced/i.test(dormant.note ?? ''),
+  dollars: /\$/.test(dormant.note ?? ''),
+}, { invoice: true, dollars: false })
+console.log(`        dormant note: "${dormant.note}"`)
 
 // ---- THERE IS NO LAUNCH OFFER ----
 //
@@ -273,8 +369,8 @@ check(
 // no fixture paired a non-null seq with an assertion on the amount. The
 // column still exists in the database, so a value left behind by a
 // migration — or typed in by hand — is a live route to an unapproved
-// premium. Both fixtures clear the standing revenue bar and are past
-// the 60-day gate, so both bonuses are real owed figures, not 'awaiting'.
+// premium. Both fixtures are invoiced and have a recorded first payment,
+// so both bonuses are real owed figures, not 'awaiting'.
 const bonusFor = (seq: number | null) => {
   const y = yearOf('b', 'p1', seq)
   return computeOwed([standing], [y.c], y.invs, [], { now: NOW })
@@ -291,16 +387,54 @@ check(
 // above would compare two 'awaiting' lines and prove nothing.
 check('...and both of those bonuses are genuinely owed', [bonusFor(null).period, bonusFor(1).period], ['2026-01', '2026-01'])
 
-// ---- a 0 bar CLOSES that path, and must not fall back to $500 ----
+// ---- A BESPOKE 0 BAR STILL FAILS CLOSED ----
 //
-// Changed deliberately from "0 is kept as 0". `amount >= 0` is true of
-// every invoice ever written, so a live 0 bar would qualify every
-// client instantly — the opposite of what typing a 0 looks like it
-// means. What matters, and is still asserted, is that it does not
-// silently become the standing 500.
+// `amount >= 0` is true of every invoice ever written, so a live 0 bar
+// would qualify every client instantly — the opposite of what typing a 0
+// looks like it means. `bar()` maps 0 to null for that reason.
+//
+// Which is why dropping the standing threshold was not a one-line edit.
+// AFTER the drop, a zeroed bespoke row and the standing programme
+// resolve to the SAME three nulls and must give OPPOSITE answers:
+//
+//   standing, no threshold   -> every invoice qualifies
+//   bespoke row zeroed out   -> nothing qualifies
+//
+// Nothing in the resolved numbers can tell those apart. `unbarred` is
+// set at the branch that knows and is checked before any bar is read,
+// and these are the checks that hold that line. If `qualifiesInMonth`
+// ever goes back to inferring "no bars" from the nulls, the $1m line
+// below is what fails.
 const noBar: ReferralPartner = { ...standing, bonus_min_revenue: 0 }
-check('explicit 0 revenue bar closes the path, not replaced by 500', qualifyBars(noBar).minRevenue, null)
+check('explicit 0 revenue bar closes the path, not replaced by anything', qualifyBars(noBar).minRevenue, null)
+check('a zeroed bespoke row is NOT unbarred — it is closed', qualifyBars(noBar).unbarred, false)
 check('...and a $1m invoice does not sneak through it', qualifiesInMonth(inv({ amount: 1_000_000 }), qualifyBars(noBar)), false)
+check('...nor does a $0 one', qualifiesInMonth(inv({ amount: 0 }), qualifyBars(noBar)), false)
+// All three bespoke bars zeroed: the shape most easily confused with the
+// standing programme, since every resolved field is identical to it.
+const allZero: ReferralPartner = { ...standing, bonus_min_revenue: 0, bonus_min_units: 0, bonus_min_orders: 0 }
+check(
+  'all three bespoke bars zeroed resolves identically to standing...',
+  [qualifyBars(allZero).minRevenue, qualifyBars(allZero).minUnits, qualifyBars(allZero).minOrders],
+  [qualifyBars(standing).minRevenue, qualifyBars(standing).minUnits, qualifyBars(standing).minOrders],
+)
+check('...and still answers the opposite question', [
+  qualifiesInMonth(inv({ amount: 50_000, units_shipped: 90_000, orders_shipped: 9_000 }), qualifyBars(allZero)),
+  qualifiesInMonth(inv({ amount: 50_000, units_shipped: 90_000, orders_shipped: 9_000 }), qualifyBars(standing)),
+], [false, true])
+// End to end: a real partner row with zeroed bars pays nothing, and the
+// note says why and what to do about it rather than reading like there
+// was never anything to clear.
+const zeroOwed = computeOwed(
+  [{ ...allZero, id: 'p3', name: 'Zeroed Partner' }],
+  [{ ...client2('zc', '2026-10-01'), referral_partner_id: 'p3' }],
+  [inv({ id: 'z', client_id: 'zc', amount: 9000, units_shipped: 9000 })],
+  [],
+  { now: NOW },
+).find((l) => l.kind === 'signup_bonus')!
+check('a zeroed partner row never releases a bonus', zeroOwed.period, 'awaiting')
+check('...and its note says the row is the problem', /clear those columns/i.test(zeroOwed.note ?? ''), true)
+console.log(`        zeroed-row note: "${zeroOwed.note}"`)
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} FAILURE(S)`}`)
 process.exit(failures === 0 ? 0 : 1)
