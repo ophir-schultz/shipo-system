@@ -52,10 +52,13 @@ export const REFERRAL_TERMS = {
   // month." At-or-above, not strictly above.
   QUALIFY_MIN_REVENUE: 500,
 
-  // There is no standing UNIT or ORDER bar — the published
-  // qualification is stated in dollars only. null means "revenue is the
-  // only standing path"; a partner row may still carry its own unit or
-  // order bar, which is what the Founding Partner offer uses.
+  // There is no UNIT or ORDER bar — the published qualification is
+  // stated in dollars only. null means "revenue is the only path".
+  //
+  // A partner row may still carry its own unit or order bar
+  // (bonus_min_units / bonus_min_orders), which is a bespoke contracted
+  // term for one signed partner, not a program-wide offer. Those
+  // columns stay; the launch offer that used to populate them does not.
   QUALIFY_MIN_UNITS: null as number | null,
   QUALIFY_MIN_ORDERS: null as number | null,
 
@@ -66,56 +69,29 @@ export const REFERRAL_TERMS = {
   QUALIFY_MIN_DAYS_ACTIVE: 60,
 } as const
 
-/**
- * The launch offer, approved by Ophir 2026-09-20.
- *
- * ⚠️ THE CAP COUNTS CLIENTS, NOT PARTNERS. Read this before changing it.
- *
- * An earlier version of this file capped at 10 admitted PARTNERS and
- * carried a comment claiming the downside was "10 × ($500 − $300) =
- * $2,000". That arithmetic was wrong, and wrong in the expensive
- * direction: 10 partners each referring an unlimited number of
- * clients, each client paying $500 instead of $300, is an UNBOUNDED
- * liability. The $2,000 figure was only ever true if every partner
- * brought exactly one client.
- *
- * Counting clients makes the sentence true. The first 10 referred
- * clients that clear the launch bar earn $500; every client after
- * them earns the standing $300. Maximum extra exposure is 10 × $200 =
- * $2,000, full stop, no matter how the referrals are distributed.
- *
- * The place is recorded on the CLIENT row (`founding_bonus_seq`) at
- * the moment the bonus is approved, so a backdated invoice entered
- * later can never retroactively bump a client out of a place they
- * have already been paid for.
- */
-export const FOUNDING_CLIENT_TERMS = {
-  BONUS: 500, // instead of the standing $300
-  MIN_UNITS: 1500, // FBA prep path: MORE THAN 1,500 units in a month
-  MIN_ORDERS: 500, // DTC path: MORE THAN 500 orders in a month
-  CAP: 10, // first 10 qualifying CLIENTS, across all partners
-
-  /**
-   * Launch clients only: the 5% starts in the client's SECOND month,
-   * not their first. Approved by Ophir 2026-09-20.
-   *
-   * The window SHIFTS, it does not shorten — months 2 through 13, so
-   * the partner is still paid COMMISSION_MONTHS times and the agreement
-   * clause promising "12 months" stays true. Ending at month 12 instead
-   * would have quietly cost them a month against a signed agreement.
-   *
-   * 1-based: 1 would mean "from the first month", i.e. the standing
-   * behaviour. Standing partners are unaffected — Ophir scoped this to
-   * launch clients only.
-   */
-  COMMISSION_START_MONTH: 2,
-
-  // NO revenue path, deliberately. Ophir's approved wording is
-  // "more than 500 orders per month or in the FBA more than 1500
-  // units per month" — two physical-volume bars and no dollar bar.
-  // An earlier draft carried MIN_REVENUE: 2500 as a DTC stand-in;
-  // that was my invention, not the offer.
-} as const
+// ---- the withdrawn launch offer ----------------------------------
+//
+// ⚠️ THERE IS NO FOUNDING / LAUNCH / PROMOTIONAL TIER. Do not re-add
+// one here without a decision from Ophir and a matching clause in the
+// agreement — see 3.11, which now states in terms that none exists.
+//
+// A `FOUNDING_CLIENT_TERMS` constant used to live at this spot: a $500
+// bonus instead of $300 for the first 10 referred clients that shipped
+// more than 1,500 prep units or more than 500 orders in a month, plus a
+// revenue-share window shifted to the client's second month. Withdrawn
+// by Ophir on 2026-10-12, before any partner was signed and before any
+// bonus was paid, so nothing was restated and nobody was underpaid.
+//
+// It was also never published: shipousa.com/partner-program/ has only
+// ever advertised "$300 + 5% for 12 months", and the $500 on that page
+// is the QUALIFICATION threshold (REFERRAL_TERMS.QUALIFY_MIN_REVENUE),
+// not a bonus. The offer was a promise the website never made, which is
+// why removing it moves the code toward the published deal rather than
+// away from it.
+//
+// `clients.founding_bonus_seq` still exists in the database and is
+// still refused by the client write-guard (src/lib/clients/
+// editable-fields.ts). Nothing reads it to price anything any more.
 
 export type PayoutKind = 'signup_bonus' | 'commission'
 export type PayoutStatus = 'computed' | 'pending' | 'approved' | 'paid'
@@ -130,11 +106,17 @@ export interface ReferralPartner {
   // All null = the standing terms apply, whatever REFERRAL_TERMS says
   // today. A value = this partner's own figure, which changing the
   // standing offer later must never rewrite.
-  signup_bonus_amount?: number | null // e.g. 500 for a Founding Partner
-  bonus_min_units?: number | null // e.g. 1500 prep units in a month
-  bonus_min_orders?: number | null // e.g. 500 DTC orders in a month
-  bonus_min_revenue?: number | null // e.g. 2500 billed in a month
-  founding_partner?: boolean | null
+  //
+  // ⚠️ These are BESPOKE terms for one signed partner, not a program
+  // offer. They survive the withdrawal of the launch offer on purpose:
+  // if a partner was admitted on a contracted figure, paying them the
+  // standing $300 instead would underpay a signed agreement — a quieter
+  // and worse failure than overpaying, because nobody would query it.
+  signup_bonus_amount?: number | null // a contracted bonus for this partner
+  bonus_min_units?: number | null // a contracted prep-unit bar
+  bonus_min_orders?: number | null // a contracted DTC-order bar
+  bonus_min_revenue?: number | null // a contracted revenue bar
+  founding_partner?: boolean | null // legacy flag; prices nothing
 }
 
 export interface ReferredClient {
@@ -144,10 +126,11 @@ export interface ReferredClient {
   referral_signup_date: string | null // YYYY-MM-DD — record only
   referral_first_payment_date: string | null // YYYY-MM-DD — starts the 12-month window
 
-  // 1..CAP if this client holds one of the launch-offer places, null
-  // otherwise. Written once, when the bonus is approved, and never
-  // recomputed — a place already paid for cannot be taken back by a
-  // backdated invoice for some other client.
+  // DEAD FIELD, kept because the column and its partial UNIQUE index
+  // still exist in the database. The launch offer it numbered was
+  // withdrawn on 2026-10-12 and no place was ever approved, so every
+  // row is null. Nothing prices anything from it; the client
+  // write-guard still refuses writes to it.
   founding_bonus_seq?: number | null
 }
 
@@ -167,6 +150,26 @@ export interface FbaInvoice {
   cost_materials?: number | null
   cost_storage?: number | null
   cost_processing?: number | null
+
+  /**
+   * True when a figure this month depends on is not known yet — a
+   * charge in a DEDUCTED bucket with no cost, or a charge with no
+   * amount. Set by the ledger loader from
+   * partner_client_monthly.payable; a hand-typed fba_invoices row
+   * leaves it undefined, which reads as "nothing says otherwise".
+   *
+   * It does not change what is owed. It says the inputs are not final
+   * yet, and a commission line on such a month is reported at 0 rather
+   * than at a figure derived from costs we have not finished pricing.
+   * Unpriced costs read as FREE, which overstates net profit, and 5% of
+   * a margin we never earned is cash that does not come back.
+   *
+   * Deliberately does NOT suppress the month for qualification or
+   * tenure: revenue on a provisional month reads LOW, never high, so a
+   * client that already cleared $500 cleared it, and dropping the month
+   * would delay a bonus that is genuinely earned.
+   */
+  provisional?: boolean | null
 }
 
 export interface PayoutRecord {
@@ -194,11 +197,16 @@ export interface OwedLine {
   note?: string
   recordId?: string
 
-  // signup_bonus lines only: the launch place this client holds, and
-  // whether it is still provisional (not yet written to the DB, so it
-  // can still move if an earlier qualifier turns up).
-  foundingSeq?: number | null
-  foundingProvisional?: boolean
+  /**
+   * commission lines only. The month's inputs are not final — see
+   * FbaInvoice.provisional. This is about the FIGURES, not about any
+   * status of the client.
+   *
+   * `amount` is 0 on such a line unless a payout record already exists
+   * for it, so a provisional month cannot inflate a total. Render the
+   * flag; never render the amount alone.
+   */
+  provisional?: boolean
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -337,98 +345,6 @@ export function qualifyingInvoice(
   return null
 }
 
-// ---- the launch offer, per CLIENT --------------------------------
-
-/** The launch bar: more than 1,500 prep units OR more than 500 orders. */
-export function clearsLaunchBar(inv: FbaInvoice): boolean {
-  return qualifiesInMonth(inv, {
-    minRevenue: null,
-    minUnits: FOUNDING_CLIENT_TERMS.MIN_UNITS,
-    minOrders: FOUNDING_CLIENT_TERMS.MIN_ORDERS,
-  })
-}
-
-/** Earliest invoice that clears the launch bar, or null. */
-export function launchQualifyingInvoice(invoices: FbaInvoice[]): FbaInvoice | null {
-  const sorted = invoices.slice().sort((a, b) => a.period.localeCompare(b.period))
-  for (const inv of sorted) if (clearsLaunchBar(inv)) return inv
-  return null
-}
-
-export interface FoundingPlaces {
-  /** clientId -> place number. Includes both taken and provisional. */
-  place: Map<string, number>
-  /** Places not yet written to the DB — they can still move. */
-  provisional: Set<string>
-  taken: number
-  left: number
-}
-
-/**
- * Who holds the 10 launch places.
- *
- * Places already written to `clients.founding_bonus_seq` are FIXED and
- * are honoured exactly as stored, even if a client that qualified
- * earlier turns up later — the money is already out the door and a
- * spreadsheet cannot un-pay it.
- *
- * Remaining places are handed to the earliest qualifiers, ordered by
- * the month they cleared the bar and then by client id. The id
- * tiebreak is arbitrary but DETERMINISTIC, which is the property that
- * matters: without it, two clients qualifying in the same month could
- * swap places between one page load and the next, and the $500 would
- * appear to move from one partner to another for no visible reason.
- */
-export function foundingPlaces(
-  clients: ReferredClient[],
-  invoices: FbaInvoice[],
-  assignProvisional: boolean = true,
-): FoundingPlaces {
-  const byClient = new Map<string, FbaInvoice[]>()
-  for (const inv of invoices) {
-    const arr = byClient.get(inv.client_id) ?? []
-    arr.push(inv)
-    byClient.set(inv.client_id, arr)
-  }
-
-  const place = new Map<string, number>()
-  const used = new Set<number>()
-  for (const c of clients) {
-    const seq = c.founding_bonus_seq
-    if (seq != null && Number.isFinite(Number(seq))) {
-      place.set(c.id, Number(seq))
-      used.add(Number(seq))
-    }
-  }
-
-  // ⚠️ Provisional assignment needs EVERY client in the system, because
-  // the ordering is global. Handed a partial list — the partner
-  // statement loads only its own partner's clients — it would number
-  // places 1..10 inside that slice and promise a $500 that the client
-  // has not got. A caller that cannot supply the whole table passes
-  // false and gets stored places only, which are true from any angle.
-  const candidates = !assignProvisional
-    ? []
-    : clients
-    .filter((c) => c.referral_partner_id && !place.has(c.id))
-    .map((c) => ({ c, q: launchQualifyingInvoice(byClient.get(c.id) ?? []) }))
-    .filter((x) => x.q !== null)
-    .sort((a, b) => a.q!.period.localeCompare(b.q!.period) || a.c.id.localeCompare(b.c.id))
-
-  const provisional = new Set<string>()
-  let next = 1
-  for (const { c } of candidates) {
-    while (used.has(next)) next++
-    if (next > FOUNDING_CLIENT_TERMS.CAP) break
-    place.set(c.id, next)
-    provisional.add(c.id)
-    used.add(next)
-  }
-
-  const taken = place.size
-  return { place, provisional, taken, left: Math.max(0, FOUNDING_CLIENT_TERMS.CAP - taken) }
-}
-
 // ---- "60 days active" --------------------------------------------
 
 /**
@@ -505,12 +421,6 @@ export function dedupeKey(clientId: string, kind: PayoutKind, period: string): s
 export interface ComputeOwedOptions {
   /** Injectable clock, so the 60-day gate is testable. */
   now?: Date
-  /**
-   * False when `clients` is only part of the table. The partner
-   * statement loads one partner's clients, and provisional launch
-   * places cannot be ranked from a slice — see foundingPlaces().
-   */
-  provisionalPlaces?: boolean
 }
 
 export function computeOwed(
@@ -521,10 +431,6 @@ export function computeOwed(
   opts: ComputeOwedOptions = {},
 ): OwedLine[] {
   const now = opts.now ?? new Date()
-
-  // Who holds the 10 launch places. Computed once, across ALL clients,
-  // because the cap is global — a per-client loop cannot see it.
-  const founding = foundingPlaces(clients, invoices, opts.provisionalPlaces !== false)
 
   const partnerById = new Map(partners.map((p) => [p.id, p]))
   const payoutByKey = new Map(payouts.filter((p) => p.dedupe_key).map((p) => [p.dedupe_key as string, p]))
@@ -551,32 +457,6 @@ export function computeOwed(
     const anchor = client.referral_first_payment_date
     const clientInvoices = (invoicesByClient.get(client.id) ?? []).slice().sort((a, b) => a.period.localeCompare(b.period))
 
-    // Whether this client is on the launch offer gets asked TWICE below
-    // — once to price the bonus, once to decide when the 5% starts —
-    // and the two questions have different answers. They are declared
-    // together so that is impossible to miss.
-    //
-    // This one, the ranked place, may be provisional: it prices the
-    // bonus at $500 before anyone has approved anything.
-    const seq = founding.place.get(client.id)
-    const isFounding = seq !== undefined
-
-    // This one is the stored place, and the asymmetry is deliberate.
-    //
-    // A provisional place only ever ADDS money ($300 -> $500). If the
-    // ranking moves and the place is lost, a figure nobody approved
-    // gets smaller. The shift does the opposite: it WITHHOLDS month 1.
-    // Gating that provisionally would mean a launch candidate's month-1
-    // commission is shown, and then vanishes at the moment the place is
-    // approved — money disappearing with no event the partner can see.
-    //
-    // Reading `founding_bonus_seq` instead makes the extra $200 and the
-    // forfeited month land in the same act, on the same click. It also
-    // keeps the partner portal in agreement with this page: that view
-    // assigns no provisional places at all, so a provisional gate would
-    // have had the two screens disagree about a month of commission.
-    const shiftsCommission = client.founding_bonus_seq != null
-
     // --- one-time signup bonus, at this partner's admitted amount ---
     //
     // TWO conditions, both required, and they are not the same thing:
@@ -598,7 +478,7 @@ export function computeOwed(
       const releaseOn = tenureReleaseDate(clientInvoices, REFERRAL_TERMS.QUALIFY_MIN_DAYS_ACTIVE)
       const tenureMet = releaseOn !== null && now >= releaseOn
 
-      const amount = isFounding ? FOUNDING_CLIENT_TERMS.BONUS : bonusAmount(partner)
+      const amount = bonusAmount(partner)
 
       const releasable = !!qualifier && !!anchor && tenureMet
 
@@ -622,12 +502,6 @@ export function computeOwed(
         note = `Owed — qualified on ${clearedBy(qualifier, bars)} in ${monthLabel(qualifier.period)}`
       }
 
-      if (isFounding) {
-        note +=
-          ` · launch place ${seq} of ${FOUNDING_CLIENT_TERMS.CAP}` +
-          (founding.provisional.has(client.id) ? ' (not locked in until approved)' : '')
-      }
-
       lines.push({
         dedupeKey: key,
         partnerId: partner.id,
@@ -640,8 +514,6 @@ export function computeOwed(
         status,
         recordId,
         note,
-        foundingSeq: seq ?? null,
-        foundingProvisional: founding.provisional.has(client.id),
       })
     }
 
@@ -650,19 +522,22 @@ export function computeOwed(
       let inWindow = true
       let note: string | undefined
       if (anchor) {
-        // Launch clients skip month 1: the window SHIFTS to months 2-13
-        // rather than shortening to 2-12, so the count of paid months is
-        // still COMMISSION_MONTHS and the "12 months" in the agreement
-        // stays true. Standing partners are untouched — offset 0.
-        const offset = shiftsCommission ? FOUNDING_CLIENT_TERMS.COMMISSION_START_MONTH - 1 : 0
-        const start = monthIndex(anchor) + offset
+        // The window runs from the client's FIRST PAID INVOICE for
+        // COMMISSION_MONTHS months. There is no shifted variant any
+        // more — the launch offer that moved the start to month 2 was
+        // withdrawn on 2026-10-12.
+        const start = monthIndex(anchor)
         const idx = monthIndex(inv.period)
         inWindow = idx >= start && idx < start + REFERRAL_TERMS.COMMISSION_MONTHS
         if (!inWindow) {
+          // `idx < start` is still reachable, and it is not a window
+          // problem: it is an invoice dated BEFORE the recorded
+          // first-payment date. Saying "outside the 12-month window"
+          // for that would send someone looking at the wrong field.
           note =
             idx < start
-              ? `Month ${idx - monthIndex(anchor) + 1} — the launch offer's 5% starts in month ` +
-                `${FOUNDING_CLIENT_TERMS.COMMISSION_START_MONTH}`
+              ? `Invoiced ${monthLabel(inv.period)}, before the recorded first payment ` +
+                `(${monthLabel(anchor)}) — check the first-payment date`
               : `Outside the ${REFERRAL_TERMS.COMMISSION_MONTHS}-month window — not owed`
         }
       } else {
@@ -674,6 +549,21 @@ export function computeOwed(
       const period = monthLabel(inv.period)
       const key = dedupeKey(client.id, 'commission', period)
       const { status, recordId } = statusFor(key)
+
+      // The money rule. A month whose inputs are not final is reported
+      // at 0 so it cannot enter any total, and flagged so the screen
+      // can say why.
+      //
+      // `&& !recordId` is the whole subtlety. Once a payout row exists,
+      // a human has already looked at this line and committed to a
+      // figure. A charge arriving afterwards must not silently rewrite
+      // what they approved — it must show up as a provisional flag on a
+      // line that still reads what it read when they approved it. Same
+      // principle as a later dip below the bonus bar not un-owing a
+      // bonus already earned.
+      const provisional = inv.provisional === true
+      const gated = provisional && !recordId
+
       lines.push({
         dedupeKey: key,
         partnerId: partner.id,
@@ -682,11 +572,17 @@ export function computeOwed(
         clientName: client.name,
         kind: 'commission',
         period,
-        amount: commissionOn(inv),
+        amount: gated ? 0 : commissionOn(inv),
         status,
         fbaInvoiceId: inv.id,
         recordId,
-        note,
+        note:
+          note ??
+          (provisional
+            ? 'Provisional — a charge this month is not priced yet, so the ' +
+              'figures are not final' + (gated ? ' and nothing is owed on it yet' : '')
+            : undefined),
+        provisional: provisional || undefined,
       })
     }
   }
@@ -722,13 +618,23 @@ export function summarize(lines: OwedLine[]) {
 // ============================================================
 // Partner-facing statement
 //
-// What a partner is allowed to see, decided by Ophir:
-//   units shipped, total billed, the four cost CATEGORIES,
-//   net profit, and their 5%.
+// What a partner is allowed to see, decided by Ophir (2026-10-11):
+//   volume shipped, total billed, the four cost CATEGORIES,
+//   net profit, their 5%, and a transaction list carrying only
+//   date, order number and amount billed.
 //
-// NOT shown, ever: the rate card, per-unit prices, invoice line
-// items, or any other client's account. This matches §4.6 of the
-// agreement — the partner has no right to inspect Shipo's books.
+// NOT shown, ever: the rate card, per-unit prices, per-order COST,
+// or any other client's account. `amount / quantity` on a line item
+// IS the rate card, and a partner who is also an agency can read it
+// straight off.
+//
+// The authority for this is
+// docs/superpowers/specs/2026-10-11-partner-ledger-statements-design.md,
+// Decision 1. It previously cited "§4.6 of the partner agreement" —
+// there is no such section, and no executed partner agreement exists
+// at all; the only draft on file is marked NOT FOR SIGNATURE and omits
+// the 5% term entirely. Do not re-cite the agreement here until one is
+// signed.
 // ============================================================
 
 export interface StatementClientLine {
@@ -749,6 +655,9 @@ export interface StatementClientLine {
   share: number
   status: PayoutStatus
   dedupeKey: string
+
+  /** See OwedLine.provisional. `share` is 0 on a gated line. */
+  provisional?: boolean
 }
 
 export interface StatementMonth {
@@ -819,6 +728,7 @@ export function buildStatement(
         share: l.amount,
         status: l.status,
         dedupeKey: l.dedupeKey,
+        provisional: l.provisional,
       })
     }
     clientLines.sort((a, b) => a.clientName.localeCompare(b.clientName))

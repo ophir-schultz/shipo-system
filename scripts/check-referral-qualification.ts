@@ -2,18 +2,15 @@
 //
 // This exists because the bonus gate decides real money and the two
 // service lines fail in opposite directions: a units-only bar pays
-// nothing on DTC, a revenue-only bar pays a Founding Partner for an
-// account well under the volume they were promised the $500 for.
+// nothing on DTC, while a revenue-only bar pays a partner on bespoke
+// volume terms for an account well under the volume they contracted.
 
 import {
   computeOwed,
   qualifyBars,
   qualifiesInMonth,
   bonusAmount,
-  foundingPlaces,
-  clearsLaunchBar,
   tenureReleaseDate,
-  FOUNDING_CLIENT_TERMS,
   REFERRAL_TERMS,
   type ReferralPartner,
   type ReferredClient,
@@ -32,12 +29,12 @@ const standing: ReferralPartner = { id: 'p1', name: 'Standing Partner', company:
 // A partner on BESPOKE terms written by hand in the DB: the two volume
 // bars set, and bonus_min_revenue deliberately NULL — no dollar route.
 //
-// Nothing in the UI writes these any more. The launch offer moved to
-// the CLIENT (see the launch-places block at the bottom of this file),
-// because a 10-PARTNER cap with unlimited clients each is an unbounded
-// liability. The columns remain because qualifyBars() still honours
-// them, and the all-or-nothing reading below is what stops a NULL
-// revenue column quietly inheriting the standing $500.
+// Nothing in the UI writes these, and there is no program-wide offer
+// that sets them — the launch offer that once did was withdrawn
+// 2026-10-12. The columns remain because qualifyBars() still honours
+// them for a partner admitted on a contracted figure, and the
+// all-or-nothing reading below is what stops a NULL revenue column
+// quietly inheriting the standing bar.
 const founding: ReferralPartner = {
   id: 'p2', name: 'Bespoke Partner', company: null, status: 'active',
   signup_bonus_amount: 500, bonus_min_units: 1500, bonus_min_orders: 500,
@@ -162,75 +159,72 @@ check(
   '2026-10',
 )
 
-// ---- THE LAUNCH OFFER, PER CLIENT ----
+// ---- THERE IS NO LAUNCH OFFER ----
 //
-// The bug this replaces: the cap used to count PARTNERS, so 10 partners
-// referring 100 clients each paid 1,000 × $500. Counting clients makes
-// the published ceiling — 10 × $200 = $2,000 — actually true.
-check('launch bar: 1,501 units clears', clearsLaunchBar(inv({ units_shipped: 1501 })), true)
-check('launch bar: 1,500 units does NOT (more than)', clearsLaunchBar(inv({ units_shipped: 1500 })), false)
-check('launch bar: 501 orders clears', clearsLaunchBar(inv({ orders_shipped: 501 })), true)
-check('launch bar: $1m with no volume does NOT clear', clearsLaunchBar(inv({ amount: 1_000_000 })), false)
+// Withdrawn by Ophir on 2026-10-12, before any partner was signed and
+// before any bonus was paid. What used to be here: a $500 bonus for the
+// first 10 referred clients clearing a volume bar, and a revenue-share
+// window shifted to the client's second month.
+//
+// These checks are the guard in the other direction. The expensive
+// failure now is a raised bonus or a withheld first month coming BACK
+// without a decision, so what is asserted is that a volume of clients
+// all price identically and that the dead column prices nothing.
 
 // 12 qualifying clients, one per month, all under ONE STANDING partner.
 //
 // Standing and not the bespoke fixture above on purpose: that partner
-// carries signup_bonus_amount = 500, so every client of theirs is worth
-// $500 whether or not they hold a launch place, and the cap would look
-// like it was working when it was doing nothing at all. The $300
-// fallback is only visible against a partner on the standing terms.
+// carries signup_bonus_amount = 500, so every client of theirs would be
+// worth $500 regardless and a re-introduced raised bonus would be
+// invisible. The $300 is only observable against the standing terms.
 const many = Array.from({ length: 12 }, (_, i) => ({
   ...client(`c${String(i).padStart(2, '0')}`, '2026-01-01'),
   referral_partner_id: 'p1',
 }))
-// amount 9000 so they also clear the STANDING $500 revenue bar — the
-// launch place decides what the bonus is worth, not whether it exists.
+// amount 9000 and 9000 units: these clients clear the standing revenue
+// bar AND would have cleared both withdrawn volume bars. If a launch
+// tier is ever re-added, this fixture is what notices.
 const manyInv = many.map((c, i) =>
   inv({ id: `i${i}`, client_id: c.id, period: `2026-${String(i + 1).padStart(2, '0')}-01`, amount: 9000, units_shipped: 9000 }),
 )
-const places = foundingPlaces(many, manyInv)
-check('the cap is 10 CLIENTS, not 10 partners', places.taken, FOUNDING_CLIENT_TERMS.CAP)
-check('...so the 11th and 12th get nothing', [places.place.get('c10'), places.place.get('c11')], [undefined, undefined])
-check('places go to the earliest qualifiers, in order', [places.place.get('c00'), places.place.get('c09')], [1, 10])
-check('every unapproved place is provisional', places.provisional.size, 10)
 
-// A stored place is FIXED. Client c11 qualified last, but was approved
-// and paid at place 1 — a backdated invoice for anyone else must not be
-// able to take that back.
-const withStored = many.map((c) => (c.id === 'c11' ? { ...c, founding_bonus_seq: 1 } : c))
-const storedPlaces = foundingPlaces(withStored, manyInv)
-check('a stored place is honoured exactly, not re-ranked', storedPlaces.place.get('c11'), 1)
-check('...and place 1 is not handed out twice', storedPlaces.place.get('c00'), 2)
-check('...and the earliest qualifier still fits', storedPlaces.taken, 10)
-check('a stored place is not provisional', storedPlaces.provisional.has('c11'), false)
-
-// The partner statement sees ONE partner's clients. Ranking inside that
-// slice would promise a $500 to someone 40th in line.
-const sliceOnly = foundingPlaces(many, manyInv, false)
-check('a partial client list assigns NO provisional places', sliceOnly.taken, 0)
-check('...but still honours stored ones', foundingPlaces(withStored, manyInv, false).place.get('c11'), 1)
-
-// End to end: the 11th qualifying client is paid the standing $300.
 const capOwed = computeOwed([standing], many, manyInv, [], { now: NOW })
 const capBonus = Object.fromEntries(
   capOwed.filter((l) => l.kind === 'signup_bonus').map((b) => [b.clientId, b]),
 )
-check('launch client #1 is paid $500', capBonus.c00.amount, FOUNDING_CLIENT_TERMS.BONUS)
-check('client #11 is paid the standing $300', capBonus.c10.amount, REFERRAL_TERMS.SIGNUP_BONUS)
-check('client #12 is paid the standing $300', capBonus.c11.amount, REFERRAL_TERMS.SIGNUP_BONUS)
 check(
-  'total launch exposure is exactly 10 x $200',
-  Object.values(capBonus).reduce((s, b) => s + b.amount, 0) - many.length * REFERRAL_TERMS.SIGNUP_BONUS,
-  FOUNDING_CLIENT_TERMS.CAP * (FOUNDING_CLIENT_TERMS.BONUS - REFERRAL_TERMS.SIGNUP_BONUS),
+  'every one of 12 high-volume clients is paid the standing $300',
+  [...new Set(Object.values(capBonus).map((b) => b.amount))],
+  [REFERRAL_TERMS.SIGNUP_BONUS],
 )
-console.log(`        launch place note: "${capBonus.c00.note}"`)
+check(
+  'the first client is not special',
+  [capBonus.c00.amount, capBonus.c09.amount, capBonus.c10.amount, capBonus.c11.amount],
+  Array(4).fill(REFERRAL_TERMS.SIGNUP_BONUS),
+)
+check(
+  'total bonus exposure is exactly 12 x $300 — no premium anywhere',
+  Object.values(capBonus).reduce((s, b) => s + b.amount, 0),
+  many.length * REFERRAL_TERMS.SIGNUP_BONUS,
+)
+// A note mentioning a place or an offer means a tier came back with
+// wording attached. Cheap to check, and it reads the human-facing text
+// rather than the arithmetic.
+check(
+  'no bonus note mentions a launch place or offer',
+  Object.values(capBonus).some((b) => /launch|place|founding/i.test(b.note ?? '')),
+  false,
+)
+console.log(`        standing bonus note: "${capBonus.c00.note}"`)
 
-// ---- THE 5% STARTS IN MONTH 2 FOR LAUNCH CLIENTS ----
+// ---- THE 5% STARTS IN MONTH 1, FOR EVERYONE ----
 //
-// Approved by Ophir 2026-09-20, and scoped to launch clients only.
-// The window SHIFTS to months 2-13; it does not shorten to 2-12. That
-// distinction is a whole month of commission on every launch client,
-// and shortening would contradict the "12 months" in the agreement.
+// The withdrawn offer moved the window to months 2-13 for launch
+// clients, keyed off the stored `founding_bonus_seq`. That column still
+// exists in the database, so the check that matters is that a row
+// carrying a value prices EXACTLY the same as a row carrying null.
+// Otherwise a leftover value — or one typed in by hand — would silently
+// withhold a month of commission from a live partner.
 const yearOf = (id: string, partnerId: string, seq: number | null) => {
   const c: ReferredClient = {
     id, name: id, referral_partner_id: partnerId,
@@ -248,52 +242,54 @@ const yearOf = (id: string, partnerId: string, seq: number | null) => {
   return { c, invs }
 }
 
-const launch = yearOf('launch', 'p1', 1)
-const launchMonths = computeOwed([standing], [launch.c], launch.invs, [], { now: NOW })
-  .filter((l) => l.kind === 'commission')
-  .map((l) => l.period)
+const commissionMonths = (seq: number | null) =>
+  computeOwed([standing], [yearOf('x', 'p1', seq).c], yearOf('x', 'p1', seq).invs, [], { now: NOW })
+    .filter((l) => l.kind === 'commission')
+    .map((l) => l.period)
 
-check('launch client: no commission in month 1', launchMonths.includes('2026-01'), false)
-check('launch client: 5% starts in month 2', launchMonths[0], '2026-02')
-check('launch client: still 12 paid months, not 11', launchMonths.length, REFERRAL_TERMS.COMMISSION_MONTHS)
-check('launch client: last paid month is 13', launchMonths[launchMonths.length - 1], '2027-01')
+const plainMonths = commissionMonths(null)
+check('5% starts in the first paid month', plainMonths[0], '2026-01')
+check('and runs for 12 months', plainMonths.length, REFERRAL_TERMS.COMMISSION_MONTHS)
+check('so the last paid month is month 12', plainMonths[plainMonths.length - 1], '2026-12')
 
-// A standing client is NOT affected — Ophir scoped this to the launch
-// offer. Shifting everyone would have silently restated live partners.
+// THE withdrawal check: a stored place must now be completely inert.
+const seqMonths = commissionMonths(1)
+check(
+  'a leftover founding_bonus_seq does NOT withhold month 1',
+  seqMonths.includes('2026-01'),
+  true,
+)
+check(
+  'a leftover founding_bonus_seq changes the window not at all',
+  seqMonths,
+  plainMonths,
+)
+
+// ...and it must not price the BONUS either, which is the other half of
+// the question and the half nothing above was asking.
 //
-// This fixture ALSO clears the launch volume bar, so it holds a
-// PROVISIONAL launch place, and that is exactly the case worth pinning
-// down: a provisional place must not shift the window. If it did, a
-// candidate's month-1 commission would be shown and then vanish the
-// instant Ophir approved the place — money coming off a statement with
-// no event behind it. The shift reads the STORED founding_bonus_seq, so
-// the extra $200 and the forfeited month arrive on the same click.
-const plain = yearOf('plain', 'p1', null)
-const plainMonths = computeOwed([standing], [plain.c], plain.invs, [], { now: NOW })
-  .filter((l) => l.kind === 'commission')
-  .map((l) => l.period)
-
-check('standing client: 5% still starts in month 1', plainMonths[0], '2026-01')
-check('standing client: still 12 paid months', plainMonths.length, REFERRAL_TERMS.COMMISSION_MONTHS)
-check('standing client: last paid month is 12', plainMonths[plainMonths.length - 1], '2026-12')
-
-// Guard the premise of the test above: if `plain` ever stopped holding
-// a provisional place, the two checks would still pass while proving
-// nothing at all about provisional places.
+// Found by reversion: adding `+ (founding_bonus_seq != null ? 200 : 0)`
+// to the bonus stayed green through every check in this file, because
+// no fixture paired a non-null seq with an assertion on the amount. The
+// column still exists in the database, so a value left behind by a
+// migration — or typed in by hand — is a live route to an unapproved
+// premium. Both fixtures clear the standing revenue bar and are past
+// the 60-day gate, so both bonuses are real owed figures, not 'awaiting'.
+const bonusFor = (seq: number | null) => {
+  const y = yearOf('b', 'p1', seq)
+  return computeOwed([standing], [y.c], y.invs, [], { now: NOW })
+    .find((l) => l.kind === 'signup_bonus')!
+}
+check('a client WITHOUT a stored place is paid $300', bonusFor(null).amount, REFERRAL_TERMS.SIGNUP_BONUS)
+check('a client WITH one is paid the same $300', bonusFor(1).amount, REFERRAL_TERMS.SIGNUP_BONUS)
 check(
-  'the standing fixture really does hold a provisional place',
-  computeOwed([standing], [plain.c], plain.invs, [], { now: NOW })
-    .some((l) => l.kind === 'signup_bonus' && l.foundingSeq != null && l.foundingProvisional),
-  true,
+  'the dead column moves the bonus by exactly nothing',
+  bonusFor(1).amount - bonusFor(null).amount,
+  0,
 )
-
-// The two differ by exactly one month at each end, and not in count —
-// the single assertion that catches a shortened window.
-check(
-  'the launch window is SHIFTED, not shortened',
-  launchMonths.length === plainMonths.length && launchMonths[0] !== plainMonths[0],
-  true,
-)
+// Premise guard: if these ever stopped being released, the three checks
+// above would compare two 'awaiting' lines and prove nothing.
+check('...and both of those bonuses are genuinely owed', [bonusFor(null).period, bonusFor(1).period], ['2026-01', '2026-01'])
 
 // ---- a 0 bar CLOSES that path, and must not fall back to $500 ----
 //

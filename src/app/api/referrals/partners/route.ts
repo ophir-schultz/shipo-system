@@ -13,11 +13,11 @@ import { requireStaff } from '@/lib/require-staff'
 // referring an unlimited number of clients at $500 a head is an
 // unbounded liability, not the $2,000 the old comment claimed.
 //
-// The launch offer now belongs to the CLIENT — the first 10 referred
-// clients that clear the bar earn $500, everyone after them earns the
-// standing $300 — and the place is claimed in
-// /api/referrals/payouts at the moment a bonus is approved. See
-// FOUNDING_CLIENT_TERMS and foundingPlaces() in src/lib/referrals.ts.
+// The offer was then re-scoped to the CLIENT — the first 10 referred
+// clients to clear a volume bar earned $500 — and was WITHDRAWN
+// entirely on 2026-10-12, before any partner was signed and before any
+// bonus was paid. There is no promotional tier now: every referred
+// client earns the standing bonus in REFERRAL_TERMS.
 //
 // The per-partner bar columns still exist and are still honoured by
 // qualifyBars(), so a bespoke deal can be written by hand in the DB.

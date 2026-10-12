@@ -2,82 +2,57 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { requireStaff } from '@/lib/require-staff'
 import {
-  foundingPlaces,
   bonusAmount,
-  FOUNDING_CLIENT_TERMS,
   type ReferralPartner,
   type ReferredClient,
-  type FbaInvoice,
 } from '@/lib/referrals'
+import { isLedgerInvoiceId } from '@/lib/partner-ledger'
 
 /**
- * What this signup bonus is actually worth, decided server-side, and
- * the launch place taken permanently if one is going.
+ * What this signup bonus is actually worth, decided server-side.
  *
- * Why the place is claimed HERE and not in `computeOwed`: `computeOwed`
- * is a pure function that re-derives the whole ordering on every page
- * load. If a place were only ever derived, entering a backdated invoice
- * for some other client would silently push an already-approved —
- * possibly already-paid — client out of their place, and the statement
- * would quietly restate money that has left the building. Approval is
- * the moment the place stops being an opinion, so approval is where it
- * gets written down.
+ * It is the PARTNER'S OWN bonus, not the flat $300 constant. A partner
+ * admitted on bespoke contracted terms carries signup_bonus_amount on
+ * their row, and paying them $300 instead would underpay a signed
+ * agreement — a quieter and worse failure than overpaying, because
+ * nobody would ever query it. bonusAmount() falls back to the standing
+ * REFERRAL_TERMS.SIGNUP_BONUS when the row carries no figure.
  *
- * The fallback is the PARTNER'S OWN bonus, not the flat $300 constant.
- * A partner on bespoke contracted terms carries signup_bonus_amount on
- * their row, and paying them $300 because their client missed the
- * launch cap would underpay a signed agreement — a quieter and worse
- * failure than overpaying, because nobody would ever query it.
+ * This used to also claim a launch place, writing
+ * `clients.founding_bonus_seq` at the moment of approval and returning
+ * $500. That offer was withdrawn on 2026-10-12 with no place ever
+ * approved, so the write is gone and the column is dead. Approval no
+ * longer writes to `clients` at all, which is why this function no
+ * longer reads every client and every invoice in the system to answer a
+ * question about one client.
  */
 async function resolveBonusAmount(
   clientId: string,
 ): Promise<{ amount: number | null; error?: string }> {
-  const [clientsRes, invoicesRes, partnersRes] = await Promise.all([
-    supabaseAdmin
-      .from('clients')
-      .select('id, name, referral_partner_id, referral_signup_date, referral_first_payment_date, founding_bonus_seq'),
-    supabaseAdmin.from('fba_invoices').select('id, client_id, period, amount, units_shipped, orders_shipped'),
-    supabaseAdmin
-      .from('referral_partners')
-      .select('id, name, company, status, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue'),
-  ])
-  if (clientsRes.error) return { amount: null, error: clientsRes.error.message }
-  if (invoicesRes.error) return { amount: null, error: invoicesRes.error.message }
-  if (partnersRes.error) return { amount: null, error: partnersRes.error.message }
-
-  const clients = (clientsRes.data ?? []) as ReferredClient[]
-  const invoices = (invoicesRes.data ?? []) as FbaInvoice[]
-  const partners = (partnersRes.data ?? []) as ReferralPartner[]
-
-  const mine = clients.find((c) => c.id === clientId)
-  if (!mine) return { amount: null, error: 'Client not found.' }
-
-  const partner = partners.find((p) => p.id === mine.referral_partner_id)
-  if (!partner) return { amount: null, error: 'This client is not linked to a referral partner.' }
-  const standing = bonusAmount(partner)
-
-  // Already holds a place — idempotent, and never re-numbered.
-  if (mine.founding_bonus_seq != null) return { amount: FOUNDING_CLIENT_TERMS.BONUS }
-
-  const seq = foundingPlaces(clients, invoices).place.get(clientId)
-  if (seq === undefined) return { amount: standing } // missed the bar, or the 10 are gone
-
-  const { error } = await supabaseAdmin
+  const { data: client, error: clientErr } = await supabaseAdmin
     .from('clients')
-    .update({ founding_bonus_seq: seq })
+    .select('id, name, referral_partner_id, referral_signup_date, referral_first_payment_date')
     .eq('id', clientId)
-    .is('founding_bonus_seq', null) // never overwrite a place already recorded
-  if (error) {
-    // Almost certainly the unique index: another approval took this
-    // number between the read and the write. Refusing is correct — the
-    // ordering has moved and the next click will compute it afresh.
-    return {
-      amount: null,
-      error: `Launch place ${seq} was taken while you were approving. Nothing was saved — click Approve again.`,
-    }
+    .maybeSingle()
+  if (clientErr) return { amount: null, error: clientErr.message }
+
+  const mine = client as ReferredClient | null
+  if (!mine) return { amount: null, error: 'Client not found.' }
+  if (!mine.referral_partner_id) {
+    return { amount: null, error: 'This client is not linked to a referral partner.' }
   }
 
-  return { amount: FOUNDING_CLIENT_TERMS.BONUS }
+  const { data: partnerRow, error: partnerErr } = await supabaseAdmin
+    .from('referral_partners')
+    .select('id, name, company, status, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue')
+    .eq('id', mine.referral_partner_id)
+    .maybeSingle()
+  if (partnerErr) return { amount: null, error: partnerErr.message }
+
+  const partner = partnerRow as ReferralPartner | null
+  if (!partner) return { amount: null, error: 'This client is not linked to a referral partner.' }
+
+  return { amount: bonusAmount(partner) }
 }
 
 // The payout ledger. This records / advances a payout's approval
@@ -107,6 +82,16 @@ export async function POST(req: Request) {
   }
 
   const now = new Date().toISOString()
+
+  // A month that exists only in the ledger has no fba_invoices row, so
+  // computeOwed stamps it with a synthetic 'ledger:<client>:<month>' id.
+  // referral_payouts.fba_invoice_id is a real uuid FK, so forwarding one
+  // fails — 22P02 on the cast, or 23503 on the key. The column is
+  // nullable and informational, so dropping it is the right answer and
+  // the payout still records correctly. Guarding HERE because this route
+  // is the only write path to the table.
+  const fbaInvoiceId = isLedgerInvoiceId(body.fba_invoice_id) ? null : (body.fba_invoice_id ?? null)
+
   const row: Record<string, unknown> = {
     dedupe_key,
     referral_partner_id: body.referral_partner_id ?? null,
@@ -114,7 +99,7 @@ export async function POST(req: Request) {
     kind: body.kind ?? 'commission',
     period: body.period ?? null,
     amount: Number(body.amount ?? 0),
-    fba_invoice_id: body.fba_invoice_id ?? null,
+    fba_invoice_id: fbaInvoiceId,
     updated_at: now,
   }
 
