@@ -171,11 +171,23 @@ for (const block of blocks) {
     html.push(`<blockquote>${inline(text)}</blockquote>`)
     continue
   }
-  if (lines.every((l) => /^\s*-\s/.test(l) || l.trim() === '')) {
-    const items = lines
-      .filter((l) => l.trim())
-      .map((l) => `<li>${inline(l.replace(/^\s*-\s*/, ''))}</li>`)
-    html.push(`<ul>${items.join('')}</ul>`)
+  // A bullet list. The test is "first line is a bullet", NOT "every line is a
+  // bullet": a wrapped item puts its tail on an indented continuation line, so
+  // requiring every line to match dropped the whole block through to the <p>
+  // branch below, which emits the source verbatim — shipping a literal "- " to
+  // the counterparty on page 1 of the signable template. Continuations fold
+  // into the preceding <li>.
+  if (
+    /^\s*-\s/.test(lines[0]) &&
+    lines.every((l) => /^\s*-\s/.test(l) || /^\s+\S/.test(l) || l.trim() === '')
+  ) {
+    const items = []
+    for (const l of lines) {
+      if (!l.trim()) continue
+      if (/^\s*-\s/.test(l)) items.push(l.replace(/^\s*-\s*/, ''))
+      else items[items.length - 1] += ' ' + l.trim()
+    }
+    html.push(`<ul>${items.map((t) => `<li>${inline(t)}</li>`).join('')}</ul>`)
     continue
   }
   // A lettered sub-item block, e.g. "  (a) **freight** — ...". Indented in the
