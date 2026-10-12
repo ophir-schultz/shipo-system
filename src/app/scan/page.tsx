@@ -1,0 +1,338 @@
+'use client'
+
+import { useState, useEffect, useMemo } from 'react'
+import { parseScan, duplicatesWithin } from '@/lib/scan/parse'
+
+// ============================================================
+// SERIALIZATION SCAN STATION
+//
+// One box label in, the serials inside it out, billed on submit.
+//
+// The split happens here, in front of the operator, and what gets
+// posted is the list they can see. That is deliberate: the parser
+// falls back to guessing when a label carries no separator, and a
+// guess that nobody looked at must never become a billing line.
+// ============================================================
+
+type Client = { id: string; name: string }
+
+type Recorded = {
+  serial_count: number
+  quantity: number
+  rate: number
+  total: number
+  service_type: string
+  queued: boolean
+}
+
+export default function ScanPage() {
+  const [clients, setClients] = useState<Client[]>([])
+  const [clientId, setClientId] = useState('')
+  const [scanType, setScanType] = useState<'box' | 'loose'>('box')
+  const [raw, setRaw] = useState('')
+  const [orderRef, setOrderRef] = useState('')
+  const [sku, setSku] = useState('')
+  const [boxRef, setBoxRef] = useState('')
+  const [expected, setExpected] = useState('')
+  const [notes, setNotes] = useState('')
+
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [last, setLast] = useState<Recorded | null>(null)
+
+  useEffect(() => {
+    fetch('/api/clients/list')
+      .then((r) => r.json())
+      .then((data: Client[]) => setClients(Array.isArray(data) ? data : []))
+      .catch(() => setClients([]))
+  }, [])
+
+  const result = useMemo(
+    () => parseScan(raw, expected ? Number(expected) : undefined),
+    [raw, expected],
+  )
+  const serials = result.serials
+  const dupes = useMemo(() => duplicatesWithin(serials), [serials])
+
+  // A loose scan is billed per serial, a box is one flat charge however
+  // many are inside it. Shown before submit so nobody is surprised by
+  // the invoice line.
+  const billedAs =
+    scanType === 'box'
+      ? '1 box (flat)'
+      : `${serials.length} serial${serials.length === 1 ? '' : 's'}`
+
+  const short =
+    expected !== '' && serials.length > 0 && serials.length < Number(expected)
+
+  async function submit() {
+    setError('')
+    if (!clientId) return setError('Pick a client.')
+    if (!serials.length) return setError('Nothing scanned yet.')
+    if (dupes.length) return setError(`Duplicate serial in this scan: ${dupes.join(', ')}`)
+
+    setSaving(true)
+    try {
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: clientId,
+          scan_type: scanType,
+          serials,
+          order_ref: orderRef,
+          sku,
+          box_ref: boxRef,
+          expected_count: expected || null,
+          notes,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Could not record that scan.')
+        return
+      }
+      setLast(data as Recorded)
+      // Clear only what belongs to this carton. The client, order and SKU
+      // carry over: a 120-unit line is six cartons of the same SKU scanned
+      // back to back, and they all accumulate into one push job.
+      setRaw('')
+      setBoxRef('')
+      setNotes('')
+    } catch {
+      setError('Could not reach the server. Nothing was recorded — scan again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const field =
+    'w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]'
+
+  return (
+    <div className="max-w-5xl pb-10">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-white">Serialization Scan</h2>
+        <p className="text-gray-400 text-sm mt-1">
+          Scan a box label to pull out the serials inside it, or scan loose units one at a
+          time. Submitting records the work and bills it.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* ---- input ---- */}
+        <div className="bg-gray-800 rounded-xl p-5 space-y-4">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Client</label>
+            <select
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              className={field}
+            >
+              <option value="">Select a client…</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Input method</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(['box', 'loose'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setScanType(t)}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition border ${
+                    scanType === t
+                      ? 'bg-[#00AAFF] border-[#00AAFF] text-white'
+                      : 'bg-gray-700 border-gray-600 text-gray-300 hover:border-gray-500'
+                  }`}
+                >
+                  {t === 'box' ? 'Box label' : 'Loose serials'}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-1.5">
+              {scanType === 'box'
+                ? 'One flat charge per box, whatever it holds.'
+                : 'Charged per serial.'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Order ref</label>
+              <input
+                type="text"
+                value={orderRef}
+                onChange={(e) => setOrderRef(e.target.value)}
+                placeholder="Zenventory order"
+                className={field}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">SKU</label>
+              <input
+                type="text"
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                placeholder="Line item"
+                className={field}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Box ref</label>
+              <input
+                type="text"
+                value={boxRef}
+                onChange={(e) => setBoxRef(e.target.value)}
+                placeholder="Optional"
+                className={field}
+              />
+            </div>
+          </div>
+
+          {/* Zenventory holds scanned serials per line item, not per
+              order, and real orders are multi-line. Without the SKU the
+              scan is still billed and stored, but there is no safe way
+              to push it — so say that here rather than letting it look
+              queued. */}
+          {orderRef.trim() && !sku.trim() && (
+            <p className="text-xs text-amber-400">
+              No SKU — this scan will be billed and stored, but not queued for
+              Zenventory. The serials go onto a specific order line, so the line
+              has to be named.
+            </p>
+          )}
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">
+              Expected count <span className="text-gray-600">— optional</span>
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={expected}
+              onChange={(e) => setExpected(e.target.value)}
+              placeholder="e.g. 20"
+              className={field}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Scan</label>
+            {/* Must be a textarea. <input type=text> silently strips newlines,
+                which destroys the likeliest separator before it is ever parsed. */}
+            <textarea
+              id="scan"
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+              rows={6}
+              autoFocus
+              placeholder="Click here, then scan the box label…"
+              className={field + ' font-mono resize-y'}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Notes</label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional"
+              className={field}
+            />
+          </div>
+        </div>
+
+        {/* ---- what came out ---- */}
+        <div className="bg-gray-800 rounded-xl p-5 space-y-4">
+          <div className="flex items-baseline justify-between">
+            <div>
+              <span className="text-3xl font-bold text-white">{serials.length}</span>
+              <span className="text-gray-400 text-sm ml-2">
+                serial{serials.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <span className="text-xs text-gray-500">
+              bills as {billedAs}
+            </span>
+          </div>
+
+          {result.method !== 'empty' && (
+            <p className="text-xs text-gray-500">Split rule: {result.method}</p>
+          )}
+
+          {/* The three states worth interrupting for. */}
+          {dupes.length > 0 && (
+            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+              The same serial appears twice: {dupes.join(', ')}. That is a double-read or a
+              bad split — clear the field and scan again.
+            </p>
+          )}
+
+          {serials.length > 0 && result.method === 'single' && (
+            <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+              Only ONE value came out of that scan. No separator was found, so this is
+              either a single serial or a box label in a format this tool does not
+              recognise yet. Do not assume it is a whole box.
+            </p>
+          )}
+
+          {result.guess && (
+            <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+              Split by fixed width — a GUESS, not a detected separator. Check a few serials
+              by eye before submitting.
+            </p>
+          )}
+
+          {short && (
+            <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+              Short box: {serials.length} of {expected} expected. It still bills as one box —
+              the shortfall is recorded for review, not repriced.
+            </p>
+          )}
+
+          <ul className="text-sm text-gray-300 font-mono max-h-72 overflow-auto divide-y divide-gray-700/50">
+            {serials.map((s, i) => (
+              <li key={i} className="py-1.5 flex gap-3">
+                <span className="text-gray-600 w-6 text-right shrink-0">{i + 1}</span>
+                <span className="break-all">{s}</span>
+              </li>
+            ))}
+          </ul>
+
+          {error && (
+            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={submit}
+            disabled={saving || !serials.length || dupes.length > 0}
+            className="w-full bg-[#00AAFF] hover:bg-[#33BBFF] disabled:opacity-50 text-white py-3 rounded-xl text-sm font-semibold transition"
+          >
+            {saving ? 'Recording…' : 'Record scan'}
+          </button>
+
+          {last && (
+            <div className="text-sm text-green-300 bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2">
+              Recorded {last.serial_count} serial{last.serial_count === 1 ? '' : 's'} —
+              billed ${Number(last.total).toFixed(2)} ({last.service_type}).{' '}
+              {last.queued
+                ? 'Queued for Zenventory.'
+                : 'Not queued — no order ref, so there is nothing to match against.'}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
