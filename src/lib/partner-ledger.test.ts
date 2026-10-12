@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createFakeSupabase, type FakeDb, type FakeRow, type FakeCall } from '@/lib/ledger/fake-supabase'
 
 const h = vi.hoisted(() => ({ db: null as unknown as FakeDb }))
@@ -689,4 +691,87 @@ describe('the loader survives a failed read', () => {
     expect(led.invoices).toHaveLength(1)
     expect(led.invoices[0].amount).toBe(900)
   })
+})
+
+// ---------------------------------------------------------------------------
+// The view/interface contract.
+//
+// WHY THIS EXISTS: every test above runs against createFakeSupabase, which
+// serves whatever rows the fixture hands it. That is the right way to test the
+// merge, and it is structurally incapable of noticing that the REAL view does
+// not have the columns LedgerMonth claims. A fixture that hand-feeds a field
+// the live data does not carry tests your model of the data, not the data.
+//
+// The failure it guards is quiet in the worst way. Both reads are `select('*')`,
+// so a renamed or dropped column raises nothing — the field arrives `undefined`,
+// arithmetic on it yields NaN, and a partner statement renders a blank or a
+// dash where a dollar figure belongs. Nothing throws, nothing logs, and the
+// number is wrong in a direction nobody can predict.
+//
+// On 2026-10-12 the views were rebuilt in production from this very file after
+// two failed attempts, which is exactly the moment a column name gets quietly
+// edited. So: parse the column list out of the SQL, parse the field list out of
+// the interface, and assert they are the same set.
+// ---------------------------------------------------------------------------
+describe('the ledger views match the interfaces that read them', () => {
+  const sql = readFileSync(join(process.cwd(), 'supabase', 'partner_ledger.sql'), 'utf8')
+  const ts = readFileSync(join(process.cwd(), 'src', 'lib', 'partner-ledger.ts'), 'utf8')
+
+  /** Output column names of `create view public.<name>`, from its final select. */
+  function viewColumns(view: string): string[] {
+    const m = sql.match(
+      new RegExp(`create view public\\.${view}\\s+as([\\s\\S]*?)(?=\\ndrop view|\\nrevoke|\\ncreate view)`),
+    )
+    expect(m, `cannot find "create view public.${view}" in supabase/partner_ledger.sql`).not.toBeNull()
+    const selects = [...m![1].matchAll(/select\s+([\s\S]*?)\n\s*from\s/g)]
+    expect(selects.length, `${view}: no select found in the view body`).toBeGreaterThan(0)
+
+    return selects[selects.length - 1][1]
+      .split(/,(?![^()]*\))/)
+      .map((p) => p.trim())
+      .map((p) => {
+        const alias = p.match(/\bas\s+([a-z_][a-z0-9_]*)\s*$/i)
+        return alias ? alias[1] : p.split('.').pop()!.trim()
+      })
+      .filter((c) => /^[a-z_][a-z0-9_]*$/.test(c))
+  }
+
+  /** Field names declared on `export interface <name>`. */
+  function interfaceFields(name: string): string[] {
+    const m = ts.match(new RegExp(`export interface ${name} \\{([\\s\\S]*?)\\n\\}`))
+    expect(m, `cannot find "export interface ${name}" in src/lib/partner-ledger.ts`).not.toBeNull()
+    const body = m![1]
+      .replace(/\/\*\*[\s\S]*?\*\//g, '') // doc comments, which contain prose
+      .replace(/\/\/.*$/gm, '')
+    return [...body.matchAll(/^\s{2}([a-z_][a-z0-9_]*)\??\s*:/gim)].map((x) => x[1])
+  }
+
+  for (const [view, iface] of [
+    ['partner_client_monthly', 'LedgerMonth'],
+    ['partner_order_transactions', 'LedgerTransaction'],
+  ] as const) {
+    it(`${view} and ${iface} declare the same columns`, () => {
+      const cols = viewColumns(view)
+      const fields = interfaceFields(iface)
+
+      // Guard on the guard. Either parser returning nothing makes the set
+      // comparison below vacuously true, which is the one way this check can
+      // be green while measuring nothing.
+      expect(cols.length, `parsed no columns out of ${view} — the SQL parser is broken`).toBeGreaterThan(5)
+      expect(fields.length, `parsed no fields out of ${iface} — the TS parser is broken`).toBeGreaterThan(5)
+
+      const missing = fields.filter((f) => !cols.includes(f))
+      const extra = cols.filter((c) => !fields.includes(c))
+      expect(
+        missing,
+        `${iface} reads columns ${view} does not produce. select('*') will deliver these as ` +
+          'undefined and the arithmetic downstream becomes NaN — silently.',
+      ).toEqual([])
+      expect(
+        extra,
+        `${view} produces columns ${iface} does not declare. Harmless today, but it means the ` +
+          'view moved and the interface did not — check whether a figure changed meaning.',
+      ).toEqual([])
+    })
+  }
 })
