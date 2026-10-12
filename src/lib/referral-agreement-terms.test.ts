@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { join, basename } from 'node:path'
+import { join } from 'node:path'
 import { REFERRAL_TERMS } from '@/lib/referrals'
 
 // Three documents have to say the same thing about this deal: the website, the
@@ -451,6 +451,31 @@ describe.each(PDF_PAIRS)('%s — the rendered PDF matches the markdown', (doc) =
     for (const [phrase, what] of figures) {
       expect(text, `${pdf} does not state the ${what}: "${phrase}"`).toContain(flatten(phrase))
     }
+  })
+
+  it('renders markdown syntax instead of printing it', () => {
+    // A block the renderer does not recognise falls through to the <p> branch,
+    // which emits the source verbatim — so an unhandled construct ships its own
+    // markup to the counterparty. That is not hypothetical: the party block is a
+    // bullet list with a wrapped first item, the list branch required EVERY line
+    // to start with "- ", and both PDFs printed a literal "- " before "Shipo
+    // LLC" on page 1.
+    //
+    // This needs its own check because NOTHING above can see it. Both the block
+    // check and the figures check compare through flatten(), which strips
+    // whitespace and hyphens precisely so that a line wrap cannot cause a false
+    // miss — and that is the same edit that makes "- Shipo LLC" and "Shipo LLC"
+    // identical. So this one reads the RAW text layer, not the flattened one.
+    const raw = pdfText(pdf)
+    const leaked = raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => /^[-*]\s+\S/.test(l) || /^#{1,6}\s+\S/.test(l) || /\*\*\S/.test(l))
+    expect(
+      leaked,
+      `${pdf} prints raw markdown rather than rendering it: ${JSON.stringify(leaked.slice(0, 3))}. ` +
+        'Some block fell through to the paragraph branch of scripts/build-agreement-pdf.mjs.',
+    ).toEqual([])
   })
 })
 
