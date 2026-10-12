@@ -7,6 +7,7 @@ import {
 import { pnlFigures, campaignFigures, attributedRevenue } from '@/lib/billing/margin'
 import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
+import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 
 export const dynamic = 'force-dynamic'
 
@@ -772,6 +773,13 @@ export default async function PnlPage() {
           }
         </div>
       </div>
+
+      {/* ---- Partner payout detail ----
+          The table above is the payout LEDGER: what has been recorded and
+          approved. This is what the ledger says we owe, and every charge it
+          was derived from. Its own component because it does its own reads
+          and degrades on its own — see the note in its header. */}
+      <PartnerPayouts />
     </div>
   )
 }

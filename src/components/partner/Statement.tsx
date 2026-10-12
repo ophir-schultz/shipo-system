@@ -3,21 +3,33 @@ import {
   computeOwed,
   buildStatement,
   REFERRAL_TERMS,
-  FOUNDING_CLIENT_TERMS,
   type ReferralPartner,
-  type ReferredClient,
-  type FbaInvoice,
   type PayoutRecord,
   type PayoutStatus,
 } from '@/lib/referrals'
+import {
+  loadPartnerLedger,
+  monthKey,
+  TRANSACTION_LIMIT,
+  type LedgerTransaction,
+} from '@/lib/partner-ledger'
 import SignOutButton from '@/components/partner/SignOutButton'
 
 // The partner-facing statement. Server component — every figure is
 // computed here and only the rendered numbers reach the browser.
 //
-// What a partner may see is fixed: summary totals and the four cost
-// categories. Never a rate card, never line items, never per-unit
-// prices. See §4.6 of the partner agreement.
+// What a partner may see is fixed by Decision 1 of
+// docs/superpowers/specs/2026-10-11-partner-ledger-statements-design.md:
+// summary totals, the four cost CATEGORIES at month level, and a
+// transaction list carrying only date, order number and amount billed.
+//
+// Never a rate card, never per-unit prices, never per-order cost.
+// `amount / quantity` on a line item IS the rate card, and a partner who
+// is also an agency can read it straight off. The transaction view has
+// no cost column at all, so that is enforced in SQL rather than here.
+//
+// This used to cite "§4.6 of the partner agreement". There is no such
+// section and no executed agreement — do not re-cite one until there is.
 
 const fmt = (n: number) => `$${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`
 const fmtNeg = (n: number) => (n === 0 ? '—' : `-${fmt(n)}`)
@@ -43,45 +55,67 @@ export interface StatementPartner {
 }
 
 export default async function Statement({ partner }: { partner: StatementPartner }) {
-  const [clientsRes, invoicesRes, payoutsRes] = await Promise.all([
-    supabaseAdmin
-      .from('clients')
-      .select(
-        'id, name, referral_partner_id, referral_signup_date, referral_first_payment_date, founding_bonus_seq',
-      )
-      .eq('referral_partner_id', partner.id),
-    supabaseAdmin
-      .from('fba_invoices')
-      .select('id, client_id, period, amount, units_shipped, orders_shipped, cost_freight, cost_materials, cost_storage, cost_processing'),
+  const [ledger, payoutsRes] = await Promise.all([
+    loadPartnerLedger(partner.id),
     supabaseAdmin
       .from('referral_payouts')
       .select('id, dedupe_key, status, amount, approved_at, paid_at')
       .eq('referral_partner_id', partner.id),
   ])
 
-  const clients = (clientsRes.data ?? []) as ReferredClient[]
-  const clientIds = new Set(clients.map((c) => c.id))
-  // Only this partner's clients' invoices ever reach the page.
-  const invoices = ((invoicesRes.data ?? []) as FbaInvoice[]).filter((i) => clientIds.has(i.client_id))
+  const { clients, invoices } = ledger
   const payouts = (payoutsRes.data ?? []) as PayoutRecord[]
 
-  // provisionalPlaces: false — and this is not an optimisation.
+  // Stop before computing anything if a read failed.
   //
-  // `clients` here is ONE partner's clients. Launch places are ranked
-  // across every referred client in the system, so ranking them inside
-  // this slice would hand out places 1..10 among this partner's clients
-  // alone and print a $500 bonus for someone who is really 40th in line.
-  // Only a place already written to the client row is true when read
-  // from here, so only those are honoured.
-  const lines = computeOwed([partner as ReferralPartner], clients, invoices, payouts, {
-    provisionalPlaces: false,
-  })
+  // Every figure below descends from those reads, and each one degrades to
+  // zero rather than to an error. A failed read therefore produces a
+  // statement that is internally consistent, correctly formatted, and wrong
+  // — and the empty state actively tells the partner "nothing is missing".
+  // Saying nothing is owed is a claim about their money; it may only be made
+  // from data we actually read.
+  if (ledger.readFailed || payoutsRes.error) {
+    return (
+      <div className="space-y-8">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">{partner.name}</h1>
+            {partner.company && <p className="text-sm text-gray-400 mt-1">{partner.company}</p>}
+          </div>
+          <SignOutButton />
+        </div>
+        <div className="rounded-xl border border-yellow-800/50 bg-yellow-950/30 p-8 text-center">
+          <p className="text-gray-100 font-medium">We can&apos;t show your statement right now</p>
+          <p className="text-gray-400 text-sm mt-2 max-w-md mx-auto">
+            This is a problem on our side, not a statement showing nothing owed. Your earnings are
+            unaffected and nothing has been lost. Please try again shortly — if it persists, contact
+            us and we will send your statement directly.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
-  // Does this partner hold any launch-offer client? Drives one extra
-  // paragraph below. Read from the STORED place for the same reason the
-  // ranking is: a provisional place is not a fact yet, and a partner
-  // should not be told terms that may turn out not to be theirs.
-  const hasLaunchClient = clients.some((c) => c.founding_bonus_seq != null)
+  // Transactions keyed the way the statement is: 'clientId:YYYY-MM'.
+  // StatementMonth.period is a month LABEL, not the ledger's first-of-month
+  // date, so the key has to be built from a slice rather than reusing
+  // monthKey() on period_month directly.
+  const txByClientMonth = new Map<string, LedgerTransaction[]>()
+  for (const t of ledger.transactions) {
+    const key = monthKey(t.client_id, t.period_month.slice(0, 7))
+    const list = txByClientMonth.get(key)
+    if (list) list.push(t)
+    else txByClientMonth.set(key, [t])
+  }
+
+  // `clients` here is ONE partner's clients, and that is now safe to
+  // pass: every figure computeOwed derives is per-client, so a slice
+  // gives the same answer as the whole table. It was NOT safe while the
+  // launch offer existed — places were ranked globally, so ranking them
+  // inside this slice handed out places 1..10 among one partner's
+  // clients and could print a raised bonus for someone really 40th in
+  // line. The offer was withdrawn 2026-10-12 and the option is gone.
+  const lines = computeOwed([partner as ReferralPartner], clients, invoices, payouts)
   const s = buildStatement(partner.id, clients, lines, invoices)
 
   return (
@@ -134,8 +168,20 @@ export default async function Statement({ partner }: { partner: StatementPartner
                 <div key={c.dedupeKey} className="px-5 py-4">
                   <div className="flex items-center justify-between mb-3">
                     <span className="font-medium text-gray-100">{c.clientName}</span>
-                    <Badge status={c.status} />
+                    {c.provisional ? (
+                      <span className="px-1.5 py-0.5 rounded text-[11px] bg-gray-800 text-gray-400">
+                        not final
+                      </span>
+                    ) : (
+                      <Badge status={c.status} />
+                    )}
                   </div>
+                  {c.provisional && (
+                    <p className="text-xs text-gray-500 mb-3 -mt-1">
+                      Some charges for this month are not priced yet, so the figures below are not
+                      final and nothing is owed on them yet. They will settle on a later statement.
+                    </p>
+                  )}
                   <dl className="text-sm">
                     {/* Only the line that applies. A DTC client has no
                         prep unit count and an FBA client has no order
@@ -155,6 +201,7 @@ export default async function Statement({ partner }: { partner: StatementPartner
                       emphasis
                     />
                   </dl>
+                  <Transactions rows={txByClientMonth.get(monthKey(c.clientId, m.period))} />
                 </div>
               ))}
 
@@ -193,6 +240,17 @@ export default async function Statement({ partner }: { partner: StatementPartner
         ))
       )}
 
+      {/* A statement that quietly dropped its oldest transactions is worse
+          than one that says so. The read is capped and ordered newest
+          first, so only the oldest can ever be missing. */}
+      {ledger.transactionsTruncated && (
+        <p className="text-xs text-gray-500">
+          Transaction lists show the most recent {fmtInt(TRANSACTION_LIMIT)} orders. Older months may
+          list fewer transactions than they contain — the monthly totals above are unaffected. Ask us
+          and we will send the full history.
+        </p>
+      )}
+
       {/* ---- How this is calculated ---- */}
       <section className="rounded-xl border border-gray-800 bg-gray-900/20 p-5 text-sm text-gray-400 leading-relaxed space-y-3">
         <h2 className="font-semibold text-gray-200">How this is calculated</h2>
@@ -207,17 +265,6 @@ export default async function Statement({ partner }: { partner: StatementPartner
           on that client&apos;s account, every month for {REFERRAL_TERMS.COMMISSION_MONTHS} months from their first paid
           invoice.
         </p>
-        {hasLaunchClient && (
-          <p>
-            <span className="text-gray-200">Launch offer.</span> One or more of the clients above qualified under
-            Shipo&apos;s launch offer. For those clients the one-time bonus is{' '}
-            <span className="text-gray-200">${FOUNDING_CLIENT_TERMS.BONUS}</span> instead of $
-            {REFERRAL_TERMS.SIGNUP_BONUS}, and their {(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}% begins in the
-            client&apos;s <span className="text-gray-200">second</span> month rather than their first — still{' '}
-            {REFERRAL_TERMS.COMMISSION_MONTHS} monthly payments in total. Everything else on this page works the same
-            way.
-          </p>
-        )}
         <p>
           <span className="text-gray-200">Net profit</span> means the amount invoiced to the client for the month, less
           the direct costs of serving that account — freight and carrier charges, packaging and prep materials, storage,
@@ -235,6 +282,63 @@ export default async function Statement({ partner }: { partner: StatementPartner
         </p>
       </section>
     </div>
+  )
+}
+
+/**
+ * The per-order list behind one client-month.
+ *
+ * Date, order number, amount billed. Nothing else, ever — see Decision 1
+ * of the design doc. `amount / quantity` on a line item IS the rate card,
+ * and the view this reads from has no cost column at all, so there is no
+ * per-order cost here to leak even by accident.
+ */
+function Transactions({ rows }: { rows?: LedgerTransaction[] }) {
+  if (!rows || rows.length === 0) return null
+
+  const ordered = rows.slice().sort((a, b) => b.first_charge_date.localeCompare(a.first_charge_date))
+
+  return (
+    <details className="mt-3 group">
+      <summary className="text-xs text-[#00AAFF] cursor-pointer select-none hover:underline">
+        {ordered.length === 1 ? '1 transaction' : `${ordered.length} transactions`}
+      </summary>
+      <div className="mt-2 rounded-lg border border-gray-800 overflow-hidden">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-gray-900/60 text-gray-500">
+              <th className="text-left font-medium px-3 py-1.5">Date</th>
+              <th className="text-left font-medium px-3 py-1.5">Order</th>
+              <th className="text-right font-medium px-3 py-1.5">Billed</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-800">
+            {ordered.map((t) => (
+              <tr key={t.order_id ?? `account:${t.period_month}`}>
+                <td className="px-3 py-1.5 text-gray-400 tabular-nums">{t.first_charge_date}</td>
+                <td className="px-3 py-1.5 text-gray-300">
+                  {/* order_id is nullable in order_charges: storage and
+                      other account-level charges have a client and a month
+                      but no order. Label them rather than print a blank. */}
+                  {t.order_number ?? (
+                    <span className="text-gray-500">Storage and account charges</span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-right text-gray-300 tabular-nums">
+                  {/* amount_billed reads LOW when a line is unpriced — sum()
+                      skips nulls — so a partial total is not shown as fact. */}
+                  {t.amount_unknown_charges > 0 ? (
+                    <span className="text-gray-500">not priced yet</span>
+                  ) : (
+                    fmt(Number(t.amount_billed ?? 0))
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   )
 }
 
