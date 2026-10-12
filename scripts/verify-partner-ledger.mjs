@@ -1,7 +1,16 @@
 // Read-only verification that supabase/partner_ledger.sql actually applied.
 //
-// Four questions, in order of what they'd cost if the answer is wrong:
+// Five questions. Question 0 comes first because it is about the INSTRUMENT
+// rather than the system: if a table that cannot exist reads back green, every
+// other answer below is noise that happens to look like evidence.
 //
+//  0. Does each table the portal reads exist — and, the part that is easy to
+//     skip, can this script TELL a missing table from an empty one? It asks
+//     for a real row, never a HEAD/`head: true` count. A HEAD request returns
+//     no body, so PostgREST's 42P01 never reaches the caller as an error and a
+//     MISSING table renders identically to an EMPTY one. That is not
+//     hypothetical: it is how the throwaway preview this check came from
+//     certified a control table that does not exist. Hence the control.
 //  1. Can anon or the partner-portal's `authenticated` role read these views?
 //     That is every referred client's revenue and margin joined to the
 //     partner who referred them, plus their order numbers. The SQL revokes
@@ -28,6 +37,24 @@ if (!url || !service) {
 }
 
 const VIEWS = ['partner_client_monthly', 'partner_order_transactions']
+
+// Every base table a partner session touches between opening /partner/login and
+// seeing a statement. The views are checked separately below; these are the
+// things the views and the login flow are built ON, and a missing one of these
+// fails the portal in a way the view checks would never name.
+const PORTAL_TABLES = [
+  'referral_partners',
+  'clients',
+  'order_charges',
+  'partner_login_codes',
+  'partner_sessions',
+  'referral_payouts',
+]
+
+// Does not exist and must never exist. Green here means the probe cannot see
+// absence, which makes every PASS above and below it meaningless.
+const CONTROL = 'zzz_control_must_not_exist'
+
 let failures = 0
 
 function pass(msg) { console.log(`PASS  ${msg}`) }
@@ -40,6 +67,69 @@ async function q(key, path, extraHeaders = {}) {
   let body = null
   try { body = await res.json() } catch { /* empty body is fine */ }
   return { status: res.status, body, range: res.headers.get('content-range') }
+}
+
+// Asks for an actual row and reads the status, so "missing" and "empty" land
+// in different branches. `Range: 0-0` keeps it to one row while still
+// returning an exact count in content-range.
+async function reach(table) {
+  const r = await q(service, `${table}?select=*&limit=1`, { Prefer: 'count=exact', Range: '0-0' })
+  return {
+    table,
+    exists: r.status === 200,
+    status: r.status,
+    count: r.status === 200 ? Number(r.range?.split('/')[1] ?? 0) : null,
+    detail: r.body?.code ? `${r.body.code}: ${r.body.message ?? ''}` : '',
+  }
+}
+
+// ---- 0. can this script see absence, and is the schema there ----------
+console.log('--- reachability ---')
+const control = await reach(CONTROL)
+let trustworthy = true
+if (control.exists) {
+  trustworthy = false
+  fail(
+    `the control table ${CONTROL} READ BACK (HTTP 200). It does not exist, so this ` +
+      'probe cannot distinguish a missing table from an empty one and NOTHING below ' +
+      'is evidence of anything. Fix the probe before believing any other line.',
+  )
+} else {
+  pass(`control ${CONTROL} is absent (HTTP ${control.status}) — missing is distinguishable from empty`)
+}
+
+for (const t of PORTAL_TABLES) {
+  const r = await reach(t)
+  if (!r.exists) {
+    fail(`${t} is UNREADABLE (HTTP ${r.status}) ${r.detail}`)
+  } else if (r.count === 0) {
+    // Deliberately not a failure. An empty partner_sessions is the normal
+    // state of a portal nobody has logged into yet. Said out loud anyway,
+    // because "exists" and "has data" are the two things most often confused
+    // when deciding whether this feature is ready.
+    pass(`${t} exists — EMPTY (0 rows)`)
+  } else {
+    pass(`${t} exists — ${r.count} row(s)`)
+  }
+}
+
+// Whether the views have anything to report on at all. A green run over zero
+// attributed clients means the plumbing is sound and the feature is still
+// invisible to every partner.
+const attributed = await q(service, 'clients?select=id&referral_partner_id=not.is.null', {
+  Prefer: 'count=exact',
+  Range: '0-0',
+})
+if (attributed.status !== 200) {
+  fail(`cannot count referred clients (HTTP ${attributed.status})`)
+} else {
+  const n = Number(attributed.range?.split('/')[1] ?? 0)
+  if (n === 0) {
+    console.log('      0 clients carry a referral_partner_id — the views will be empty by construction,')
+    console.log('      and an empty reconciliation below proves nothing about the SQL.')
+  } else {
+    pass(`${n} client(s) carry a referral_partner_id`)
+  }
 }
 
 // ---- 1. the exposure check -------------------------------------------
@@ -131,5 +221,9 @@ if (!counts[VIEWS[0]]) {
     `${rows.filter((r) => Number(r.cost_unknown_charges) > 0).length} with unknown deducted cost`)
 }
 
-console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`)
+if (!trustworthy) {
+  console.log('\nCONTROL FAILED — the probe cannot see absence. Read nothing above as a result.')
+} else {
+  console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`)
+}
 process.exit(failures === 0 ? 0 : 1)
