@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import BillingView from '@/components/billing/BillingView'
 
@@ -13,6 +14,27 @@ import BillingView from '@/components/billing/BillingView'
 // render is defensible on a dashboard; it is not defensible here. Composing a
 // bill from a database that is answering some questions and not others produces
 // a number that looks finished and is under-billed, and it gets sent.
+//
+// AND THE SAME ARGUMENT APPLIES TO A READ THAT WAS MERELY SHORT.
+//
+// Four of these five reads carried no .limit() and no .range(), which does not
+// mean "all rows" -- it means at most the server's `db-max-rows`, 1000 by
+// default, returned as a 200 with `error: null`. The refusal above is built on
+// `error` and never fires. So the invoice was short by an unknown amount for
+// exactly the reason the comment above says is indefensible, except that there
+// was no outage to blame and nothing to notice: the page looked healthy.
+//
+// Paged via readAllPages now, each read ending its sort keys with `.order('id')`
+// because an OFFSET page boundary on a non-unique sort column is undefined, and
+// `ship_date` ties by the hundreds. Without the tiebreaker, paging introduces a
+// duplicated billable line and a dropped one in place of the truncation.
+//
+// These reads are still UNBOUNDED by date, which is deliberate and is not the
+// same defect: BillingView holds every row and filters in the browser, because
+// the operator can select any period after the page has loaded. So the cost of
+// correctness here is round trips -- a few per table -- not a shorter answer.
+// Bounding them server-side means moving the date filter into the request, and
+// that is a change to BillingView, not to this file.
 
 async function getBillingData() {
   const now = new Date()
@@ -21,18 +43,18 @@ async function getBillingData() {
 
   const [clientsRes, shipmentsRes, warehouseRes, adjustmentsRes, billsRes] = await Promise.all([
     supabaseAdmin.from('clients').select('id, name').eq('active', true).order('name'),
-    supabaseAdmin.from('shipments')
+    readAllPages((from, to) => supabaseAdmin.from('shipments')
       .select('client_id, order_number, ship_date, carrier, service, actual_cost, client_rate, profit_loss, is_loss')
-      .order('ship_date', { ascending: false }),
-    supabaseAdmin.from('warehouse_daily_log')
+      .order('ship_date', { ascending: false }).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
       .select('client_id, log_date, service_type, quantity, rate, total, notes')
-      .order('log_date', { ascending: false }),
-    supabaseAdmin.from('rate_adjustments')
+      .order('log_date', { ascending: false }).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
       .select('client_id, order_number, adjustment_amount, reason, adjustment_date, status')
-      .order('adjustment_date', { ascending: false }),
-    supabaseAdmin.from('bills')
-      .select('client_id, week_start, week_end, shipping_total, warehouse_total, adjustments_total, manual_total, grand_total, status')
-      .order('week_start', { ascending: false }),
+      .order('adjustment_date', { ascending: false }).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('bills')
+      .select('client_id, week_start, week_end, shipping_total, warehouse_total, adjustments_total, manual_charges_total, grand_total, status')
+      .order('week_start', { ascending: false }).order('id').range(from, to)),
   ])
 
   const clients = read('clients', clientsRes)

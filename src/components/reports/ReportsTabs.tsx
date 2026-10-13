@@ -88,13 +88,19 @@ type ReportAdjustment = {
   reason: string | null
   adjustment_date: string | null
   original_cost: Money
-  // UNVERIFIED, and the stronger of this file's two phantom columns.
-  // src/app/reports/page.tsx:31 selects `new_cost`; supabase/schema.sql:67
-  // declares `adjusted_cost`, shipstation.ts:582 writes `adjusted_cost`, and
-  // api/reports/download/route.ts:123 plus AdjustmentsClient.tsx read
-  // `adjusted_cost`. `new_cost` occurs nowhere else in the repo and in no
-  // migration. Typed because the select asks for it, not because it exists.
-  new_cost: Money
+  // Was `new_cost`, which occurs in no migration and which nothing writes.
+  // This was the stronger of this file's two phantom columns and it is now
+  // settled: schema.sql:67 declares `adjusted_cost`, shipstation.ts:620 WRITES
+  // `adjusted_cost`, and api/reports/download/route.ts and
+  // AdjustmentsClient.tsx both read it. Only this page's select disagreed.
+  //
+  // Reading the column the writer writes is correct whether or not `new_cost`
+  // exists -- see the note on `manual_charges_total` below, which is the same
+  // argument. If it does not exist the select was a 42703, which read() turns
+  // into an error, which makes reports/page.tsx refuse the whole screen: six
+  // reads feed six tabs and any one failing blanks all of them, which is what
+  // "Reports is not working" looks like.
+  adjusted_cost: Money
   adjustment_amount: Money
   status: string | null
 }
@@ -106,10 +112,12 @@ type ReportBill = {
   shipping_total: Money
   warehouse_total: Money
   adjustments_total: Money
-  // UNVERIFIED -- schema.sql:111 declares `manual_charges_total`. Same note as
-  // the one on BillingView's BillingBill; both page selects carry it and no
-  // migration defines it.
-  manual_total: Money
+  // Was `manual_total`. Same reasoning as the note on BillingView's BillingBill:
+  // calculator.ts:298 is the only writer to `bills` and it writes
+  // `manual_charges_total`, so reading that name is right whether or not a
+  // `manual_total` column also exists -- and if it does not, this select has
+  // been failing with 42703 since the initial commit.
+  manual_charges_total: Money
   grand_total: Money
   status: string | null
 }
@@ -486,7 +494,7 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<Repor
                 <td className="px-4 py-2.5 text-gray-300 text-xs">{a.reason ?? 'Carrier reweigh'}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(a.original_cost)}</td>
-                <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(a.new_cost)}</td>
+                <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(a.adjusted_cost)}</td>
                 <td className="px-4 py-2.5 text-right font-bold text-orange-400">{formatSignedPrice(a.adjustment_amount)}</td>
                 <td className="px-4 py-2.5 text-center">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge(a.status)}`}>{a.status}</span>
@@ -544,7 +552,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBil
                 <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.shipping_total)}</td>
                 <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.warehouse_total)}</td>
                 <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.adjustments_total)}</td>
-                <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.manual_total)}</td>
+                <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.manual_charges_total)}</td>
                 <td className="px-4 py-2.5 text-right font-bold">{formatPrice(b.grand_total)}</td>
                 <td className="px-4 py-2.5 text-center">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge(b.status)}`}>{b.status}</span>

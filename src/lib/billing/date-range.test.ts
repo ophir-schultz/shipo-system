@@ -116,10 +116,12 @@ describe('filterByDate', () => {
     })
 
     it('counts as undated when the column is absent entirely', () => {
-      // Both pages select `manual_total` and `new_cost`, neither of which is in
-      // schema.sql. A select that quietly lacks a column must not read as a
-      // date of ''; '' compares less than every real date and would silently
-      // drop every row while reporting nothing.
+      // Both pages used to select `manual_total` and `new_cost`, neither of
+      // which is in schema.sql and neither of which anything writes; both
+      // selects now name the written column. The case stands on its own
+      // regardless: a select that quietly lacks a column must not read as a
+      // date of '', because '' compares less than every real date and would
+      // silently drop every row while reporting nothing.
       const r = filterByDate([{ id: 'a' } as unknown as Row], 'ship_date', '2026-10-01', '2026-10-31')
       expect(r.rows).toEqual([])
       expect(r.undated).toBe(1)

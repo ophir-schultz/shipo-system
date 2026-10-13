@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ReportsTabs from '@/components/reports/ReportsTabs'
 
@@ -13,6 +14,28 @@ import ReportsTabs from '@/components/reports/ReportsTabs'
 // So the page refuses before the export button exists at all. Six reads feed
 // six tabs and any one of them failing blanks the whole thing, because the
 // person about to export has no way to know which tab was the blind one.
+//
+// THE LIMITS THAT USED TO BE HERE.
+//
+// Three of these reads carried `.limit(200)`, `.limit(50)` and `.limit(200)`,
+// and two carried no limit at all -- which is NOT "all rows", it is at most the
+// server's `db-max-rows` (1000 by default) returned as a 200 with `error: null`.
+// Neither kind of short read sets an error, so the refusal above passes both and
+// every tab rendered a prefix of its table as though it were the table.
+//
+// That is a different failure from the export's, and worse in one way: the
+// screen is what an operator checks a figure against. "Loss Shipments: 12" with
+// a 200-row cap in front of it is a number they will quote.
+//
+// All five are paged now, each ending its sort keys with `.order('id')` because
+// an OFFSET page boundary on a non-unique sort column is undefined and
+// `ship_date` ties by the hundreds -- without it, paging trades truncation for
+// a duplicated row and a dropped one.
+//
+// The caps are not replaced with bigger caps. If these tables grow to where
+// loading them all is too slow, the honest fix is a server-side period filter
+// (the export route already takes dateFrom/dateTo), not a row cap that the
+// screen does not disclose.
 
 async function getReportData() {
   const now = new Date()
@@ -21,21 +44,22 @@ async function getReportData() {
 
   const [clientsRes, shipmentsRes, lossRes, adjustmentsRes, billsRes, warehouseRes] = await Promise.all([
     supabaseAdmin.from('clients').select('id, name').eq('active', true).order('name'),
-    supabaseAdmin.from('shipments')
+    readAllPages((from, to) => supabaseAdmin.from('shipments')
       .select('order_number, clients(name), ship_date, carrier, service, tracking_number, actual_cost, client_rate, profit_loss, is_loss')
-      .order('ship_date', { ascending: false }).limit(200),
-    supabaseAdmin.from('shipments')
+      .order('ship_date', { ascending: false }).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('shipments')
       .select('order_number, clients(name), ship_date, carrier, service, actual_cost, client_rate, profit_loss')
-      .eq('is_loss', true).order('profit_loss', { ascending: true }),
-    supabaseAdmin.from('rate_adjustments')
-      .select('order_number, clients(name), reason, adjustment_date, original_cost, new_cost, adjustment_amount, status')
-      .order('adjustment_date', { ascending: false }),
-    supabaseAdmin.from('bills')
-      .select('clients(name), week_start, week_end, shipping_total, warehouse_total, adjustments_total, manual_total, grand_total, status')
-      .order('week_start', { ascending: false }).limit(50),
-    supabaseAdmin.from('warehouse_daily_log')
+      .eq('is_loss', true)
+      .order('profit_loss', { ascending: true }).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
+      .select('order_number, clients(name), reason, adjustment_date, original_cost, adjusted_cost, adjustment_amount, status')
+      .order('adjustment_date', { ascending: false }).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('bills')
+      .select('clients(name), week_start, week_end, shipping_total, warehouse_total, adjustments_total, manual_charges_total, grand_total, status')
+      .order('week_start', { ascending: false }).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
       .select('clients(name), log_date, service_type, quantity, rate, total, notes')
-      .order('log_date', { ascending: false }).limit(200),
+      .order('log_date', { ascending: false }).order('id').range(from, to)),
   ])
 
   const clients = read('clients', clientsRes)

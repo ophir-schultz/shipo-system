@@ -40,7 +40,7 @@ import { filterByDate, undatedNote } from '@/lib/billing/date-range'
 //
 // These describe what the two `.select()` strings in src/app/billing/page.tsx
 // ask for, which is not the same claim as what supabase/schema.sql defines --
-// see the note on `manual_total` below.
+// see the note on `manual_charges_total` below.
 type ClientOption = { id: string; name: string | null }
 
 type BillingShipment = {
@@ -84,19 +84,26 @@ type BillingBill = {
   shipping_total: Money
   warehouse_total: Money
   adjustments_total: Money
-  // UNVERIFIED. src/app/billing/page.tsx:34 selects `manual_total`, but
-  // supabase/schema.sql:111 declares the column as `manual_charges_total`, and
-  // `manual_total` appears in no migration in supabase/. calculator.ts:298
-  // writes `manual_charges_total` and api/reports/download/route.ts:146 reads
-  // it; only the two page selects disagree, both since the initial commit.
+  // Was `manual_total`, which no migration creates and no code writes.
   //
-  // If the live database matches schema.sql then PostgREST fails this whole
-  // select with 42703 and the bills read has never once succeeded. This field
-  // is typed because the select asks for it, which is all that is known; it is
-  // NOT evidence that the column exists. Settle it with
-  //   select column_name from information_schema.columns where table_name='bills';
-  // and then either fix the select or the schema file, not this type.
-  manual_total: Money
+  // Settled WITHOUT the database, because the answer is the same under both
+  // possibilities. The only writer to `bills` is calculator.ts:298 and it writes
+  // `manual_charges_total`:
+  //
+  //   If the live column is only `manual_charges_total` -- what schema.sql:111
+  //   declares -- the old select was a PostgREST 42703. read() turns that into
+  //   an error and billing/page.tsx refuses the WHOLE screen, by design. The
+  //   bills read had then never once succeeded, and "Billing is not working" is
+  //   precisely what that looks like from the outside.
+  //
+  //   If a `manual_total` column also exists, nothing has ever written to it, so
+  //   this cell showed blank under a heading claiming it was the manual charges
+  //   on the bill -- understated, beside a grand total that includes them.
+  //
+  // So this does not wait on supabase/verify/phantom_columns_verify.sql. Run
+  // that anyway, to find out whether a stray `manual_total` is sitting in the
+  // table holding nothing, and drop it if it is.
+  manual_charges_total: Money
   grand_total: Money
   status: string | null
 }
@@ -475,7 +482,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                         <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.shipping_total)}</td>
                         <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.warehouse_total)}</td>
                         <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.adjustments_total)}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.manual_total)}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.manual_charges_total)}</td>
                         <td className="px-4 py-2.5 text-right font-bold">{formatPrice(b.grand_total)}</td>
                         <td className="px-4 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${

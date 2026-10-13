@@ -154,6 +154,118 @@ describe('GET /api/reports/download: a read that failed is not an empty month', 
   })
 })
 
+// A read that was TRUNCATED, as distinct from one that failed.
+//
+// The refusal above is built on `error`, and a capped read does not set one:
+// PostgREST returns the server's `db-max-rows` as a 200 with `error: null`, so
+// every gate in this route passes it. The resulting workbook is complete,
+// well-formed and short -- the one failure mode that survives the fix above,
+// and the one an invoice is actually built from.
+//
+// The fake database does not model a row cap, so none of these assert "2500 rows
+// came back" against an unpaginated read: it would come back either way. What
+// discriminates is that the route makes SEVERAL contiguous requests instead of
+// one, which is the only thing a capped server responds to.
+describe('GET /api/reports/download: a truncated read is not an empty month either', () => {
+  /** `n` shipments in the window, distinguishable, with ship_date all equal. */
+  function seedShipments(n: number) {
+    h.db = createFakeSupabase({
+      ...structuredClone(EMPTY_TABLES),
+      shipments: Array.from({ length: n }, (_, i) => ({
+        id: `s${String(i).padStart(5, '0')}`,
+        order_number: `ORD-${i}`,
+        // Deliberately IDENTICAL across every row. This is the real shape of
+        // the data -- a day's labels all carry one ship_date -- and it is the
+        // condition under which an OFFSET page boundary is undefined.
+        ship_date: '2026-10-12',
+        carrier: 'ups', service: 'ground', actual_cost: 1, client_rate: 2,
+        profit_loss: 1, is_loss: false, source: 'shipstation', client_id: 'c1',
+      })),
+    })
+  }
+
+  const readsOf = (table: string) =>
+    h.db.calls.filter(c => c.table === table && c.verb === 'select')
+
+  it('reads a period of 2500 shipments in pages and exports all of them', async () => {
+    seedShipments(2500)
+
+    const res = await GET(url({ type: 'shipments', dateFrom: FROM, dateTo: TO }))
+    expect(res.ok).toBe(true)
+
+    // The discriminating assertion. One request means one page means whatever
+    // the server felt like returning.
+    const reads = readsOf('shipments')
+    expect(reads.length).toBeGreaterThan(1)
+    // Contiguous and advancing: a loop that re-asked for [0, 999] forever would
+    // also make several requests, and would hang or duplicate.
+    expect(reads.map(c => c.range)).toEqual([
+      [0, 999], [1000, 1999], [2000, 2999], [2500, 3499],
+    ])
+
+    const rows = await sheetRows(res)
+    expect(rows).toHaveLength(2500)
+    // Not only the count. A page boundary that repeated a row would still give
+    // 2500 and would be one billable line charged twice and another dropped.
+    expect(new Set(rows.map(r => r['Order #'])).size).toBe(2500)
+  })
+
+  it('orders every paged read by a UNIQUE column last', async () => {
+    // Postgres does not promise a stable row order across two OFFSET queries
+    // sorted on a non-unique column, and every sort key this route uses --
+    // ship_date, profit_loss, adjustment_date, week_start, log_date -- has
+    // thousands of ties. Paging without a tiebreaker is how you get a
+    // duplicated line and a missing one with a plausible row count.
+    //
+    // Asserted per type, because the tiebreaker is one call per branch and six
+    // branches are six chances to forget it.
+    for (const [type, table] of [
+      ['shipments', 'shipments'],
+      ['profit-loss', 'shipments'],
+      ['loss-shipments', 'shipments'],
+      ['adjustments', 'rate_adjustments'],
+      ['billing', 'bills'],
+      ['warehouse', 'warehouse_daily_log'],
+    ] as const) {
+      h.db = createFakeSupabase(structuredClone(EMPTY_TABLES))
+
+      await GET(url({ type, dateFrom: FROM, dateTo: TO }))
+
+      const reads = readsOf(table)
+      expect(reads.length, `${type} did not read ${table}`).toBeGreaterThan(0)
+      for (const call of reads) {
+        expect(call.range, `${type}: an unpaged read of ${table}`).toBeDefined()
+        expect(call.sort.length, `${type}: ${table} read with no ordering`)
+          .toBeGreaterThan(0)
+        expect(call.sort[call.sort.length - 1].column,
+          `${type}: ${table} paged without a unique tiebreaker`).toBe('id')
+      }
+    }
+  })
+
+  it('writes NO FILE when a LATER page fails', async () => {
+    // The rows already read are a PREFIX of the answer. Returning them would be
+    // the original defect with extra steps: a workbook of the first thousand
+    // shipments of a month that has 2500, with nothing saying so. This is the
+    // case a per-read `if (error)` check at the top would miss entirely.
+    seedShipments(2500)
+    let seen = 0
+    h.db.failOn = (call) => {
+      if (call.table !== 'shipments') return null
+      seen++
+      return seen >= 2 ? { message: 'terminating connection due to administrator command' } : null
+    }
+
+    const res = await GET(url({ type: 'shipments', dateFrom: FROM, dateTo: TO }))
+
+    expect(res.status).toBe(502)
+    const text = await bodyText(res)
+    expect(text).not.toContain('No records found')
+    expect(text).toContain('shipments')
+    expect(res.headers.get('content-disposition')).toBeNull()
+  })
+})
+
 describe('GET /api/reports/download: a bad request is not an empty month either', () => {
   it('refuses an unknown report type instead of exporting "No Data"', async () => {
     // An unrecognised type fell through all six branches and left rows empty.

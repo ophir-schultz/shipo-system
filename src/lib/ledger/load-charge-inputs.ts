@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { readAllPages, type PageResult } from '@/lib/db/page'
 import { classifySku } from '@/lib/billing/classify-sku'
 import { warehouseParts } from '@/lib/ledger/pick-date'
 import type { ChargeInput } from '@/lib/ledger/calculate-charges'
@@ -19,13 +20,7 @@ import type { CostRateRow } from '@/lib/ledger/cost-rate'
 //
 // So: every read is paginated, and every `.in()` is chunked.
 
-const PAGE_SIZE = 1000
 const IN_CHUNK = 200
-
-interface PageResult<T> {
-  data: T[] | null
-  error: { message: string; code?: string } | null
-}
 
 // Which hand-applied file introduces each thing this loader reads. There is no
 // migration runner in this project (docs/superpowers/global-constraints.md):
@@ -64,43 +59,40 @@ function migrationHint(message: string): string | null {
        + `charges were written and nothing was deleted.`
 }
 
+/**
+ * The paging loop, plus the two things only this loader can say about a failure.
+ *
+ * The loop itself now lives in src/lib/db/page.ts, because the report export and
+ * the billing screen need exactly the same rule and a second copy of it would be
+ * a second thing to get wrong. What stays here is what is specific to the charge
+ * calculator: it THROWS rather than returning a result, because its callers are
+ * a cron with no screen to render a refusal onto, and it names the migration
+ * file for a missing column, which only this loader's own dependency list can
+ * supply.
+ *
+ * Inspecting the error after the loop rather than per page is the same
+ * behaviour: readAllPages stops at the first page that fails and hands that
+ * error object back untouched, `code` and identity included — which is what
+ * persist-storage-charges.ts reads back off `cause`.
+ */
 export async function fetchAllPages<T>(
   what: string,
   page: (from: number, to: number) => PromiseLike<PageResult<T>>,
 ): Promise<T[]> {
-  const rows: T[] = []
-  let from = 0
-  for (;;) {
-    const { data, error } = await page(from, from + PAGE_SIZE - 1)
-    // A table whose row count is an exact multiple of PAGE_SIZE gets one more
-    // request past the end, because an empty page is the only reliable stop
-    // condition (see below). PostgREST answers that request with PGRST103,
-    // "requested range not satisfiable", rather than 200 []. That is end of
-    // table, not a failure, and treating it as one would fail the entire run on
-    // a row count nobody controls.
-    if (error?.code === 'PGRST103') return rows
-    // A missing column or table is not a transient read failure and it is not a
-    // bug in this file — it is a migration that has not been pasted in. Said
-    // plainly, with the file to run, because the alternative is an operator
-    // reading "column does not exist" and concluding the ledger is broken.
-    if (error && (error.code === '42703' || error.code === '42P01')) {
-      const hint = migrationHint(error.message)
-      if (hint) throw new Error(`loadChargeInputs: ${what}: ${hint}`, { cause: error })
-    }
-    // Wrapped rather than rethrown so the message says which read failed, with
-    // the original kept on `cause`. Without the table name, every one of these
-    // reads produces the same opaque PostgREST string.
-    if (error) throw new Error(`loadChargeInputs: ${what}: ${error.message}`, { cause: error })
-    const batch = data ?? []
-    rows.push(...batch)
-    // Advance by what came back, not by what was asked for. PostgREST caps a
-    // response at its own `db-max-rows`, so a server configured below PAGE_SIZE
-    // returns a short page on the FIRST request — and a `length < PAGE_SIZE`
-    // stop condition would read that as "end of table" and silently drop every
-    // remaining row. An empty page is the only reliable end marker.
-    if (batch.length === 0) return rows
-    from += batch.length
+  const { data, error } = await readAllPages(page)
+  // A missing column or table is not a transient read failure and it is not a
+  // bug in this file — it is a migration that has not been pasted in. Said
+  // plainly, with the file to run, because the alternative is an operator
+  // reading "column does not exist" and concluding the ledger is broken.
+  if (error && (error.code === '42703' || error.code === '42P01')) {
+    const hint = migrationHint(error.message)
+    if (hint) throw new Error(`loadChargeInputs: ${what}: ${hint}`, { cause: error })
   }
+  // Wrapped rather than rethrown so the message says which read failed, with
+  // the original kept on `cause`. Without the table name, every one of these
+  // reads produces the same opaque PostgREST string.
+  if (error) throw new Error(`loadChargeInputs: ${what}: ${error.message}`, { cause: error })
+  return data ?? []
 }
 
 function chunk<T>(xs: T[], size: number): T[][] {

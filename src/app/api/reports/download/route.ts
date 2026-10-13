@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
+import { readAllPages } from '@/lib/db/page'
 import { priceOf } from '@/lib/billing/unpriced'
 
 // The per-shipment sheets pass `s.client_rate` straight through, which is
@@ -36,6 +37,28 @@ import { priceOf } from '@/lib/billing/unpriced'
 // ReportsTabs.handleDownload already checks `res.ok` and shows `data.error`, so
 // a non-2xx with a JSON body surfaces as "Download failed: <reason>" and no
 // file is written. The client side was always ready for a route that says no.
+//
+// WHY EVERY READ IS PAGED, EVEN THOUGH THE REFUSAL ABOVE EXISTS.
+//
+// The refusal catches a read that FAILED. It cannot catch a read that was
+// TRUNCATED, and PostgREST truncates silently: every select here carried no
+// .limit() and no .range(), so each one returned at most the server's
+// `db-max-rows` -- 1000 by default -- as a 200 with `error: null`. The gate
+// above passes it, every column maps correctly, and the workbook is a complete,
+// well-formed, internally consistent record of the first thousand rows of the
+// month, with nothing in the file or on the screen saying so.
+//
+// For a client over a thousand shipments in a period that is an invoice short by
+// an unknown amount, in our favour or theirs, and it appears the moment the
+// table crosses the cap without anything changing in this code. So the reads are
+// paged via readAllPages, which keeps going until a page comes back empty.
+//
+// Each page builds a FRESH query, and each one ends its sort keys with
+// `.order('id')`. The tiebreaker is not cosmetic: Postgres does not promise a
+// stable row order between two OFFSET queries sorted on a non-unique column, and
+// `ship_date` has thousands of ties. Without it, page two can repeat a row page
+// one already returned and skip one it never did -- a billable line charged
+// twice and another dropped, with the row count still looking plausible.
 
 /**
  * The report types this route can actually build.
@@ -126,14 +149,15 @@ export async function GET(req: Request) {
 
   if (type === 'shipments') {
     sheetName = 'Shipments'
-    let q = supabaseAdmin
-      .from('shipments')
-      .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, recipient_city, recipient_state, weight, actual_cost, client_rate, profit_loss, is_loss, source')
-      .gte('ship_date', dateFrom!)
-      .lte('ship_date', dateTo!)
-      .order('ship_date', { ascending: false })
-    if (clientId) q = q.eq('client_id', clientId)
-    const { data, error } = await q
+    const { data, error } = await readAllPages((from, to) => {
+      let q = supabaseAdmin
+        .from('shipments')
+        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, recipient_city, recipient_state, weight, actual_cost, client_rate, profit_loss, is_loss, source')
+        .gte('ship_date', dateFrom!)
+        .lte('ship_date', dateTo!)
+      if (clientId) q = q.eq('client_id', clientId)
+      return q.order('ship_date', { ascending: false }).order('id').range(from, to)
+    })
     if (error) return unreadable('shipments', error.message)
     rows = (data ?? []).map((s: any) => ({
       'Order #': s.order_number,
@@ -156,13 +180,19 @@ export async function GET(req: Request) {
 
   else if (type === 'profit-loss') {
     sheetName = 'Profit & Loss'
-    let q = supabaseAdmin
-      .from('shipments')
-      .select('clients(name), ship_date, actual_cost, client_rate, profit_loss, is_loss')
-      .gte('ship_date', dateFrom!)
-      .lte('ship_date', dateTo!)
-    if (clientId) q = q.eq('client_id', clientId)
-    const { data, error } = await q
+    const { data, error } = await readAllPages((from, to) => {
+      let q = supabaseAdmin
+        .from('shipments')
+        .select('clients(name), ship_date, actual_cost, client_rate, profit_loss, is_loss')
+        .gte('ship_date', dateFrom!)
+        .lte('ship_date', dateTo!)
+      if (clientId) q = q.eq('client_id', clientId)
+      // This branch does not order its OUTPUT -- it rolls every row up by
+      // client -- but it still has to order its INPUT, or paging it is
+      // undefined. A roll-up is where a duplicated page hides best: the totals
+      // are simply wrong, and there is no row count to check them against.
+      return q.order('id').range(from, to)
+    })
     if (error) return unreadable('shipments (profit & loss)', error.message)
     const byClient: Record<string, any> = {}
     for (const s of data ?? []) {
@@ -193,15 +223,16 @@ export async function GET(req: Request) {
 
   else if (type === 'loss-shipments') {
     sheetName = 'Loss Shipments'
-    let q = supabaseAdmin
-      .from('shipments')
-      .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, actual_cost, client_rate, profit_loss')
-      .eq('is_loss', true)
-      .gte('ship_date', dateFrom!)
-      .lte('ship_date', dateTo!)
-      .order('profit_loss', { ascending: true })
-    if (clientId) q = q.eq('client_id', clientId)
-    const { data, error } = await q
+    const { data, error } = await readAllPages((from, to) => {
+      let q = supabaseAdmin
+        .from('shipments')
+        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, actual_cost, client_rate, profit_loss')
+        .eq('is_loss', true)
+        .gte('ship_date', dateFrom!)
+        .lte('ship_date', dateTo!)
+      if (clientId) q = q.eq('client_id', clientId)
+      return q.order('profit_loss', { ascending: true }).order('id').range(from, to)
+    })
     if (error) return unreadable('shipments (losses)', error.message)
     rows = (data ?? []).map((s: any) => ({
       'Order #': s.order_number,
@@ -218,14 +249,15 @@ export async function GET(req: Request) {
 
   else if (type === 'adjustments') {
     sheetName = 'Rate Adjustments'
-    let q = supabaseAdmin
-      .from('rate_adjustments')
-      .select('order_number, clients(name), original_cost, adjusted_cost, adjustment_amount, reason, adjustment_date, status, billed_to_client')
-      .gte('adjustment_date', dateFrom!)
-      .lte('adjustment_date', dateTo!)
-      .order('adjustment_date', { ascending: false })
-    if (clientId) q = q.eq('client_id', clientId)
-    const { data, error } = await q
+    const { data, error } = await readAllPages((from, to) => {
+      let q = supabaseAdmin
+        .from('rate_adjustments')
+        .select('order_number, clients(name), original_cost, adjusted_cost, adjustment_amount, reason, adjustment_date, status, billed_to_client')
+        .gte('adjustment_date', dateFrom!)
+        .lte('adjustment_date', dateTo!)
+      if (clientId) q = q.eq('client_id', clientId)
+      return q.order('adjustment_date', { ascending: false }).order('id').range(from, to)
+    })
     if (error) return unreadable('rate_adjustments', error.message)
     rows = (data ?? []).map((a: any) => ({
       'Order #': a.order_number,
@@ -242,14 +274,15 @@ export async function GET(req: Request) {
 
   else if (type === 'billing') {
     sheetName = 'Billing'
-    let q = supabaseAdmin
-      .from('bills')
-      .select('clients(name), week_start, week_end, shipping_total, warehouse_total, adjustments_total, manual_charges_total, grand_total, status')
-      .gte('week_start', dateFrom!)
-      .lte('week_end', dateTo!)
-      .order('week_start', { ascending: false })
-    if (clientId) q = q.eq('client_id', clientId)
-    const { data, error } = await q
+    const { data, error } = await readAllPages((from, to) => {
+      let q = supabaseAdmin
+        .from('bills')
+        .select('clients(name), week_start, week_end, shipping_total, warehouse_total, adjustments_total, manual_charges_total, grand_total, status')
+        .gte('week_start', dateFrom!)
+        .lte('week_end', dateTo!)
+      if (clientId) q = q.eq('client_id', clientId)
+      return q.order('week_start', { ascending: false }).order('id').range(from, to)
+    })
     if (error) return unreadable('bills', error.message)
     rows = (data ?? []).map((b: any) => ({
       'Client': b.clients?.name ?? '',
@@ -266,14 +299,15 @@ export async function GET(req: Request) {
 
   else if (type === 'warehouse') {
     sheetName = 'Warehouse Activity'
-    let q = supabaseAdmin
-      .from('warehouse_daily_log')
-      .select('clients(name), log_date, service_type, quantity, rate, total, notes')
-      .gte('log_date', dateFrom!)
-      .lte('log_date', dateTo!)
-      .order('log_date', { ascending: false })
-    if (clientId) q = q.eq('client_id', clientId)
-    const { data, error } = await q
+    const { data, error } = await readAllPages((from, to) => {
+      let q = supabaseAdmin
+        .from('warehouse_daily_log')
+        .select('clients(name), log_date, service_type, quantity, rate, total, notes')
+        .gte('log_date', dateFrom!)
+        .lte('log_date', dateTo!)
+      if (clientId) q = q.eq('client_id', clientId)
+      return q.order('log_date', { ascending: false }).order('id').range(from, to)
+    })
     if (error) return unreadable('warehouse_daily_log', error.message)
     rows = (data ?? []).map((w: any) => ({
       'Client': w.clients?.name ?? '',
