@@ -4,6 +4,18 @@ import { calcDimWeightOz, calcBilledWeightOz } from '@/lib/billing/dim-weight'
 import { sourceForCarrier } from '@/lib/ledger/carrier'
 import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
 import { loadStoreMap, decideAttribution } from '@/lib/sync/store-attribution'
+import { describeBlankLabel } from '@/lib/sync/label-identity'
+
+/**
+ * How many blank-order-number labels the result carries examples of.
+ *
+ * 20 because the alert is an email a person reads: enough that the realistic
+ * case (9 rows existed in total on 2026-10-13) is reported in full, few enough
+ * that a broken upstream store cannot produce an unreadable one. The count it
+ * sits beside is never capped, and the monitor states the shortfall rather than
+ * letting the list pass for the total.
+ */
+const BLANK_LABEL_EXAMPLES = 20
 
 // `skipped` exists so that "this run did nothing because another one is
 // already doing it" is distinguishable from "this run did nothing because
@@ -39,6 +51,21 @@ export interface ShipStationSyncResult {
   adjustmentErrors: number
   unknownCarrier: number
   blankOrderNumber: number
+  /**
+   * WHICH labels, up to BLANK_LABEL_EXAMPLES of them. Same reasoning as
+   * `unmappedStoreIds` below: the count names a quantity of work, this names the
+   * work. A blank order number is a missing ATTRIBUTE, not a missing identity --
+   * the row is still uniquely addressable by shipmentId, and every one measured
+   * on 2026-10-13 also carried a ShipStation orderId and a recipient that named
+   * the client. See lib/sync/label-identity.ts for what that measurement was.
+   *
+   * CAPPED, AND THE CAP IS NOT THE COUNT. `blankOrderNumber` above is always
+   * the true total; this array is examples, and the monitor says so when it
+   * renders fewer lines than the count. A bad sync day must not turn into a
+   * thousand-line alert email, and it must not turn into a quiet undercount
+   * either.
+   */
+  blankOrderNumberLabels: string[]
   skipped: boolean
   skipReason: string | null
 
@@ -97,6 +124,7 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
   const results: ShipStationSyncResult = {
     created: 0, updated: 0, adjustments: 0, refunds: 0,
     errors: 0, adjustmentErrors: 0, unknownCarrier: 0, blankOrderNumber: 0,
+    blankOrderNumberLabels: [],
     skipped: false, skipReason: null,
     attributed: 0, unmappedStore: 0, unmappedStoreIds: [],
     noStoreId: 0, attributionConflicts: 0, storeMapUnavailable: false,
@@ -338,7 +366,17 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
           }
 
           const orderNumber = String(s.orderNumber ?? '').trim()
-          if (!orderNumber) results.blankOrderNumber++
+          if (!orderNumber) {
+            results.blankOrderNumber++
+            // Collected AFTER the shipmentId guard above, deliberately: that
+            // guard is what makes shipmentId a positive integer, which is what
+            // lets describeBlankLabel promise a non-empty string for every
+            // label. A label refused by the guard never reaches here and is
+            // reported by failItem instead, with its orderNumber attached.
+            if (results.blankOrderNumberLabels.length < BLANK_LABEL_EXAMPLES) {
+              results.blankOrderNumberLabels.push(describeBlankLabel(s, shipmentId))
+            }
+          }
 
           const dims = s.dimensions ?? {}
           const lengthIn = dims.length ?? 0

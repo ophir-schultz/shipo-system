@@ -263,6 +263,122 @@ describe('GET /api/agent/monitor: a lost rate adjustment is not a lost shipment'
 // the same green line for each — and `✓ ShipStation sync: 0 new` read as
 // evidence of health is the precise mistake the rest of this file is a
 // post-mortem on.
+// A blank order number stops the sync matching a label to a Zenventory order,
+// so the shipment gets no client and no rate. The alert for it used to say the
+// shipments "can never be assigned a client or billed — this is unrecoverable
+// revenue until someone identifies them by hand in ShipStation", and BOTH of
+// those claims were false: measured 2026-10-13, all 9 such rows carried a
+// ShipStation orderId and a shipTo.name that named the client, and seven were
+// inbound RETURN labels to Shipo's own warehouse rather than uninvoiced outbound
+// revenue.
+//
+// These tests pin the correction in both directions. The alert must carry the
+// identification, and it must not overclaim in the opposite direction either --
+// nine rows at one store do not license telling the operator that blank labels
+// are returns.
+describe('GET /api/agent/monitor: blank order numbers say which labels', () => {
+  const withBlanks = (over: Record<string, unknown>) => ({
+    created: 0, updated: 0, adjustments: 0, refunds: 0,
+    errors: 0, unknownCarrier: 0, ...over,
+  })
+
+  it('puts the label descriptions in the alert, not just the count', async () => {
+    h.syncShipments.mockResolvedValue(withBlanks({
+      blankOrderNumber: 2,
+      blankOrderNumberLabels: [
+        'shipment 9101 · order 561469848 · to "SHIPO LLC - SUTEKA (#S7143)"',
+        'shipment 9102 · no ShipStation orderId · no recipient name',
+      ],
+    }))
+
+    const body = await run(cleanClientResult)
+    const alert = body.errors.find((e) => e.includes('no order number')) ?? ''
+
+    expect(alert).toContain('561469848')
+    expect(alert).toContain('SUTEKA')
+    // The second label too. An implementation that printed only the first would
+    // pass every assertion above and still hide labels from the operator.
+    expect(alert).toContain('shipment 9102')
+    expect(body.has_issues).toBe(true)
+  })
+
+  it('no longer claims the revenue is unrecoverable or the client unknowable', async () => {
+    // The specific wording that was wrong. Asserted as absences because the
+    // defect was an assertion the data did not support -- a test that only
+    // checked the new text would pass with the old sentence still appended.
+    h.syncShipments.mockResolvedValue(withBlanks({
+      blankOrderNumber: 1,
+      blankOrderNumberLabels: ['shipment 9101 · order 42 · to "X"'],
+    }))
+
+    const body = await run(cleanClientResult)
+    const alert = body.errors.find((e) => e.includes('no order number')) ?? ''
+
+    expect(alert).not.toContain('unrecoverable')
+    expect(alert).not.toContain('can never be')
+    // And not the opposite overclaim either: the monitor must not tell anyone
+    // these ARE returns, which is true of nine rows at one store and is not a
+    // rule.
+    //
+    // Asserted as the presence of the hedge rather than the absence of
+    // 'are returns'. The first draft used the absence, and it failed against
+    // correct text -- the message says "check whether they are returns before
+    // billing them", which contains that substring while claiming the opposite
+    // of what the assertion was policing. Same trap as 'no cell' being a prefix
+    // of 'no cell covering' in zones.test.ts, except this one fired instead of
+    // passing silently, because here the substring appears in the GOOD text.
+    expect(alert).toContain('whether they are returns')
+  })
+
+  it('states the shortfall when there are more blanks than examples', async () => {
+    // The count is uncapped and the example list is capped at 20
+    // (lib/sync/shipstation.ts BLANK_LABEL_EXAMPLES). A list silently shorter
+    // than the number above it reads as the complete set, and whoever works
+    // through it stops 5 labels early believing they are done.
+    h.syncShipments.mockResolvedValue(withBlanks({
+      blankOrderNumber: 25,
+      blankOrderNumberLabels: Array.from(
+        { length: 20 }, (_, i) => `shipment ${9200 + i} · order ${i} · to "X"`),
+    }))
+
+    const body = await run(cleanClientResult)
+    const alert = body.errors.find((e) => e.includes('no order number')) ?? ''
+
+    expect(alert).toContain('25')
+    expect(alert).toContain('5 more not listed')
+  })
+
+  it('says nothing extra when the count and the examples agree', async () => {
+    // The negative control for the line above: a shortfall notice that always
+    // fired would be indistinguishable from one that fires correctly, and would
+    // tell the operator there is hidden work when there is none.
+    h.syncShipments.mockResolvedValue(withBlanks({
+      blankOrderNumber: 1,
+      blankOrderNumberLabels: ['shipment 9101 · order 42 · to "X"'],
+    }))
+
+    const body = await run(cleanClientResult)
+    const alert = body.errors.find((e) => e.includes('no order number')) ?? ''
+
+    expect(alert).not.toContain('more not listed')
+  })
+
+  it('still reports the count when the sync sent no examples at all', async () => {
+    // Defensive: an older deployment of the sync, or a replayed result, has no
+    // blankOrderNumberLabels key. The finding must survive its evidence being
+    // absent -- degrading to the old count-only alert is acceptable, losing the
+    // alert is not.
+    h.syncShipments.mockResolvedValue(withBlanks({ blankOrderNumber: 3 }))
+
+    const body = await run(cleanClientResult)
+    const alert = body.errors.find((e) => e.includes('no order number')) ?? ''
+
+    expect(alert).toContain('3')
+    expect(alert).toContain('3 more not listed')
+    expect(body.has_issues).toBe(true)
+  })
+})
+
 describe('GET /api/agent/monitor: a sync that skipped on the lock', () => {
   it('says the ShipStation sync was skipped, rather than ticking a zero pass', async () => {
     h.syncShipments.mockResolvedValue({

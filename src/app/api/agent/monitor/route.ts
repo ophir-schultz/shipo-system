@@ -127,11 +127,46 @@ export async function GET(req: Request) {
     //
     // This is a per-run count of newly arrived shipments, so it is silent on a
     // healthy day rather than permanent furniture in the subject line.
+    //
+    // THE MESSAGE USED TO BE WRONG ABOUT BOTH OF ITS CLAIMS, and it is worth
+    // saying how, because the shape recurs. It read: "they can never be assigned
+    // a client or billed — this is unrecoverable revenue until someone
+    // identifies them by hand in ShipStation."
+    //
+    //   - "can never be assigned a client" was false. Every blank-order-number
+    //     row in the table on 2026-10-13 -- 9 of them, all at store 202015 --
+    //     carried a ShipStation orderId and a shipTo.name, and seven of the
+    //     names read "SHIPO LLC - SITNSTAND (RET-2026-118)". The client was
+    //     written on the label. The alert sent someone away to look up what was
+    //     already in the row.
+    //   - "unrecoverable revenue" was false in kind. Those seven were inbound
+    //     RETURN labels to Shipo's own warehouse. That is a cost to attribute,
+    //     not outbound revenue that went uninvoiced, and billing it at a client
+    //     shipping rate would be a different error.
+    //
+    // So the count is now accompanied by the labels themselves. What is NOT
+    // claimed is the inverse of the old overclaim: this does not say the
+    // shipments are returns or that they are recoverable. Nine rows at one store
+    // is a sample, not a rule, and a future blank label may well be real
+    // outbound revenue. It states what each row carries and stops.
     if (Number(syncResult.blankOrderNumber ?? 0) > 0) {
-      errors.push(`⚠ ${syncResult.blankOrderNumber} shipments arrived with no order `
-        + `number. They cannot be matched to a Zenventory order, so they can never be `
-        + `assigned a client or billed — this is unrecoverable revenue until someone `
-        + `identifies them by hand in ShipStation.`)
+      const labels = Array.isArray(syncResult.blankOrderNumberLabels)
+        ? syncResult.blankOrderNumberLabels as string[]
+        : []
+      const total = Number(syncResult.blankOrderNumber ?? 0)
+      // The shortfall is STATED. The array is capped at BLANK_LABEL_EXAMPLES
+      // (lib/sync/shipstation.ts) and the count is not, so a list quietly
+      // shorter than the number above it would read as the full set and send
+      // someone away believing they had seen everything.
+      const shortfall = total > labels.length
+        ? `\n  …and ${total - labels.length} more not listed here.`
+        : ''
+      errors.push(`⚠ ${total} shipments arrived with no order number, so the sync `
+        + `cannot match them to a Zenventory order and will not assign them a client `
+        + `or a rate. They are still identifiable: each carries a ShipStation orderId `
+        + `and a recipient, and the recipient name has in practice named the client. `
+        + `Attribute them by hand, and check whether they are returns before billing `
+        + `them.${labels.length > 0 ? `\n  ${labels.join('\n  ')}` : ''}${shortfall}`)
     }
 
     // ── Attribution findings ────────────────────────────────────────────────

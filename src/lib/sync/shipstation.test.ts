@@ -241,6 +241,58 @@ describe('syncShipments: running it twice over the same window', () => {
       .toEqual([9001, 9002])
   })
 
+  it('reports WHICH labels arrived blank, not just how many', async () => {
+    // The counter alone is unactionable in the same way "attribution problems:
+    // 47" was. Every blank-order-number row in the table on 2026-10-13 carried
+    // a ShipStation orderId and a recipient naming the client, so the alert can
+    // carry the identification instead of asking for it.
+    h.getShipments.mockResolvedValue({
+      shipments: [{
+        ...label(9101, ''),
+        orderId: 561469848,
+        shipTo: { name: 'SHIPO LLC - SUTEKA (#S7143)', company: 'SHIPO LLC' },
+      }],
+      pages: 1,
+    })
+
+    const r = await syncShipments(30)
+
+    expect(r.blankOrderNumber).toBe(1)
+    expect(r.blankOrderNumberLabels).toHaveLength(1)
+    expect(r.blankOrderNumberLabels[0]).toContain('561469848')
+    expect(r.blankOrderNumberLabels[0]).toContain('SUTEKA')
+  })
+
+  it('collects nothing for labels that do have an order number', async () => {
+    // The negative control. Without it, an implementation that described EVERY
+    // label would satisfy the test above exactly as well, and the alert would
+    // list a thousand healthy shipments as problems.
+    h.getShipments.mockResolvedValue({
+      shipments: [label(9102, 'ORDER-1'), label(9103, 'ORDER-2')], pages: 1,
+    })
+
+    const r = await syncShipments(30)
+
+    expect(r.blankOrderNumber).toBe(0)
+    expect(r.blankOrderNumberLabels).toEqual([])
+  })
+
+  it('caps the examples at 20 while still counting every blank label', async () => {
+    // The two numbers must be allowed to disagree, and the cap must be the one
+    // that gives. A cap applied to the COUNT would under-report the problem; a
+    // list grown without limit would be a thousand-line alert email. The
+    // monitor states the shortfall -- see its own test.
+    h.getShipments.mockResolvedValue({
+      shipments: Array.from({ length: 25 }, (_, i) => label(9200 + i, '')),
+      pages: 1,
+    })
+
+    const r = await syncShipments(30)
+
+    expect(r.blankOrderNumber).toBe(25)
+    expect(r.blankOrderNumberLabels).toHaveLength(20)
+  })
+
   it('records no rate adjustment when the cost has not changed', async () => {
     // The other way a re-run can grow the database. A cost that is identical is
     // not money moving, and `diff` of 0 must not write a rate_adjustments row --
