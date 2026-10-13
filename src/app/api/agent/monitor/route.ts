@@ -1,6 +1,21 @@
-// CRON COUPLING: vercel.json fires this route at 06:00, 14:00 and 20:00 UTC.
-// src/lib/ledger/pick-date.ts derives pick dates from those times via a
-// before-06:00-local rule. Change the schedule and you must change that rule.
+// CRON COUPLING: vercel.json fires this route every four hours, at 00:00,
+// 04:00, 08:00, 12:00, 16:00 and 20:00 UTC.
+//
+// Two other files are pinned to those times and must move with them:
+//   * src/lib/ledger/pick-date.ts derives pick dates from them via a
+//     before-06:00-local rule, which is only correct for schedules where no
+//     run assigns a window crossing local midnight to "today".
+//   * src/lib/ledger/persist-charges.ts restates them as CHARGE_CRON_HOURS_UTC
+//     so a scheduled run cannot be throttled out by browser polling.
+//
+// The second is ENFORCED, not merely documented: the "matches the schedule in
+// vercel.json" test in persist-charges.test.ts parses vercel.json off disk, so
+// editing the schedule alone turns the suite red. The pick-date rule is NOT
+// enforced by any test, because it rests on an assumption about the warehouse
+// that no test can check (nothing is picked between midnight and 06:00 local).
+// Re-derive it by hand, in BOTH daylight-saving regimes, before changing these
+// hours -- the local times shift by one in winter and the rule is stated in
+// local time.
 
 /**
  * Monitoring Agent — runs on a schedule via Vercel Cron.
@@ -24,7 +39,15 @@ import { syncClientAssignments } from '@/lib/sync/zenventory'
 import { sendEmail } from '@/lib/email'
 import { requireStaffOrCron } from '@/lib/require-staff'
 import { recalculateShipments, type RecalculateStats } from '@/lib/billing/recalculate'
-import { recalculateCharges, type RecalculateResult } from '@/lib/ledger/persist-charges'
+// CHARGE_CRON_HOURS_UTC is imported for the undelivered-report message, which
+// states how often this runs. Derived rather than written out, because that
+// sentence is read by a human deciding whether to act and the schedule has
+// already changed once underneath it.
+import {
+  recalculateCharges,
+  CHARGE_CRON_HOURS_UTC,
+  type RecalculateResult,
+} from '@/lib/ledger/persist-charges'
 import { loadChargeInputs } from '@/lib/ledger/load-charge-inputs'
 import { persistStorageCharges, type StorageResult } from '@/lib/ledger/persist-storage-charges'
 
@@ -752,8 +775,8 @@ export async function GET(req: Request) {
       + `'${emailResult.provider}': ${emailResult.error ?? 'unknown error'}). `
       + `Every finding above was computed and then discarded. Configure a mail `
       + `provider (RESEND_API_KEY, SENDGRID_API_KEY, or SMTP_*) or correct `
-      + `ALERT_EMAIL — until then this monitor is running three times a day and `
-      + `reporting to nobody.`)
+      + `ALERT_EMAIL — until then this monitor is running `
+      + `${CHARGE_CRON_HOURS_UTC.length} times a day and reporting to nobody.`)
   }
 
   return NextResponse.json({

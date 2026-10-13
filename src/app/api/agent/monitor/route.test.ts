@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createFakeSupabase, type FakeDb } from '@/lib/ledger/fake-supabase'
+// The real schedule, reaching this file through the partial mock below. See the
+// undelivered-report test for what it pins.
+import { CHARGE_CRON_HOURS_UTC } from '@/lib/ledger/persist-charges'
 
 // THE ROUTE HANDLER ITSELF, not a function extracted from it.
 //
@@ -40,7 +43,17 @@ vi.mock('@/lib/sync/zenventory', () => ({ syncClientAssignments: h.syncClientAss
 vi.mock('@/lib/email', () => ({ sendEmail: h.sendEmail }))
 vi.mock('@/lib/require-staff', () => ({ requireStaffOrCron: h.requireStaffOrCron }))
 vi.mock('@/lib/billing/recalculate', () => ({ recalculateShipments: h.recalculateShipments }))
-vi.mock('@/lib/ledger/persist-charges', () => ({ recalculateCharges: h.recalculateCharges }))
+// recalculateCharges is stubbed, but CHARGE_CRON_HOURS_UTC comes through REAL.
+// The handler interpolates its length into the undelivered-report message, so a
+// literal array here would be a second copy of the schedule and the assertion
+// below would be checking the message against a fixture rather than against
+// what production actually runs. importOriginal is safe despite this module
+// reaching for the database: '@/lib/supabase' above is mocked behind a getter,
+// so nothing is evaluated at import time.
+vi.mock('@/lib/ledger/persist-charges', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/ledger/persist-charges')>()),
+  recalculateCharges: h.recalculateCharges,
+}))
 vi.mock('@/lib/ledger/load-charge-inputs', () => ({ loadChargeInputs: h.loadChargeInputs }))
 vi.mock('@/lib/ledger/persist-storage-charges', () => ({
   persistStorageCharges: h.persistStorageCharges,
@@ -723,6 +736,14 @@ describe('GET /api/agent/monitor: the alert could not be delivered', () => {
     const line = body.errors.find((e) => e.includes('No email provider configured'))
     expect(line).toBeDefined()
     expect(body.has_issues).toBe(true)
+
+    // And the frequency it quotes has to be TRUE. This sentence tells a person
+    // how much they are not being told, so a stale number understates the
+    // damage -- and it HAS gone stale once already, when the schedule went from
+    // three runs a day to six. The handler derives it from
+    // CHARGE_CRON_HOURS_UTC; this asserts the claim against that same constant,
+    // so re-hardcoding the digit survives only until the schedule next moves.
+    expect(line).toContain(`${CHARGE_CRON_HOURS_UTC.length} times a day`)
   })
 
   it('still answers 200/ok on a clean run that WAS delivered (the control)', async () => {

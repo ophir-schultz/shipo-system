@@ -322,14 +322,14 @@ describe('recalculateCharges — the gates', () => {
   it('never throttles a scheduled cron run out', async () => {
     // THE PROPERTY: a browser-driven run must not consume the window a cron
     // was going to use. AutoSync polls every five minutes from every open tab,
-    // so a 13:30 run sits comfortably inside the 60-minute window that the
-    // 14:00 cron then falls in — and that scheduled run silently did not
+    // so an 11:30 run sits comfortably inside the 60-minute window that the
+    // 12:00 cron then falls in — and that scheduled run silently did not
     // happen. The crons are the system of record; they are never skipped.
     vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-09-30T14:00:00.000Z'))   // a cron firing
+    vi.setSystemTime(new Date('2026-09-30T12:00:00.000Z'))   // a cron firing
     h.db.tables.sync_runs = [
       { id: 'r1', source: 'charges', status: 'ok',
-        finished_at: '2026-09-30T13:30:00.000Z' },            // a browser poll
+        finished_at: '2026-09-30T11:30:00.000Z' },            // a browser poll
     ]
 
     const result = await recalculateCharges(async () => [order('order-a')])
@@ -544,6 +544,22 @@ describe('recalculateCharges — bookkeeping', () => {
 describe('chargeRunIsDue', () => {
   const at = (iso: string) => new Date(iso)
 
+  // The tests below pin concrete UTC times that have to BE scheduled firings
+  // for the assertion to mean anything -- a "due on a scheduled firing" test
+  // whose time is not a firing asserts the opposite of what it claims and
+  // still goes green for the wrong reason. This states the dependency, so a
+  // future schedule change fails here with a message naming the cause instead
+  // of three assertions failing for no visible reason. Checked once rather
+  // than per-test so the names below stay about behaviour.
+  it('uses times that are real firings in the current schedule', () => {
+    for (const hour of [0, 4, 12]) {
+      expect(
+        CHARGE_CRON_HOURS_UTC as readonly number[],
+        `the tests in this block assume ${hour}:00 UTC is a cron firing`,
+      ).toContain(hour)
+    }
+  })
+
   it('is due when nothing has ever succeeded', () => {
     expect(chargeRunIsDue(null, at('2026-09-30T09:00:00.000Z'))).toBe(true)
   })
@@ -555,14 +571,18 @@ describe('chargeRunIsDue', () => {
 
   it('is due on a scheduled firing regardless of how recent the last success was', () => {
     // One minute apart, which no age-based throttle would ever let through.
-    expect(chargeRunIsDue(at('2026-09-30T13:59:00.000Z'), at('2026-09-30T14:00:00.000Z'))).toBe(true)
+    expect(chargeRunIsDue(at('2026-09-30T11:59:00.000Z'), at('2026-09-30T12:00:00.000Z'))).toBe(true)
   })
 
-  it('crosses midnight — the 06:00 firing is a boundary against a 05:50 success', () => {
-    // lastScheduledFiring must fall back to yesterday's last hour when today's
-    // first has not come round, or the first cron of the day would be the one
-    // firing that a late-night browser poll could always throttle out.
-    expect(chargeRunIsDue(at('2026-09-30T05:50:00.000Z'), at('2026-09-30T06:00:00.000Z'))).toBe(true)
+  it('crosses midnight — the 00:00 firing is a boundary against a 23:50 success', () => {
+    // lastScheduledFiring must fall back to yesterday's hours when today's have
+    // not come round, or the first cron of the day would be the one firing that
+    // a late-night browser poll could always throttle out. The first firing is
+    // 00:00 UTC, so this is the case where the previous one is yesterday's.
+    expect(chargeRunIsDue(at('2026-09-29T23:50:00.000Z'), at('2026-09-30T00:00:00.000Z'))).toBe(true)
+    // And the converse: inside the window, with the firing already consumed by
+    // the last success, it is NOT due. 04:00 is a firing; the success is at the
+    // firing itself, so only the age rule could make this due, and it must not.
     expect(chargeRunIsDue(at('2026-09-30T04:00:00.000Z'), at('2026-09-30T04:30:00.000Z'))).toBe(false)
   })
 

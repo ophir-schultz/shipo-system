@@ -1,10 +1,13 @@
 /**
  * Deterministic identity for a row in `order_charges`.
  *
- * The monitor cron runs three times a day and recalculates charges each time.
- * An insert-only calculator would therefore triple every charge daily. The key
- * is derived from the record the charge is ABOUT, so the same input always
- * produces the same key and recalculation becomes an upsert.
+ * The monitor cron runs every four hours and recalculates charges each time. An
+ * insert-only calculator would therefore multiply every charge six times a day
+ * -- and far more than that, since browser polling calls the same route. The
+ * key is derived from the record the charge is ABOUT, so the same input always
+ * produces the same key and recalculation becomes an upsert. The exact number
+ * is not what the guarantee rests on: idempotency has to hold for any number of
+ * runs, which is why the schedule can change without this file changing.
  *
  * See the ledger spec, section 5.2.
  */

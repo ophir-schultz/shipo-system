@@ -6,7 +6,7 @@ import { buildCharges, type BuiltCharge, type ChargeInput } from '@/lib/ledger/c
 /**
  * How recently a charge run must have SUCCEEDED for this one to be skipped.
  *
- * This route is not called three times a day. AutoSync.tsx calls it on mount
+ * This route is not called six times a day. AutoSync.tsx calls it on mount
  * and then every five minutes, from every open browser tab, so a 30-day
  * recalculation was being driven ~288 times a day per tab and overlapping
  * routinely. One hour cuts browser-driven recalculations to at most 24 a day.
@@ -32,9 +32,12 @@ import { buildCharges, type BuiltCharge, type ChargeInput } from '@/lib/ledger/c
  *      not less.
  *
  *   2. A SCHEDULED RUN IS NEVER THROTTLED OUT. The earlier comment argued this
- *      from cron spacing — the crons are 6-10 hours apart — but the crons are
- *      not the only caller: a browser-driven run at 13:30 leaves the 14:00 cron
+ *      from cron spacing — the crons were 6-10 hours apart — but the crons are
+ *      not the only caller: a browser-driven run at 11:30 leaves the 12:00 cron
  *      inside the window, and that scheduled run then silently does not happen.
+ *      Note that the four-hour schedule makes this MORE likely, not less: the
+ *      throttle window is one hour and there are now six firings for it to
+ *      swallow instead of three.
  *      chargeRunIsDue() defeats the throttle whenever a scheduled firing has
  *      elapsed since the last success. That is a statement about the SCHEDULE
  *      rather than about the caller, so it cannot be bypassed — or accidentally
@@ -50,8 +53,13 @@ export const CHARGE_THROTTLE_MINUTES = 60
  * the same coupling. Being wrong here is bounded but real: an hour missing from
  * the list is an hour whose scheduled run can be throttled out again, which is
  * exactly the defect property 2 exists to close.
+ *
+ * Every four hours, so the figures on /dashboard are at worst four hours old
+ * rather than the eight, six and ten of the previous [6, 14, 20]. The spacing
+ * is even on purpose: "six times a day" is a statement about staleness, and
+ * uneven gaps make the worst case the only one that matters.
  */
-export const CHARGE_CRON_HOURS_UTC = [6, 14, 20] as const
+export const CHARGE_CRON_HOURS_UTC = [0, 4, 8, 12, 16, 20] as const
 
 /**
  * The most recent scheduled firing at or before `now`, in epoch milliseconds.

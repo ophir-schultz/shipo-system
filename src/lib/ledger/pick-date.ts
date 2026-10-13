@@ -5,13 +5,27 @@
  * all 391 orders sampled -- so the date is derived from when our own sync first
  * observed a picked quantity. See the ledger spec, section 3.5.
  *
- * THE BEFORE-06:00 RULE. The crons in vercel.json fire at 06:00, 14:00 and
- * 20:00 UTC. In the warehouse that is roughly 02:00, 10:00 and 16:00. A pick
- * finished at 17:00 Monday is therefore first seen by the 02:00 Tuesday run, so
- * a watermark set before 06:00 local is evidence about the day that just ended.
+ * THE BEFORE-06:00 RULE. The crons in vercel.json fire every four hours, at
+ * 00:00, 04:00, 08:00, 12:00, 16:00 and 20:00 UTC. In the warehouse that is
+ * 20:00, 00:00, 04:00, 08:00, 12:00 and 16:00 in summer, and an hour earlier
+ * in winter. A pick finished at 21:00 Monday is therefore first seen by the
+ * 00:00 Tuesday run, so a watermark set before 06:00 local is evidence about
+ * the day that just ended.
  *
  * THIS IS COUPLED TO vercel.json. If the cron times change, this rule changes
- * with them. vercel.json carries a comment pointing back here.
+ * with them.
+ *
+ * WHAT MAKES A SCHEDULE SAFE, so the next person does not have to guess. For
+ * each run, the picks it observes fall in the window since the previous run.
+ * The rule credits that whole window to one day: the previous day when the run
+ * lands before 06:00 local, today otherwise. A schedule is wrong exactly when
+ * some run's window crosses local midnight AND the run lands at or after 06:00
+ * local, because then a full previous working day is credited to today. The
+ * six hours above were checked against both daylight-saving regimes and no run
+ * does that. Note that vercel.json itself cannot carry this note -- it is JSON
+ * and has no comments -- so the pointers live in the two files that restate
+ * the schedule: src/app/api/agent/monitor/route.ts and
+ * src/lib/ledger/persist-charges.ts (CHARGE_CRON_HOURS_UTC).
  *
  * ASSUMPTION, NOT MEASUREMENT: that nothing is picked between midnight and 6am.
  * That is Ophir's account of how the warehouse runs, and the data cannot
@@ -91,8 +105,15 @@ export function watermarkPickDate(
  * either today or yesterday, and the before-06:00 rule above exists precisely
  * to decide that adjacency — so the watermark is either right or off by the one
  * day the rule is built to handle. Past 24 hours the error is unbounded in days
- * and nothing in the data can bound it. The crons are 8, 6 and 10 hours apart,
- * so this tolerates two consecutive missed runs and rejects an outage.
+ * and nothing in the data can bound it. The crons are now four hours apart, so
+ * this tolerates five consecutive missed runs and still rejects an outage.
+ *
+ * That tolerance got WIDER when the schedule went from three runs a day to six,
+ * which is worth being explicit about: 24 hours is a bound on how far wrong the
+ * watermark can be, not a bound on how many runs may be skipped, and it is the
+ * first of those two that this function exists to enforce. A tighter gap would
+ * detect a stalled cron sooner but would also start refusing to date picks
+ * during ordinary single-run hiccups, writing NULL where the answer was known.
  *
  * When it returns false the caller must leave pick_date NULL — unknown, which a
  * later real observation or a manual backfill can still fill — rather than
