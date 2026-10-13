@@ -30,6 +30,23 @@ function clearEnv() {
   delete process.env.VERCEL_PROJECT_PRODUCTION_URL
 }
 
+// Both routes below EXPLAIN the bugs they guard against in their comments, so
+// the first version of the delegation check failed on prose that describes the
+// thing it forbids. A grep over source counts its own prose. Comments are
+// therefore stripped first — and because the stripper is now what two checks
+// depend on, the control in each measures it instead of trusting it.
+//
+// Only whole-line comments and block comments go. A trailing `// ...` is left
+// alone deliberately: splitting a code line on `//` would also cut
+// 'https://host/path' in half and quietly blind the hostname assertions.
+function code(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+    .join('\n')
+}
+
 describe('partnerPortalUrl', () => {
   it('never points at shipousa.com — that host 404s on /partner/login', () => {
     clearEnv()
@@ -149,6 +166,37 @@ describe('sendPortalInvite', () => {
     expect(sent.text).not.toMatch(/\b\d{6}\b/)
     expect(sent.html).not.toMatch(/\b\d{6}\b/)
   })
+
+  it('sends a reply to the mailbox its own footer names', async () => {
+    vi.resetModules()
+    const sendEmail = vi.fn().mockResolvedValue({ sent: true, provider: 'resend' })
+    vi.doMock('@/lib/email', () => ({ sendEmail }))
+    const { sendPortalInvite: send } = await import('./partner-invite')
+
+    await send({ name: 'Dana Katz', email: 'dana@example.com' }, 'https://preview.example.com')
+
+    const sent = sendEmail.mock.calls[0][0]
+    // This email instructs the reader to reply, and the From address is a
+    // single env var shared by all system mail that defaults to security@.
+    // So the invite told the partner to write to us and then routed the
+    // answer to a mailbox it never named.
+    expect(sent.text).toMatch(/reply to this email/i)
+
+    // Asserted against the footer rather than against a literal, because the
+    // invariant is AGREEMENT: the address a reply reaches has to be the
+    // address the email printed. A hardcoded expectation here would keep
+    // passing after someone changed the footer, which is the drift that
+    // produced the bug in the first place.
+    const printed = [
+      ...new Set(
+        [...`${sent.text} ${sent.html}`.matchAll(/[\w.+-]+@shipousa\.com/g)].map((m) =>
+          m[0].toLowerCase(),
+        ),
+      ),
+    ]
+    expect(printed).toHaveLength(1)
+    expect(sent.replyTo?.toLowerCase()).toBe(printed[0])
+  })
 })
 
 describe('the staff route does not keep its own copy of the email', () => {
@@ -166,23 +214,6 @@ describe('the staff route does not keep its own copy of the email', () => {
     'src/app/api/referrals/portal-access/route.ts',
     'src/app/api/partner/agreement-webhook/route.ts',
   ]
-
-  // Both routes EXPLAIN the old bug in their comments, so the first version of
-  // this check failed on prose that describes the thing it forbids. A grep
-  // over source counts its own prose. Comments are therefore stripped first —
-  // and because the stripper is now what the check depends on, the two
-  // controls below measure it instead of trusting it.
-  //
-  // Only whole-line comments and block comments go. A trailing `// ...` is
-  // left alone deliberately: splitting a code line on `//` would also cut
-  // 'https://host/path' in half and quietly blind the hostname assertions.
-  function code(src: string): string {
-    return src
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .split('\n')
-      .filter((line) => !/^\s*(\/\/|\*)/.test(line))
-      .join('\n')
-  }
 
   it('the comment stripper keeps string literals and drops prose', () => {
     expect(code("  const u = 'https://shipousa.com/partner/login'\n")).toContain(
@@ -203,4 +234,36 @@ describe('the staff route does not keep its own copy of the email', () => {
       expect(src).not.toContain('shipousa.com')
     })
   }
+})
+
+describe('the login-code email also replies to the mailbox it names', () => {
+  // The other partner-facing email. It builds its body inline inside a route
+  // handler that reaches Supabase on every path, so there is no way to call it
+  // from here and read the payload — hence a source-level check. What it
+  // guards is the same agreement as the invite test above: one address
+  // printed, and replies going to that address rather than to the shared
+  // security@ From.
+  const path = 'src/app/api/partner/request-code/route.ts'
+
+  it('the comment stripper is still the thing doing the stripping', () => {
+    // Control. This route's own comments name both mailboxes while explaining
+    // the choice, so without stripping the assertions below would be
+    // satisfied by the prose and would hold after the code stopped agreeing
+    // with it.
+    expect(code("    replyTo: 'Support@shipousa.com',\n")).toContain('Support@shipousa.com')
+    expect(code('    // security@ is not a staffed mailbox\n')).not.toContain('security@')
+  })
+
+  it('names exactly one address and points replies at it', () => {
+    const src = code(readFileSync(path, 'utf8'))
+
+    const printed = [
+      ...new Set([...src.matchAll(/[\w.+-]+@shipousa\.com/g)].map((m) => m[0].toLowerCase())),
+    ]
+    expect(printed).toHaveLength(1)
+
+    const replyTo = src.match(/replyTo:\s*'([^']+)'/)?.[1]
+    expect(replyTo).toBeDefined()
+    expect(replyTo?.toLowerCase()).toBe(printed[0])
+  })
 })

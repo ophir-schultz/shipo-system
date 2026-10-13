@@ -5,6 +5,32 @@ export interface SendEmailOptions {
   subject: string
   html: string
   text?: string
+  /**
+   * Where a reply should go, when that is not the From address.
+   *
+   * The From address is one env var shared by every email the system
+   * sends, and it defaults to security@. The partner emails tell the
+   * reader "just reply to this email" and print Support@shipousa.com in
+   * their own footer, so without this the two sentences disagreed and
+   * the reader's reply went to the wrong mailbox for doing as it asked.
+   */
+  replyTo?: string
+}
+
+/**
+ * Split `Name <addr@host>` for the one provider that wants the parts
+ * separately. A bare address yields no name at all rather than a name
+ * equal to the address, which is what SendGrid would otherwise render
+ * as `addr@host <addr@host>`.
+ *
+ * The `from` parsing below is deliberately left as it was instead of
+ * being folded in here: it has the bare-address quirk this avoids, and
+ * changing it would alter the payload of every email already going out.
+ */
+function splitAddress(addr: string): { email: string; name?: string } {
+  const m = addr.match(/^\s*(.*?)\s*<(.+)>\s*$/)
+  if (!m) return { email: addr.trim() }
+  return { email: m[2].trim(), name: m[1] || undefined }
 }
 
 /**
@@ -36,6 +62,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<{ sent: boolean
           subject: opts.subject,
           html: opts.html,
           text: opts.text,
+          ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
         }),
       })
       if (!res.ok) {
@@ -63,6 +90,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<{ sent: boolean
             ...(opts.text ? [{ type: 'text/plain', value: opts.text }] : []),
             { type: 'text/html', value: opts.html },
           ],
+          ...(opts.replyTo ? { reply_to: splitAddress(opts.replyTo) } : {}),
         }),
       })
       if (!res.ok) {
@@ -80,7 +108,14 @@ export async function sendEmail(opts: SendEmailOptions): Promise<{ sent: boolean
         secure: Number(process.env.SMTP_PORT ?? 587) === 465,
         auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
       })
-      await transport.sendMail({ from, to: opts.to, subject: opts.subject, html: opts.html, text: opts.text })
+      await transport.sendMail({
+        from,
+        to: opts.to,
+        subject: opts.subject,
+        html: opts.html,
+        text: opts.text,
+        ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+      })
       return { sent: true, provider: 'smtp' }
     }
 
@@ -92,7 +127,14 @@ export async function sendEmail(opts: SendEmailOptions): Promise<{ sent: boolean
         secure: Number(process.env.SUPABASE_SMTP_PORT ?? 587) === 465,
         auth: { user: process.env.SUPABASE_SMTP_USER, pass: process.env.SUPABASE_SMTP_PASS },
       })
-      await transport.sendMail({ from, to: opts.to, subject: opts.subject, html: opts.html, text: opts.text })
+      await transport.sendMail({
+        from,
+        to: opts.to,
+        subject: opts.subject,
+        html: opts.html,
+        text: opts.text,
+        ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+      })
       return { sent: true, provider: 'supabase-smtp' }
     }
 

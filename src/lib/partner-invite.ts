@@ -75,6 +75,11 @@ export async function sendPortalInvite(
   return sendEmail({
     to: partner.email,
     subject: 'Your Shipo partner statement is ready',
+    // This email says "just reply to this email" and prints Support@ in its
+    // footer, while the From address is one shared env var defaulting to
+    // security@. Without this, the partner who does exactly what the email
+    // asks reaches a mailbox the email never named.
+    replyTo: 'Support@shipousa.com',
     text:
       `Hi ${firstName},\n\n` +
       `Your Shipo partner portal is now open. It shows every client you referred, ` +

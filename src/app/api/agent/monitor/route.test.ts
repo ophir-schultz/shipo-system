@@ -676,7 +676,7 @@ describe('GET /api/agent/monitor: a charge run that wrote nothing', () => {
 //
 // sendEmail() never throws: with no provider configured it returns
 // { sent: false, provider: 'none', error: 'No email provider configured' }
-// (lib/email.ts:99). The handler's only response was
+// (lib/email.ts:141). The handler's only response was
 //
 //     log.push(`📧 Email → ${ALERT_TO}: ... FAILED (${err})`)
 //

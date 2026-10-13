@@ -129,6 +129,13 @@ export async function POST(req: Request) {
   const result = await sendEmail({
     to: partner.email as string,
     subject: `${code} is your Shipo partner login code`,
+    // Support@ is the only address this email names -- in its own footer, and
+    // in the 502 below that tells a partner to write there when no code
+    // arrives. A reply here is either "this code doesn't work" or "I didn't
+    // ask for this", and both want a staffed mailbox. security@ is not one:
+    // it is the default From identity shared by all system mail, so a reply
+    // that landed there would be addressed to nobody in particular.
+    replyTo: 'Support@shipousa.com',
     text:
       `Hi ${firstName},\n\n` +
       `Your Shipo partner portal code is ${code}\n\n` +
