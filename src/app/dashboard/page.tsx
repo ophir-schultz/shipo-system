@@ -88,6 +88,18 @@ function buildClientBreakdown(clients: any[], shipments: any[], warehouse: any[]
   }).sort((a, b) => b.revenue - a.revenue)
 }
 
+// Without this line Next prerendered this page at build time -- fifteen reads
+// baked into static HTML and frozen until the next deploy. See the long note on
+// the same line in src/app/reports/page.tsx for how it was found and how to
+// check it stayed fixed.
+//
+// This page is the worst of the four to freeze, because it is the first screen
+// anyone opens and because it computes `weekStart` from `new Date()`. Prerendered,
+// that Date was the BUILD's clock: the headline said "this week" and showed the
+// week the last deploy happened in, which stops being this week on the following
+// Monday whether or not anyone deploys again.
+export const dynamic = 'force-dynamic'
+
 async function getDashboardData() {
   const now = new Date()
   const weekStart = new Date(now)

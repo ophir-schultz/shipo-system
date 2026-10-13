@@ -58,6 +58,32 @@ import ReportsTabs from '@/components/reports/ReportsTabs'
 // actually named Unknown. The id is the thing the export filters on, so it is
 // the thing the screen must filter on.
 
+// WITHOUT THIS LINE THIS SCREEN SHOWED DEPLOY-TIME DATA.
+//
+// Nothing in this file read searchParams, cookies or headers, so Next had no
+// reason to think the page was request-dependent and prerendered it: `next
+// build` emitted a 816 KB .next/server/app/reports.html with real order
+// numbers baked into it, and the route table said `○ /reports` (Static). There
+// is no `revalidate` here and no ISR, so static means frozen until the next
+// deploy -- every shipment the crons wrote in between was invisible, on the one
+// screen whose whole purpose is to be checked before money goes out.
+//
+// That is what "reports is not working" looks like from the outside: the tabs
+// render, the figures are plausible, and they are hours or days old. It is also
+// why the bug survived -- a deploy refreshes it, so it looks fine right after
+// anyone ships a fix for something else.
+//
+// This is not a Next quirk, it is a line this file never had. Every page in
+// this app that reads the database on the server and is NOT stale carries the
+// same line already -- /statements, /ledger, /pnl, /quotes, /referrals -- or
+// reads searchParams, which forces it implicitly (/shipments). /billing,
+// /dashboard and /employees were frozen the same way and are fixed in the same
+// change.
+//
+// Checked by the route table, not by eye: this route must print as `ƒ` and
+// .next/server/app/reports.html must not exist after a build.
+export const dynamic = 'force-dynamic'
+
 async function getReportData() {
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]

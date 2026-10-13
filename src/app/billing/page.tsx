@@ -36,6 +36,18 @@ import BillingView from '@/components/billing/BillingView'
 // Bounding them server-side means moving the date filter into the request, and
 // that is a change to BillingView, not to this file.
 
+// Without this line Next prerendered this page at build time -- all five reads
+// baked into a static .next/server/app/billing.html and frozen until the next
+// deploy, which is what "billing is not working" looked like from the outside.
+// See the long note on the same line in src/app/reports/page.tsx for how it was
+// found, why nothing on screen looked wrong, and how to check it stayed fixed.
+//
+// Note this interacts with the paragraph above: the reads are unbounded by date
+// BECAUSE the operator picks the period in the browser after load. That is only
+// defensible if the load is fresh. Prerendered, it meant every period the
+// operator could select was served out of one deploy-time snapshot.
+export const dynamic = 'force-dynamic'
+
 async function getBillingData() {
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]

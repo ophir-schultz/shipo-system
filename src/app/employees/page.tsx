@@ -2,6 +2,17 @@ import { supabaseAdmin } from '@/lib/supabase'
 import EmployeesClient from './EmployeesClient'
 import MfaSetup from '@/components/auth/MfaSetup'
 
+// Without this line Next prerendered this page at build time, so the staff list
+// was the list as of the last deploy: an employee added through this screen did
+// not appear on it, and one removed still did. See the long note on the same
+// line in src/app/reports/page.tsx for how it was found.
+//
+// This one is a security consideration and not only a stale-data one. The list
+// comes from `auth.admin.listUsers()`, so a revoked account kept showing as
+// current staff, and prerendering wrote names and email addresses into a static
+// HTML file on disk rather than rendering them per authenticated request.
+export const dynamic = 'force-dynamic'
+
 export default async function EmployeesPage() {
   const { data: users } = await supabaseAdmin.auth.admin.listUsers()
 
