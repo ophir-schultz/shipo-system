@@ -39,9 +39,55 @@
 -- of it, which is what every previous check of mine went through.
 -- ============================================================
 
+-- ============================================================
+-- PART B -- WHY WILL IT NOT WRITE?
+--
+-- Answered part A on 2026-10-13: db=postgres clients=9
+-- order_charges=265 w9_exists=false partners=0. The fingerprint
+-- matches, and w9_exists came from information_schema inside the
+-- editor's own session, so the editor IS pointed at the database the
+-- app reads, and the `alter table` is simply not committing there.
+--
+-- The pattern to explain: every READ has worked in that session, and
+-- every WRITE has left no trace. Only a few mechanisms do that, and
+-- they are told apart by facts the session can report about itself.
+--
+--   txn_read_only = on
+--       The session is inside a READ ONLY transaction, so postgres
+--       refuses any DDL or DML with SQLSTATE 25006 while allowing
+--       every select. This fits the observed pattern exactly.
+--
+--   default_read_only = on
+--       Same, but set as the connection default rather than per
+--       transaction -- worth separating, because the fix is in a
+--       different place.
+--
+--   owns_table = false
+--       current_user is not a member of the role owning
+--       referral_partners, so ALTER TABLE is refused as "must be
+--       owner of table" -- which also blocks DDL while leaving reads
+--       working. The owner is printed so the two can be compared
+--       rather than assumed.
+--
+-- This query is itself read-only, so it runs regardless of which of
+-- those is true -- which is the point. A diagnostic that needed write
+-- permission to diagnose a write problem would tell us nothing.
+-- ============================================================
+select current_user                                       as whoami,
+       current_setting('transaction_read_only')            as txn_read_only,
+       current_setting('default_transaction_read_only')    as default_read_only,
+       (select tableowner from pg_tables
+         where schemaname = 'public'
+           and tablename  = 'referral_partners')           as table_owner,
+       pg_has_role(current_user,
+         (select tableowner from pg_tables
+           where schemaname = 'public'
+             and tablename  = 'referral_partners'),
+         'member')                                         as owns_table;
+
 -- ------------------------------------------------------------
--- ONE CELL. The same facts collapsed into a single text value, so the
--- whole answer is one click and one paste.
+-- PART A -- ONE CELL. The same facts collapsed into a single text
+-- value, so the whole answer is one click and one paste.
 --
 -- !! RUN EXACTLY ONE OF THE TWO QUERIES IN THIS FILE, NOT BOTH.
 -- !! The Supabase editor displays only the LAST statement's result, so
