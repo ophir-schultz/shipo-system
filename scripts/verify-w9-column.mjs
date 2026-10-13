@@ -34,6 +34,16 @@ if (!url || !key) {
 
 const headers = { apikey: key, Authorization: `Bearer ${key}` }
 
+// WHICH database. A verdict of "the column is missing" is useless -- worse,
+// actively misleading -- if the SQL was pasted into one project and this check
+// read another. The project ref is the subdomain of the Supabase URL and is not
+// a secret (it is NEXT_PUBLIC_), it is the same ref that appears in the SQL
+// editor URL, so print it and let the two be compared by eye.
+const ref = new URL(url).hostname.split('.')[0]
+console.log(`project  ${ref}`)
+console.log(`         SQL editor: https://supabase.com/dashboard/project/${ref}/sql/new`)
+console.log()
+
 // A control first. If a column that certainly does not exist returns the same
 // status as w9_received_at, this check cannot tell the two apart and its
 // verdict is worthless -- so prove the discrimination before trusting it.

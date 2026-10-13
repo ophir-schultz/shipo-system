@@ -57,16 +57,49 @@
 -- ============================================================
 
 -- ------------------------------------------------------------
--- 0. The column that is breaking /referrals.
+-- 1. The column that is breaking /referrals.
 --
 -- src/app/referrals/page.tsx selects w9_received_at and the column was
 -- never added, so the staff Referrals screen 500s -- the screen you
 -- would otherwise use to see this partner. Same single line as
 -- supabase/partner_w9.sql, repeated so one paste leaves a working
 -- screen. Idempotent, and harmless if it already ran.
+--
+-- !! RUN THIS ON ITS OWN, as its own submission, BEFORE part 2.
+--
+-- The Supabase SQL editor runs one submission as ONE TRANSACTION. When
+-- this line sat above the do-block in the same paste, an error anywhere
+-- in the block rolled the column back too -- so the screen stayed broken
+-- for a reason that had nothing to do with the screen, and the editor
+-- reported a single failure covering two unrelated things. Measured
+-- 2026-10-13: after a run of the combined file, BOTH the column and the
+-- partner row were absent. Separate submissions fail separately.
 -- ------------------------------------------------------------
 alter table referral_partners add column if not exists w9_received_at timestamptz;
 
+-- ------------------------------------------------------------
+-- 2. The throwaway partner. Run as a SEPARATE submission.
+--
+-- Every raise below is deliberately ONE single-quoted literal on ONE
+-- line, however long that makes the line. The earlier version wrapped
+-- each message across several adjacent literals for readability, which
+-- relies on the lexer concatenating them into the single string constant
+-- that RAISE wants -- and that was the leading suspect for why the first
+-- run of this file wrote nothing. Readability is not worth a construct
+-- I could not test: there is no local postgres here, so this file is
+-- checked by being run against the real database and nothing else.
+--
+-- The whole file is also pure ASCII, and must stay that way. The fixture
+-- name used to contain an em dash, and the UNDO at the bottom matches
+-- rows BY THAT NAME. Any mangling of one non-ASCII character between
+-- this file and the SQL editor -- clipboard, encoding, a copy through
+-- something that normalises punctuation -- would insert under one name
+-- and delete under another. The UNDO would then report "0 rows" and
+-- read as a clean success while leaving behind the one thing this file
+-- insists must not be left behind: an active, signed partner row that
+-- can request login codes forever and that nobody is accountable for.
+-- A hyphen cannot fail that way.
+-- ------------------------------------------------------------
 do $$
 declare
   -- ==========================================================
@@ -88,10 +121,7 @@ begin
   test_email := lower(btrim(test_email));
 
   if test_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
-    raise exception
-      'test_email (%) does not look like an email address. The portal login IS the '
-      'email address, so a typo means the code is mailed into the void and the test '
-      'tells you nothing. Nothing was written.', test_email;
+    raise exception 'test_email (%) does not look like an email address. The portal login IS the email address, so a typo means the code is mailed into the void and the test tells you nothing. Nothing was written.', test_email;
   end if;
 
   -- Case-insensitive, like every other lookup against this table.
@@ -103,11 +133,7 @@ begin
    limit 1;
 
   if v_existing is not null then
-    raise exception
-      'A partner with the email % already exists (%). Run the UNDO at the bottom of '
-      'this file first. Making a second row would split one address across two '
-      'partners and the login would match whichever the database returned first.',
-      test_email, v_existing;
+    raise exception 'A partner with the email % already exists (%). Run the UNDO at the bottom of this file first. Making a second row would split one address across two partners and the login would match whichever the database returned first.', test_email, v_existing;
   end if;
 
   -- status 'active'    -> passes the `status = 'inactive'` check
@@ -117,15 +143,17 @@ begin
   -- NO client link, so no commission obligation exists.
   insert into referral_partners (name, company, email, status, source, notes)
   values (
-    'ZZ PORTAL TEST — DELETE ME',
+    'ZZ PORTAL TEST - DELETE ME',
     null,
     test_email,
     'active',
     'manual',
+    -- Explicit || at every join, and current_date cast to text rather than
+    -- left to the anynonarray || text resolution. Same reason as the raises:
+    -- no construct in this file should be one I cannot test.
     'Throwaway fixture created by supabase/portal_email_test_partner.sql on '
-      || current_date || ' to prove the Resend mail path and the portal login. '
-      'NOT a real partner. No client is attributed and no commission is owed. '
-      'Delete with the UNDO block in that file.'
+      || current_date::text
+      || '. Proves the Resend mail path and the portal login. NOT a real partner. No client is attributed and no commission is owed. Delete with the UNDO block in that file.'
   )
   returning id into v_partner;
 
@@ -137,7 +165,7 @@ begin
    where id = v_partner;
 
   raise notice 'Created throwaway partner % as %.', test_email, v_partner;
-  raise notice 'Name is "ZZ PORTAL TEST — DELETE ME" so it sorts last and reads as a fixture.';
+  raise notice 'Name is "ZZ PORTAL TEST - DELETE ME" so it sorts last and reads as a fixture.';
   raise notice 'No client attributed, so nothing is owed and /pnl is unaffected.';
   raise notice 'NEXT: request a code at /partner/login using %', test_email;
   raise notice 'THEN: run the UNDO block at the bottom of this file.';
@@ -156,7 +184,7 @@ end $$;
 --        (select count(*) from clients c where c.referral_partner_id = p.id)
 --          as clients_attributed
 --   from referral_partners p
---  where p.name = 'ZZ PORTAL TEST — DELETE ME';
+--  where p.name = 'ZZ PORTAL TEST - DELETE ME';
 
 -- ============================================================
 -- UNDO -- RUN THIS WHEN THE TEST IS DONE.
@@ -185,7 +213,7 @@ end $$;
 --        referral_signup_date = null,
 --        referral_first_payment_date = null
 --  where referral_partner_id in (
---    select id from referral_partners where name = 'ZZ PORTAL TEST — DELETE ME'
+--    select id from referral_partners where name = 'ZZ PORTAL TEST - DELETE ME'
 --  );
 --
--- delete from referral_partners where name = 'ZZ PORTAL TEST — DELETE ME';
+-- delete from referral_partners where name = 'ZZ PORTAL TEST - DELETE ME';
