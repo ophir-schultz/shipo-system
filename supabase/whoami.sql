@@ -40,7 +40,52 @@
 -- ============================================================
 
 -- ============================================================
--- PART B -- WHY WILL IT NOT WRITE?
+-- PART C -- THE SELF-VERIFYING WRITE. Paste ALL FOUR LINES, select
+-- nothing, press Run.
+--
+-- Part B came back: whoami=postgres, txn_read_only=off,
+-- default_read_only=off, table_owner=postgres, owns_table=true. The
+-- session can write, owns the table, and is in no read-only
+-- transaction. Both mechanisms that would have blocked DDL are ruled
+-- out, so the question is no longer whether the statement is REFUSED.
+-- It is whether the statement is ever RUN.
+--
+-- That had never been established. Every round so far separated the
+-- write from its confirmation -- paste, then report "done", then have
+-- me read back -- and the editor runs only the SELECTED text when
+-- anything is highlighted, so a stray selection silently executes a
+-- subset and still reports success for what it did run.
+--
+-- These two statements cannot come apart. The editor displays only the
+-- LAST statement's result, so what you see IS the catalog's answer
+-- AFTER the alter, read in the same session and the same transaction:
+--
+--   w9_exists_now = true   the alter ran. If my service_role read from
+--                          outside still says 42703 after this, then
+--                          the editor is rolling the transaction back
+--                          after showing you the result, which is a
+--                          different and much stranger finding.
+--   w9_exists_now = false  impossible unless the alter did not execute
+--                          -- a transaction always sees its own work.
+--   an error               the actual reason, in the actual words,
+--                          which is what has been missing all along.
+-- ============================================================
+alter table referral_partners add column if not exists w9_received_at timestamptz;
+
+select exists (
+         select 1 from information_schema.columns
+          where table_schema = 'public'
+            and table_name   = 'referral_partners'
+            and column_name  = 'w9_received_at'
+       ) as w9_exists_now;
+
+-- ============================================================
+-- PART B -- WHY WILL IT NOT WRITE?  (ANSWERED, kept for the record)
+--
+-- Result 2026-10-13: whoami=postgres, txn_read_only=off,
+-- default_read_only=off, table_owner=postgres, owns_table=true.
+-- Neither a read-only transaction nor missing ownership. Both of the
+-- hypotheses below are DEAD -- do not re-run this expecting an answer.
 --
 -- Answered part A on 2026-10-13: db=postgres clients=9
 -- order_charges=265 w9_exists=false partners=0. The fingerprint
