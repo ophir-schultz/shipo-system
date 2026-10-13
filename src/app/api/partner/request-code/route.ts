@@ -160,7 +160,34 @@ export async function POST(req: Request) {
     // The error text is Shipo's, never the mail provider's raw body.
     console.error('[partner-login] email send failed:', result.provider, result.error)
     return NextResponse.json(
-      { error: 'We could not send the code. Email Support@shipousa.com and we will get you in.' },
+      {
+        error: 'We could not send the code. Email Support@shipousa.com and we will get you in.',
+        // The PROVIDER NAME, and only the name. sendEmail() fails for
+        // three reasons that want three different fixes, and until
+        // 2026-10-13 this 502 reported all three identically:
+        //
+        //   'none'   -> no mail env var is set in THIS environment. The
+        //               fix is in Vercel, not in Resend. This is the one
+        //               that gets misread as "the provider is broken",
+        //               because a 502 feels like something was attempted.
+        //   'resend' -> the key IS set and Resend REFUSED the send
+        //               (bad key, unverified domain). The fix is at the
+        //               provider.
+        //   'error'  -> sendEmail threw. Network or SMTP, see the log.
+        //
+        // Safe to return, on two counts. First, this branch is only
+        // reachable by an address that is already a partner AND already
+        // past portalAccessBlockedReason(), so the uniform-OK contract
+        // above has necessarily been given up before we get here -- the
+        // provider name discloses nothing further about any partner.
+        // Second, it is a NAME, never result.error, which can carry the
+        // provider's raw response body and the From address with it.
+        //
+        // The cost of not having this: a production 502 whose cause can
+        // only be read from Vercel runtime logs, which is exactly the
+        // access that was unavailable the day this mattered.
+        provider: result.provider,
+      },
       { status: 502 },
     )
   }
