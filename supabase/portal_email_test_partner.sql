@@ -65,15 +65,30 @@
 -- supabase/partner_w9.sql, repeated so one paste leaves a working
 -- screen. Idempotent, and harmless if it already ran.
 --
--- !! RUN THIS ON ITS OWN, as its own submission, BEFORE part 2.
+-- ✅ DONE on fdqyzekseetvzkmuihbg, 2026-10-13. Confirmed from outside
+-- the editor by `npx tsx --env-file=.env.local scripts/verify-w9-column.mjs`
+-- (HTTP 200 where it had answered SQLSTATE 42703 for three rounds).
+-- Idempotent, so re-running costs nothing.
 --
--- The Supabase SQL editor runs one submission as ONE TRANSACTION. When
--- this line sat above the do-block in the same paste, an error anywhere
--- in the block rolled the column back too -- so the screen stayed broken
--- for a reason that had nothing to do with the screen, and the editor
--- reported a single failure covering two unrelated things. Measured
--- 2026-10-13: after a run of the combined file, BOTH the column and the
--- partner row were absent. Separate submissions fail separately.
+-- !! RUN THIS ON ITS OWN, as its own submission, BEFORE part 2 -- and
+-- !! SELECT NOTHING before pressing Run.
+--
+-- Two separate editor behaviours bit here, and only the second was the
+-- real one:
+--
+-- 1. A submission is ONE TRANSACTION. With this line above the do-block
+--    in a single paste, a failure in the block would roll the column
+--    back too, breaking /referrals for a reason unrelated to /referrals
+--    and reporting one error for two unrelated things.
+--
+-- 2. THE EDITOR RUNS ONLY THE SELECTED TEXT when anything is
+--    highlighted, and reports success for whatever subset it ran. This
+--    is what actually happened: three pastes of this line were reported
+--    as run and none of them executed. The session was `postgres`,
+--    owned the table, sat in no read-only transaction, and was in the
+--    right database -- it could write, it was never asked to. It landed
+--    the instant the statement was submitted together with a catalog
+--    read-back, with nothing selected.
 -- ------------------------------------------------------------
 alter table referral_partners add column if not exists w9_received_at timestamptz;
 
@@ -172,19 +187,41 @@ begin
 end $$;
 
 -- ============================================================
--- VERIFY -- run as a SEPARATE submission. The Supabase editor only
--- shows the last statement's result, so a select above would hide the
--- notices raised by the block.
+-- VERIFY -- NOT commented out, and NOT a separate submission. Paste it
+-- together with the do-block above, select nothing, press Run.
+--
+-- This used to say "run as a SEPARATE submission", on the reasoning
+-- that the editor shows only the last statement's result and a select
+-- here would hide the raise notices. That reasoning was wrong, and it
+-- cost three rounds on the `alter table` that this file also carries.
+--
+-- What happened: the statement was pasted, reported as run, and left no
+-- trace -- three times. The session turned out to be `postgres`, owning
+-- the table, in no read-only transaction, in the right database. It
+-- could write. It simply was never asked to, because the editor runs
+-- only the SELECTED text when anything is highlighted, and still
+-- reports success for whatever subset it did run. The moment the write
+-- and a catalog read-back went into ONE submission, it worked
+-- immediately and was confirmed from outside.
+--
+-- So: the notices are worth less than proof the block executed. A
+-- notice says what the code INTENDED to do and prints identically
+-- whether or not the transaction survives; this select is the row
+-- itself. Keep them together.
 --
 -- EXPECT exactly one row, status active, agreement signed, and
 -- clients_attributed = 0. If clients_attributed is anything else, this
 -- row is carrying a commission obligation and the UNDO must be run.
+--
+-- NO ROWS AT ALL is the result to care about: it means the do-block did
+-- not run, not that it ran and did nothing -- an insert and this select
+-- are in the same transaction, so it cannot miss its own work.
 -- ============================================================
--- select p.id, p.name, p.email, p.status, p.agreement_status,
---        (select count(*) from clients c where c.referral_partner_id = p.id)
---          as clients_attributed
---   from referral_partners p
---  where p.name = 'ZZ PORTAL TEST - DELETE ME';
+select p.id, p.name, p.email, p.status, p.agreement_status,
+       (select count(*) from clients c where c.referral_partner_id = p.id)
+         as clients_attributed
+  from referral_partners p
+ where p.name = 'ZZ PORTAL TEST - DELETE ME';
 
 -- ============================================================
 -- UNDO -- RUN THIS WHEN THE TEST IS DONE.
