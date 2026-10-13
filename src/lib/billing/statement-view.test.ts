@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { rateText, periodLabel, coverageNote, estimateNote } from '@/lib/billing/statement-view'
-import { buildStatement, periodRange, type StatementCharge } from '@/lib/billing/statement'
+import { rateText, periodLabel, coverageNote, estimateNote, grainChoice } from '@/lib/billing/statement-view'
+import { buildStatement, periodRange, GRAINS, type StatementCharge } from '@/lib/billing/statement'
 import { UNPRICED_DASH } from '@/lib/billing/unpriced'
 
 // Every assertion here is about a sentence that appears on a document a client
@@ -95,6 +95,46 @@ describe('periodLabel', () => {
       const label = periodLabel(grain, periodRange(grain, '2026-10-13'))
       expect(label.length, grain).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('grainChoice', () => {
+  it('uses a grain it recognises, and says nothing about it', () => {
+    for (const grain of GRAINS) {
+      expect(grainChoice(grain, 'month')).toEqual({ grain, note: '' })
+    }
+  })
+
+  it('falls back silently when no grain was asked for', () => {
+    // Arriving at /statements with no query string is the ordinary way in. A
+    // caveat on the default view is the caveat nobody reads.
+    expect(grainChoice(undefined, 'month')).toEqual({ grain: 'month', note: '' })
+    expect(grainChoice(null, 'month')).toEqual({ grain: 'month', note: '' })
+    expect(grainChoice('', 'month')).toEqual({ grain: 'month', note: '' })
+  })
+
+  it('never silently substitutes a period for an unrecognised one', () => {
+    // The defect this function exists for: '?grain=weekly' rendering a MONTH of
+    // revenue under a heading the reader believed said week is a figure roughly
+    // four times too big, arriving with nothing to say anything was swapped.
+    for (const asked of ['weekly', 'monthly', 'quarter', 'WEEK', 'all', 'Week']) {
+      const { grain, note } = grainChoice(asked, 'month')
+      expect(grain, asked).toBe('month')
+      expect(note, asked).not.toBe('')
+    }
+  })
+
+  it('names the rejected value, not just the one it used', () => {
+    // 'showing the month' alone does not tell anyone the link they followed was
+    // wrong, and it is the link that needs fixing.
+    const { note } = grainChoice('weekly', 'month')
+    expect(note).toContain("'weekly'")
+    expect(note).toContain('month')
+  })
+
+  it('honours the fallback it was given rather than assuming one', () => {
+    expect(grainChoice('weekly', 'day').grain).toBe('day')
+    expect(grainChoice('weekly', 'day').note).toContain('day')
   })
 })
 

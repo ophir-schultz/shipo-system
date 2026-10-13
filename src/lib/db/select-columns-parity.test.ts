@@ -96,6 +96,13 @@ const MONEY_PATH: ReadonlyArray<{ file: string; selects: number }> = [
   { file: 'src/app/reports/page.tsx', selects: 6 },
   { file: 'src/app/api/reports/download/route.ts', selects: 6 },
   { file: 'src/lib/billing/statement-charges.ts', selects: 2 },
+  // The two statement surfaces. Their order_charges reads live in
+  // statement-charges.ts above and are covered there; what these two add is one
+  // `clients` select each -- which is the read that puts a NAME on a document
+  // headed for that client, so a phantom column in it is a statement addressed
+  // to nobody.
+  { file: 'src/app/statements/page.tsx', selects: 1 },
+  { file: 'src/app/api/statements/download/route.ts', selects: 1 },
 ]
 
 const NON_COLUMN_LINE_STARTS = new Set([

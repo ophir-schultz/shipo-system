@@ -1,5 +1,5 @@
 import { UNPRICED_DASH } from '@/lib/billing/unpriced'
-import type { DateRange, Grain, StatementLine } from '@/lib/billing/statement'
+import { isGrain, type DateRange, type Grain, type StatementLine } from '@/lib/billing/statement'
 
 // The sentences the statement screen prints about its own figures.
 //
@@ -52,6 +52,46 @@ export function rateText(line: Pick<StatementLine, 'unit_rate' | 'rates'>): stri
 export function periodLabel(grain: Grain, range: DateRange): string {
   if (range.from === range.to) return range.from
   return `${range.from} to ${range.to} (${grain})`
+}
+
+/** The grain in effect, and what to say if it is not the one that was asked for. */
+export interface GrainChoice {
+  grain: Grain
+  /** A sentence naming what was asked for and what is shown instead, or ''. */
+  note: string
+}
+
+/**
+ * Which period the figures describe, given what the query string asked for.
+ *
+ * The note is the whole reason this is a function. An unrecognised `?grain=`
+ * has to fall back to something, and a SILENT fallback is the worst available
+ * outcome: a link written `?grain=weekly` -- or `?grain=quarter`, or a grain
+ * this app adds later and an old bookmark predates -- would render a MONTH of
+ * revenue under whatever heading the reader expected, and a month read as a
+ * week is a figure four times too big arriving with no indication that anything
+ * was substituted.
+ *
+ * So the fallback is reported, naming the rejected value back to the reader
+ * rather than just the one being used: 'showing the month' alone does not tell
+ * anyone that the link they followed was wrong, and it is the link that needs
+ * fixing.
+ *
+ * A missing grain is NOT a note. Arriving at /statements with no query string
+ * is the ordinary way in, not a mistake, and a caveat on the default view is
+ * the caveat that teaches everyone to ignore caveats -- same rule as
+ * coverageNote and unpricedNote.
+ */
+export function grainChoice(asked: string | null | undefined, fallback: Grain): GrainChoice {
+  if (isGrain(asked)) return { grain: asked, note: '' }
+  if (asked === null || asked === undefined || asked === '') {
+    return { grain: fallback, note: '' }
+  }
+  return {
+    grain: fallback,
+    note: `'${asked}' is not a period this statement knows, so these figures `
+      + `are for the ${fallback}. The link that asked for '${asked}' is wrong.`,
+  }
 }
 
 /**
