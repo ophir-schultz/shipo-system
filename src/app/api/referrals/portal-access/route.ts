@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { createClient } from '@/lib/supabase-server'
-import { sendEmail } from '@/lib/email'
+import { sendPortalInvite } from '@/lib/partner-invite'
 
 // Staff-side control of a partner's portal access.
 //
@@ -75,36 +75,14 @@ export async function POST(req: Request) {
     )
   }
 
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    req.headers.get('origin') ??
-    `https://${req.headers.get('host') ?? 'shipousa.com'}`
-  const loginUrl = `${origin.replace(/\/$/, '')}/partner/login`
-  const firstName = (partner.name ?? '').split(' ')[0] || 'there'
-
-  const result = await sendEmail({
-    to: partner.email,
-    subject: 'Your Shipo partner statement is ready',
-    text:
-      `Hi ${firstName},\n\n` +
-      `Your Shipo partner portal is now open. It shows every client you referred, ` +
-      `the monthly figures on their account, and exactly what you have earned.\n\n` +
-      `Sign in here: ${loginUrl}\n\n` +
-      `There is no password. Enter this email address (${partner.email}) and we'll send you ` +
-      `a 6-digit code to get in.\n\n` +
-      `Questions about any figure? Just reply to this email.\n\n` +
-      `Shipo LLC · 310 Cornell Dr, Suite B4, Wilmington, DE 19801 · Support@shipousa.com`,
-    html:
-      `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#111">` +
-      `<p style="margin:0 0 16px">Hi ${firstName},</p>` +
-      `<p style="margin:0 0 16px">Your Shipo partner portal is now open. It shows every client you referred, the monthly figures on their account, and exactly what you have earned.</p>` +
-      `<p style="margin:0 0 24px"><a href="${loginUrl}" style="display:inline-block;background:#00AAFF;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600">Open your statement</a></p>` +
-      `<p style="margin:0 0 16px;color:#555">There is no password. Enter this email address (<strong>${partner.email}</strong>) and we&rsquo;ll send you a 6-digit code to get in.</p>` +
-      `<p style="margin:0 0 24px;color:#555">Questions about any figure? Just reply to this email.</p>` +
-      `<hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">` +
-      `<p style="margin:0;font-size:12px;color:#888">Shipo LLC &middot; 310 Cornell Dr, Suite B4, Wilmington, DE 19801 &middot; Support@shipousa.com</p>` +
-      `</div>`,
-  })
+  // The email itself lives in src/lib/partner-invite.ts and is NOT rebuilt
+  // here. This route and the DocuSign webhook both invite partners, and the
+  // two messages have to be indistinguishable: a partner who gets a
+  // different-looking email depending on which path fired cannot tell the
+  // automated one from a phishing attempt. This file used to hold a second
+  // copy, which had already drifted — it carried the old
+  // `https://shipousa.com` fallback that resolves to a 404.
+  const result = await sendPortalInvite(partner, req.headers.get('origin'))
 
   if (!result.sent) {
     return NextResponse.json(

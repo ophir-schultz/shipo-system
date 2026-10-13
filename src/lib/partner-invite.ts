@@ -18,12 +18,35 @@ export interface InvitablePartner {
   email: string | null
 }
 
-export function partnerPortalUrl(origin?: string | null): string {
+/**
+ * Where to send a partner to sign in, or null if we cannot work it out.
+ *
+ * The last resort used to be the literal string 'https://shipousa.com'.
+ * That is the WordPress site; it has no /partner/login and answers 404.
+ * And it was not a rare path — it was the NORMAL one for the caller that
+ * matters most. The DocuSign webhook is a server-to-server POST, so
+ * `req.headers.get('origin')` is null there, and with NEXT_PUBLIC_SITE_URL
+ * unset in production every partner who finished signing was emailed a
+ * dead link as their first experience of the portal. Measured, not
+ * inferred: shipousa.com/partner/login -> 404,
+ * shipo-system.vercel.app/partner/login -> 200.
+ *
+ * VERCEL_PROJECT_PRODUCTION_URL is injected into every deployment by the
+ * platform (host only, no scheme), which is why this now needs nothing set
+ * by hand. It is tried AFTER `origin` so that a preview deployment keeps
+ * linking to itself instead of jumping to production mid-test.
+ *
+ * It returns null rather than a guess. Sending no email is a problem we
+ * find out about; sending a confident link to a 404 is one the partner
+ * finds out about.
+ */
+export function partnerPortalUrl(origin?: string | null): string | null {
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL
   const base =
     process.env.NEXT_PUBLIC_SITE_URL ??
     origin ??
-    'https://shipousa.com'
-  return `${base.replace(/\/$/, '')}/partner/login`
+    (vercel ? `https://${vercel}` : null)
+  return base ? `${base.replace(/\/$/, '')}/partner/login` : null
 }
 
 export async function sendPortalInvite(
@@ -35,6 +58,18 @@ export async function sendPortalInvite(
   }
 
   const loginUrl = partnerPortalUrl(origin)
+  if (!loginUrl) {
+    // Refusing is the whole point. The email's only payload IS the link; an
+    // invite with a dead or missing link is worse than no invite, because the
+    // partner reads it as the portal being broken and we never hear about it.
+    // This is now only reachable off-platform (no origin, no Vercel env), i.e.
+    // a local script run -- in which case the fix is to pass an origin.
+    return {
+      sent: false,
+      provider: 'none',
+      error: 'Cannot determine the portal URL — set NEXT_PUBLIC_SITE_URL or pass an origin.',
+    }
+  }
   const firstName = (partner.name ?? '').split(' ')[0] || 'there'
 
   return sendEmail({
