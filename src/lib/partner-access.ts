@@ -1,13 +1,25 @@
 // May this partner be let into the portal yet?
 //
-// Asked in two places that must never disagree: the Referrals screen, to
-// decide whether the "Send invite" button is live, and /api/referrals/portal-
-// access, to decide whether to actually send. A greyed-out button is a
-// courtesy, not a control — anyone can POST to the route directly — so the
-// route is the thing that enforces this and the button merely reflects it.
-// Keeping the rule in one function is what stops the two from drifting, which
-// is the same failure that let the staff invite route carry its own stale copy
-// of the invite email.
+// Asked in four places that must never disagree:
+//
+//   - the Referrals screen, to decide whether "Send invite" is live
+//   - /api/referrals/portal-access, to decide whether to actually send
+//   - /api/partner/request-code, to decide whether to mail a login code
+//   - /api/partner/verify-code, to decide whether to issue a session
+//
+// A greyed-out button is a courtesy, not a control — anyone can POST to the
+// route directly — so the routes are the things that enforce this and the
+// button merely reflects it. Keeping the rule in one function is what stops
+// them from drifting, which is the same failure that let the staff invite
+// route carry its own stale copy of the invite email.
+//
+// The last two were added after a gap: for a while the rule was consulted
+// ONLY on the staff invite. /partner/login is a public endpoint, so any
+// address in referral_partners could have requested a code and signed in the
+// moment an email provider was configured. "Signed before access" was being
+// upheld by nobody having pressed the button yet, with email delivery as the
+// de facto control — and a control that works because a feature is switched
+// off is not a control.
 //
 // The order of the checks is the order a staff member can act on them: fix the
 // email, then activate the partner, then get the agreement signed. Returning
@@ -25,7 +37,25 @@ export interface AccessCandidate {
 }
 
 /**
- * null when the partner may be invited; otherwise a sentence for a human.
+ * Why this partner may not be in the portal, as a key rather than a sentence.
+ *
+ * The decision is separated from the wording because the same answer has to be
+ * said twice in two different voices. Staff see "Reactivate them first", which
+ * is an instruction. The partner sees "your access is paused", because telling
+ * a partner to reactivate their own account names an action only Shipo can
+ * take and reads as a brush-off.
+ *
+ * One function decides and two maps phrase it. The alternative — a second
+ * function that re-states the conditions in partner language — is the drift
+ * failure this module was written to avoid, and the dangerous direction is
+ * specific: a blocking condition added to the staff copy and forgotten in the
+ * login copy is not a wrong message, it is an OPEN DOOR. Record<AccessBlock,
+ * string> makes a missing phrasing a compile error instead.
+ */
+export type AccessBlock = 'no_email' | 'inactive' | 'declined' | 'voided' | 'unsigned'
+
+/**
+ * null when the partner may be let in; otherwise which rule stopped them.
  *
  * The agreement check is why this exists. Shipo's rule is that the agreement
  * is signed BEFORE access, which means the ordering has to be enforced
@@ -41,28 +71,66 @@ export interface AccessCandidate {
  * partner ever signs on paper, the remedy is to set agreement_status to
  * 'signed' deliberately, which is a recorded act rather than a silent default.
  */
-export function portalAccessBlockedReason(partner: AccessCandidate): string | null {
-  if (!partner.email) {
-    return 'This partner has no email address. Add one first — the portal login is by email.'
-  }
-  if (partner.status === 'inactive') {
-    return 'This partner is inactive, so they cannot sign in. Reactivate them first.'
-  }
-  if (partner.agreement_status === 'declined') {
-    return 'This partner declined the agreement. Nothing can be shared until a new one is signed.'
-  }
-  if (partner.agreement_status === 'voided') {
-    return 'This partner’s agreement was voided. Send a new one before granting access.'
-  }
-  if (partner.agreement_status !== AGREEMENT_SIGNED) {
-    return 'The partner agreement is not signed yet. The portal opens by itself the moment they finish signing.'
-  }
+export function portalAccessBlock(partner: AccessCandidate): AccessBlock | null {
+  if (!partner.email) return 'no_email'
+  if (partner.status === 'inactive') return 'inactive'
+  if (partner.agreement_status === 'declined') return 'declined'
+  if (partner.agreement_status === 'voided') return 'voided'
+  if (partner.agreement_status !== AGREEMENT_SIGNED) return 'unsigned'
   return null
+}
+
+/** Addressed to the staff member deciding whether to grant access. */
+const STAFF_REASON: Record<AccessBlock, string> = {
+  no_email: 'This partner has no email address. Add one first — the portal login is by email.',
+  inactive: 'This partner is inactive, so they cannot sign in. Reactivate them first.',
+  declined: 'This partner declined the agreement. Nothing can be shared until a new one is signed.',
+  voided: 'This partner’s agreement was voided. Send a new one before granting access.',
+  unsigned:
+    'The partner agreement is not signed yet. The portal opens by itself the moment they finish signing.',
+}
+
+/**
+ * Addressed to the partner standing at the login screen holding a valid code.
+ *
+ * Every one of these ends with something the partner can actually do, which is
+ * either "finish signing" or "email us" — never an instruction aimed at Shipo
+ * staff, and never a bare refusal. Support@shipousa.com appears in the three
+ * cases a partner cannot resolve alone, because a dead end with no address is
+ * how a signed partner quietly gives up.
+ */
+const PARTNER_REASON: Record<AccessBlock, string> = {
+  // Unreachable in practice: a partner is found BY their email address, so a
+  // row with none cannot be the one matched. Phrased anyway rather than left
+  // to a non-null assertion, because "unreachable" is a claim about today's
+  // query and the map must be total.
+  no_email:
+    'We cannot match this address to a partner record. Email Support@shipousa.com and we will sort it out.',
+  inactive:
+    'Your partner account is paused, so the portal is closed for now. Email Support@shipousa.com and we will look into it.',
+  declined:
+    'Our records show the partner agreement was declined, so there is nothing to show you yet. Email Support@shipousa.com and we will send a fresh one.',
+  voided:
+    'The partner agreement on file was cancelled before it was signed. Email Support@shipousa.com and we will send a new one.',
+  unsigned:
+    'Your partner agreement is not signed yet. Finish signing the DocuSign email we sent and the portal opens by itself — no second code needed.',
+}
+
+/** null when the partner may be invited; otherwise a sentence for staff. */
+export function portalAccessBlockedReason(partner: AccessCandidate): string | null {
+  const block = portalAccessBlock(partner)
+  return block ? STAFF_REASON[block] : null
+}
+
+/** null when the partner may sign in; otherwise a sentence for the partner. */
+export function portalAccessPartnerMessage(partner: AccessCandidate): string | null {
+  const block = portalAccessBlock(partner)
+  return block ? PARTNER_REASON[block] : null
 }
 
 /** Convenience for the UI: can the invite button be live? */
 export function canAccessPortal(partner: AccessCandidate): boolean {
-  return portalAccessBlockedReason(partner) === null
+  return portalAccessBlock(partner) === null
 }
 
 /** Short label for the Agreement column. Never invents a state it was not given. */

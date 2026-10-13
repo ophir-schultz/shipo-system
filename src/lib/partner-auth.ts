@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase'
+import { canAccessPortal } from '@/lib/partner-access'
 
 // ============================================================
 // Partner portal authentication — email + 6-digit code.
@@ -30,6 +31,11 @@ export interface SessionPartner {
   company: string | null
   email: string | null
   status: string | null
+  // Carried because getPartnerFromSession gates on it. A partner holding
+  // a session has necessarily signed, so this always reads 'signed'
+  // downstream — it is here so the field the gate reads is part of the
+  // type, rather than selected by a query nothing declares.
+  agreement_status: string | null
 }
 
 /** SHA-256, lowercase hex. Used for both codes and session tokens. */
@@ -89,7 +95,14 @@ export function isEmail(email: string): boolean {
 /**
  * Resolve the current partner from the session cookie.
  * Returns null for: no cookie, unknown token, revoked, expired, or a
- * partner who has since been marked inactive.
+ * partner who no longer passes the portal gate — inactive, or an
+ * agreement since declined or voided.
+ *
+ * The gate is re-asked on EVERY request rather than trusted from login.
+ * A session lasts SESSION_DAYS, so checking only at the door would mean
+ * a partner whose agreement is voided on day 2 keeps reading their
+ * statement until day 30. The cheap read is worth it: this is the
+ * difference between revoking access and asking someone to log out.
  *
  * Safe to call from a Server Component — it only reads the cookie.
  */
@@ -112,14 +125,21 @@ export async function getPartnerFromSession(): Promise<SessionPartner | null> {
 
   const { data: partner } = await supabaseAdmin
     .from('referral_partners')
-    .select('id, name, company, email, status')
+    .select('id, name, company, email, status, agreement_status')
     .eq('id', session.referral_partner_id)
     .maybeSingle()
 
   if (!partner) return null
-  // Deactivating a partner in the Referrals screen kills their access
-  // immediately — no need to hunt down their sessions.
-  if (partner.status === 'inactive') return null
+
+  // Deactivating a partner in the Referrals screen, or a DocuSign void,
+  // kills their access immediately — no need to hunt down sessions.
+  //
+  // Same function the login routes ask, so there is exactly one answer
+  // to "may this person see a statement". No reason is returned here:
+  // this is a cookie being read on a page load, not someone typing a
+  // code, and the caller's only sensible response is to show the login
+  // screen, where requesting a code produces the explanation.
+  if (!canAccessPortal(partner)) return null
 
   // Touch, but never block the request on it.
   const now = new Date().toISOString()

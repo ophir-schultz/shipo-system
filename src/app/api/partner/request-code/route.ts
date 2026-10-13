@@ -10,6 +10,7 @@ import {
   MAX_CODES_PER_WINDOW,
   RATE_WINDOW_MINUTES,
 } from '@/lib/partner-auth'
+import { portalAccessBlockedReason } from '@/lib/partner-access'
 
 // Step 1 of partner login: email in, 6-digit code out by email.
 //
@@ -23,6 +24,13 @@ import {
 //
 // The code itself is never returned, never logged, and never stored
 // in the clear — only its SHA-256 hash goes to the database.
+//
+// A code is only sent to a partner who passes
+// portalAccessBlockedReason() — chiefly, whose agreement is signed.
+// Before that check existed, every address in referral_partners could
+// sign in the moment an email provider was configured, and "signed
+// before access" was enforced only by nobody having pressed the staff
+// invite button yet. That is not a control.
 
 export const dynamic = 'force-dynamic'
 
@@ -60,13 +68,32 @@ export async function POST(req: Request) {
 
   const { data: partner } = await supabaseAdmin
     .from('referral_partners')
-    .select('id, name, email, status')
+    .select('id, name, email, status, agreement_status')
     .ilike('email', email)
     .maybeSingle()
 
-  // No partner, or a deactivated one: stop here, but answer exactly as
-  // if a code had been sent.
-  if (!partner || partner.status === 'inactive') {
+  // No partner: stop here, but answer exactly as if a code had been
+  // sent.
+  if (!partner) {
+    return NextResponse.json(OK)
+  }
+
+  // The agreement comes before access. Same gate as the staff invite
+  // button — portalAccessBlockedReason is the single definition of who
+  // may be in the portal, and this is the front door.
+  //
+  // The refusal is SILENT on purpose: it returns the same OK as an
+  // address that is not a partner at all. A specific message here
+  // ("your agreement isn't signed") would answer two questions for
+  // anyone who types an address — is this person a Shipo partner, and
+  // how far along are they. The honest sentence lives in verify-code,
+  // where the caller has already proved they hold a mailed code.
+  //
+  // The log line is for support: when a partner says "no email
+  // arrived", this is the only record of why.
+  const blocked = portalAccessBlockedReason(partner)
+  if (blocked) {
+    console.error('[partner-login] code not sent:', blocked)
     return NextResponse.json(OK)
   }
 

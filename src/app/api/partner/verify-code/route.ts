@@ -11,14 +11,22 @@ import {
   SESSION_DAYS,
   MAX_CODE_ATTEMPTS,
 } from '@/lib/partner-auth'
+import { portalAccessPartnerMessage } from '@/lib/partner-access'
 
 // Step 2 of partner login: email + code in, session cookie out.
 //
 // Body: { email, code }
 //
-// Every failure returns the same message. Distinguishing "no code on
-// file" from "wrong code" would tell an attacker which addresses are
-// partners, which is exactly what request-code refuses to leak.
+// Every failure UP TO AND INCLUDING the code comparison returns the
+// same message. Distinguishing "no code on file" from "wrong code"
+// would tell an attacker which addresses are partners, which is
+// exactly what request-code refuses to leak.
+//
+// Past that point the rule inverts. Presenting a correct code proves
+// the caller read the email, so there is no longer a stranger to keep
+// in the dark — and a partner who has signed, been paused, or never
+// finished DocuSign needs to be told which of those it is. So the
+// agreement gate below answers specifically, with 403.
 //
 // A code is single-use, expires in 10 minutes, and dies permanently
 // after 5 wrong guesses.
@@ -69,11 +77,40 @@ export async function POST(req: Request) {
 
   const { data: partner } = await supabaseAdmin
     .from('referral_partners')
-    .select('id, status')
+    .select('id, email, status, agreement_status')
     .eq('id', row.referral_partner_id)
     .maybeSingle()
 
-  if (!partner || partner.status === 'inactive') return NextResponse.json(BAD, { status: 401 })
+  if (!partner) return NextResponse.json(BAD, { status: 401 })
+
+  // The agreement gate, checked a second time and for real. request-code
+  // declines silently; this is where the partner is told why.
+  //
+  // Two decisions about placement:
+  //
+  // AFTER the hash comparison, because reaching this line proves the
+  // caller received the emailed code. The specific sentence therefore
+  // leaks nothing a stranger could use — the only person who sees it is
+  // the partner it is about.
+  //
+  // BEFORE consuming the code, because the DocuSign webhook can flip
+  // agreement_status to 'signed' while a code is in flight. Burning the
+  // code on a refusal would force a partner who signed thirty seconds
+  // ago to request a second email for no reason. A code that was not
+  // spent is still good.
+  //
+  // 403, not 401: the credential was correct and the answer is still
+  // no. 401 would send the login form round to "request a new code",
+  // which would produce another refusal and no explanation.
+  //
+  // The PARTNER wording, not the staff wording. Same decision — one
+  // function makes it — but the staff sentences are instructions aimed
+  // at Shipo ("Reactivate them first", "Send a new one"), and handing
+  // those to a partner tells them to do something only we can do.
+  const blocked = portalAccessPartnerMessage(partner)
+  if (blocked) {
+    return NextResponse.json({ error: blocked }, { status: 403 })
+  }
 
   // Correct code — consume it before minting anything, so a race
   // cannot spend the same code twice.

@@ -4,7 +4,9 @@ import {
   AGREEMENT_SIGNED,
   agreementLabel,
   canAccessPortal,
+  portalAccessBlock,
   portalAccessBlockedReason,
+  portalAccessPartnerMessage,
 } from './partner-access'
 
 const signed = {
@@ -61,6 +63,70 @@ describe('portalAccessBlockedReason', () => {
     expect(reason).toBeTruthy()
     expect(reason!.length).toBeGreaterThan(20)
     expect(reason).not.toMatch(/^[A-Z_]+$/)
+  })
+})
+
+describe('one decision, two vocabularies', () => {
+  // portalAccessBlock decides; the two message functions only phrase it. The
+  // thing being protected here is that they cannot disagree about WHETHER to
+  // refuse, only about how to say it — because the dangerous drift is not a
+  // clumsy sentence, it is a condition present in the staff copy and missing
+  // from the login copy, which is an open door.
+  const cases: Array<[string, Parameters<typeof portalAccessBlock>[0]]> = [
+    ['no_email', { ...signed, email: null }],
+    ['inactive', { ...signed, status: 'inactive' }],
+    ['declined', { ...signed, agreement_status: 'declined' }],
+    ['voided', { ...signed, agreement_status: 'voided' }],
+    ['unsigned', { ...signed, agreement_status: 'not_sent' }],
+  ]
+
+  it('every block reason has both a staff and a partner sentence', () => {
+    // Record<AccessBlock, string> makes a missing one a compile error, so this
+    // asserts the part the type cannot: that neither map holds an empty
+    // string, which would type-check and render as a blank refusal.
+    for (const [expected, partner] of cases) {
+      expect(portalAccessBlock(partner)).toBe(expected)
+      expect(portalAccessBlockedReason(partner)!.length).toBeGreaterThan(20)
+      expect(portalAccessPartnerMessage(partner)!.length).toBeGreaterThan(20)
+    }
+  })
+
+  it('refuses and permits identically whichever vocabulary is asked', () => {
+    for (const [, partner] of cases) {
+      expect(portalAccessPartnerMessage(partner)).not.toBeNull()
+      expect(portalAccessBlockedReason(partner)).not.toBeNull()
+    }
+    expect(portalAccessPartnerMessage(signed)).toBeNull()
+    expect(portalAccessBlockedReason(signed)).toBeNull()
+    expect(portalAccessBlock(signed)).toBeNull()
+  })
+
+  it('never shows a partner an instruction aimed at Shipo staff', () => {
+    // This is the whole reason for the split. The staff sentences say
+    // "Reactivate them first" and "Send a new one before granting access" —
+    // both actions only Shipo can take. Handed to a partner holding a valid
+    // login code, they read as being told to fix something they cannot reach.
+    for (const [, partner] of cases) {
+      const text = portalAccessPartnerMessage(partner)!
+      // Third person about the person reading it.
+      expect(text).not.toMatch(/\bthis partner\b/i)
+      expect(text).not.toMatch(/\bthey cannot\b/i)
+      // Imperatives addressed at staff.
+      expect(text).not.toMatch(/\breactivate\b/i)
+      expect(text).not.toMatch(/granting access/i)
+      // And it must leave the partner somewhere to go, rather than dead-end.
+      expect(text).toMatch(/Support@shipousa\.com|DocuSign/)
+    }
+  })
+
+  it('tells an unsigned partner to finish signing, not to contact support', () => {
+    // The one case the partner can resolve alone, and by far the most common
+    // — it is the state every row sits in between invite and signature. A
+    // "email support" answer here would generate a support ticket for
+    // something the partner only has to finish.
+    const text = portalAccessPartnerMessage({ ...signed, agreement_status: 'sent' })!
+    expect(text).toMatch(/not signed yet/i)
+    expect(text).toMatch(/DocuSign/)
   })
 })
 
@@ -132,7 +198,10 @@ describe('the gate is actually wired to something', () => {
     )
   })
 
-  it('the API route refuses on it — this is the only enforcement that counts', () => {
+  it('the staff invite route refuses on it', () => {
+    // This used to be titled "the only enforcement that counts", and it was
+    // true: the rule was consulted nowhere else. That was the bug — the login
+    // endpoints below are the front door, and they were not asking.
     const src = body(readFileSync('src/app/api/referrals/portal-access/route.ts', 'utf8'))
     expect(src).toContain('portalAccessBlockedReason(')
     // Calling it is not enough; the answer has to stop the request. Asserting
@@ -142,6 +211,56 @@ describe('the gate is actually wired to something', () => {
     // And it must select the column, or the rule reads undefined for every
     // partner and fails closed on all of them — a gate that is always shut
     // looks like a working gate right up until the first real signature.
+    expect(src).toMatch(/select\([^)]*agreement_status/)
+  })
+
+  it('request-code will not mail a code to a partner who has not signed', () => {
+    const src = body(readFileSync('src/app/api/partner/request-code/route.ts', 'utf8'))
+    expect(src).toContain('portalAccessBlockedReason(')
+    expect(src).toMatch(/if\s*\(\s*blocked\s*\)/)
+    expect(src).toMatch(/select\([^)]*agreement_status/)
+    // The refusal must stay indistinguishable from "that address is not a
+    // partner", or the login form becomes a lookup for who has signed.
+    // Asserted as the OK constant being what the blocked branch returns.
+    expect(src).toMatch(/if\s*\(\s*blocked\s*\)\s*\{[^}]*NextResponse\.json\(OK\)/)
+  })
+
+  it('verify-code will not issue a session to a partner who has not signed', () => {
+    const src = body(readFileSync('src/app/api/partner/verify-code/route.ts', 'utf8'))
+    // The PARTNER vocabulary here, not the staff one — see the split above.
+    expect(src).toContain('portalAccessPartnerMessage(')
+    expect(src).not.toContain('portalAccessBlockedReason(')
+    expect(src).toMatch(/if\s*\(\s*blocked\s*\)/)
+    expect(src).toMatch(/select\([^)]*agreement_status/)
+    // 403, not the uniform 401: the code was right and the answer is still no.
+    expect(src).toMatch(/status:\s*403/)
+  })
+
+  it('verify-code checks the gate BEFORE it burns the code', () => {
+    // Ordering, and it is not cosmetic. The DocuSign webhook can flip
+    // agreement_status to 'signed' while a code is in flight, so a refusal
+    // that consumed the code would make a partner who signed a minute ago
+    // request a second email for nothing. A code not spent is still good.
+    const src = body(readFileSync('src/app/api/partner/verify-code/route.ts', 'utf8'))
+    const gate = src.indexOf('portalAccessPartnerMessage(')
+    const consume = src.indexOf('consumed_at: new Date()')
+    expect(gate).toBeGreaterThan(-1)
+    expect(consume).toBeGreaterThan(-1)
+    expect(gate).toBeLessThan(consume)
+    // And after the hash comparison, because the specific message is only
+    // safe to show someone who has proved they received the email.
+    const compare = src.indexOf('timingSafeEqual(')
+    expect(compare).toBeGreaterThan(-1)
+    expect(compare).toBeLessThan(gate)
+  })
+
+  it('an existing session is re-checked against the gate on every request', () => {
+    // A session lasts SESSION_DAYS. Gating only at login would mean an
+    // agreement voided on day 2 keeps working until day 30 — so the door
+    // being locked is not enough, the room has to be checked too.
+    const src = body(readFileSync('src/lib/partner-auth.ts', 'utf8'))
+    expect(src).toContain('canAccessPortal(')
+    expect(src).toMatch(/if\s*\(\s*!canAccessPortal\([^)]*\)\s*\)\s*return null/)
     expect(src).toMatch(/select\([^)]*agreement_status/)
   })
 
