@@ -6,8 +6,9 @@
 // plain .ts here as CJS, because package.json has no "type": "module", and
 // under CJS both the top-level awaits below and import.meta.url break. tsc
 // does NOT catch it: tsconfig sets module esnext, so the file type-checks
-// against rules the real loader does not honour. scripts/check-order-counts.ts
-// is .ts, has the same shape, and cannot run at all for this reason.
+// against rules the real loader does not honour. scripts/check-order-counts
+// was .ts, had the same shape, and could not run at all until it was renamed
+// to .mts for this reason.
 //
 // This script does NOT create or send anything. It reads the partner row,
 // extracts page 1 of the W-9, builds the payload, re-checks the things

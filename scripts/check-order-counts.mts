@@ -1,6 +1,12 @@
 // Is the shipments table populated well enough to derive a monthly
 // order count from it? Read-only. Run:
-//   npx tsx --env-file=.env.local scripts/check-order-counts.ts
+//   npx tsx --env-file=.env.local scripts/check-order-counts.mts
+//
+// The .mts extension is load-bearing. package.json has no "type":
+// "module", so tsx transforms a plain .ts here as CJS, and the five
+// top-level awaits below will not compile under it. tsc does NOT catch
+// that: tsconfig sets module esnext, so a .ts file type-checks against
+// rules the real loader does not honour. See prep-agreement-envelope.mts.
 //
 // This matters because the DTC referral qualification is "more than
 // 500 orders in a calendar month". If that number is hand-typed it
