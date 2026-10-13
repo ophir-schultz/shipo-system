@@ -5,6 +5,10 @@ import {
   formatPrice, formatSignedPrice, priceOf, sumPriced, combinePriced,
   unpricedNote, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
+import {
+  reconcile, combineReconciled, reconciledOrUnknown, marginPct, exclusionNote,
+  excludedCount, invoiceableRevenue, otherIncome,
+} from '@/lib/billing/profit-rollup'
 import { read, readErrors, type Read } from '@/lib/db/read'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
 
@@ -51,41 +55,94 @@ import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
 // row count beside a total already included those rows, so before this the
 // total and the count disagreed with nothing to explain the gap.
 
+/**
+ * One period's figures as the card needs them.
+ *
+ * Declared rather than inferred from `period()`'s return, and the money fields
+ * are `number | null` rather than `number`, for the same reason PeriodCard's
+ * props are: a period whose reads did not all come back has no revenue figure,
+ * not a low one, and the type is the thing that makes `?? 0` a compile error
+ * here instead of a quiet reappearance of the defect this page was rewritten
+ * to remove.
+ *
+ * `revenue`, `cost` and `profit` are the RECONCILING triple -- all three summed
+ * over the same shipment rows, so `revenue - cost === profit` to the cent. They
+ * are narrower than `billable` on purpose; see lib/billing/profit-rollup.ts.
+ */
+type PeriodFigures = {
+  unreadable: string | null
+  revenue: number | null
+  cost: number | null
+  profit: number | null
+  marginPct: number | null
+  shipments: number | null
+  reconciled: number
+  excluded: number
+  exclusions: string
+  stale: number
+  billable: number | null
+  billableUnpriced: number
+  otherIncome: number | null
+  otherIncomeUnpriced: number
+  otherMeasured: boolean
+}
+
+// Per client, on EXACTLY the basis the period cards use.
+//
+// This table and the "This Month" card above it describe the same month, so
+// they have to be computed the same way or they contradict each other on one
+// screen. It used to fold warehouse revenue into the client's shipping revenue
+// while costing and profiting only the shipments -- so every client with a
+// warehouse line had a revenue figure its own cost and profit columns could
+// not account for, and the row did not subtract either.
+//
+// Warehouse income now has its own column. It is income; it is just not part
+// of a shipping margin, and a column is how you say that without hiding it.
 function buildClientBreakdown(clients: any[], shipments: any[], warehouse: any[], adjustments: any[]) {
   return clients.map(client => {
     const cs = shipments.filter(s => s.client_id === client.id)
     const cw = warehouse.filter(w => w.client_id === client.id)
     const ca = adjustments.filter(a => a.client_id === client.id)
-    // Shipping revenue and warehouse revenue go through combinePriced rather
-    // than `+`, because both columns are nullable and a bare addition is
-    // exactly where the two withheld counts would be dropped.
-    const revenue = combinePriced(
-      sumPriced(cs, 'client_rate'), sumPriced(cw, 'total'))
-    const cost = sumPriced(cs, 'actual_cost')
-    const profit = sumPriced(cs, 'profit_loss')
+    const rollup = reconcile(cs)
+    const known = reconciledOrUnknown(rollup)
+    const warehouseRev = sumPriced(cw, 'total')
     const pendingAdj = sumPriced(ca, 'adjustment_amount')
     const lossCount = cs.filter(s => s.is_loss).length
     return {
       id: client.id, name: client.name, shipments: cs.length,
-      revenue: revenue.total, cost: cost.total,
-      // null, not 0, when NO shipment of this client's has a known profit --
-      // which is the ordinary state of a client whose carrier invoices have
-      // not landed yet. `profit.total` was 0 there, and 0 was painted green
-      // with a '+' and a ✓, so the row said "break-even, nothing to see" about
-      // a client whose margin is entirely unmeasured. See totalOrUnknown.
-      profit: totalOrUnknown(profit),
-      // The sum itself, kept so the footer can combine the clients' profits
-      // instead of re-deriving them from the collapsed numbers above. Carrying
-      // the PricedSum rather than a second scalar count is deliberate: a
-      // boolean or a count sitting beside a number is how the two drift apart.
-      profitSum: profit,
-      pendingAdj: pendingAdj.total, lossCount,
+      // All three null together, or all three numbers together -- they are one
+      // reconciliation, not three figures that happen to be adjacent. null is
+      // the ordinary state of a client whose carrier invoices have not landed
+      // yet: `profit` was 0 there before, and 0 was painted green with a '+'
+      // and a ✓, so the row said "break-even, nothing to see" about a client
+      // whose margin is entirely unmeasured.
+      revenue: known.revenue, cost: known.cost, profit: known.profit,
+      marginPct: marginPct(rollup),
+      // The reconciliation itself, kept so the footer can combine the clients
+      // instead of reducing over the collapsed numbers above -- which would
+      // need a `?? 0` the moment a row's margin is UNKNOWN. Carrying the whole
+      // object rather than a scalar beside it is deliberate: a count sitting
+      // next to a number is how the two drift apart.
+      rollup,
       // Counted per client, so the row says WHOSE rate card has the gap. A
       // page-level total can only say the figure is incomplete; this says
-      // where to go and fix it.
-      unpricedRevenue: revenue.unpriced,
+      // where to go and fix it. Kept as two buckets rather than one, because
+      // `unrated` is work going out unbilled and `uncosted` resolves itself.
+      excluded: excludedCount(rollup),
+      unrated: rollup.unrated,
+      uncosted: rollup.uncosted,
+      warehouse: totalOrUnknown(warehouseRev),
+      warehouseUnpriced: warehouseRev.unpriced,
+      // Carried for the footer, same reason as `rollup` above: the total is
+      // combined from the parts, never re-derived by re-filtering the rows.
+      warehouseSum: warehouseRev,
+      pendingAdj: pendingAdj.total, lossCount,
     }
-  }).sort((a, b) => b.revenue - a.revenue)
+    // Sorted on the raw reconciled revenue, which is always a number, rather
+    // than on the nullable figure the row renders. `(b.revenue ?? 0) - ...`
+    // would be a `??` on money in the file that exists to have none, even
+    // though a sort key is not a published figure.
+  }).sort((a, b) => b.rollup.revenue - a.rollup.revenue)
 }
 
 // Without this line Next prerendered this page at build time -- fifteen reads
@@ -168,35 +225,69 @@ async function getDashboardData() {
   // `...extra: any[][]` keyed by position (`i === 0 ? 'total' : 'amount'`),
   // because that form summed the WRONG COLUMN if a caller ever passed manual
   // charges first -- silently, since both columns hold money.
+  //
+  // THE FIGURES NOW SUBTRACT, WHICH THEY DID NOT.
+  //
+  // This used to be three `sumPriced` calls over three DIFFERENT row subsets --
+  // `client_rate`, `actual_cost` and `profit_loss` each skipping their own
+  // unreadable rows, with warehouse and manual charges folded into revenue
+  // only. Each figure was individually honest and the column of three was not
+  // a subtraction. On 2026-10-13 all three cards showed a negative
+  // revenue-minus-cost and printed a profit in green; This Year was out by
+  // $10,225. See the header of lib/billing/profit-rollup.ts for the numbers.
+  //
+  // `reconcile` sums revenue and cost over the SAME rows and derives the
+  // margin from them, so the three figures on the card reconcile to the cent
+  // by construction. The rows it had to leave out are counted and attributed
+  // to a reason, and the card renders that rather than quietly narrowing.
   const period = (
     shipments: Read<any>, warehouse?: Read<any>, manual?: Read<any>,
-  ) => {
+  ): PeriodFigures => {
     const unreadable = readErrors(shipments, warehouse, manual)
-    const shipRevenue = sumPriced(shipments.rows, 'client_rate')
-    const revenue = combinePriced(
-      shipRevenue,
-      sumPriced(warehouse?.rows, 'total'),
-      sumPriced(manual?.rows, 'amount'),
-    )
-    const cost = sumPriced(shipments.rows, 'actual_cost')
-    const profit = sumPriced(shipments.rows, 'profit_loss')
+    const r = reconcile(shipments.rows)
+    const known = reconciledOrUnknown(r)
+    const billable = invoiceableRevenue(shipments.rows)
+    const other = otherIncome(warehouse?.rows, manual?.rows)
+    // Whether this period HAS a warehouse/manual figure at all, as against
+    // having one that came to zero. `period(yearShipments)` is called with
+    // neither source, because no year-windowed warehouse or manual read is
+    // made, and `otherIncome` of nothing is a legitimate $0.00 -- the sum over
+    // an empty set. Printing that $0.00 on the year card would assert the year
+    // had no warehouse income, which is not a thing this page read.
+    const otherMeasured = warehouse !== undefined || manual !== undefined
     return {
       unreadable,
-      revenue: unreadable ? null : revenue.total,
-      cost: unreadable ? null : cost.total,
-      profit: unreadable ? null : profit.total,
-      shipments: unreadable ? null : shipRevenue.counted,
+      revenue: unreadable ? null : known.revenue,
+      cost: unreadable ? null : known.cost,
+      profit: unreadable ? null : known.profit,
+      // Derived from the same reconciled set, so the percentage describes the
+      // two figures printed above it. null when there is no revenue to be a
+      // percentage of -- `profit / 0` renders as 'Infinity%' through toFixed.
+      marginPct: unreadable ? null : marginPct(r),
+      shipments: unreadable ? null : r.counted,
       // Zeroed when the period is unreadable, because these counts describe
-      // rows that were successfully read and found to be unpriced. Carrying a
-      // count over from a partial read would put an amber "3 unpriced
-      // shipments not included" note under a figure that is not a figure.
-      unpricedRevenue: unreadable ? 0 : revenue.unpriced,
-      // Profit is UNKNOWN whenever the rate is unknown AND also whenever the
-      // carrier invoice has not landed, so this count can exceed the revenue
-      // one. They are kept apart rather than merged into a single "problems"
-      // figure, because they send you to two different places: a rate card,
-      // or a carrier bill that has not arrived.
-      unknownProfit: unreadable ? 0 : profit.unpriced,
+      // rows that were successfully read and found to be incomplete. Carrying
+      // a count over from a partial read would put an amber "3 shipments not
+      // in these figures" note under a figure that is not a figure.
+      reconciled: unreadable ? 0 : r.reconciled,
+      excluded: unreadable ? 0 : excludedCount(r),
+      exclusions: unreadable ? '' : exclusionNote(r),
+      // Rows whose stored `profit_loss` disagrees with rate minus cost. The
+      // old profit line WAS that column, so this count is a measure of how
+      // wrong the figure this change replaces actually was.
+      stale: unreadable ? 0 : r.stale,
+      // The wide revenue figure -- every agreed rate, including shipments the
+      // carrier has not billed us for yet. Different question from the
+      // reconciled revenue above and labelled differently on the card. This is
+      // the number to invoice from.
+      billable: unreadable ? null : totalOrUnknown(billable),
+      billableUnpriced: unreadable ? 0 : billable.unpriced,
+      // Income with no carrier cost, so it has no place inside a margin. It
+      // used to be added into revenue, where it widened the
+      // revenue-minus-cost gap by its own full value.
+      otherIncome: unreadable || !otherMeasured ? null : totalOrUnknown(other),
+      otherIncomeUnpriced: unreadable ? 0 : other.unpriced,
+      otherMeasured,
     }
   }
 
@@ -209,15 +300,25 @@ async function getDashboardData() {
   const clientBreakdown = breakdownError ? [] : buildClientBreakdown(
     clients.rows, clientShipments.rows, clientWarehouse.rows, clientAdj.rows)
 
-  // The footer's profit total, combined from the clients' own sums rather than
-  // added up from the numbers in the rows above it. Two reasons: adding the
-  // rendered numbers would need `?? 0` now that a row's profit can be UNKNOWN
-  // -- the exact coercion this page was rewritten to remove -- and combining
-  // the sums carries the withheld counts through the addition, so the total
-  // can say how many shipments it is blind to. `combinePriced()` of nothing is
-  // a counted-nothing, which totalOrUnknown correctly calls a real 0.
-  const breakdownProfit = combinePriced(
-    ...clientBreakdown.map(c => c.profitSum))
+  // The footer's totals, combined from the clients' own reconciliations rather
+  // than added up from the numbers in the rows above them. Two reasons: adding
+  // the rendered numbers would need `?? 0` now that a row's margin can be
+  // UNKNOWN -- the exact coercion this page was rewritten to remove -- and
+  // combining the reconciliations carries the exclusion buckets through the
+  // addition, so the total can say how many shipments it is blind to.
+  //
+  // Because combineReconciled is additive in every field and re-derives the
+  // margin, the footer is identical to reconciling every client's rows at once
+  // (pinned by a test in profit-rollup.test.ts). So the total cannot disagree
+  // with the "This Month" card beside it, which is the whole point of doing it
+  // this way rather than summing three columns.
+  const breakdownTotal = combineReconciled(
+    ...clientBreakdown.map(c => c.rollup))
+  const breakdownKnown = reconciledOrUnknown(breakdownTotal)
+  // combinePriced() of nothing is a counted-nothing, which totalOrUnknown
+  // correctly calls a real 0 -- a month with no warehouse lines billed none.
+  const breakdownWarehouse = combinePriced(
+    ...clientBreakdown.map(c => c.warehouseSum))
 
   return {
     // null, not 0. "Active Clients: 0" on a failed read is a number somebody
@@ -240,8 +341,14 @@ async function getDashboardData() {
     billsError: bills.error,
     breakdownError,
     clientBreakdown,
-    breakdownProfitTotal: totalOrUnknown(breakdownProfit),
-    breakdownProfitUnknown: breakdownProfit.unpriced,
+    breakdownRevenue: breakdownKnown.revenue,
+    breakdownCost: breakdownKnown.cost,
+    breakdownProfitTotal: breakdownKnown.profit,
+    breakdownMarginPct: marginPct(breakdownTotal),
+    breakdownExcluded: excludedCount(breakdownTotal),
+    breakdownExclusions: exclusionNote(breakdownTotal),
+    breakdownWarehouseTotal: totalOrUnknown(breakdownWarehouse),
+    breakdownWarehouseUnpriced: breakdownWarehouse.unpriced,
   }
 }
 
@@ -411,31 +518,32 @@ export default async function DashboardPage() {
 
       {/* Period Revenue Cards */}
       <div className="grid grid-cols-3 gap-4">
-        <PeriodCard title="This Week" revenue={d.week.revenue} cost={d.week.cost} profit={d.week.profit}
-          unpricedRevenue={d.week.unpricedRevenue} unknownProfit={d.week.unknownProfit}
-          unreadable={d.week.unreadable} />
-        <PeriodCard title="This Month" revenue={d.month.revenue} cost={d.month.cost} profit={d.month.profit}
-          unpricedRevenue={d.month.unpricedRevenue} unknownProfit={d.month.unknownProfit}
-          unreadable={d.month.unreadable} />
-        <PeriodCard title="This Year" revenue={d.year.revenue} cost={d.year.cost} profit={d.year.profit}
-          unpricedRevenue={d.year.unpricedRevenue} unknownProfit={d.year.unknownProfit}
-          unreadable={d.year.unreadable} />
+        <PeriodCard title="This Week" p={d.week} />
+        <PeriodCard title="This Month" p={d.month} />
+        <PeriodCard title="This Year" p={d.year} />
       </div>
 
       {/* All Time Summary */}
       <div className="grid grid-cols-4 gap-4">
-        <BigStat label="Total Revenue" value={formatPrice(d.allTime.revenue)} color="blue"
-          note={unpricedNote(d.allTime.unpricedRevenue)} unreadable={d.allTime.unreadable} />
-        <BigStat label="Total Carrier Cost" value={formatPrice(d.allTime.cost)} color="gray"
+        {/* These three are the same reconciling triple as the period cards --
+            one row set, margin derived -- so the headline tiles subtract the
+            same way the cards above them do. They used to be three independent
+            sums, which is how "Total Revenue $5,699 / Total Carrier Cost
+            $12,952 / Net Profit +$2,972" came to be printed side by side. */}
+        <BigStat label="Revenue (reconciled)" value={formatPrice(d.allTime.revenue)} color="blue"
+          note={d.allTime.exclusions} unreadable={d.allTime.unreadable} />
+        <BigStat label="Carrier Cost" value={formatPrice(d.allTime.cost)} color="gray"
           unreadable={d.allTime.unreadable} />
         {/* `d.allTime.profit >= 0` was the colour test, and `null >= 0` is
             TRUE in JS -- null coerces to 0 -- so an unreadable profit would
             have been painted the same green as a real one. Same shape of trap
             as `is_loss` being false for an unpriced shipment: a two-way test
             on a three-state value silently picks the reassuring branch. */}
-        <BigStat label="Net Profit / Loss" value={formatSignedPrice(d.allTime.profit)}
+        <BigStat label="Margin" value={formatSignedPrice(d.allTime.profit)}
           color={d.allTime.profit === null ? 'gray' : d.allTime.profit >= 0 ? 'green' : 'red'}
-          note={unpricedNote(d.allTime.unknownProfit)} unreadable={d.allTime.unreadable} />
+          note={d.allTime.marginPct === null ? '' : `${d.allTime.marginPct.toFixed(1)}% of reconciled revenue`}
+          noteTone="muted"
+          unreadable={d.allTime.unreadable} />
         <BigStat label="Active Clients"
           value={d.activeClients === null ? '—' : d.activeClients.toString()}
           color="blue" unreadable={d.activeClientsError} />
@@ -459,9 +567,15 @@ export default async function DashboardPage() {
               <tr className="text-gray-400 text-left border-b border-gray-700">
                 <th className="pb-3">Client</th>
                 <th className="pb-3 text-right">Shipments</th>
-                <th className="pb-3 text-right">Revenue</th>
+                {/* "Revenue" alone would read as everything this client was
+                    billed. It is shipping revenue over the rows whose cost is
+                    also known -- the three columns after it subtract -- and
+                    warehouse income has its own column rather than being
+                    folded in here where it used to be. */}
+                <th className="pb-3 text-right">Shipping Rev.</th>
                 <th className="pb-3 text-right">Carrier Cost</th>
-                <th className="pb-3 text-right">Profit / Loss</th>
+                <th className="pb-3 text-right">Margin</th>
+                <th className="pb-3 text-right">Warehouse</th>
                 <th className="pb-3 text-right">Pending Adj.</th>
                 <th className="pb-3 text-center">Flags</th>
               </tr>
@@ -472,9 +586,26 @@ export default async function DashboardPage() {
                   <td className="py-3 font-medium">
                     <a href={`/clients/${c.id}`} className="hover:text-[#00AAFF] transition">{c.name}</a>
                   </td>
-                  <td className="py-3 text-right text-gray-300">{c.shipments}</td>
-                  <td className="py-3 text-right">${c.revenue.toFixed(2)}</td>
-                  <td className="py-3 text-right text-gray-300">${c.cost.toFixed(2)}</td>
+                  <td className="py-3 text-right text-gray-300">
+                    {c.shipments}
+                    {/* The denominator, on the row, whenever the margin
+                        columns are built from fewer rows than the count. The
+                        count and the money used to disagree with nothing to
+                        explain the gap. */}
+                    {c.excluded > 0 && (
+                      <span className="block text-gray-500 text-xs font-normal">
+                        {c.rollup.reconciled} costed
+                      </span>
+                    )}
+                  </td>
+                  {/* formatPrice, not `.toFixed(2)`: these are nullable now
+                      and `null.toFixed` throws, while `(c.revenue ?? 0)` would
+                      print $0.00 for a client whose margin is unmeasured --
+                      the coercion this page exists to be rid of. */}
+                  <td className="py-3 text-right">{formatPrice(c.revenue)}</td>
+                  <td className="py-3 text-right text-gray-300">
+                    {c.cost === null ? UNPRICED_DASH : `−${formatPrice(c.cost)}`}
+                  </td>
                   {/* Gray for UNKNOWN. `c.profit >= 0` was the colour test and
                       `null >= 0` is true, so a client with no known margin at
                       all was painted the same green as a profitable one -- the
@@ -489,6 +620,18 @@ export default async function DashboardPage() {
                       : c.profit >= 0 ? 'text-green-400' : 'text-red-400'
                   }`}>
                     {formatSignedPrice(c.profit)}
+                    {c.marginPct !== null && (
+                      <span className="block text-gray-500 text-xs font-normal">
+                        {c.marginPct.toFixed(1)}%
+                      </span>
+                    )}
+                  </td>
+                  {/* Its own column rather than being added into Shipping Rev.
+                      Warehouse work has no carrier cost, so a dollar of it
+                      inside the revenue column widened the gap between that
+                      column and the two beside it by a dollar. */}
+                  <td className="py-3 text-right text-gray-300">
+                    {c.warehouseSum.counted === 0 ? UNPRICED_DASH : formatPrice(c.warehouse)}
                   </td>
                   <td className={`py-3 text-right ${c.pendingAdj > 0 ? 'text-orange-400 font-semibold' : 'text-gray-500'}`}>
                     {c.pendingAdj > 0 ? `+$${c.pendingAdj.toFixed(2)}` : '—'}
@@ -497,39 +640,46 @@ export default async function DashboardPage() {
                     {c.lossCount > 0 && (
                       <span className="bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-xs mr-1">⚠ {c.lossCount} loss</span>
                     )}
-                    {/* The unpriced flag is on the same row as the client's
-                        revenue, because this client's rate card is the thing
-                        that has to be edited to make the figure complete. */}
-                    {c.unpricedRevenue > 0 && (
+                    {/* Two badges and not one combined "incomplete" count,
+                        because they send you to different places and only one
+                        of them is yours to fix: an unrated shipment needs this
+                        client's rate card edited, an uncosted one needs a
+                        carrier invoice that has not arrived yet. The unrated
+                        badge is on this row because this client's rate card is
+                        the thing to go and edit. */}
+                    {c.unrated > 0 && (
                       <span className="bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded text-xs mr-1"
-                        title="Revenue excludes these -- the rate card does not cover them. They are not $0.">
-                        ⚠ {c.unpricedRevenue} unpriced
+                        title="We paid a carrier for these and no rate was agreed, so they are in none of the figures on this row. They are not $0.">
+                        ⚠ {c.unrated} no rate
                       </span>
                     )}
-                    {/* Separate flag from the unpriced one above, and worth
-                        the extra badge, because the two send you to different
-                        places: an unpriced REVENUE row needs this client's
-                        rate card edited, an unknown PROFIT row needs a carrier
-                        invoice that has not arrived. Merging them into one
-                        "incomplete" count would hide which. */}
-                    {c.profitSum.unpriced > 0 && (
+                    {c.uncosted > 0 && (
+                      <span className="bg-gray-700/70 text-gray-300 px-2 py-0.5 rounded text-xs mr-1"
+                        title="Priced, but the carrier has not billed us yet, so these are left out of the margin. They are not break-even. See Billable revenue on the period card.">
+                        {c.uncosted} awaiting cost
+                      </span>
+                    )}
+                    {c.warehouseUnpriced > 0 && (
                       <span className="bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded text-xs mr-1"
-                        title="Profit excludes these -- no rate, or the carrier bill has not landed. They are not break-even.">
-                        ⚠ {c.profitSum.unpriced} profit unknown
+                        title="Warehouse lines with no agreed rate. Excluded from the Warehouse column -- they are not $0.">
+                        ⚠ {c.warehouseUnpriced} unpriced wh.
                       </span>
                     )}
                     {c.pendingAdj > 0 && (
                       <span className="bg-orange-900/60 text-orange-300 px-2 py-0.5 rounded text-xs">🔔 adj</span>
                     )}
-                    {/* The green tick requires the revenue figure to be
-                        complete, and now the profit figure too. `lossCount`
-                        cannot stand in for the latter: `is_loss` is false for
-                        a shipment whose profit is unknown, so a client with
-                        nothing but un-invoiced shipments satisfied all three
-                        of the old conditions and got a ✓ -- an affirmative
-                        all-clear about margin nobody has measured. */}
+                    {/* The green tick requires EVERY row of this client's to
+                        have reconciled. `lossCount` cannot stand in for that:
+                        `is_loss` is false for a shipment whose profit is
+                        unknown, so a client with nothing but un-invoiced
+                        shipments satisfied all of the old conditions and got a
+                        ✓ -- an affirmative all-clear about margin nobody has
+                        measured. `excluded === 0` is the one condition that
+                        covers all three exclusion buckets at once, so a new
+                        bucket cannot be added upstream without this tightening
+                        with it. */}
                     {c.lossCount === 0 && c.pendingAdj === 0
-                      && c.unpricedRevenue === 0 && c.profitSum.unpriced === 0 && (
+                      && c.excluded === 0 && c.warehouseUnpriced === 0 && (
                       <span className="text-green-400 text-xs">✓</span>
                     )}
                   </td>
@@ -540,30 +690,44 @@ export default async function DashboardPage() {
               <tr className="border-t border-gray-600 text-sm font-semibold">
                 <td className="pt-3">Total</td>
                 <td className="pt-3 text-right">{d.clientBreakdown.reduce((s: number, c: any) => s + c.shipments, 0)}</td>
+                {/* All three of these come from combineReconciled in
+                    getDashboardData, not from reducing over the rendered
+                    numbers: `s + c.revenue` would need a `?? 0` now that a row
+                    can be UNKNOWN, and that is the coercion this page exists
+                    to be rid of. Combining also means this row subtracts and
+                    agrees with the "This Month" card above -- the test in
+                    profit-rollup.test.ts pins that splitting rows by client
+                    and recombining gives the same figures as not splitting. */}
                 <td className="pt-3 text-right">
-                  ${d.clientBreakdown.reduce((s: number, c: any) => s + c.revenue, 0).toFixed(2)}
-                  {/* The shipment count in the cell to the left includes the
-                      unpriced rows; this total does not. Saying so is the
-                      whole point -- otherwise the two disagree in silence. */}
-                  {d.clientBreakdown.reduce((s: number, c: any) => s + c.unpricedRevenue, 0) > 0 && (
+                  {formatPrice(d.breakdownRevenue)}
+                  {/* The shipment count to the left includes the excluded
+                      rows; these figures do not. Saying so is the whole point
+                      -- otherwise the two disagree in silence. */}
+                  {d.breakdownExcluded > 0 && (
                     <span className="block text-amber-400/90 text-xs font-normal">
-                      ⚠ {unpricedNote(d.clientBreakdown.reduce((s: number, c: any) => s + c.unpricedRevenue, 0))}
+                      ⚠ {d.breakdownExclusions}
                     </span>
                   )}
                 </td>
-                <td className="pt-3 text-right">${d.clientBreakdown.reduce((s: number, c: any) => s + c.cost, 0).toFixed(2)}</td>
-                {/* Combined in getDashboardData from the clients' own sums,
-                    not reduced over the rendered numbers: `s + c.profit` would
-                    need a `?? 0` now that a row can be UNKNOWN, and that is
-                    the coercion this page exists to be rid of. */}
+                <td className="pt-3 text-right">
+                  {d.breakdownCost === null ? UNPRICED_DASH : `−${formatPrice(d.breakdownCost)}`}
+                </td>
                 <td className={`pt-3 text-right ${
                   d.breakdownProfitTotal === null ? 'text-gray-500'
                     : d.breakdownProfitTotal >= 0 ? 'text-green-400' : 'text-red-400'
                 }`}>
                   {formatSignedPrice(d.breakdownProfitTotal)}
-                  {d.breakdownProfitUnknown > 0 && (
+                  {d.breakdownMarginPct !== null && (
+                    <span className="block text-gray-500 text-xs font-normal">
+                      {d.breakdownMarginPct.toFixed(1)}%
+                    </span>
+                  )}
+                </td>
+                <td className="pt-3 text-right text-gray-300">
+                  {formatPrice(d.breakdownWarehouseTotal)}
+                  {d.breakdownWarehouseUnpriced > 0 && (
                     <span className="block text-amber-400/90 text-xs font-normal">
-                      ⚠ {unpricedNote(d.breakdownProfitUnknown)} (no rate, or the carrier bill has not landed)
+                      ⚠ {unpricedNote(d.breakdownWarehouseUnpriced, 'line')}
                     </span>
                   )}
                 </td>
@@ -619,32 +783,26 @@ export default async function DashboardPage() {
   )
 }
 
-function PeriodCard(
-  {
-    title, revenue, cost, profit,
-    unpricedRevenue = 0, unknownProfit = 0, unreadable = null,
-  }:
-  {
-    title: string
-    // Nullable on purpose. A period whose reads did not all come back has no
-    // revenue figure -- not a low one -- and the type is what stops a future
-    // edit from quietly reintroducing `?? 0` here.
-    revenue: number | null; cost: number | null; profit: number | null
-    unpricedRevenue?: number; unknownProfit?: number
-    unreadable?: string | null
-  },
-) {
+function PeriodCard({ title, p }: { title: string; p: PeriodFigures }) {
   // The whole card goes dark rather than showing a dash per row. Three dashes
   // in a row invite the reader to assume a quiet period; one stated reason
   // does not.
-  if (unreadable) {
+  if (p.unreadable) {
     return (
       <div className="bg-gray-800 rounded-xl p-5">
         <p className="text-gray-400 text-sm font-medium mb-4">{title}</p>
-        <ViewUnreadable message={unreadable} />
+        <ViewUnreadable message={p.unreadable} />
       </div>
     )
   }
+
+  // Shown only when it differs from the reconciled revenue, which is exactly
+  // when the difference means something: the gap IS the agreed revenue on
+  // shipments the carrier has not billed us for. Rendering it unconditionally
+  // would put two numbers labelled Revenue on every card and invite the reader
+  // to pick one.
+  const showBillable = p.billable !== null && p.revenue !== null
+    && Math.round(p.billable * 100) !== Math.round(p.revenue * 100)
 
   return (
     <div className="bg-gray-800 rounded-xl p-5">
@@ -652,29 +810,97 @@ function PeriodCard(
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
           <span className="text-gray-400">Revenue</span>
-          <span className="text-white font-semibold">{formatPrice(revenue)}</span>
+          <span className="text-white font-semibold">{formatPrice(p.revenue)}</span>
         </div>
-        {unpricedRevenue > 0 && (
-          <p className="text-amber-400/90 text-xs">⚠ {unpricedNote(unpricedRevenue)}</p>
-        )}
         <div className="flex justify-between text-sm">
           <span className="text-gray-400">Carrier Cost</span>
-          <span className="text-white">{formatPrice(cost)}</span>
+          {/* Printed with a leading minus so the column reads as the
+              subtraction it now actually is. Before this change the three
+              figures did not reconcile, and a minus sign in front of the
+              middle one would have been an assertion the page could not
+              support. */}
+          <span className="text-white">
+            {p.cost === null ? UNPRICED_DASH : `−${formatPrice(p.cost)}`}
+          </span>
         </div>
         <div className="border-t border-gray-700 pt-2 flex justify-between text-sm">
-          <span className="text-gray-400">Profit / Loss</span>
+          <span className="text-gray-400">Margin</span>
           {/* Gray for UNKNOWN, because `null >= 0` is true and would otherwise
               paint it green. */}
           <span className={`font-bold ${
-            profit === null ? 'text-gray-500'
-              : profit >= 0 ? 'text-green-400' : 'text-red-400'
+            p.profit === null ? 'text-gray-500'
+              : p.profit >= 0 ? 'text-green-400' : 'text-red-400'
           }`}>
-            {formatSignedPrice(profit)}
+            {formatSignedPrice(p.profit)}
+            {p.marginPct !== null && (
+              <span className="text-gray-500 font-normal ml-1.5">
+                ({p.marginPct.toFixed(1)}%)
+              </span>
+            )}
           </span>
         </div>
-        {unknownProfit > 0 && (
+
+        {/* The row set the three figures above are built from, stated whenever
+            it is not all of them. "Margin +$2,469 over 1,203 of 1,425
+            shipments" is a figure somebody can judge; the same margin with the
+            denominator hidden is the one they would quote. */}
+        {p.excluded > 0 && (
+          <>
+            <p className="text-gray-500 text-xs pt-1">
+              Over {p.reconciled} of {p.shipments} shipments
+            </p>
+            <p className="text-amber-400/90 text-xs">⚠ {p.exclusions}</p>
+          </>
+        )}
+
+        {showBillable && (
+          <div className="flex justify-between text-xs pt-1 border-t border-gray-700/50">
+            <span className="text-gray-500">
+              Billable revenue
+              <span className="text-gray-600"> (incl. awaiting cost)</span>
+            </span>
+            <span className="text-gray-300">{formatPrice(p.billable)}</span>
+          </div>
+        )}
+        {p.billableUnpriced > 0 && (
+          <p className="text-amber-400/90 text-xs">⚠ {unpricedNote(p.billableUnpriced)}</p>
+        )}
+
+        {/* Below the rule and outside the margin, which is the entire point of
+            this line. Folded into revenue -- where it used to live -- every
+            warehouse dollar widened the gap between the revenue and cost
+            figures by a dollar while appearing in no cost and no profit. */}
+        {p.otherMeasured ? (
+          <div className="flex justify-between text-xs">
+            <span className="text-gray-500">
+              Warehouse &amp; manual
+              <span className="text-gray-600"> (not in margin)</span>
+            </span>
+            <span className="text-gray-300">{formatPrice(p.otherIncome)}</span>
+          </div>
+        ) : (
+          /* Not $0.00. No warehouse or manual read is windowed to this period,
+             so the page has nothing to say about it -- and a $0.00 here would
+             say the period had none, which would also make this card's revenue
+             look comparable to the cards that do include it. */
+          <p className="text-gray-600 text-xs">
+            Warehouse &amp; manual charges not counted in this period
+          </p>
+        )}
+        {p.otherIncomeUnpriced > 0 && (
           <p className="text-amber-400/90 text-xs">
-            ⚠ {unpricedNote(unknownProfit)} (no rate, or the carrier bill has not landed)
+            ⚠ {unpricedNote(p.otherIncomeUnpriced, 'line')}
+          </p>
+        )}
+
+        {/* Only ever a diagnostic, and it describes the figure this change
+            replaced: `profit_loss` is the column the old profit line was summed
+            from, so a non-zero count here is a count of rows that line was
+            wrong about. Nothing above is derived from it. */}
+        {p.stale > 0 && (
+          <p className="text-gray-600 text-xs">
+            {p.stale} stored profit value{p.stale === 1 ? '' : 's'} disagree
+            {p.stale === 1 ? 's' : ''} with rate − cost
           </p>
         )}
       </div>
@@ -683,9 +909,15 @@ function PeriodCard(
 }
 
 function BigStat(
-  { label, value, color, note, unreadable = null }:
+  { label, value, color, note, noteTone = 'warn', unreadable = null }:
   {
     label: string; value: string; color: string; note?: string
+    // Two kinds of thing go under a figure and they must not look alike. A
+    // withheld-rows note is something to go and fix; a margin percentage is
+    // just more of the figure. Rendering both in amber behind a ⚠ would train
+    // the reader to ignore the warning, which is the same reasoning as
+    // `unpricedNote` returning '' rather than an all-clear.
+    noteTone?: 'warn' | 'muted'
     unreadable?: string | null
   },
 ) {
@@ -716,7 +948,11 @@ function BigStat(
           go and fix, not a failure. `note` is '' when nothing was withheld, so
           nothing renders in the ordinary case -- a permanent all-clear under
           every figure is how a real one stops being read. */}
-      {note ? <p className="text-amber-400/90 text-xs mt-1.5">⚠ {note}</p> : null}
+      {note ? (
+        noteTone === 'muted'
+          ? <p className="text-gray-500 text-xs mt-1.5">{note}</p>
+          : <p className="text-amber-400/90 text-xs mt-1.5">⚠ {note}</p>
+      ) : null}
     </div>
   )
 }
