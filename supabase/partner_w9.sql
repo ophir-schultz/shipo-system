@@ -1,0 +1,45 @@
+-- ============================================================
+-- Do we hold this partner's W-9?
+--
+-- src/components/partner/Statement.tsx already tells every partner
+-- "We can only pay once we hold your completed W-9 or W-8 form."
+-- Nothing recorded whether we do. That promise was therefore kept by
+-- memory, and the failure is one-directional: paying out without a TIN
+-- on file leaves us unable to file the 1099-NEC we owe for the payment
+-- we already made.
+--
+-- One column, and deliberately only one. The W-9 travels as a document
+-- inside the SAME DocuSign envelope as the agreement, so the envelope
+-- id, the signer and the date are already recorded on this row by the
+-- agreement columns in partner_onboarding.sql. What was missing is the
+-- single fact nothing else implies: that the form came back.
+--
+-- What this column is NOT: it is not the W-9 and it does not reference
+-- one. The taxpayer identification number stays in DocuSign's vault.
+-- Shipo stores a timestamp. See src/lib/docusign-redact.ts, which
+-- strips TIN-shaped values out of the Connect payload BEFORE it is
+-- written to partner_agreement_events.payload -- because "Include
+-- Documents" is a checkbox in DocuSign's own UI, and one wrong
+-- checkbox must not be able to turn our event log into a store of
+-- social security numbers.
+--
+-- Idempotent. Apply in the Supabase SQL editor.
+-- ============================================================
+
+alter table referral_partners add column if not exists w9_received_at timestamptz;
+
+-- Backfill is deliberately a no-op. NULL is the correct, honest value
+-- for every existing row: we hold no W-9 for any of them. Writing
+-- now() here to "clean up" the column would assert we hold forms we
+-- have never seen, which is the exact error the column exists to
+-- prevent.
+
+-- ============================================================
+-- VERIFICATION — must return present = true.
+-- ============================================================
+-- select
+--   'referral_partners.w9_received_at' as column_name,
+--   exists (
+--     select 1 from information_schema.columns
+--      where table_name = 'referral_partners' and column_name = 'w9_received_at'
+--   ) as present;

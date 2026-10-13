@@ -84,6 +84,15 @@ describe('agreementLabel', () => {
     expect(agreementLabel(null).text).toBe('not sent')
     expect(agreementLabel(undefined).text).toBe('not sent')
   })
+
+  it('reads the column default as English, not as a column value', () => {
+    // 'not_sent' is the default in supabase/partner_onboarding.sql, so it is
+    // the state most rows hold. Falling through to the unknown-state branch
+    // showed the raw value, underscore and all.
+    expect(agreementLabel('not_sent')).toEqual({ text: 'not sent', tone: 'wait' })
+    const sql = readFileSync('supabase/partner_onboarding.sql', 'utf8')
+    expect(sql).toContain("agreement_status text default 'not_sent'")
+  })
 })
 
 describe('the gate is actually wired to something', () => {

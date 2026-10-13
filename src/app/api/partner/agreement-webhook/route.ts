@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendPortalInvite } from '@/lib/partner-invite'
+import { redactForStorage } from '@/lib/docusign-redact'
+import { W9_CUSTOM_FIELD, W9_INCLUDED } from '@/lib/partner-w9'
 
 // ============================================================
 // DocuSign Connect listener — the step that makes onboarding
@@ -167,7 +169,13 @@ export async function POST(req: Request) {
     envelope_id: envelopeId,
     event,
     referral_partner_id: partner?.id ?? null,
-    payload: payload as unknown as Record<string, unknown>,
+    // Redacted, because this envelope carries the partner's W-9 and
+    // therefore their SSN or EIN. What Connect sends is decided by
+    // checkboxes in DocuSign's admin UI — "Include Documents" attaches
+    // the signed PDF, "Include Document Fields" the typed values — so
+    // the refusal has to live here at the write, where no checkbox can
+    // reach it. See src/lib/docusign-redact.ts.
+    payload: redactForStorage(payload) as Record<string, unknown>,
   })
 
   if (ledgerError) {
@@ -191,6 +199,31 @@ export async function POST(req: Request) {
   const now = new Date().toISOString()
 
   if (event === 'envelope-completed' || event === 'completed') {
+    // Did this envelope carry the W-9?
+    //
+    // `w9` is an envelope custom field WE set when sending, which is the
+    // only reason it can be trusted: like partner_id it is ours, and the
+    // signer cannot alter it. Asking rather than assuming is what lets
+    // envelopes that predate the W-9 — including the one already sent —
+    // complete without claiming we hold a form we have never seen.
+    //
+    // The inference this licenses, stated because it has a dependency:
+    // the W-9's tabs are sent REQUIRED, and DocuSign will not complete an
+    // envelope while a required tab is unfilled. So "completed" plus "a
+    // W-9 was attached" is evidence the W-9 came back filled in. Make
+    // those tabs optional in a future send and this timestamp becomes a
+    // lie that authorises a payout we cannot file a 1099 for.
+    const w9Received =
+      customField(payload, W9_CUSTOM_FIELD)?.toLowerCase() === W9_INCLUDED ? now : null
+    if (!w9Received) {
+      // Not an error — it is the state of every envelope sent before the
+      // W-9 was added. Logged because it is a payout precondition that
+      // nothing else will mention until someone tries to pay them.
+      console.error(
+        `[agreement-webhook] envelope ${envelopeId} carried no W-9; partner ${partner.id} is signed but not payable.`,
+      )
+    }
+
     // Promote. `active` here is what /api/partner/request-code checks
     // before it will issue a login code at all.
     const { error } = await supabaseAdmin
@@ -201,6 +234,10 @@ export async function POST(req: Request) {
         agreement_envelope_id: envelopeId,
         status: 'active',
         updated_at: now,
+        // Spread, so a signed-but-no-W-9 envelope leaves the column
+        // untouched instead of writing NULL over a W-9 we already hold
+        // from an earlier envelope.
+        ...(w9Received ? { w9_received_at: w9Received } : {}),
       })
       .eq('id', partner.id)
 
@@ -222,7 +259,12 @@ export async function POST(req: Request) {
       console.error('[agreement-webhook] portal invite failed:', invite.provider, invite.error)
     }
 
-    return NextResponse.json({ success: true, activated: true, invited: invite.sent })
+    return NextResponse.json({
+      success: true,
+      activated: true,
+      invited: invite.sent,
+      w9: w9Received !== null,
+    })
   }
 
   if (event === 'envelope-declined' || event === 'declined') {

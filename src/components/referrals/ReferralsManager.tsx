@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
 import { REFERRAL_TERMS, netProfit, totalCosts, commissionOn } from '@/lib/referrals'
 import { agreementLabel, portalAccessBlockedReason } from '@/lib/partner-access'
+import { payoutBlockedReason, w9Label } from '@/lib/partner-w9'
 import type { OwedLine, FbaInvoice } from '@/lib/referrals'
 
 const PCT = `${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%`
@@ -24,6 +25,7 @@ interface Partner {
   portal_invited_at?: string | null
   agreement_status?: string | null
   agreement_signed_at?: string | null
+  w9_received_at?: string | null
   founding_partner?: boolean | null
 }
 interface Client {
@@ -251,6 +253,12 @@ const blockedReason = (p: Partner) => portalAccessBlockedReason(p)
  * is the date of the last change, which is not the same fact, and labelling it
  * as though it were would put a confident timestamp next to a word it does
  * not belong to.
+ *
+ * The W-9 line appears only once signed, for the same reason. The W-9 is page
+ * two of the agreement envelope, so before the envelope comes back its absence
+ * says nothing about the partner's paperwork — only that the envelope is still
+ * out. Shown on every row it would read as a problem on every row, which is
+ * how a warning stops being read.
  */
 function AgreementCell({ partner }: { partner: Partner }) {
   const { text, tone } = agreementLabel(partner.agreement_status)
@@ -260,12 +268,24 @@ function AgreementCell({ partner }: { partner: Partner }) {
       : tone === 'bad'
         ? 'text-red-400'
         : 'text-gray-500'
+  const signed = partner.agreement_status === 'signed'
+  const w9 = w9Label(partner)
   return (
     <div>
       <span className={`text-xs ${colour}`}>{text}</span>
-      {partner.agreement_status === 'signed' && partner.agreement_signed_at && (
+      {signed && partner.agreement_signed_at && (
         <span className="block text-[10px] text-gray-600">
           {partner.agreement_signed_at.slice(0, 10)}
+        </span>
+      )}
+      {signed && (
+        <span
+          className={`block text-[10px] ${w9.tone === 'good' ? 'text-gray-500' : 'text-red-400'}`}
+          // The consequence, not the status. "missing" alone invites
+          // "missing from where?"; this says what it stops.
+          title={payoutBlockedReason(partner) ?? 'W-9 on file. This partner can be paid.'}
+        >
+          W-9 {w9.text}
         </span>
       )}
     </div>

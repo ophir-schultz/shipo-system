@@ -79,6 +79,11 @@ export function agreementLabel(agreementStatus?: string | null): {
       return { text: 'voided', tone: 'bad' }
     case 'sent':
       return { text: 'out for signature', tone: 'wait' }
+    // 'not_sent' is the column DEFAULT in supabase/partner_onboarding.sql,
+    // so it is the state most rows are actually in. Without this case it
+    // fell to the default below and the screen read "not_sent", underscore
+    // and all — a database value shown to a human.
+    case 'not_sent':
     case null:
     case undefined:
     case '':
