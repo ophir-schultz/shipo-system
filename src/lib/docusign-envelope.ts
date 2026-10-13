@@ -80,6 +80,14 @@ export const AGREEMENT_ANCHORS = {
   partnerDate: '\\d2\\',
   /** Appears twice — the parties block and the signature heading. */
   partnerNamePrefill: '\\pname\\',
+  /**
+   * Clause 1: 'with its address at \paddr\ ("Partner")'. The partner
+   * types this, because referral_partners has no address column — see
+   * agreementPartnerTabs for why it is nonetheless REQUIRED.
+   */
+  partnerAddressPrefill: '\\paddr\\',
+  /** The notices clause: 'Notices to Partner may be given at \pemail\'. */
+  partnerEmailPrefill: '\\pemail\\',
 } as const
 
 export const SHIPO_RECIPIENT_ID = '1'
@@ -87,8 +95,21 @@ export const PARTNER_RECIPIENT_ID = '2'
 
 export interface EnvelopePartner {
   id: string
+  /** The human who signs. Goes over the signature, not in clause 1. */
   name: string
   email: string
+  /**
+   * The contracting entity, if there is one. referral_partners keeps the
+   * person in `name` and the business in `company`, and clause 1 wants
+   * the business: an agency's principal signs, but the agency is the
+   * Party. Falls back to `name` for a sole trader, who is both.
+   */
+  company?: string | null
+}
+
+/** Who clause 1 names as "Partner". See EnvelopePartner.company. */
+export function partyName(partner: EnvelopePartner): string {
+  return partner.company?.trim() || partner.name.trim()
 }
 
 export interface EnvelopeSigner {
@@ -118,6 +139,76 @@ function anchored(anchorString: string, extra: Record<string, unknown> = {}) {
     anchorYOffset: '0',
     anchorIgnoreIfNotPresent: 'false',
     ...extra,
+  }
+}
+
+/**
+ * The partner's tabs on the AGREEMENT (document 1).
+ *
+ * Three of these fill blanks in the contract prose rather than collecting
+ * a signature, and they exist because of how the template is built: the
+ * counterparty's details are not typed into the file — that would mean a
+ * fresh copy of the whole agreement, and all its figures, per partner —
+ * they are DocuSign anchors filled at send time.
+ *
+ * The anchors are rendered WHITE by scripts/build-agreement-pdf.mjs, so
+ * they are in the text layer DocuSign searches and invisible on paper.
+ * The consequence is that an unfilled anchor leaves no trace: clause 1
+ * reads 'with its address at  ("Partner")' and the notices clause reads
+ * 'Notices to Partner may be given at .' Both look like sloppy drafting
+ * rather than a bug, on an executed contract, which is why these are
+ * tabs and not a TODO.
+ *
+ * Name and email are LOCKED: they are our record of who we approved, and
+ * a party block the counterparty can retype is a party block that can
+ * name a different entity than the one we agreed to.
+ *
+ * The address is the partner's to type, and REQUIRED. We hold no address
+ * for them — referral_partners has name/company/email/phone and nothing
+ * else — so the alternatives were an empty notices clause or blocking
+ * every send on data we would have to collect by email first. Required
+ * borrows the W-9's guarantee: DocuSign will not complete an envelope
+ * with a required tab empty, so the clause cannot end up blank.
+ */
+function agreementPartnerTabs(partner: EnvelopePartner) {
+  return {
+    signHereTabs: [anchored(AGREEMENT_ANCHORS.partnerSignature, { documentId: '1' })],
+    fullNameTabs: [anchored(AGREEMENT_ANCHORS.partnerName, { documentId: '1' })],
+    dateSignedTabs: [anchored(AGREEMENT_ANCHORS.partnerDate, { documentId: '1' })],
+    textTabs: [
+      anchored(AGREEMENT_ANCHORS.partnerNamePrefill, {
+        documentId: '1',
+        tabLabel: 'agreement_partner_name',
+        value: partyName(partner),
+        locked: 'true',
+        required: 'false',
+        width: '260',
+        font: 'georgia',
+        fontSize: 'size11',
+        bold: 'true',
+      }),
+      anchored(AGREEMENT_ANCHORS.partnerEmailPrefill, {
+        documentId: '1',
+        tabLabel: 'agreement_partner_email',
+        value: partner.email.trim(),
+        locked: 'true',
+        required: 'false',
+        width: '220',
+        font: 'georgia',
+        fontSize: 'size11',
+      }),
+      anchored(AGREEMENT_ANCHORS.partnerAddressPrefill, {
+        documentId: '1',
+        tabLabel: 'agreement_partner_address',
+        // No value: this is the one thing on the agreement the partner
+        // tells US. Required, so the notices clause cannot ship blank.
+        required: 'true',
+        locked: 'false',
+        width: '260',
+        font: 'georgia',
+        fontSize: 'size11',
+      }),
+    ],
   }
 }
 
@@ -167,8 +258,23 @@ function w9PartnerTabs() {
     }),
   ]
 
+  // The requester block — line 'Requester's name and address'. OURS, so
+  // it is filled and locked rather than offered as an empty box: a
+  // partner asked to type the requester's address will guess it or skip
+  // it, and either makes the form look like it came from nobody. Locked
+  // because it is not a fact about them that they could correct.
+  const requesterTab = w9Tab(W9_REQUESTER_BOX, {
+    tabLabel: 'w9_requester',
+    name: "Requester's name and address",
+    value: W9_REQUESTER_TEXT,
+    locked: 'true',
+    required: 'false',
+    font: 'helvetica',
+    fontSize: 'size9',
+  })
+
   return {
-    textTabs: [...textTabs, ...tinTabs],
+    textTabs: [...textTabs, ...tinTabs, requesterTab],
 
     radioGroupTabs: [
       {
@@ -320,21 +426,10 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
                 },
                 {
                   ...partnerSigner,
-                  tabs: {
-                    signHereTabs: [
-                      anchored(AGREEMENT_ANCHORS.partnerSignature, { documentId: '1' }),
-                    ],
-                    fullNameTabs: [anchored(AGREEMENT_ANCHORS.partnerName, { documentId: '1' })],
-                    dateSignedTabs: [anchored(AGREEMENT_ANCHORS.partnerDate, { documentId: '1' })],
-                  },
+                  tabs: agreementPartnerTabs(partner),
                 },
               ],
             },
-            // Sender-filled, before anyone signs. The partner's legal
-            // name appears in the parties block as well as over the
-            // signature, and a contract that asks its own counterparty
-            // to type who they are in clause 1 is not a contract we
-            // should be sending.
             documents: [],
           },
         ],
@@ -370,17 +465,15 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
   }
 }
 
-/**
- * Values we fill in before sending, keyed by the anchor they replace.
- * Returned separately because DocuSign's prefill mechanism differs
- * between API versions, and the send script should not have to re-derive
- * WHAT to prefill in order to decide HOW.
- */
-export function prefillValues(partner: EnvelopePartner): Record<string, string> {
-  return {
-    [AGREEMENT_ANCHORS.partnerNamePrefill]: partner.name,
-    w9_requester: W9_REQUESTER_TEXT,
-  }
-}
+// There was a prefillValues() here, and deleting it is the point.
+//
+// It returned the values to fill keyed by anchor, for a send script to
+// apply "however this API version wants". But the tabs now carry their
+// own values, so it was a second place the same facts were written —
+// and it had already drifted: it said partner.name where clause 1 needs
+// partyName(partner), which for an agency is the principal's name in
+// the box reserved for the agency. Nothing consumed it, so nothing
+// caught that. A helper whose only job is to restate what the tabs
+// already own cannot be kept honest; the tabs are the single source.
 
 export { W9_REQUESTER_BOX }

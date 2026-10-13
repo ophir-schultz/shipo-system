@@ -163,6 +163,47 @@ const REVERSIONS = [
     to: "export const W9_TIN_EIN: W9Box = { x: 417.6, y: 790.0, w: 144.0, h: 24 }",
     expect: 'printable page',
   },
+  {
+    // The original defect this round found: no tab on \paddr\, so clause
+    // 1 shipped as 'with its address at  ("Partner")' in white ink.
+    name: 'address anchor left unfilled (blank notices clause)',
+    file: 'src/lib/docusign-envelope.ts',
+    from: `      anchored(AGREEMENT_ANCHORS.partnerAddressPrefill, {`,
+    to: `      ...[], ...[], anchored(AGREEMENT_ANCHORS.partnerNamePrefill, {`,
+    expect: 'fill-anchor',
+  },
+  {
+    name: 'party block made editable by the counterparty',
+    file: 'src/lib/docusign-envelope.ts',
+    from: `        value: partyName(partner),
+        locked: 'true',`,
+    to: `        value: partyName(partner),
+        locked: 'false',`,
+    expect: 'clause 1 and locks it',
+  },
+  {
+    name: 'partner address made optional',
+    file: 'src/lib/docusign-envelope.ts',
+    from: `        // tells US. Required, so the notices clause cannot ship blank.
+        required: 'true',`,
+    to: `        // tells US. Required, so the notices clause cannot ship blank.
+        required: 'false',`,
+    expect: 'requires it',
+  },
+  {
+    name: 'W-9 requester block left blank (form from nobody)',
+    file: 'src/lib/docusign-envelope.ts',
+    from: 'textTabs: [...textTabs, ...tinTabs, requesterTab],',
+    to: 'textTabs: [...textTabs, ...tinTabs],',
+    expect: 'requester block',
+  },
+  {
+    name: 'clause 1 names the signer instead of the contracting entity',
+    file: 'src/lib/docusign-envelope.ts',
+    from: 'return partner.company?.trim() || partner.name.trim()',
+    to: 'return partner.name.trim()',
+    expect: 'company when there is one',
+  },
   // ---- CONTROLS ----
   // These must STAY GREEN. They are the reason a "caught it" verdict means
   // something: if a control went red, the harness is reporting noise.

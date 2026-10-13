@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   W9_CLASSIFICATIONS,
@@ -13,6 +15,18 @@ import {
   W9_TIN_SSN,
   type W9Box,
 } from './docusign-w9'
+
+/**
+ * Resolved from THIS FILE, not from the shell's cwd.
+ *
+ * A cwd-relative read made the guard answer a different question than
+ * the one it asks: run from anywhere but the repo root and it threw
+ * ENOENT, which reads as "the test is broken" rather than "the W-9
+ * changed". The hash guard's whole value is being unmissable when the
+ * form is revised, so it must not have a second, louder failure mode
+ * that people learn to wave away.
+ */
+const W9_PDF = join(dirname(fileURLToPath(import.meta.url)), '../../docs/irs-fw9.pdf')
 
 describe('the coordinates still describe the form they were measured from', () => {
   // This is the guard the whole file depends on. Every number in
@@ -28,14 +42,14 @@ describe('the coordinates still describe the form they were measured from', () =
   // skips itself when the parser is missing is worse than no guard,
   // because it reports green.
   it('docs/irs-fw9.pdf is byte-for-byte the file the tabs were placed on', () => {
-    const actual = createHash('sha256').update(readFileSync('docs/irs-fw9.pdf')).digest('hex')
+    const actual = createHash('sha256').update(readFileSync(W9_PDF)).digest('hex')
     expect(actual).toBe(W9_PDF_SHA256)
   })
 
   it('the hash would actually change if the file did', () => {
     // A control. Without it, a bug that hashed a constant rather than the
     // file would pass the test above forever.
-    const a = createHash('sha256').update(readFileSync('docs/irs-fw9.pdf')).digest('hex')
+    const a = createHash('sha256').update(readFileSync(W9_PDF)).digest('hex')
     const b = createHash('sha256').update('not the W-9').digest('hex')
     expect(a).not.toBe(b)
   })

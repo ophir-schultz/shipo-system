@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { W9_CUSTOM_FIELD, W9_INCLUDED } from './partner-w9'
 import { W9_CLASSIFICATIONS, W9_TEXT_FIELDS, W9_TIN_GROUP } from './docusign-w9'
@@ -11,8 +13,13 @@ import {
   PARTNER_RECIPIENT_ID,
   SHIPO_RECIPIENT_ID,
   buildPartnerAgreementEnvelope,
-  prefillValues,
+  partyName,
 } from './docusign-envelope'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+/** Module-relative, so the source-reading guards below cannot fail as ENOENT. */
+const ENVELOPE_SRC = join(HERE, 'docusign-envelope.ts')
+const AGREEMENT_MD = join(HERE, '../../docs/referral-agreement-TEMPLATE.md')
 
 const partner = {
   id: '11111111-2222-3333-4444-555555555555',
@@ -51,7 +58,7 @@ describe('it is always a draft', () => {
   })
 
   it('the source contains no path that sets status to sent', () => {
-    const src = readFileSync('src/lib/docusign-envelope.ts', 'utf8')
+    const src = readFileSync(ENVELOPE_SRC, 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .split('\n')
       .filter((l) => !/^\s*(\/\/|\*)/.test(l))
@@ -180,8 +187,8 @@ describe('anchors', () => {
     // but the PDF is the artifact that gets signed, and a renderer that
     // ligatures or re-wraps the anchor breaks the match with no visible
     // symptom until a partner receives a contract with no signature box.
-    const pdf = readFileSync('docs/referral-agreement-TEMPLATE.pdf', 'latin1')
-    const text = readFileSync('docs/referral-agreement-TEMPLATE.md', 'utf8')
+    const pdf = readFileSync(join(HERE, '../../docs/referral-agreement-TEMPLATE.pdf'), 'latin1')
+    const text = readFileSync(AGREEMENT_MD, 'utf8')
     for (const anchor of Object.values(AGREEMENT_ANCHORS)) {
       expect(text, `${anchor} missing from the markdown`).toContain(anchor)
     }
@@ -216,7 +223,7 @@ describe('custom fields — what the webhook reads back', () => {
     // either side would otherwise record every W-9 we collect as not
     // collected — silent, and surfacing only as a partner being told we
     // cannot pay them.
-    const src = readFileSync('src/lib/docusign-envelope.ts', 'utf8')
+    const src = readFileSync(ENVELOPE_SRC, 'utf8')
       .split('\n')
       .filter((l) => !/^\s*(\/\/|\*)/.test(l))
       .filter((l) => !/^\s*import\b/.test(l))
@@ -333,16 +340,94 @@ describe('refusals', () => {
   })
 })
 
-describe('prefill', () => {
-  it('fills the partner name rather than asking them to type it', () => {
-    // \pname\ appears in the parties block as well as over the
-    // signature. A contract that asks its own counterparty to type who
-    // they are in clause 1 is not one we should be sending.
-    const values = prefillValues(partner)
-    expect(values[AGREEMENT_ANCHORS.partnerNamePrefill]).toBe(partner.name)
+describe('the contract prose has no blanks left in it', () => {
+  // The anchors are rendered WHITE in the PDF, so an unfilled one leaves
+  // no visible trace at all. Clause 1 would read 'with its address at
+  // ("Partner")' and the notices clause 'Notices to Partner may be given
+  // at .' — both of which read as sloppy drafting on an executed
+  // contract rather than as a bug. These three tabs were missing from
+  // the first cut of this file for exactly that reason: nothing looked
+  // wrong.
+  const agreementSigners = signersOf(build(), 0)
+  const partnerSigner = agreementSigners.find((s) => s.recipientId === PARTNER_RECIPIENT_ID)!
+  const textTabs = partnerSigner.tabs.textTabs as {
+    anchorString: string
+    tabLabel: string
+    value?: string
+    locked: string
+    required: string
+  }[]
+  const byAnchor = (a: string) => textTabs.find((t) => t.anchorString === a)!
+
+  it('fills every fill-anchor the document contains', () => {
+    // Derived from the document, not from a list kept here: the md is
+    // the source of truth for which anchors exist, so an anchor added to
+    // the contract without a tab fails HERE rather than shipping blank.
+    const md = readFileSync(AGREEMENT_MD, 'utf8')
+    const inDoc = new Set(md.match(/\\(pname|paddr|pemail)\\/g) ?? [])
+    expect(inDoc.size).toBe(3)
+    for (const anchor of inDoc) {
+      expect(byAnchor(anchor), `no tab fills ${anchor}`).toBeDefined()
+    }
   })
 
-  it('fills the requester block with Shipo, not the partner', () => {
-    expect(prefillValues(partner).w9_requester).toMatch(/Shipo LLC/)
+  it('names the partner in clause 1 and locks it', () => {
+    // Locked because this is our record of the entity we approved. A
+    // party block the counterparty can retype is a party block that can
+    // name a different entity than the one we agreed to.
+    const tab = byAnchor(AGREEMENT_ANCHORS.partnerNamePrefill)
+    expect(tab.value).toBe(partyName(partner))
+    expect(tab.locked).toBe('true')
+  })
+
+  it('fills the notices clause with the partner email and locks it', () => {
+    const tab = byAnchor(AGREEMENT_ANCHORS.partnerEmailPrefill)
+    expect(tab.value).toBe(partner.email)
+    expect(tab.locked).toBe('true')
+  })
+
+  it('makes the partner type their address, and requires it', () => {
+    // referral_partners holds no address, so this is the one fact on the
+    // agreement the partner tells us. Required borrows the W-9's
+    // guarantee: DocuSign will not complete an envelope with a required
+    // tab empty, so the notices clause cannot end up blank.
+    const tab = byAnchor(AGREEMENT_ANCHORS.partnerAddressPrefill)
+    expect(tab.value).toBeUndefined()
+    expect(tab.required).toBe('true')
+    expect(tab.locked).toBe('false')
+  })
+
+  it('fills the W-9 requester block with Shipo, locked', () => {
+    // Ours, not theirs. A partner asked to type the requester's address
+    // will guess it or skip it, and either makes the form look like it
+    // came from nobody.
+    const w9Signer = signersOf(build(), 1).find((s) => s.recipientId === PARTNER_RECIPIENT_ID)!
+    const tab = (w9Signer.tabs.textTabs as { tabLabel: string; value?: string; locked?: string }[])
+      .find((t) => t.tabLabel === 'w9_requester')!
+    expect(tab).toBeDefined()
+    expect(tab.value).toMatch(/Shipo LLC/)
+    expect(tab.locked).toBe('true')
+  })
+})
+
+describe('who clause 1 calls "Partner"', () => {
+  it('uses the company when there is one', () => {
+    // An agency's principal signs, but the agency is the Party. The
+    // signature block has its own Name line for the human.
+    expect(partyName({ id: 'x', name: 'Dana Katz', email: 'd@e.com', company: 'Katz Media LLC' }))
+      .toBe('Katz Media LLC')
+  })
+
+  it('falls back to the person for a sole trader', () => {
+    expect(partyName({ id: 'x', name: 'Dana Katz', email: 'd@e.com' })).toBe('Dana Katz')
+  })
+
+  it('ignores a blank company rather than naming nobody', () => {
+    // referral_partners.company is nullable and the intake form does not
+    // require it, so empty string and whitespace both arrive in practice.
+    expect(partyName({ id: 'x', name: 'Dana Katz', email: 'd@e.com', company: '   ' }))
+      .toBe('Dana Katz')
+    expect(partyName({ id: 'x', name: 'Dana Katz', email: 'd@e.com', company: null }))
+      .toBe('Dana Katz')
   })
 })
