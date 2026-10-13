@@ -152,15 +152,15 @@ report as (
   union all
 
   -- The live-schema check, and the reason this file is worth running at all. It
-  -- names all seven columns statement-charges.ts names. If the live table is
+  -- names every column statement-charges.ts names. If the live table is
   -- missing any one of them the whole query dies on a 42703 and nothing below
   -- prints -- which is the /billing outage, caught here instead of by a client.
   select 0, ''::text, 1, ''::text,
-         'COLUMNS all seven readable live; probe read '
+         'COLUMNS all nine readable live; probe read '
            || count(*)::text || ' order_charges rows (capped at 1000)'
     from (
       select charge_type, label, quantity, unit_rate, amount,
-             is_estimate, charge_date
+             is_estimate, charge_date, order_id, charge_key
         from order_charges
        limit 1000
     ) probe

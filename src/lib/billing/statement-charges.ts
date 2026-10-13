@@ -52,6 +52,30 @@ export interface StatementChargeRow {
   amount: Money
   is_estimate: boolean
   charge_date: string
+  /**
+   * The order this charge was raised against, or null.
+   *
+   * Carried so the statement can name the ORDER NUMBER beside each charge.
+   * Without it the detail sheet is a list of dates and labels, and a client
+   * asking "which orders is this for?" cannot be answered from the file at
+   * all -- they would have to take the total on trust, which is the opposite
+   * of what a statement is for. Nullable because the FK is
+   * (ledger_03_charges.sql:57), and an unattributed charge must still appear
+   * on the sheet rather than being dropped to make the join tidy.
+   */
+  order_id: string | null
+  /**
+   * The charge's identity within its order, and the only route from a shipping
+   * charge back to the parcel it billed.
+   *
+   * `chargeKey` writes `shipment:<shipstation_shipment_id>` for charge_type
+   * 'shipping' (charge-key.ts:74-75), and that id has a unique index on
+   * `shipments` (ledger_03_charges.sql:25-26). So this column -- not a
+   * same-order-number guess -- is what joins a billed freight line to its
+   * carrier, service, tracking number and weight, 1:1 and unambiguously, for
+   * an order that shipped in more than one box.
+   */
+  charge_key: string
 }
 
 /**
@@ -67,7 +91,7 @@ export function readStatementCharges(
 ): Promise<PageResult<StatementChargeRow>> {
   return readAllPages((from, to) => supabaseAdmin
     .from('order_charges')
-    .select('charge_type, label, quantity, unit_rate, amount, is_estimate, charge_date')
+    .select('charge_type, label, quantity, unit_rate, amount, is_estimate, charge_date, order_id, charge_key')
     .eq('client_id', clientId)
     .gte('charge_date', range.from)
     .lte('charge_date', range.to)

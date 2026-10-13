@@ -254,7 +254,7 @@ describe('the verification SQL still contains the rules it was calibrated on', (
     expect(sql()).not.toMatch(/unpriced\s*>\s*0\s*(then|$)/m)
   })
 
-  it('selects all seven columns the app selects, so a 42703 surfaces here', () => {
+  it('selects every column the app selects, so a 42703 surfaces here', () => {
     // The live-schema check. `manual_total` and `new_cost` were three mutually
     // consistent wrong names that killed /billing and /reports; the repo-side
     // guard only proves a name appears in some .sql file, never that the file
@@ -294,7 +294,7 @@ describe('the verification SQL still contains the rules it was calibrated on', (
     // would fail on a column the app never asks for, and that failure would be
     // read as a broken statement rather than a broken probe.
     expect(probed).toEqual(appColumns)
-    expect(appColumns).toHaveLength(7)
+    expect(appColumns).toHaveLength(9)
   })
 
   it('is read-only, which is the premise on which it gets run in production', () => {

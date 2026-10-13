@@ -12,6 +12,10 @@ import {
 import {
   rateText, periodLabel, coverageNote, estimateNote,
 } from '@/lib/billing/statement-view'
+import {
+  readOrderNumbers, readShipmentFacts, shipmentIdFromChargeKey,
+  factsByShipmentId, buildShipmentLines, unmatchedParcelNote,
+} from '@/lib/billing/statement-detail'
 import { priceOf, totalOrUnknown, unpricedNote, UNPRICED_CELL } from '@/lib/billing/unpriced'
 
 // The statement as a spreadsheet, built from the same read the screen uses.
@@ -36,6 +40,23 @@ import { priceOf, totalOrUnknown, unpricedNote, UNPRICED_CELL } from '@/lib/bill
 // -- with the coverage note beside it, because "no charges recorded" and "no
 // charges happened" are not the same sentence and only the ledger's earliest
 // charge date can tell them apart.
+//
+// THREE SHEETS, ONE SOURCE OF MONEY.
+//
+//   Statement  the rolled-up lines, the TOTAL, and the notes.
+//   Charges    every charge row behind those lines, with its order number.
+//   Shipments  the parcel behind every freight charge: carrier, service,
+//              tracking, weight, destination.
+//
+// Every amount on all three comes from `order_charges` and nowhere else, so the
+// sheets arithmetically agree by construction rather than by review. The order
+// number and the parcel facts are joined on in statement-detail.ts, which
+// documents at length why `shipments.client_rate` -- which looks exactly like
+// the per-parcel billed amount -- is not it.
+//
+// What is NOT here, deliberately: `actual_cost`, `profit_loss`, and anything
+// else describing what we paid the carrier or made on the parcel. This file is
+// emailed to the client. The internal counterpart lives behind /reports.
 
 /** A read failed, so there is no file. Names the read. */
 function unreadable(what: string, message: string) {
@@ -128,6 +149,44 @@ export async function GET(req: Request) {
   const statement = buildStatement(charges, range)
   const total = statementTotal(statement)
 
+  // ---- The two lookups that turn the detail into something checkable ----
+  //
+  // Driven by the charges that were just read, not by a date window of their
+  // own, which is why they cannot widen or narrow the period the file is headed
+  // with. Both are reads of FACTS -- an order number, a carrier, a tracking
+  // number -- and neither contributes an amount: every figure in this workbook
+  // still comes from `order_charges`. See statement-detail.ts for why
+  // `shipments.client_rate` is not safe to put beside it.
+  //
+  // Only shipping charges are asked about. A pick line has no parcel, and
+  // `charge_key` namespaces other than `shipment:<id>` are deliberately not
+  // matched (a `return:` is not the shipment it reverses).
+  const orderIds = charges.flatMap(c => c.order_id === null ? [] : [c.order_id])
+  const shipmentIds = charges.flatMap(c => {
+    if (c.charge_type !== 'shipping') return []
+    const id = shipmentIdFromChargeKey(c.charge_key)
+    return id === null ? [] : [id]
+  })
+
+  const [ordersRes, factsRes] = await Promise.all([
+    readOrderNumbers(orderIds),
+    readShipmentFacts(shipmentIds),
+  ])
+  // Refused as hard as the charges read, and for the same reason. A workbook
+  // whose Order column is blank for half its rows does not read as "the join
+  // failed" -- it reads as charges we cannot attribute to an order, which is a
+  // claim about the ledger rather than about our read of it.
+  if (ordersRes.error) return unreadable('order numbers', ordersRes.error.message)
+  if (factsRes.error) return unreadable('shipment details', factsRes.error.message)
+
+  const orderNumbers = new Map(
+    (ordersRes.data ?? []).map(o => [o.id, o.order_number] as const),
+  )
+  const facts = factsByShipmentId(factsRes.data ?? [])
+  const { lines: shipmentLines, unmatched } = buildShipmentLines(
+    charges, orderNumbers, facts,
+  )
+
   // ---- Sheet 1: the statement as the client would read it ----
   const summary: Array<Record<string, string | number>> = statement.lines.map(line => ({
     'Charge': line.charge_type,
@@ -170,6 +229,10 @@ export async function GET(req: Request) {
     coverageNote(earliest, range),
     unpricedNote(statement.sum.unpriced, 'charge'),
     estimateNote(statement.estimated),
+    // On sheet 1 and not only on sheet 3, because a blank carrier column is
+    // noticed by whoever opens the file first, and the one sentence that
+    // explains it has to be where they are looking.
+    unmatchedParcelNote(unmatched),
   ].filter(n => n !== '')
 
   for (const note of notes) {
@@ -183,8 +246,15 @@ export async function GET(req: Request) {
   // The detail is what makes the summary checkable. A client disputing a figure
   // is asking "which days", and without this sheet the only answer is to
   // re-run the query by hand.
+  //
+  // The Order column is first after the date, because "which orders is this
+  // for?" is the question a client asks of a total before any other, and an
+  // unattributed charge shows an empty cell rather than being dropped -- a
+  // charge missing from the sheet is a charge missing from the explanation of a
+  // total it is still inside.
   const detail = charges.map(c => ({
     'Date': c.charge_date,
+    'Order': c.order_id === null ? '' : orderNumbers.get(c.order_id) ?? '',
     'Charge': c.charge_type,
     'Line': c.label,
     'Quantity': moneyCell(priceOf(c.quantity)),
@@ -193,16 +263,44 @@ export async function GET(req: Request) {
     'Priced from an assumed rate': c.is_estimate === true ? 'yes' : 'no',
   }))
 
+  // ---- Sheet 3: the parcel behind every freight charge ----
+  // Freight is the line clients query most and the only one whose unit is a
+  // physical object, so "which parcel, what weight, going where" is answerable
+  // from the file instead of from an email to us.
+  //
+  // One row per shipping CHARGE, so this sheet's Amount column sums to the
+  // shipping figure on sheet 1. A sheet built by reading every shipment in the
+  // window instead would include parcels the ledger has not billed, and would
+  // then disagree with the total sitting two tabs away in the same file.
+  const shipments = shipmentLines.map(line => ({
+    'Ship Date': line.ship_date,
+    'Order': line.order_number,
+    'Carrier': line.carrier,
+    'Service': line.service,
+    'Tracking': line.tracking_number,
+    'Weight (lb)': line.weight === null ? '' : line.weight,
+    'Destination': line.destination,
+    'Amount ($)': moneyCell(priceOf(line.amount)),
+    // Says which blanks are a failed lookup rather than a parcel we have no
+    // carrier for. Without it the two are indistinguishable in the cell.
+    'Parcel record found': line.matched ? 'yes' : 'no',
+  }))
+
   const wb = XLSX.utils.book_new()
-  for (const [sheetName, rows] of [
-    ['Statement', summary],
-    ['Charges', detail],
+  // Each empty sheet carries its OWN sentence. 'No charge rows in this period'
+  // on a Shipments tab would be false for a client who was picked and packed
+  // but shipped nothing -- there are charges, just no freight among them, and
+  // the two are a different fact about the period.
+  for (const [sheetName, rows, ifEmpty] of [
+    ['Statement', summary, 'No charge rows in this period'],
+    ['Charges', detail, 'No charge rows in this period'],
+    ['Shipments', shipments, 'No shipping charges in this period'],
   ] as const) {
     // A detail sheet with no rows gets a header-only sheet rather than being
     // omitted: a missing tab reads as a feature that did not run, where an
     // empty one beside a summary saying 'no charges recorded' agrees with it.
     const ws = rows.length === 0
-      ? XLSX.utils.aoa_to_sheet([['No charge rows in this period']])
+      ? XLSX.utils.aoa_to_sheet([[ifEmpty]])
       : XLSX.utils.json_to_sheet(rows as Array<Record<string, unknown>>)
     const first = rows[0]
     ws['!cols'] = first === undefined
