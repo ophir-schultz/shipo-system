@@ -3,8 +3,21 @@
 > **DOCUSIGN TEMPLATE — one copy, every partner.** Prepared 2026-10-12 from
 > `docs/referral-agreement-DRAFT-for-attorney-review.md`. Every bracketed item in that
 > draft has been resolved to a specific term; the resolutions are listed at the end of this
-> file under "Schedule of Resolved Items" for the record. This document has **not** been
-> reviewed by a licensed Delaware attorney.
+> file under "Schedule of Resolved Items" for the record.
+>
+> **Counsel has agreed to the operative terms.** Reported by Ophir, 2026-10-13. What
+> counsel reviewed is `docs/referral-agreement-DRAFT-for-attorney-review.md` as it stood on
+> 2026-10-12 — Sections 1 through 11, the text that binds. Counsel's name and firm are not
+> recorded here because they were not given; if that ever has to be produced, it comes from
+> Ophir, not from this file.
+>
+> One part of this document is newer than that review: the **Summary of Terms** was written
+> on 2026-10-13, after counsel saw the draft, and has not itself been in front of counsel.
+> It is orientation text that says in its own first line that the numbered sections govern
+> where the two differ, and every figure in it is pinned to the clause it summarises by
+> `src/lib/referral-agreement-terms.test.ts`, so it cannot assert a term the operative text
+> does not. That is a reason to be comfortable sending it, not a reason to let "counsel
+> agreed" cover two pages counsel never read — hence this paragraph.
 >
 > This file is deliberately NOT partner-specific. The first version of it was cut for a
 > named counterparty, with the company name and address typed into the party block — which

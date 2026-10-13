@@ -92,8 +92,8 @@ function operativeSection3(file: string): string {
  * counterparty signs, delimited by the CONTRACT-START / CONTRACT-END markers.
  *
  * This exists because the markdown file is BOTH the contract and an internal
- * record of the decisions behind it: the header note says the text has not been
- * attorney-reviewed and the Schedule at the foot lists every open question an
+ * record of the decisions behind it: the header note records exactly what counsel
+ * did and did not review, and the Schedule at the foot lists every open question an
  * attorney might still reopen. Neither belongs in a signed document — bound into
  * the contract they read as an admission. The build script renders only this
  * slice, so the assertions about what the counterparty sees have to be made
