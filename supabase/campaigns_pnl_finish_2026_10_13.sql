@@ -32,9 +32,13 @@
 -- one_time_cost 0, guarded by `where not exists (select 1 from campaigns)`.
 -- Running it now would fire, because campaigns is about to be created empty.
 --
--- Those zeros are not neutral. Apollo and HeyReach are paid tools, so a
--- campaign row asserting $0 spend states something false on the one screen
--- whose job is to report where the money went. The code survives it —
+-- Those zeros are not neutral. One of these channels has a measured cost:
+-- Apollo.io billed $426.87 in September 2026 (BoA statement, SHIPOLLC
+-- ...6109). The LinkedIn campaigns run through HeyReach (campaign id 543002,
+-- see campaigns_pnl.sql) and no invoice for it has been read, so its spend is
+-- UNKNOWN — which is the point. An unmeasured cost is not $0, and a campaign
+-- row asserting $0 spend states something false on the one screen whose job
+-- is to report where the money went. The code survives it —
 -- campaignFigures() guards ROI with `spend > 0`, so ROI comes back null rather
 -- than infinite — but CAC does not: `spend / clientsWon` prints $0.00 per
 -- client won, a decided-looking figure assembled from a placeholder nobody
