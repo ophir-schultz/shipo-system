@@ -6,6 +6,7 @@ import {
 } from '@/lib/billing/statement-charges'
 import {
   periodRange, buildStatement, statementTotal, statementToday,
+  GRAINS, GRAIN_LABELS,
   type Grain, type Statement,
 } from '@/lib/billing/statement'
 import {
@@ -34,17 +35,27 @@ export const dynamic = 'force-dynamic'
 /**
  * The grains the picker offers.
  *
- * `year` is implemented, tested and reachable by URL -- periodRange and isGrain
- * both handle it -- but is not offered here yet, because a year of
- * order_charges is the one grain whose page count nobody has measured and the
- * agreement was day/week/month first. Typing ?grain=year renders a year under a
- * heading that says year, so the omission costs a click rather than correctness.
+ * `year` was held back because a year of order_charges is the one grain whose
+ * page count nobody had measured. It has now been counted, off the code rather
+ * than off a guess, and the cost lives almost entirely in the DOWNLOAD and not
+ * on this screen:
+ *
+ *   this screen  readAllPages over order_charges     ceil(C / 1000) + 1
+ *   download     the same, plus the orders and        + 2 * ceil(Uo / 150)
+ *                shipments joins at 150 ids a request + 2 * ceil(Us / 150)
+ *
+ * So the screen is tens of requests at worst and was never the risk; the
+ * download is hundreds, serially, and was being run on Vercel's default
+ * budget. That is fixed at its source -- the route now declares
+ * `maxDuration = 300`, with the arithmetic written out there -- which is what
+ * makes offering a year here safe rather than merely possible.
+ *
+ * There is no hand-written list here any more. The picker renders GRAINS over
+ * GRAIN_LABELS, which is a Record<Grain, string> -- so a grain added to the
+ * type without a label fails to compile, and a grain that exists cannot go
+ * unoffered again. The previous list was three entries beside a four-member
+ * union, and nothing anywhere objected.
  */
-const OFFERED: ReadonlyArray<{ grain: Grain; label: string }> = [
-  { grain: 'day', label: 'Today' },
-  { grain: 'week', label: 'This week' },
-  { grain: 'month', label: 'This month' },
-]
 
 interface ClientRow { id: string; name: string }
 
@@ -174,7 +185,7 @@ export default async function StatementsPage(
             defaultValue={grain}
             className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
           >
-            {OFFERED.map(o => <option key={o.grain} value={o.grain}>{o.label}</option>)}
+            {GRAINS.map(g => <option key={g} value={g}>{GRAIN_LABELS[g]}</option>)}
           </select>
         </label>
 

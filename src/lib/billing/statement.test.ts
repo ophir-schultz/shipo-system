@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import {
   periodRange, buildStatement, statementTotal, statementToday, isGrain, GRAINS,
+  GRAIN_LABELS,
   type Grain, type StatementCharge,
 } from '@/lib/billing/statement'
 import { warehouseParts, WAREHOUSE_TZ } from '@/lib/ledger/pick-date'
@@ -479,6 +480,54 @@ describe('buildStatement', () => {
 describe('GRAINS', () => {
   it('is the four the operator asked for, in increasing length', () => {
     expect(GRAINS).toEqual(['day', 'week', 'month', 'year'] satisfies Grain[])
+  })
+})
+
+describe('GRAIN_LABELS', () => {
+  // The defect these tests exist for, stated plainly: `year` was implemented,
+  // tested, accepted by isGrain and handled by periodRange, and the screen's
+  // hand-written list of three did not offer it. Nothing anywhere failed. The
+  // picker now renders GRAINS over GRAIN_LABELS, so the only question left is
+  // whether those two can still disagree.
+
+  it('labels every grain, with nothing left unoffered', () => {
+    // The load-bearing assertion. `Record<Grain, string>` already refuses to
+    // compile with a grain missing, so GRAIN_LABELS is exhaustive by
+    // construction -- but GRAINS is typed `readonly Grain[]`, and an array type
+    // says nothing about COVERAGE. `['day', 'week', 'month']` would still
+    // typecheck and would reintroduce exactly this bug, because the picker maps
+    // over GRAINS. Comparing the two closes that hole: the Record supplies the
+    // complete set, and this proves the array matches it.
+    expect([...GRAINS].sort()).toEqual(Object.keys(GRAIN_LABELS).sort())
+  })
+
+  it('gives every grain a distinct, non-empty label', () => {
+    const labels = GRAINS.map(g => GRAIN_LABELS[g])
+    // Non-empty, because '' renders as a blank <option> that is selectable and
+    // invisible -- worse than an absent one, which at least cannot be picked.
+    for (const [i, label] of labels.entries()) {
+      expect(label.trim(), `label for ${GRAINS[i]}`).not.toBe('')
+    }
+    // Distinct, because two periods sharing a label is a statement whose
+    // heading cannot be trusted to say which period it covers.
+    expect(new Set(labels).size).toBe(labels.length)
+  })
+
+  it('orders shortest period first, so the heaviest read is last', () => {
+    // Not cosmetic. A year is the most expensive read on the screen and far the
+    // most expensive in the download; first position is where a default lands,
+    // and defaulting to the slowest query teaches people the screen is slow.
+    // Measured through periodRange's actual spans rather than by restating the
+    // order, so this checks the claim instead of echoing the literal above.
+    const today = '2026-10-13'
+    const spans = GRAINS.map(g => {
+      const { from, to } = periodRange(g, today)
+      return Date.parse(to) - Date.parse(from)
+    })
+    for (let i = 1; i < spans.length; i += 1) {
+      expect(spans[i], `${GRAINS[i]} must span more than ${GRAINS[i - 1]}`)
+        .toBeGreaterThan(spans[i - 1]!)
+    }
   })
 })
 

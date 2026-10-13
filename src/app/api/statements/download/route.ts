@@ -80,6 +80,39 @@ function moneyCell(value: number | null): number | string {
   return value === null ? UNPRICED_CELL : value
 }
 
+/**
+ * Long enough for a YEAR of charges, because the dropdown now offers one.
+ *
+ * This route's cost is not one query, it is a serial chain of round trips, and
+ * the chain grows with the period. Counted off the code:
+ *
+ *   charges    readAllPages over order_charges   ceil(C / 1000) + 1
+ *   orders     readChunked, 150 ids per request  2 * ceil(Uo / 150)
+ *   shipments  readChunked, 150 ids per request  2 * ceil(Us / 150)
+ *
+ * The 2 is not a typo. `readChunked` calls `readAllPages` per chunk, a chunk
+ * can return at most 150 rows because both join keys are unique, and 150 is
+ * under PAGE_SIZE -- so every chunk pays one request for its rows and one more
+ * for the empty page that proves there are no others. The orders and shipments
+ * reads overlap in a Promise.all, but the chunks WITHIN each are awaited one at
+ * a time, so the wall clock follows the longer of the two.
+ *
+ * At a few thousand orders that is tens of requests and a couple of seconds,
+ * which is why 'month' has been fine on the default budget. A year is the same
+ * arithmetic with a bigger Uo: twenty thousand orders is ~270 serial round
+ * trips, which is comfortably over Vercel's default and lands as a killed
+ * function -- a JSON error behind a fetch() on a download button, which reads
+ * to whoever clicked it as "the button is broken" and gets worked around by
+ * asking someone to send the numbers by hand.
+ *
+ * 300 to match /api/agent/monitor, the other long read in this app. Raising the
+ * ceiling and not touching the reads is deliberate: making `readChunked`
+ * concurrent would cut the wall clock, but it would also rewrite the
+ * discard-on-error rule on a money-path read to make a once-a-period download
+ * faster. Wrong trade. The slow correct version is the one that ships.
+ */
+export const maxDuration = 300
+
 export async function GET(req: Request) {
   const denied = await requireStaff()
   if (denied) return denied

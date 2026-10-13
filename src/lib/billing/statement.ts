@@ -59,6 +59,26 @@ export type Grain = 'day' | 'week' | 'month' | 'year'
 export const GRAINS: readonly Grain[] = ['day', 'week', 'month', 'year'] as const
 
 /**
+ * What to call each grain in a picker.
+ *
+ * A `Record<Grain, string>` and not an array of {grain, label} pairs, because
+ * the type then REFUSES to compile when a grain has no label. That is the whole
+ * point of it: `year` shipped implemented, tested and reachable by URL while
+ * the screen's hand-written list of three quietly did not offer it, so the
+ * feature existed and nobody could click it. A hand-written list cannot be
+ * wrong in a way the compiler notices; this can only be wrong in a way it does.
+ *
+ * Pickers should render `GRAINS.map(...)` over this, so the order comes from
+ * one place too -- shortest period first, which puts the heaviest read last.
+ */
+export const GRAIN_LABELS: Record<Grain, string> = {
+  day: 'Today',
+  week: 'This week',
+  month: 'This month',
+  year: 'This year',
+}
+
+/**
  * Is this string one of the grains?
  *
  * A guard and not a `as Grain` cast, because the value arrives from a query
