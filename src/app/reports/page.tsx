@@ -36,6 +36,27 @@ import ReportsTabs from '@/components/reports/ReportsTabs'
 // loading them all is too slow, the honest fix is a server-side period filter
 // (the export route already takes dateFrom/dateTo), not a row cap that the
 // screen does not disclose.
+//
+// WHY `client_id` IS IN ALL FIVE SELECTS.
+//
+// It is not displayed. These selects also ask for `clients(name)`, which is
+// what the Client column renders. `client_id` is here because the client
+// DROPDOWN on this screen filtered nothing: ReportsTabs accepted a clientId,
+// passed it to all five tables and could not use it, since the only thing in
+// the payload was a joined name. Meanwhile the Excel button beside the dropdown
+// DID send clientId to /api/reports/download, which filters in SQL with
+// `.eq('client_id', clientId)`.
+//
+// So the table showed every client and the spreadsheet you exported from it
+// showed one, and nothing on screen looked wrong. That is worse than the
+// undated-row disagreement documented in src/lib/billing/date-range.ts: an
+// operator checking figures before emailing them has no way to see it.
+//
+// Filtering on the id and not on the joined name is deliberate. Two clients may
+// share a name, and a row with no client at all would group under whatever
+// `?? 'Unknown'` fallback the renderer happens to use -- colliding with a client
+// actually named Unknown. The id is the thing the export filters on, so it is
+// the thing the screen must filter on.
 
 async function getReportData() {
   const now = new Date()
@@ -45,20 +66,20 @@ async function getReportData() {
   const [clientsRes, shipmentsRes, lossRes, adjustmentsRes, billsRes, warehouseRes] = await Promise.all([
     supabaseAdmin.from('clients').select('id, name').eq('active', true).order('name'),
     readAllPages((from, to) => supabaseAdmin.from('shipments')
-      .select('order_number, clients(name), ship_date, carrier, service, tracking_number, actual_cost, client_rate, profit_loss, is_loss')
+      .select('client_id, order_number, clients(name), ship_date, carrier, service, tracking_number, actual_cost, client_rate, profit_loss, is_loss')
       .order('ship_date', { ascending: false }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('shipments')
-      .select('order_number, clients(name), ship_date, carrier, service, actual_cost, client_rate, profit_loss')
+      .select('client_id, order_number, clients(name), ship_date, carrier, service, actual_cost, client_rate, profit_loss')
       .eq('is_loss', true)
       .order('profit_loss', { ascending: true }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
-      .select('order_number, clients(name), reason, adjustment_date, original_cost, adjusted_cost, adjustment_amount, status')
+      .select('client_id, order_number, clients(name), reason, adjustment_date, original_cost, adjusted_cost, adjustment_amount, status')
       .order('adjustment_date', { ascending: false }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('bills')
-      .select('clients(name), week_start, week_end, shipping_total, warehouse_total, adjustments_total, manual_charges_total, grand_total, status')
+      .select('client_id, clients(name), week_start, week_end, shipping_total, warehouse_total, adjustments_total, manual_charges_total, grand_total, status')
       .order('week_start', { ascending: false }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
-      .select('clients(name), log_date, service_type, quantity, rate, total, notes')
+      .select('client_id, clients(name), log_date, service_type, quantity, rate, total, notes')
       .order('log_date', { ascending: false }).order('id').range(from, to)),
   ])
 

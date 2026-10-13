@@ -7,7 +7,7 @@ import {
   unpricedNote, type Money,
 } from '@/lib/billing/unpriced'
 import { embedOne, type Embed } from '@/lib/db/read'
-import { filterByDate, undatedNote, type DateFiltered } from '@/lib/billing/date-range'
+import { scopeRows, undatedNote, unattributedNote, type Scoped } from '@/lib/billing/date-range'
 
 // `client_rate`, the profit derived from it, and `warehouse_daily_log.total`
 // are all nullable: recalculate.ts and the daily-log route write null when they
@@ -47,11 +47,24 @@ import { filterByDate, undatedNote, type DateFiltered } from '@/lib/billing/date
 // signature and so would not satisfy sumPriced's `Record<string, unknown>`.
 //
 // Note the row shapes are NOT shared with BillingView even where the table is
-// the same. /billing selects `client_id`; /reports selects `clients(name)` and
-// joins. A single shared row type would have to make both optional, which
-// would describe neither page and would let a field that is always undefined
-// on this page compile.
+// the same. Both pages now select `client_id`, but this one also joins
+// `clients(name)` because it renders a Client column across every client, while
+// /billing is already scoped to one. A single shared row type would have to make
+// the join optional, which would describe neither page and would let a field
+// that is always undefined on one of them compile.
 type ClientOption = { id: string; name: string | null }
+
+/**
+ * What every row on this screen carries so the client dropdown can filter it.
+ *
+ * `string | null` and not `string`: schema.sql declares `client_id uuid
+ * references clients(id)` on all four tables with no `not null` (lines
+ * 39, 64, 79, 105), and the production monitor reports 241 shipments from 9
+ * unmapped stores -- so the null case is live data carrying money nobody has
+ * attributed, not a defensive branch. filterByClient counts those rows out
+ * loud rather than dropping them silently; see its docstring.
+ */
+type Attributed = { client_id: string | null }
 
 /**
  * The `clients(name)` join.
@@ -65,7 +78,7 @@ type ClientOption = { id: string; name: string | null }
  */
 type ClientRef = Embed<{ name: string | null }>
 
-type ReportLossShipment = {
+type ReportLossShipment = Attributed & {
   order_number: string
   clients: ClientRef
   ship_date: string | null
@@ -82,7 +95,7 @@ type ReportShipment = ReportLossShipment & {
   is_loss: boolean | null
 }
 
-type ReportAdjustment = {
+type ReportAdjustment = Attributed & {
   order_number: string
   clients: ClientRef
   reason: string | null
@@ -105,7 +118,7 @@ type ReportAdjustment = {
   status: string | null
 }
 
-type ReportBill = {
+type ReportBill = Attributed & {
   clients: ClientRef
   week_start: string
   week_end: string
@@ -122,7 +135,7 @@ type ReportBill = {
   status: string | null
 }
 
-type ReportWarehouseLine = {
+type ReportWarehouseLine = Attributed & {
   clients: ClientRef
   log_date: string
   service_type: string | null
@@ -264,23 +277,26 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
 }
 
 /**
- * Date-range filter, generic over the row so `dateKey` cannot be a key the row
+ * Client + date filter, generic over the row so neither key can be one the row
  * does not have.
  *
- * Two things typing this made visible, neither of them changed here:
+ * `clientId` IS NOW READ. It used to be accepted by this function and ignored,
+ * which meant picking a client in the dropdown above filtered nothing on screen
+ * -- while the Excel button next to it DID pass clientId to
+ * /api/reports/download, which filters in SQL with `.eq('client_id',
+ * clientId)`. The table showed every client and the spreadsheet you exported
+ * from it showed one. The screenshot that caught it had 'Nayax' selected above
+ * rows belonging to SitnStand, Orcam, Crisp Power and Time Systems (UK) Ltd.
  *
- *   * `clientId` is accepted and never read. Picking a client in the dropdown
- *     above filters NOTHING on screen -- while the Excel button next to it DOES
- *     pass clientId to /api/reports/download, so the table and the spreadsheet
- *     you export from it disagree about which client you asked for. It cannot
- *     be fixed here: src/app/reports/page.tsx selects `clients(name)` and no
- *     `client_id`, so the column to filter on is not in the payload. The
- *     parameter stays in the signature because every caller passes it and
- *     because deleting it would hide the defect rather than fix it.
- *   * A dead `clientKey = 'client_id'` parameter, never referenced and never
- *     passed, removed -- it was the file's one eslint warning.
+ * The old comment here said it could not be fixed in this file because
+ * reports/page.tsx selected `clients(name)` and no `client_id`, so the column
+ * to filter on was not in the payload. That was true and it was the right
+ * diagnosis: the fix went to the source. All five selects now ask for
+ * `client_id`, every row type carries it, and `T extends Attributed` makes a
+ * table that forgets it a compile error rather than a filter that matches
+ * nothing.
  *
- * The date logic itself now lives in src/lib/billing/date-range.ts, shared with
+ * The date logic lives in src/lib/billing/date-range.ts, shared with
  * BillingView, because the two screens disagreed about undated rows and this one
  * was wrong. `if (dateFrom && d && d < dateFrom)` skips the comparison
  * altogether when `d` is absent, so a row with a null ship_date was KEPT in
@@ -289,19 +305,42 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
  * /api/reports/download filters in SQL where `null >= '2026-10-01'` is null and
  * therefore not true. The table disagreed with its own download button.
  *
- * Undated rows are now dropped when a bound is set, and COUNTED, so the drop is
- * stated instead of silent. Only ship_date and adjustment_date are nullable
- * (schema.sql:42,70); for week_start and log_date the count is always 0 and
- * nothing on screen changes.
+ * Both filters now drop what they cannot place and COUNT it, so the drop is
+ * stated instead of silent -- see omissionNote below. Only ship_date and
+ * adjustment_date are nullable (schema.sql:42,70); for week_start and log_date
+ * the undated count is always 0 and nothing on screen changes.
  *
- * Kept as a wrapper rather than calling filterByDate at the five sites so the
- * dead-`clientId` finding above stays recorded in one place instead of being
- * repeated or quietly dropped.
+ * Kept as a wrapper rather than calling scopeRows at the five sites so
+ * `clientKey: 'client_id'` is written once. The order of the two filters is not
+ * this file's decision to make -- it is load-bearing for what the counts mean,
+ * and it is pinned by a test next to scopeRows.
  */
-function filterRows<T>(
+function filterRows<T extends Attributed>(
   rows: T[], clientId: string, dateFrom: string, dateTo: string, dateKey: keyof T & string,
-): DateFiltered<T> {
-  return filterByDate(rows, dateKey, dateFrom, dateTo)
+): Scoped<T> {
+  return scopeRows(rows, {
+    clientKey: 'client_id',
+    clientId,
+    dateKey,
+    from: dateFrom,
+    to: dateTo,
+  })
+}
+
+/**
+ * The warning line under a figure, naming every row the figure left out.
+ *
+ * Two omissions, listed in the order the filters applied them, because they are
+ * different problems with different fixes: a row with no client needs a store
+ * mapping, a row with no date needs a ship_date. Collapsing them into one count
+ * would send the operator looking for the wrong thing.
+ *
+ * Takes the counts and not the Scoped object so this stays independent of the
+ * row type, and so a caller cannot pass the wrong table's result.
+ */
+function omissionNote(s: { unattributed: number; undated: number }, noun?: string): string {
+  return [unattributedNote(s.unattributed, noun), undatedNote(s.undated, noun)]
+    .filter(Boolean).join(' · ')
 }
 
 function Empty({ msg }: { msg: string }) {
@@ -322,7 +361,7 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
   // for the panel: "We Paid" and "Charged" can be short by different rows, and
   // a single number would not say which figure to distrust.
   const stats: Array<[string, string | number, string]> = [
-    ['Shipments', filtered.length, undatedNote(period.undated)],
+    ['Shipments', filtered.length, omissionNote(period)],
     ['We Paid', `$${totalPaid.toFixed(2)}`, unpricedNote(paidSum.unpriced)],
     ['Charged', `$${totalCharged.toFixed(2)}`, unpricedNote(chargedSum.unpriced)],
     ['Net P/L', `${totalPL >= 0 ? '+' : ''}$${totalPL.toFixed(2)}`, unpricedNote(plSum.unpriced)],
@@ -396,7 +435,7 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700" style={{ background: '#1a0a0a' }}>
         {([
-          ['Loss Shipments', filtered.length, undatedNote(period.undated)],
+          ['Loss Shipments', filtered.length, omissionNote(period)],
           ['Total Lost', `-$${total.toFixed(2)}`, note],
           ['Avg Loss', priced ? `-$${(total / priced).toFixed(2)}` : '$0.00', note],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
@@ -461,7 +500,7 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<Repor
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
         {([
-          ['Total', filtered.length, undatedNote(period.undated, 'adjustment')],
+          ['Total', filtered.length, omissionNote(period, 'adjustment')],
           ['Pending', pending.length, ''],
           ['To Recover', formatSignedPrice(totalOrUnknown(pendingSum)), unpricedNote(pendingSum.unpriced, 'adjustment')],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
@@ -519,7 +558,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBil
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
         {([
-          ['Bills', filtered.length, undatedNote(period.undated, 'bill')],
+          ['Bills', filtered.length, omissionNote(period, 'bill')],
           ['Total Billed', formatPrice(totalOrUnknown(billedSum)), unpricedNote(billedSum.unpriced, 'bill')],
           ['Paid', filtered.filter(r => r.status === 'paid').length, ''],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
@@ -576,7 +615,14 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportW
     <>
       <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
         {([
-          ['Entries', filtered.length, undatedNote(period.undated, 'day')],
+          // 'row' and not 'day', which the other notes in this strip use. A
+          // warehouse_daily_log row is one service line for one client on one
+          // day, so "3 days with no client not included" would read as three
+          // whole days missing from the table when it is three lines. The
+          // undated count here is always 0 (log_date is not nullable), so only
+          // the client half of this note ever renders -- and that half is the
+          // one 'day' gets wrong. Not 'entry': the pluralizer appends `s`.
+          ['Entries', filtered.length, omissionNote(period, 'row')],
           ['Total Revenue', `$${totalRevenue.toFixed(2)}`, unpricedNote(revenueSum.unpriced, 'day')],
           ['Unique Days', new Set(filtered.map(r => r.log_date)).size, ''],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
