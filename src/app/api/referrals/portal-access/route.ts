@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { createClient } from '@/lib/supabase-server'
 import { sendPortalInvite } from '@/lib/partner-invite'
+import { portalAccessBlockedReason } from '@/lib/partner-access'
 
 // Staff-side control of a partner's portal access.
 //
@@ -17,6 +18,11 @@ import { sendPortalInvite } from '@/lib/partner-invite'
 // There is no "revoke access" action here on purpose: deactivating the
 // partner in the Referrals screen already blocks every login and every
 // existing session (see getPartnerFromSession).
+//
+// 'invite' requires a signed agreement; 'signout' does not, and is checked
+// first for that reason. Cutting someone off must never depend on their
+// paperwork being in order — the one time you most need to end a session is
+// when something has gone wrong with the relationship.
 
 export const dynamic = 'force-dynamic'
 
@@ -40,7 +46,7 @@ export async function POST(req: Request) {
 
   const { data: partner, error: partnerError } = await supabaseAdmin
     .from('referral_partners')
-    .select('id, name, email, status')
+    .select('id, name, email, status, agreement_status')
     .eq('id', partner_id)
     .maybeSingle()
 
@@ -62,17 +68,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
   }
 
-  if (!partner.email) {
-    return NextResponse.json(
-      { error: 'This partner has no email address. Add one first — the portal login is by email.' },
-      { status: 400 },
-    )
-  }
-  if (partner.status === 'inactive') {
-    return NextResponse.json(
-      { error: 'This partner is inactive, so they cannot sign in. Reactivate them first.' },
-      { status: 400 },
-    )
+  // The signed agreement comes BEFORE access. This is where that is true:
+  // the Referrals screen greys the button out, but a greyed button is a
+  // courtesy and this is a POST endpoint, so the rule is enforced here. The
+  // conditions live in src/lib/partner-access.ts so the screen and this route
+  // cannot drift into disagreeing about who is allowed in.
+  const blocked = portalAccessBlockedReason(partner)
+  if (blocked) {
+    return NextResponse.json({ error: blocked }, { status: 400 })
   }
 
   // The email itself lives in src/lib/partner-invite.ts and is NOT rebuilt
@@ -89,6 +92,20 @@ export async function POST(req: Request) {
       { error: `Could not send the invite (${result.provider}). ${result.error ?? ''}`.trim() },
       { status: 502 },
     )
+  }
+
+  // Stamped only after a confirmed send, and deliberately not awaited into the
+  // response's success: the email has already gone, so failing the request
+  // because the bookkeeping write failed would invite a second send. The
+  // webhook stamps the same column on the automatic path — if only one of the
+  // two paths recorded it, the column would read as "never invited" for half
+  // the partners who were.
+  const { error: stampError } = await supabaseAdmin
+    .from('referral_partners')
+    .update({ portal_invited_at: new Date().toISOString() })
+    .eq('id', partner.id)
+  if (stampError) {
+    console.error('[portal-access] invite sent but portal_invited_at not stamped:', stampError.message)
   }
 
   return NextResponse.json({ success: true, sentTo: partner.email })

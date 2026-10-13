@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
 import { REFERRAL_TERMS, netProfit, totalCosts, commissionOn } from '@/lib/referrals'
+import { agreementLabel, portalAccessBlockedReason } from '@/lib/partner-access'
 import type { OwedLine, FbaInvoice } from '@/lib/referrals'
 
 const PCT = `${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%`
@@ -20,6 +21,9 @@ interface Partner {
   notes: string | null
   source: string | null
   portal_last_seen_at?: string | null
+  portal_invited_at?: string | null
+  agreement_status?: string | null
+  agreement_signed_at?: string | null
   founding_partner?: boolean | null
 }
 interface Client {
@@ -229,6 +233,45 @@ export default function ReferralsManager({
 // ============================================================
 // Partners
 // ============================================================
+// Why this partner cannot be let in, or null. Imported rather than restated:
+// the API route refuses on exactly this function, so a second copy here would
+// eventually grey out a button the server allows, or worse, light up one it
+// refuses.
+const blockedReason = (p: Partner) => portalAccessBlockedReason(p)
+
+/**
+ * Where the partner's agreement stands, and when.
+ *
+ * This column exists because the invite button is now gated on it. A button
+ * that is dead for a reason the screen does not show is indistinguishable
+ * from a button that is broken, and the person clicking it has no way to tell
+ * which — so they report the portal as down.
+ *
+ * The date is shown only for 'signed'. For every other state the date we hold
+ * is the date of the last change, which is not the same fact, and labelling it
+ * as though it were would put a confident timestamp next to a word it does
+ * not belong to.
+ */
+function AgreementCell({ partner }: { partner: Partner }) {
+  const { text, tone } = agreementLabel(partner.agreement_status)
+  const colour =
+    tone === 'good'
+      ? 'text-green-400'
+      : tone === 'bad'
+        ? 'text-red-400'
+        : 'text-gray-500'
+  return (
+    <div>
+      <span className={`text-xs ${colour}`}>{text}</span>
+      {partner.agreement_status === 'signed' && partner.agreement_signed_at && (
+        <span className="block text-[10px] text-gray-600">
+          {partner.agreement_signed_at.slice(0, 10)}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function PartnersPanel({
   partners,
   busy,
@@ -275,8 +318,13 @@ function PartnersPanel({
   // To cut a partner off entirely, set them inactive — that blocks
   // every future login and kills every live session at once.
   async function sendInvite(p: Partner) {
-    if (!p.email) {
-      showError('No email on file', `Add an email address for ${p.name} first — the portal login is by email.`)
+    // Checked here as well as on the button and again in the route. Not
+    // belt-and-braces for its own sake: the button's `disabled` is the only
+    // one of the three a staff member ever sees, and it tells them nothing.
+    // This turns the same sentence into a toast they can act on.
+    const reason = blockedReason(p)
+    if (reason) {
+      showError('Cannot grant access yet', reason)
       return
     }
     const ok = await call('/api/referrals/portal-access', { partner_id: p.id, action: 'invite' }, 'POST', `link-${p.id}`)
@@ -335,6 +383,7 @@ function PartnersPanel({
                 <th className="pb-2 pr-3">Type</th>
                 <th className="pb-2 pr-3">Source</th>
                 <th className="pb-2 pr-3">Status</th>
+                <th className="pb-2 pr-3">Agreement</th>
                 <th className="pb-2 pr-3">Portal</th>
                 <th className="pb-2 text-right">Action</th>
               </tr>
@@ -352,13 +401,24 @@ function PartnersPanel({
                   <td className="py-2.5 pr-3 text-gray-500 text-xs">{p.source === 'website_form' ? 'website' : 'manual'}</td>
                   <td className="py-2.5 pr-3"><StatusBadge status={p.status ?? 'active'} /></td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">
+                    <AgreementCell partner={p} />
+                  </td>
+                  <td className="py-2.5 pr-3 whitespace-nowrap">
                     {p.email ? (
                       <div className="inline-flex items-center gap-1.5">
                         <button
                           onClick={() => sendInvite(p)}
-                          disabled={busy === `link-${p.id}` || p.status === 'inactive'}
+                          disabled={busy === `link-${p.id}` || blockedReason(p) !== null}
                           className="px-2 py-1 rounded text-xs bg-[#00AAFF]/15 text-[#00AAFF] hover:bg-[#00AAFF]/25 disabled:opacity-40"
-                          title="Email them the portal address. No code and no link that works on its own."
+                          // The reason, not a generic tooltip. A dead button
+                          // with no explanation is the thing that gets
+                          // reported as "the portal is broken".
+                          title={
+                            blockedReason(p) ??
+                            (p.portal_invited_at
+                              ? 'Re-send the portal address. Safe to send again — it carries no code and no link that works on its own.'
+                              : 'Email them the portal address. No code and no link that works on its own.')
+                          }
                         >
                           Send invite
                         </button>
