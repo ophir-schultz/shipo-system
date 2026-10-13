@@ -155,6 +155,11 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
     let clientRate: number | null = null
     let resolvedZone: number | null = null
     let rateSource: 'zone' | 'legacy' | 'none' = 'none'
+    // Set only when the matrix was actually consulted and covered nothing, so
+    // that the unpriced report below can say so. Stays null when there was no
+    // zone to look up with -- claiming the matrix was consulted and found
+    // wanting would be a false account of a Puerto Rico or Canada row.
+    let zoneMissReason: string | null = null
 
     // ── 1. Zone matrix rate (weight × zone) ──────────────────────────────────
     //
@@ -191,6 +196,8 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
         clientRate = zoneRate.rate
         rateSource = 'zone'
         zoneMatched++
+      } else {
+        zoneMissReason = zoneRate.reason ?? null
       }
     }
 
@@ -203,7 +210,12 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
         legacyMatched++
       } else {
         unmatched++
-        note(priced.reason ?? 'no rate could be matched', label)
+        // Both halves, in the order they were tried. The legacy card can only
+        // ever describe itself, so on its own it reports "this client has no
+        // legacy shipping rate card" for a client whose 800-cell matrix simply
+        // does not cover this carrier -- true, and it points at the wrong fix.
+        const legacy = priced.reason ?? 'no rate could be matched'
+        note(zoneMissReason ? `${zoneMissReason} Then: ${legacy}` : legacy, label)
       }
     }
 

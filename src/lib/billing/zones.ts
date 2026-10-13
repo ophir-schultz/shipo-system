@@ -108,6 +108,21 @@ export interface ZoneRateLookup {
   rate: number | null
   /** null = we got an answer. Non-null = `rate` means nothing. */
   error: string | null
+  /**
+   * Why a MISS was a miss, in operator terms. Present only when `rate` and
+   * `error` are both null -- i.e. the matrix answered and nothing covered.
+   *
+   * Deliberately NOT `error`, and the distinction is the whole reason this
+   * field exists rather than being folded into the one next to it. An `error`
+   * makes recalculate skip the row; this must not, because a lane the matrix
+   * does not cover is a fact about the agreement and the shipment still has to
+   * fall through to the legacy card. Only the wording of the eventual report
+   * changes.
+   *
+   * Absent on success (nothing to explain) and absent alongside an `error`
+   * (coverage was never established, so there is nothing true to say about it).
+   */
+  reason?: string
 }
 
 /**
@@ -284,7 +299,31 @@ export function pickZoneCell(
   const chosen = specific.length > 0 ? specific : cells.filter(isBlanket)
 
   // A genuine miss. Distinct from a failed read, which never reaches here.
-  if (chosen.length === 0) return { rate: null, error: null }
+  //
+  // It carries an account of itself, because the caller's fallback is the
+  // legacy card and the legacy card can only describe ITSELF. For a client with
+  // a matrix and no card -- which is Orcam, and which is how 11 shipments were
+  // reported on 2026-10-13 -- the only message that reached the monitor was
+  // "this client has no legacy shipping rate card". True, and it reads as "the
+  // matrix was never consulted" for a client holding 800 cells.
+  //
+  // Two different facts, because they need two different actions: a lane with
+  // no cell at all is a hole in the matrix, and a lane whose cells cover some
+  // other carrier is a price nobody agreed.
+  if (chosen.length === 0) {
+    const covers = [...new Set(cells.map(
+      (cell) => `${cell.carrier || 'any'}/${cell.service || 'any'}`))].join(', ')
+    return {
+      rate: null,
+      error: null,
+      reason: cells.length === 0
+        ? `the zone matrix has no cell for ${where}`
+        : `the zone matrix has no cell covering carrier '${carrier}' service `
+          + `'${service}' at ${where}. Its cells there cover ${covers}. A cell `
+          + `for another carrier is not used as a fallback -- that bills a real `
+          + `amount from the wrong agreement.`,
+    }
+  }
 
   // Coerced BEFORE the ambiguity check and compared as numbers. numeric(10,2)
   // can arrive as 9.5 from one row and '9.50' from another; on strings those

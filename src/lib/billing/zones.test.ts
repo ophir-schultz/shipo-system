@@ -385,7 +385,12 @@ describe('resolveZoneRate', () => {
       ? { message: 'fetch failed' } : null
     const broken = await resolveZoneRate(CID, 'usps', 'ground', 10, 3)
 
-    expect(missing).toEqual({ rate: null, error: null })
+    // Asserted field-by-field rather than by deep equality: a miss now also
+    // carries a `reason` explaining itself. What this test is about is
+    // unchanged -- `error` null on one and set on the other is the whole
+    // distinction, and `reason` must never stand in for it.
+    expect(missing.rate).toBeNull()
+    expect(missing.error).toBeNull()
 
     expect(broken.rate).toBeNull()
     expect(broken.error).toContain('fetch failed')
@@ -426,7 +431,8 @@ describe('resolveZoneRate', () => {
       c.table === 'client_zone_rates' ? { message: 'timeout' } : null
     const broken = await resolveZoneRate(CID, 'usps', 'ground', 10, 3)
 
-    expect(missing).toEqual({ rate: null, error: null })
+    expect(missing.rate).toBeNull()
+    expect(missing.error).toBeNull()
     expect(broken.rate).toBeNull()
     expect(broken.error).toContain('timeout')
     // Named, because the caller loops over every shipment in the table.
@@ -485,7 +491,11 @@ describe('resolveZoneRate: matching the carrier the shipment actually carries', 
     // on the card" is the exact failure matchLegacyRate was written to stop.
     seed({ client_zone_rates: [cell({ carrier: 'UPS', service: 'Ground', rate: 9.5 })] })
     const r = await resolveZoneRate(CID, 'STAMPS_COM', 'usps_parcel_select', 10, 3)
-    expect(r).toEqual({ rate: null, error: null })
+    expect(r.rate).toBeNull()
+    // Null and NOT an error: the shipment still falls through to the legacy
+    // card. The refusal explains itself without changing that.
+    expect(r.error).toBeNull()
+    expect(r.rate).not.toBe(9.5)
   })
 
   it('refuses when two covering cells disagree on the rate', async () => {
@@ -543,5 +553,93 @@ describe('resolveZoneRate: matching the carrier the shipment actually carries', 
     ] })
     const r = await resolveZoneRate(CID, 'UPS_WALLET', 'ups_ground_saver', 10, 3)
     expect(r).toEqual({ rate: 9.5, error: null })
+  })
+})
+
+describe('resolveZoneRate: a miss says what the matrix DOES cover', () => {
+  // Production, 2026-10-13, found while decomposing Orcam's 16 unpriced rows.
+  //
+  // Eleven of them were correct refusals: Orcam's matrix is 800 cells of
+  // UPS/Ground and the shipments were USPS, or UPS Next Day Air. Refusing is
+  // right -- pricing a Next Day Air parcel off the Ground cell sitting at the
+  // same weight and zone would have undercharged, invisibly.
+  //
+  // What was wrong was the ACCOUNT of the refusal. A matrix miss is silent, so
+  // the only reason reaching the monitor email came from the legacy card:
+  // "this client has no legacy shipping rate card". True -- Orcam has none --
+  // and badly misleading for a client holding a complete 800-cell matrix. It
+  // reads as "the matrix was never consulted", and sends the operator to fix
+  // the wrong thing.
+  //
+  // So the miss now carries a `reason`. It is NOT an `error`: the caller must
+  // still fall through to the legacy card, because a lane the matrix does not
+  // cover is a fact about the agreement, not a failed read. Only the wording
+  // changes -- which is the entire point of keeping `reason` separate from
+  // `error` rather than reusing the field that already exists.
+
+  it('names the lane, the shipment carrier, and what the cells cover', async () => {
+    seed({ client_zone_rates: [cell({ carrier: 'UPS', service: 'Ground' })] })
+    const r = await resolveZoneRate(CID, 'STAMPS_COM', 'usps_parcel_select', 10, 3)
+
+    expect(r.rate).toBeNull()
+    // Still a miss and not a read failure, so the legacy card is still tried.
+    expect(r.error).toBeNull()
+
+    expect(r.reason).toContain('UPS/Ground')
+    expect(r.reason).toContain('STAMPS_COM')
+    expect(r.reason).toContain('usps_parcel_select')
+    expect(r.reason).toContain('1 LB / zone 3')
+  })
+
+  it('distinguishes a lane with no cell at all from a lane whose cells do not cover', async () => {
+    // Different operator actions. "No cell for 9 LB / zone 3" means the matrix
+    // has a hole; "the cells here cover UPS/Ground" means it has a lane nobody
+    // agreed a price on. Reporting both as "no rate" loses that.
+    seed({ client_zone_rates: [cell({ carrier: 'UPS', service: 'Ground' })] })
+    const noCell = await resolveZoneRate(CID, 'UPS_WALLET', 'ups_ground', 10, 7)
+    const notCovered = await resolveZoneRate(CID, 'STAMPS_COM', 'usps_ground_advantage', 10, 3)
+
+    // 'no cell' alone does NOT tell these apart -- it is a prefix of 'no cell
+    // covering', and the first draft of this test asserted it in both
+    // directions and could never have failed on the second. The assertions
+    // below are on the phrases that actually differ.
+    expect(noCell.reason).toContain('no cell for')
+    expect(noCell.reason).toContain('zone 7')
+    expect(noCell.reason).not.toContain('UPS/Ground')
+
+    expect(notCovered.reason).toContain('UPS/Ground')
+    expect(notCovered.reason).toContain('no cell covering')
+    expect(notCovered.reason).not.toContain('no cell for')
+  })
+
+  it('attaches no reason when a cell was found -- there is nothing to explain', async () => {
+    seed({ client_zone_rates: [cell()] })
+    const r = await resolveZoneRate(CID, 'usps', 'ground', 10, 3)
+    expect(r.rate).toBe(7.25)
+    expect(r.reason).toBeUndefined()
+  })
+
+  it('attaches no reason to a failed read, which already says what happened', async () => {
+    // A `reason` alongside an `error` would invite a caller to print the
+    // reassuring one. The read did not answer; there is nothing to report
+    // about coverage because coverage was never established.
+    seed({ client_zone_rates: [cell({ carrier: 'UPS', service: 'Ground' })] })
+    h.db.failOn = (c) =>
+      c.table === 'client_zone_rates' ? { message: 'timeout' } : null
+    const r = await resolveZoneRate(CID, 'STAMPS_COM', 'usps_parcel_select', 10, 3)
+
+    expect(r.error).toContain('timeout')
+    expect(r.reason).toBeUndefined()
+  })
+
+  it('names the blanket card as covering everything rather than as a carrier', async () => {
+    // A blanket cell can never be the thing that missed -- it covers by
+    // definition -- so reaching the no-cover branch with one present would mean
+    // the tiers were broken. Pinned so the message cannot quietly start
+    // claiming the matrix "covers /" for a client whose card is blanket.
+    seed({ client_zone_rates: [cell({ carrier: '', service: '', rate: 5 })] })
+    const r = await resolveZoneRate(CID, 'STAMPS_COM', 'usps_parcel_select', 10, 3)
+    expect(r.rate).toBe(5)
+    expect(r.reason).toBeUndefined()
   })
 })

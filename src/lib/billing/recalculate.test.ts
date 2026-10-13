@@ -326,3 +326,72 @@ describe('recalculateShipments: the other unreadable inputs', () => {
     await expect(recalculateShipments()).rejects.toThrow('unreachable')
   })
 })
+
+describe('recalculateShipments: why a shipment came out unpriced', () => {
+  // Production, 2026-10-13. Orcam: 800 zone-matrix cells, all UPS/Ground, no
+  // legacy card at all. Eleven shipments on USPS lanes came out unpriced --
+  // correctly, nobody had agreed a USPS price -- and the only reason the
+  // monitor emailed was the legacy card's "this client has no legacy shipping
+  // rate card". For a client holding a complete matrix that reads as "the
+  // matrix was never consulted" and sends the operator to fix the wrong thing.
+  //
+  // The matrix miss is now reported alongside it. The shipment is still
+  // unpriced and the price is still not written -- only the account changes.
+
+  it('says the matrix was consulted and what it covers, not just that there is no card', async () => {
+    seed({
+      shipments: [shipment({
+        carrier: 'STAMPS_COM', service: 'usps_parcel_select', client_rate: null,
+      })],
+      zone_chart: [{ origin_prefix: '191', dest_prefix: '902', zone: 3 }],
+      client_zone_rates: [zoneCell({ carrier: 'UPS', service: 'Ground' })],
+      client_shipping_rates: [],
+    })
+
+    const stats = await recalculateShipments()
+
+    expect(stats.unmatched).toBe(1)
+    expect(stored().client_rate).toBeNull()
+
+    const all = stats.reasons.map((r) => r.reason).join(' | ')
+    // The fact that was missing: the matrix answered, and this is what it holds.
+    expect(all).toContain('UPS/Ground')
+    // The fact that was already there, and is still true, and is still useful.
+    expect(all).toContain('no legacy shipping rate card')
+  })
+
+  it('does not report a matrix miss when no zone was resolved at all', async () => {
+    // Orcam's other five: Puerto Rico and Canada, where resolveZone returns no
+    // zone, so the matrix is never consulted. Claiming it was consulted and
+    // found wanting would be a different and false story about those rows.
+    seed({
+      shipments: [shipment({
+        carrier: 'STAMPS_COM', service: 'usps_parcel_select', client_rate: null,
+      })],
+      zone_chart: [],
+      client_zone_rates: [zoneCell({ carrier: 'UPS', service: 'Ground' })],
+      client_shipping_rates: [],
+    })
+
+    const stats = await recalculateShipments()
+
+    const all = stats.reasons.map((r) => r.reason).join(' | ')
+    expect(all).toContain('no legacy shipping rate card')
+    expect(all).not.toContain('UPS/Ground')
+  })
+
+  it('says nothing extra when the matrix priced the shipment', async () => {
+    seed({
+      shipments: [shipment({ client_rate: null })],
+      zone_chart: [{ origin_prefix: '191', dest_prefix: '902', zone: 3 }],
+      client_zone_rates: [zoneCell()],
+      client_shipping_rates: [],
+    })
+
+    const stats = await recalculateShipments()
+
+    expect(stats.zone_matched).toBe(1)
+    expect(stored().client_rate).toBe(7)
+    expect(stats.reasons.map((r) => r.reason).join(' | ')).not.toContain('matrix')
+  })
+})
