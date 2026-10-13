@@ -284,36 +284,46 @@ describe('resolveZoneRate', () => {
     expect(broken.error).toContain('fetch failed')
   })
 
-  it('does not answer with the blanket rate when the specific read failed', async () => {
-    // The attempts are ordered by precedence. If the specific carrier/service
-    // read failed we do not know whether such a cell exists, so continuing to
-    // the blanket card would bill a price the client did not agree for THIS
-    // carrier -- the same wrong-price-rather-than-no-price failure as falling
-    // through to the legacy card.
+  it('does not answer with the blanket rate when the read failed', async () => {
+    // This test used to pin a guard against a TWO-READ hazard: the specific
+    // carrier/service read failing while the blanket read succeeded, so that
+    // answering with the blanket rate billed a price the client never agreed
+    // for THIS carrier. There is now one read per lane, so that state cannot
+    // arise -- the hazard was removed rather than guarded, and the assertion
+    // on 'usps/ground' went with it because there are no longer two reads to
+    // tell apart.
+    //
+    // What survives is the invariant the guard existed to protect, which was
+    // never really about how many reads there are: a read that did not answer
+    // must not produce a rate, even with a blanket cell sitting right there.
     seed({ client_zone_rates: [cell({ carrier: '', service: '', rate: 5 })] })
     h.db.failOn = (c) =>
-      c.filters.some((f) => f.column === 'carrier' && f.value === 'usps')
-        ? { message: 'timeout' } : null
+      c.table === 'client_zone_rates' ? { message: 'timeout' } : null
 
     const r = await resolveZoneRate(CID, 'usps', 'ground', 10, 3)
 
     expect(r.rate).toBeNull()
     expect(r.rate).not.toBe(5)
     expect(r.error).toContain('timeout')
-    // Named so an operator can tell which of the two reads went wrong.
-    expect(r.error).toContain('usps/ground')
   })
 
-  it('reports a failed blanket read rather than calling it a miss', async () => {
+  it('reports a failed read as unreadable rather than calling it a miss', async () => {
+    // Paired, like the rest of this file: both answer `rate: null`, only one
+    // of them is a fact about the rate card, and the caller reprices off the
+    // legacy card on that one.
+    seed({ client_zone_rates: [] })
+    const missing = await resolveZoneRate(CID, 'usps', 'ground', 10, 3)
+
     seed({ client_zone_rates: [] })
     h.db.failOn = (c) =>
-      c.filters.some((f) => f.column === 'carrier' && f.value === '')
-        ? { message: 'timeout' } : null
+      c.table === 'client_zone_rates' ? { message: 'timeout' } : null
+    const broken = await resolveZoneRate(CID, 'usps', 'ground', 10, 3)
 
-    const r = await resolveZoneRate(CID, 'usps', 'ground', 10, 3)
-
-    expect(r.rate).toBeNull()
-    expect(r.error).toContain('blanket rate card')
+    expect(missing).toEqual({ rate: null, error: null })
+    expect(broken.rate).toBeNull()
+    expect(broken.error).toContain('timeout')
+    // Named, because the caller loops over every shipment in the table.
+    expect(broken.error).toContain('zone 3')
   })
 
   it('reports a cell that does not hold a number as unreadable, not as a miss', async () => {
@@ -338,5 +348,93 @@ describe('resolveZoneRate', () => {
     const r = await resolveZoneRate(CID, 'usps', 'ground', 17, 4)
     expect(r.error).toContain('2 LB')
     expect(r.error).toContain('zone 4')
+  })
+})
+
+describe('resolveZoneRate: matching the carrier the shipment actually carries', () => {
+  // Production, 2026-10-13. Orcam's 800-cell zone matrix is keyed carrier 'UPS',
+  // service 'Ground'. Its shipments arrive from ShipStation carrying
+  // 'UPS_WALLET' / 'ups_ground_saver'. The lookup compared with .eq(), so not one
+  // of those 800 cells could ever be reached; the shipment fell through to the
+  // legacy card, Orcam has no legacy card, and 46 shipments were written UNPRICED
+  // while a complete and correct matrix sat one string comparison away.
+  //
+  // The legacy path would have matched them the whole time -- cardRowCovers does
+  // case-insensitive bidirectional substring, and 'ups_wallet'.includes('ups').
+  // So the two pricing paths disagreed about what "this row covers this shipment"
+  // means, and the STRICTER one ran first. These tests pin the two paths to the
+  // same rule.
+
+  it('matches a ShipStation carrier code against a matrix keyed on the display name', async () => {
+    seed({ client_zone_rates: [cell({ carrier: 'UPS', service: 'Ground', rate: 9.5 })] })
+    const r = await resolveZoneRate(CID, 'UPS_WALLET', 'ups_ground_saver', 10, 3)
+    expect(r).toEqual({ rate: 9.5, error: null })
+  })
+
+  it('still refuses a carrier the matrix does not cover', async () => {
+    // Orcam also ships USPS via Stamps.com and has agreed no USPS price. Neither
+    // string contains the other in either direction, so this must stay UNPRICED
+    // rather than be billed from the UPS matrix. Widening the pool to "any row
+    // on the card" is the exact failure matchLegacyRate was written to stop.
+    seed({ client_zone_rates: [cell({ carrier: 'UPS', service: 'Ground', rate: 9.5 })] })
+    const r = await resolveZoneRate(CID, 'STAMPS_COM', 'usps_parcel_select', 10, 3)
+    expect(r).toEqual({ rate: null, error: null })
+  })
+
+  it('refuses when two covering cells disagree on the rate', async () => {
+    // Substring matching can cover more than one cell, which .maybeSingle()
+    // could not express. Picking one by row order would bill a real amount from
+    // an arbitrary agreement.
+    seed({ client_zone_rates: [
+      cell({ carrier: 'UPS', service: 'Ground', rate: 9.5 }),
+      cell({ carrier: 'ups', service: 'ground_saver', rate: 11 }),
+    ] })
+    const r = await resolveZoneRate(CID, 'UPS_WALLET', 'ups_ground_saver', 10, 3)
+    expect(r.rate).toBeNull()
+    expect(r.error).toContain('9.5')
+    expect(r.error).toContain('11')
+  })
+
+  it('accepts two covering cells that agree, rather than calling them ambiguous', async () => {
+    // numeric(10,2) arrives as 9.5 from one row and '9.50' from another. On
+    // strings those are two different rates and the shipment would be refused
+    // as ambiguous when the matrix in fact agrees with itself.
+    seed({ client_zone_rates: [
+      cell({ carrier: 'UPS', service: 'Ground', rate: 9.5 }),
+      cell({ carrier: 'ups', service: 'ground_saver', rate: '9.50' }),
+    ] })
+    const r = await resolveZoneRate(CID, 'UPS_WALLET', 'ups_ground_saver', 10, 3)
+    expect(r).toEqual({ rate: 9.5, error: null })
+  })
+
+  it('still prefers a covering specific cell over the blanket card', async () => {
+    seed({ client_zone_rates: [
+      cell({ carrier: 'UPS', service: 'Ground', rate: 9.5 }),
+      cell({ carrier: '', service: '', rate: 5 }),
+    ] })
+    const r = await resolveZoneRate(CID, 'UPS_WALLET', 'ups_ground_saver', 10, 3)
+    expect(r.rate).toBe(9.5)
+  })
+
+  it('uses the blanket card for a carrier no specific cell covers', async () => {
+    seed({ client_zone_rates: [
+      cell({ carrier: 'UPS', service: 'Ground', rate: 9.5 }),
+      cell({ carrier: '', service: '', rate: 5 }),
+    ] })
+    const r = await resolveZoneRate(CID, 'STAMPS_COM', 'usps_parcel_select', 10, 3)
+    expect(r.rate).toBe(5)
+  })
+
+  it('does not treat the blanket card as ambiguous with a covering specific cell', async () => {
+    // A blanket row covers everything by definition, so a naive "all covering
+    // cells" pool would call every specific match ambiguous against it. The
+    // tiers exist to stop that.
+    seed({ client_zone_rates: [
+      cell({ carrier: 'UPS', service: 'Ground', rate: 9.5 }),
+      cell({ carrier: '', service: '', rate: 5 }),
+      cell({ carrier: '', service: '', rate: 6 }),
+    ] })
+    const r = await resolveZoneRate(CID, 'UPS_WALLET', 'ups_ground_saver', 10, 3)
+    expect(r).toEqual({ rate: 9.5, error: null })
   })
 })

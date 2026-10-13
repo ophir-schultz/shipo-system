@@ -34,7 +34,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase'
 import { priceOf } from '@/lib/billing/unpriced'
-import { billedWeightOf } from '@/lib/billing/shipment-rate'
+import { billedWeightOf, cardRowCovers } from '@/lib/billing/shipment-rate'
 
 /** The lowest and highest zone the chart is allowed to name. */
 const MIN_ZONE = 1
@@ -192,13 +192,98 @@ export async function resolveZone(
   return { zone: null, error: null }
 }
 
+/** One row of the zone matrix, as the lookup needs to see it. */
+export interface ZoneRateCell {
+  /** Admits string because numeric(10,2) arrives over PostgREST quoted. */
+  rate: number | string | null
+  /** Empty or null means "any", which is how the blanket card is written. */
+  carrier?: string | null
+  service?: string | null
+}
+
+/**
+ * Choose the cell that applies, as a pure function.
+ *
+ * Split out of resolveZoneRate so the DECISION can be tested without a
+ * database -- the same reason shipment-rate.ts is pure. There is no test
+ * database here and the live one holds the figures the business invoices from.
+ *
+ * Carrier/service matching is cardRowCovers, i.e. EXACTLY what the legacy rate
+ * card uses, and that is the point of this function existing. Until 2026-10-13
+ * this lookup compared with `.eq()` while the legacy path it falls back to used
+ * case-insensitive bidirectional substring. A client whose matrix was keyed on
+ * display names ('UPS', 'Ground') could not be matched by shipments carrying
+ * ShipStation's codes ('UPS_WALLET', 'ups_ground_saver'), so an 800-cell matrix
+ * was unreachable and 46 shipments were written UNPRICED. The stricter rule ran
+ * first and shadowed the looser one behind it.
+ *
+ * @param where  the lane, e.g. "1 LB / zone 3", for the messages only.
+ */
+export function pickZoneCell(
+  cells: ZoneRateCell[],
+  carrier: string,
+  service: string,
+  where: string,
+): ZoneRateLookup {
+  const c = carrier.toLowerCase()
+  const s = service.toLowerCase()
+  const isBlanket = (cell: ZoneRateCell) => !(cell.carrier ?? '') && !(cell.service ?? '')
+
+  // Two TIERS, not one pool, and the tiers are what keep the ambiguity check
+  // below honest. A blanket row covers every carrier by definition, so a single
+  // pool would find a blanket cell covering alongside every specific cell and
+  // call a perfectly well-specified matrix ambiguous. Precedence is unchanged
+  // from the `.eq()` version: a specific cell overrides the blanket card.
+  const specific = cells.filter((cell) => !isBlanket(cell) && cardRowCovers(cell, c, s))
+  const chosen = specific.length > 0 ? specific : cells.filter(isBlanket)
+
+  // A genuine miss. Distinct from a failed read, which never reaches here.
+  if (chosen.length === 0) return { rate: null, error: null }
+
+  // Coerced BEFORE the ambiguity check and compared as numbers. numeric(10,2)
+  // can arrive as 9.5 from one row and '9.50' from another; on strings those
+  // are two different rates and the shipment would be refused as ambiguous
+  // when the matrix in fact agrees with itself.
+  const parsed = chosen.map((cell) => priceOf(cell.rate))
+
+  const badIndex = parsed.findIndex((n) => n === null)
+  if (badIndex !== -1) {
+    // The cell EXISTS, it just does not hold a number. Calling that "no agreed
+    // rate" sends the shipment to a different card at a real-looking price.
+    return {
+      rate: null,
+      error: `the zone matrix cell for ${where} holds `
+        + `${JSON.stringify(chosen[badIndex].rate)}, which is not a readable amount`,
+    }
+  }
+
+  const distinct = new Set(parsed as number[])
+
+  // Substring matching can cover more than one cell, which `.eq()` could not
+  // express and `.maybeSingle()` could not represent. Picking one by row order
+  // would bill a real amount from an arbitrary agreement -- the same failure
+  // matchLegacyRate refuses on the legacy card.
+  if (distinct.size > 1) {
+    return {
+      rate: null,
+      error: `${chosen.length} zone matrix cells cover ${where} for carrier `
+        + `'${carrier}' service '${service}' with different rates `
+        + `(${[...distinct].join(', ')}), so which one applies is ambiguous. `
+        + `Narrow the overlapping rows.`,
+    }
+  }
+
+  // 0 is returned as 0: a lane somebody priced at nothing on purpose.
+  return { rate: parsed[0] as number, error: null }
+}
+
 /**
  * Look up the client's zone-matrix rate for a given weight/zone.
  *
- * Prefers an exact carrier/service match, then falls back to the blanket rate
+ * Prefers a covering carrier/service cell, then falls back to the blanket rate
  * card (carrier='', service=''). `{ rate: null, error: null }` means no matrix
- * cell matched either; a non-null `error` means one of the two reads did not
- * answer, and the caller must not price the shipment off another card.
+ * cell matched either; a non-null `error` means the read did not answer, and
+ * the caller must not price the shipment off another card.
  */
 export async function resolveZoneRate(
   clientId: string,
@@ -222,59 +307,33 @@ export async function resolveZoneRate(
   // UNPRICED with the weight named as the reason. Which is the fact.
   if (weightLb === null) return { rate: null, error: null }
 
-  // Try specific carrier/service first, then blanket card
-  const attempts: Array<{ carrier: string; service: string }> = [
-    { carrier, service },
-    { carrier: '', service: '' },
-  ]
+  const where = `${weightLb} LB / zone ${zone}`
 
-  for (const a of attempts) {
-    const { data, error } = await supabaseAdmin
-      .from('client_zone_rates')
-      .select('rate')
-      .eq('client_id', clientId)
-      .eq('carrier', a.carrier)
-      .eq('service', a.service)
-      .eq('weight_lb', weightLb)
-      .eq('zone', zone)
-      .maybeSingle()
+  // ONE read for the lane, with carrier/service decided in pickZoneCell.
+  //
+  // It used to be two reads -- the specific carrier/service, then the blanket
+  // card -- because `.eq()` can only ask about one spelling at a time.
+  // Substring matching cannot be expressed in PostgREST at all, so the rows for
+  // this lane are fetched and the choice is made here.
+  //
+  // That also retires a whole failure mode rather than defending against it.
+  // With two reads, the specific one could fail while the blanket one succeeded,
+  // and answering with the blanket rate would have billed a price the client
+  // never agreed for THIS carrier. There was a guard for that. With one read
+  // there is no such state: either the lane was read or it was not.
+  const { data, error } = await supabaseAdmin
+    .from('client_zone_rates')
+    .select('rate, carrier, service')
+    .eq('client_id', clientId)
+    .eq('weight_lb', weightLb)
+    .eq('zone', zone)
 
-    // Returned immediately rather than continuing to the next attempt. The
-    // attempts are ORDERED BY PRECEDENCE: a specific carrier/service cell
-    // overrides the blanket card. If the specific read failed we do not know
-    // whether such a cell exists, so answering with the blanket rate would bill
-    // a price the client did not agree for this carrier -- the same
-    // wrong-price-rather-than-no-price failure as falling through to the legacy
-    // card.
-    if (error) {
-      const which = a.carrier === '' && a.service === ''
-        ? 'blanket rate card'
-        : `${a.carrier || '(any)'}/${a.service || '(any)'}`
-      return {
-        rate: null,
-        error: `could not read the zone matrix (${which}, ${weightLb} LB, `
-          + `zone ${zone}): ${error.message}`,
-      }
-    }
-
-    if (data?.rate != null) {
-      // `numeric(10,2)` arrives over PostgREST as a quoted string, so the cell
-      // goes through priceOf rather than `Number()`. priceOf answers null for
-      // anything that is not a finite amount, and that case is reported as
-      // UNREADABLE and not as a miss: the cell exists, it just does not hold a
-      // number, and calling that "no agreed rate" would reprice the shipment off
-      // a different card.
-      const rate = priceOf(data.rate)
-      if (rate === null) {
-        return {
-          rate: null,
-          error: `the zone matrix cell for ${weightLb} LB / zone ${zone} holds `
-            + `${JSON.stringify(data.rate)}, which is not a readable amount`,
-        }
-      }
-      return { rate, error: null }
+  if (error) {
+    return {
+      rate: null,
+      error: `could not read the zone matrix (${where}): ${error.message}`,
     }
   }
 
-  return { rate: null, error: null }
+  return pickZoneCell((data ?? []) as ZoneRateCell[], carrier, service, where)
 }
