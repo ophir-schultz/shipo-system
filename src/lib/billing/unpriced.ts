@@ -196,7 +196,7 @@ export function totalOrUnknown(sum: PricedSum): number | null {
  * choice rather than the default.
  */
 export function sumPriced(
-  rows: ReadonlyArray<Record<string, unknown>> | null | undefined,
+  rows: ReadonlyArray<object> | null | undefined,
   key: string,
 ): PricedSum {
   return sumMapped(rows, key, n => n)
@@ -217,7 +217,7 @@ export function sumPriced(
  * sign discarded.
  */
 export function sumAbsPriced(
-  rows: ReadonlyArray<Record<string, unknown>> | null | undefined,
+  rows: ReadonlyArray<object> | null | undefined,
   key: string,
 ): PricedSum {
   return sumMapped(rows, key, Math.abs)
@@ -231,7 +231,7 @@ export function sumAbsPriced(
  * header's warning about two copies drifting applies most of all to it.
  */
 function sumMapped(
-  rows: ReadonlyArray<Record<string, unknown>> | null | undefined,
+  rows: ReadonlyArray<object> | null | undefined,
   key: string,
   map: (n: number) => number,
 ): PricedSum {
@@ -240,7 +240,7 @@ function sumMapped(
   let counted = 0
   for (const row of rows ?? []) {
     counted++
-    const n = priceOf(row?.[key])
+    const n = priceOf((row as Record<string, unknown> | null | undefined)?.[key])
     // Accumulated in cents, because adding dollars as floats drifts: the
     // all-time revenue figure on the dashboard is a sum over every shipment
     // the business has ever made, and `0.1 + 0.2` is the standard reason a
