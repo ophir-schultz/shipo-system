@@ -11,7 +11,7 @@ import { WAREHOUSE_TZ } from '@/lib/ledger/pick-date'
 // This is the calibration. Two halves, and both are necessary:
 //
 //   1. The SQL's date arithmetic, modelled here in TypeScript, must agree with
-//      periodRange on every day of four years and all four grains.
+//      periodRange on every day of four years and all five grains.
 //   2. The .sql file must literally still CONTAIN the formulas the model
 //      models -- otherwise editing the SQL leaves a green test describing a
 //      file that no longer exists in that form, which is worse than no test.
@@ -26,12 +26,20 @@ import { WAREHOUSE_TZ } from '@/lib/ledger/pick-date'
 // distrust in the figure that was right. That is the specific harm, and it is
 // why this file exists rather than a note saying the SQL mirrors the code.
 //
-// THE FOUR FORMULAS, as the SQL writes them:
+// THE FIVE FORMULAS, as the SQL writes them:
 //
-//   day    lo = d                                 hi = d
-//   week   lo = d - (isodow(d) - 1)                hi = lo + 6
-//   month  lo = date_trunc('month', d)             hi = lo + 1 month - 1 day
-//   year   lo = date_trunc('year', d)              hi = lo + 1 year - 1 day
+//   day       lo = d                              hi = d
+//   week      lo = d - (isodow(d) - 1)             hi = lo + 6
+//   month     lo = date_trunc('month', d)          hi = lo + 1 month - 1 day
+//   half-year lo = date_trunc('year', d)           hi = lo + 6 months - 1 day
+//                  + ((month(d) - 1) / 6) * 6 mo
+//   year      lo = date_trunc('year', d)           hi = lo + 1 year - 1 day
+//
+// The half-year's `/ 6` is INTEGER division on purpose, and it is the one
+// formula here whose two implementations do not even look alike: the SQL steps
+// forward from January in six-month intervals, periodRange picks a 0-based
+// month index with `m <= 6 ? 0 : 6`. They must still agree on all 1461 days,
+// and that non-resemblance is what makes the agreement worth anything.
 //
 // isodow calls Monday 1 and Sunday 7. periodRange uses getUTCDay, which calls
 // Sunday 0, and offsets by `(dow + 6) % 7`. Those agree -- Sunday goes back 6
@@ -110,6 +118,20 @@ function sqlPeriod(grain: Grain, day: string): DateRange {
     return { from: iso(Date.UTC(y, m, 1)), to: iso(Date.UTC(y, m + 1, 0)) }
   }
 
+  if (grain === 'half-year') {
+    // date_trunc('year', d) + ((extract(month from d)::int - 1) / 6) * 6 months.
+    // extract(month) is 1-based where getUTCMonth is 0-based, so the SQL's
+    // `(month - 1) / 6` is `m / 6` here -- and Math.trunc, not Math.floor,
+    // because Postgres integer division truncates. The two cannot differ on a
+    // non-negative month index, and trunc is written anyway so the model states
+    // which rule it is modelling.
+    const steps = Math.trunc(m / 6)
+    return {
+      from: iso(Date.UTC(y, steps * 6, 1)),
+      to: iso(Date.UTC(y, steps * 6 + 6, 0)),
+    }
+  }
+
   return { from: iso(Date.UTC(y, 0, 1)), to: iso(Date.UTC(y, 11, 31)) }
 }
 
@@ -175,7 +197,7 @@ describe('the verification SQL computes the same periods as the code', () => {
 })
 
 describe('the verification SQL still contains the rules it was calibrated on', () => {
-  it('computes the four periods exactly as the model above assumes', () => {
+  it('computes the five periods exactly as the model above assumes', () => {
     // The WHOLE periods CTE, compared as one normalised string, rather than a
     // handful of toContain probes. sqlPeriod() above is hand-written from this
     // block and nothing derives either from the other, so this equality is the
@@ -212,11 +234,42 @@ describe('the verification SQL still contains the rules it was calibrated on', (
       + " (date_trunc('month', d) + interval '1 month' - interval '1 day')::date"
       + ' from today'
       + ' union all'
-      + " select 'year', 4,"
+      + " select 'half-year', 4,"
+      + " (date_trunc('year', d)"
+      + " + ((extract(month from d)::int - 1) / 6) * interval '6 months')::date,"
+      + " (date_trunc('year', d)"
+      + " + ((extract(month from d)::int - 1) / 6) * interval '6 months'"
+      + " + interval '6 months' - interval '1 day')::date"
+      + ' from today'
+      + ' union all'
+      + " select 'year', 5,"
       + " date_trunc('year', d)::date,"
       + " (date_trunc('year', d) + interval '1 year' - interval '1 day')::date"
       + ' from today',
     )
+  })
+
+  it('pads the grain column wide enough to print the longest grain name', () => {
+    // rpad TRUNCATES. It is not a formatting nicety: this report is the
+    // instrument an operator is told to believe OVER the screen when the two
+    // disagree, and at the old width of 6 it would have printed the half-year
+    // rows as 'half-y'. A reader who sees a mangled period name in the
+    // cross-check does not conclude "the padding is too narrow", they conclude
+    // the query is wrong, and then they have no instrument at all.
+    //
+    // The width is compared against GRAINS rather than against the literal 9,
+    // so this fails when a LONGER grain is added and the SQL is not widened --
+    // which is the only way this can go wrong from here. Asserting `9` would
+    // just restate the file back to itself.
+    const longest = Math.max(...GRAINS.map(g => g.length))
+    const widths = [...codeOnly(sql()).matchAll(/rpad\(\w+\.grain,\s*(\d+)\)/g)]
+      .map(m => Number(m[1]))
+
+    expect(widths.length, 'the grain column is no longer rpad-formatted').toBe(2)
+    for (const w of widths) {
+      expect(w, `rpad(grain, ${w}) truncates a ${longest}-character grain name`)
+        .toBeGreaterThanOrEqual(longest)
+    }
   })
 
   it("takes today in the warehouse's timezone, not UTC and not the server's", () => {

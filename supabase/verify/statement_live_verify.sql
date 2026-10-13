@@ -89,7 +89,19 @@ periods as (
          (date_trunc('month', d) + interval '1 month' - interval '1 day')::date
     from today
   union all
-  select 'year', 4,
+  -- The CALENDAR half containing d: Jan..Jun or Jul..Dec, never a trailing six
+  -- months. `(extract(month) - 1) / 6` is INTEGER division in Postgres, so
+  -- months 1-6 give 0 and months 7-12 give 1 -- that many six-month steps on
+  -- from the start of the year.
+  select 'half-year', 4,
+         (date_trunc('year', d)
+            + ((extract(month from d)::int - 1) / 6) * interval '6 months')::date,
+         (date_trunc('year', d)
+            + ((extract(month from d)::int - 1) / 6) * interval '6 months'
+            + interval '6 months' - interval '1 day')::date
+    from today
+  union all
+  select 'year', 5,
          date_trunc('year', d)::date,
          (date_trunc('year', d) + interval '1 year' - interval '1 day')::date
     from today
@@ -167,14 +179,18 @@ report as (
 
   union all
 
+  -- rpad to 9, the length of the longest grain name. It was 6 when the longest
+  -- was 'month', and rpad TRUNCATES rather than overflowing -- so left at 6
+  -- this would have printed 'half-y', which reads as a typo in the report that
+  -- exists to be believed over the screen.
   select 0, ''::text, 2, p.grain,
-         'PERIOD ' || rpad(p.grain, 6) || ' ' || p.lo::text || ' .. ' || p.hi::text
+         'PERIOD ' || rpad(p.grain, 9) || ' ' || p.lo::text || ' .. ' || p.hi::text
     from periods p
 
   -- One line per client per grain: the figure the table footer will show.
   union all
   select 1, t.client_name, t.ord, t.grain,
-         rpad(t.grain, 6)
+         rpad(t.grain, 9)
            || '  rows=' || lpad(t.counted::text, 5)
            || '  lines=' || lpad(t.line_count::text, 3)
            || '  total=' || case

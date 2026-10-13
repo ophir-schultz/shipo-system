@@ -91,7 +91,11 @@ describe('periodLabel', () => {
   })
 
   it('labels every grain periodRange can produce', () => {
-    for (const grain of ['day', 'week', 'month', 'year'] as const) {
+    // GRAINS and not a hand-written list. It WAS a hand-written list of four,
+    // which is the same shape of defect the GRAIN_LABELS tests exist for: a
+    // test whose name claims "every grain" while it iterates a literal no new
+    // grain joins. It would have gone on passing with 'half-year' uncovered.
+    for (const grain of GRAINS) {
       const label = periodLabel(grain, periodRange(grain, '2026-10-13'))
       expect(label.length, grain).toBeGreaterThan(0)
     }

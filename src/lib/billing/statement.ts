@@ -53,10 +53,35 @@ export function statementToday(now: Date = new Date()): string {
   return warehouseParts(now).date
 }
 
-/** The grains the statement screen offers. */
-export type Grain = 'day' | 'week' | 'month' | 'year'
+/**
+ * The grains the statement screen offers.
+ *
+ * Every one of them is a CALENDAR period containing today, inclusive at both
+ * ends. That is the invariant, not an accident of which five happen to be here,
+ * and 'half-year' was chosen over the two other readings of "six months" to
+ * keep it:
+ *
+ *   calendar half   Jan 1..Jun 30 / Jul 1..Dec 31   <- this one
+ *   trailing six    today - 6 months .. today
+ *   last six whole  the six completed months before this one
+ *
+ * The trailing window is the one a reader assumes, and it is the one that must
+ * not exist here. A statement is a document that gets SENT, beside an amount,
+ * and a trailing window means two statements both headed "the last six months"
+ * sent a week apart cover different, overlapping periods -- neither of which
+ * adds up against the monthly invoices the client has already been given. The
+ * calendar half is additive with the month grain by construction. "Last six
+ * whole months" reconciles too, but it is the only period that would not
+ * contain the day it was asked on, which is a property every grain here has and
+ * one the tests assert for all of them.
+ *
+ * The cost of the calendar reading, stated plainly so nobody reports it as a
+ * bug: opened in January, 'This half-year' holds a few days. Same as 'This
+ * year', which has shipped that way from the start.
+ */
+export type Grain = 'day' | 'week' | 'month' | 'half-year' | 'year'
 
-export const GRAINS: readonly Grain[] = ['day', 'week', 'month', 'year'] as const
+export const GRAINS: readonly Grain[] = ['day', 'week', 'month', 'half-year', 'year'] as const
 
 /**
  * What to call each grain in a picker.
@@ -75,6 +100,12 @@ export const GRAIN_LABELS: Record<Grain, string> = {
   day: 'Today',
   week: 'This week',
   month: 'This month',
+  // Named for what it IS and not for what it was asked for. "Last 6 months"
+  // would be a false label on this period: it is the calendar half containing
+  // today, so in October it runs forward to December 31 and backward only to
+  // July 1. A label promising a trailing six months over a figure covering
+  // three and a half is the error this grain was most likely to ship with.
+  'half-year': 'This half-year',
   year: 'This year',
 }
 
@@ -156,6 +187,16 @@ export function periodRange(grain: Grain, today: string): DateRange {
     // Day 0 of the NEXT month is the last day of this one, which is how the
     // leap-year and 30/31 cases are got right without a table of month lengths.
     return { from: fmt(Date.UTC(y, m - 1, 1)), to: fmt(Date.UTC(y, m, 0)) }
+  }
+
+  if (grain === 'half-year') {
+    // January..June is the first half, July..December the second. `m` is
+    // 1-based here, so months 1-6 start at 0-based month index 0 and months
+    // 7-12 start at 6 -- and `start + 6` with day 0 is the last day of the
+    // half, the same next-month-day-0 trick the month arm uses. Nothing here
+    // needs to know that a half is 181, 182 or 184 days long.
+    const start = m <= 6 ? 0 : 6
+    return { from: fmt(Date.UTC(y, start, 1)), to: fmt(Date.UTC(y, start + 6, 0)) }
   }
 
   return { from: fmt(Date.UTC(y, 0, 1)), to: fmt(Date.UTC(y, 11, 31)) }

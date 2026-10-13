@@ -122,6 +122,82 @@ describe('periodRange', () => {
     })
   })
 
+  describe('a half-year is the calendar half, never a trailing six months', () => {
+    // The distinction this whole grain turns on. A trailing window asked from
+    // 2026-10-13 would answer 2026-04-14..2026-10-13, and every case below is
+    // chosen so that the trailing reading gives a DIFFERENT answer -- otherwise
+    // the tests would pass against the implementation the grain exists to rule
+    // out. The specific harm: "the last six months" is a heading two statements
+    // sent a week apart would share while covering different periods, so
+    // neither reconciles against the monthly invoices already sent.
+
+    it('July..December for a date in the second half', () => {
+      expect(periodRange('half-year', '2026-10-13'))
+        .toEqual({ from: '2026-07-01', to: '2026-12-31' })
+    })
+
+    it('January..June for a date in the first half', () => {
+      expect(periodRange('half-year', '2026-03-17'))
+        .toEqual({ from: '2026-01-01', to: '2026-06-30' })
+    })
+
+    it('June 30 is the last day of the first half, not the first of the second', () => {
+      // The boundary. An off-by-one in the `m <= 6` comparison moves a whole
+      // month of revenue across a statement line, and June is the month it
+      // moves.
+      expect(periodRange('half-year', '2026-06-30'))
+        .toEqual({ from: '2026-01-01', to: '2026-06-30' })
+    })
+
+    it('July 1 is the first day of the second half', () => {
+      expect(periodRange('half-year', '2026-07-01'))
+        .toEqual({ from: '2026-07-01', to: '2026-12-31' })
+    })
+
+    it('the second half ends on December 31, found by rolling into the next YEAR', () => {
+      // Date.UTC(y, 6 + 6, 0) is December 31 of y, not of y + 1 -- the same
+      // reason the December month case is written out separately above.
+      expect(periodRange('half-year', '2026-12-31'))
+        .toEqual({ from: '2026-07-01', to: '2026-12-31' })
+    })
+
+    it("the first half is 181 days in a common year and 182 in a leap one", () => {
+      // Derived from the returned bounds rather than asserted as dates, so this
+      // checks that the half is built from real month lengths instead of a
+      // fixed span. A '6 months = 183 days' implementation passes every
+      // hand-written case above and fails here.
+      const days = (g: 'half-year', day: string) => {
+        const { from, to } = periodRange(g, day)
+        return (Date.parse(to) - Date.parse(from)) / 86_400_000 + 1
+      }
+      expect(days('half-year', '2026-03-17')).toBe(181)
+      expect(days('half-year', '2028-03-17')).toBe(182)
+      // And the second half is 184 either way -- Jul, Aug, Oct, Dec are 31.
+      expect(days('half-year', '2026-10-13')).toBe(184)
+      expect(days('half-year', '2028-10-13')).toBe(184)
+    })
+
+    it('is the same answer from the first and last day of the half', () => {
+      expect(periodRange('half-year', '2026-07-01'))
+        .toEqual(periodRange('half-year', '2026-12-31'))
+      expect(periodRange('half-year', '2026-01-01'))
+        .toEqual(periodRange('half-year', '2026-06-30'))
+    })
+
+    it('splits the year into exactly two halves that tile it without overlap', () => {
+      // The property that makes the grain additive with `year`, which is the
+      // reason the calendar reading was chosen. A trailing window cannot
+      // satisfy this at all.
+      const h1 = periodRange('half-year', '2026-01-01')
+      const h2 = periodRange('half-year', '2026-12-31')
+      const yr = periodRange('year', '2026-06-15')
+      expect(h1.from).toBe(yr.from)
+      expect(h2.to).toBe(yr.to)
+      // h2 starts the day after h1 ends: no gap, no shared day.
+      expect(Date.parse(h2.from) - Date.parse(h1.to)).toBe(86_400_000)
+    })
+  })
+
   it('a year is January 1 to December 31', () => {
     expect(periodRange('year', '2026-10-13')).toEqual({ from: '2026-01-01', to: '2026-12-31' })
   })
@@ -478,8 +554,8 @@ describe('buildStatement', () => {
 })
 
 describe('GRAINS', () => {
-  it('is the four the operator asked for, in increasing length', () => {
-    expect(GRAINS).toEqual(['day', 'week', 'month', 'year'] satisfies Grain[])
+  it('is the five the operator asked for, in increasing length', () => {
+    expect(GRAINS).toEqual(['day', 'week', 'month', 'half-year', 'year'] satisfies Grain[])
   })
 })
 
