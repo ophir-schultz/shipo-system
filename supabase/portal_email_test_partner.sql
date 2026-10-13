@@ -65,7 +65,7 @@
 -- supabase/partner_w9.sql, repeated so one paste leaves a working
 -- screen. Idempotent, and harmless if it already ran.
 --
--- ✅ DONE on fdqyzekseetvzkmuihbg, 2026-10-13. Confirmed from outside
+-- [DONE] on fdqyzekseetvzkmuihbg, 2026-10-13. Confirmed from outside
 -- the editor by `npx tsx --env-file=.env.local scripts/verify-w9-column.mjs`
 -- (HTTP 200 where it had answered SQLSTATE 42703 for three rounds).
 -- Idempotent, so re-running costs nothing.
@@ -93,98 +93,83 @@
 alter table referral_partners add column if not exists w9_received_at timestamptz;
 
 -- ------------------------------------------------------------
--- 2. The throwaway partner. Run as a SEPARATE submission.
+-- 2. The throwaway partner. Paste BOTH statements, SELECT NOTHING, Run.
 --
--- Every raise below is deliberately ONE single-quoted literal on ONE
--- line, however long that makes the line. The earlier version wrapped
--- each message across several adjacent literals for readability, which
--- relies on the lexer concatenating them into the single string constant
--- that RAISE wants -- and that was the leading suspect for why the first
--- run of this file wrote nothing. Readability is not worth a construct
--- I could not test: there is no local postgres here, so this file is
--- checked by being run against the real database and nothing else.
+-- This was a `do $$ ... $$` block until 2026-10-13. It was pasted twice
+-- and committed nothing, the second time while the editor displayed a
+-- row -- which can only mean the insert and the select ran together and
+-- the transaction did not survive. The plain `alter table` in part 1,
+-- submitted the same way, committed first try.
 --
--- The whole file is also pure ASCII, and must stay that way. The fixture
--- name used to contain an em dash, and the UNDO at the bottom matches
--- rows BY THAT NAME. Any mangling of one non-ASCII character between
--- this file and the SQL editor -- clipboard, encoding, a copy through
--- something that normalises punctuation -- would insert under one name
--- and delete under another. The UNDO would then report "0 rows" and
--- read as a clean success while leaving behind the one thing this file
--- insists must not be left behind: an active, signed partner row that
--- can request login codes forever and that nobody is accountable for.
--- A hyphen cannot fail that way.
+-- So the block is gone. Every reason it existed has been measured away:
+--
+--   - It used PL/pgSQL variables to hold one email address. A literal
+--     does that.
+--   - It set agreement_status in a SEPARATE update because the file
+--     could not assume the column existed. It does exist -- along with
+--     id, name, company, email, status, source, notes, w9_received_at
+--     and created_at, each asked for by name through PostgREST on
+--     2026-10-13 (scripts/verify-fixture-partner.mjs prints this list
+--     whenever the table is empty). So one flat insert sets everything.
+--   - It raised exceptions to refuse a duplicate or a malformed
+--     address. `where not exists` refuses the duplicate without needing
+--     a trappable error, and a hardcoded literal cannot be malformed.
+--
+-- What is left is an insert and a select: no procedural language, no
+-- dollar quoting, no raise. The editor has now demonstrated it executes
+-- plain statements and commits them, and that is all this needs to be.
+--
+-- Whatever address you use here is what you type at the login screen --
+-- the partner is looked up BY this address and nothing else. A +suffix
+-- is good: Google Workspace delivers ophir+portaltest@shipousa.com to
+-- ophir@shipousa.com, and it keeps the fixture visibly distinct from a
+-- real address in the table. Change it in BOTH statements if you change
+-- it at all.
+--
+-- status 'active'  -> passes the `status = 'inactive'` check
+-- agreement_status -> must equal 'signed' EXACTLY; NULL and 'not_sent'
+--                     both read as unsigned and are silently refused a
+--                     code by src/lib/partner-access.ts
+-- company/client   -> nothing attributed, so no commission is owed
+--
+-- The whole file is pure ASCII and must stay that way. The fixture name
+-- once held an em dash and the UNDO matches rows BY THAT NAME: one
+-- mangled character inserts under one name and deletes under another,
+-- the UNDO then reports "0 rows", which reads as a clean success while
+-- leaving behind exactly what this file insists must never be left --
+-- an active, signed partner row that can request login codes forever
+-- and that nobody is accountable for. A hyphen cannot fail that way.
 -- ------------------------------------------------------------
-do $$
-declare
-  -- ==========================================================
-  -- EDIT THIS. Use an address you can actually read, because the
-  -- whole point is to see whether the email arrives.
-  --
-  -- A +suffix is good here: Google Workspace delivers
-  -- ophir+portaltest@shipousa.com to ophir@shipousa.com, and it keeps
-  -- the fixture visibly distinct from your real address in the table.
-  -- Whatever you put here is what you must type at the login screen --
-  -- the partner is looked up BY this address and nothing else.
-  -- ==========================================================
-  test_email text := 'ophir+portaltest@shipousa.com';
-  -- ==========================================================
+insert into referral_partners (name, company, email, status, source, agreement_status, notes)
+select 'ZZ PORTAL TEST - DELETE ME',
+       null,
+       'ophir+portaltest@shipousa.com',
+       'active',
+       'manual',
+       'signed',
+       'Throwaway fixture created by supabase/portal_email_test_partner.sql on '
+         || current_date::text
+         || '. Proves the Resend mail path and the portal login. NOT a real partner. No client is attributed and no commission is owed. Delete with the UNDO block in that file.'
+-- Case-insensitive, like every other lookup against this table.
+-- /api/referrals/intake deduped case-sensitively once and minted two
+-- partner rows for one human; a fixture should not reintroduce that.
+-- This also makes the statement safe to run twice, which matters when
+-- nobody is sure whether the last run took.
+ where not exists (
+   select 1 from referral_partners
+    where lower(btrim(email)) = 'ophir+portaltest@shipousa.com'
+ );
 
-  v_partner  uuid;
-  v_existing uuid;
-begin
-  test_email := lower(btrim(test_email));
-
-  if test_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
-    raise exception 'test_email (%) does not look like an email address. The portal login IS the email address, so a typo means the code is mailed into the void and the test tells you nothing. Nothing was written.', test_email;
-  end if;
-
-  -- Case-insensitive, like every other lookup against this table.
-  -- /api/referrals/intake deduped case-sensitively once and minted two
-  -- partner rows for one human; a fixture should not reintroduce that.
-  select id into v_existing
-    from referral_partners
-   where lower(btrim(email)) = test_email
-   limit 1;
-
-  if v_existing is not null then
-    raise exception 'A partner with the email % already exists (%). Run the UNDO at the bottom of this file first. Making a second row would split one address across two partners and the login would match whichever the database returned first.', test_email, v_existing;
-  end if;
-
-  -- status 'active'    -> passes the `status = 'inactive'` check
-  -- agreement_status   -> must equal 'signed' exactly; NULL and
-  --                       'not_sent' both read as unsigned and are
-  --                       silently refused a code
-  -- NO client link, so no commission obligation exists.
-  insert into referral_partners (name, company, email, status, source, notes)
-  values (
-    'ZZ PORTAL TEST - DELETE ME',
-    null,
-    test_email,
-    'active',
-    'manual',
-    -- Explicit || at every join, and current_date cast to text rather than
-    -- left to the anynonarray || text resolution. Same reason as the raises:
-    -- no construct in this file should be one I cannot test.
-    'Throwaway fixture created by supabase/portal_email_test_partner.sql on '
-      || current_date::text
-      || '. Proves the Resend mail path and the portal login. NOT a real partner. No client is attributed and no commission is owed. Delete with the UNDO block in that file.'
-  )
-  returning id into v_partner;
-
-  -- Set separately rather than in the insert above, so this file does not
-  -- depend on whether the column has a default or is even present yet --
-  -- partner_onboarding.sql adds it with `add column if not exists`.
-  update referral_partners
-     set agreement_status = 'signed'
-   where id = v_partner;
-
-  raise notice 'Created throwaway partner % as %.', test_email, v_partner;
-  raise notice 'Name is "ZZ PORTAL TEST - DELETE ME" so it sorts last and reads as a fixture.';
-  raise notice 'No client attributed, so nothing is owed and /pnl is unaffected.';
-  raise notice 'NEXT: request a code at /partner/login using %', test_email;
-  raise notice 'THEN: run the UNDO block at the bottom of this file.';
-end $$;
+-- The proof. The editor shows only the LAST statement's result, so this
+-- is the table read back after the insert. The marker column exists so
+-- the output cannot be mistaken for any other query's -- the previous
+-- round's "one row came back" turned out not to be this row.
+select 'FIXTURE PARTNER IS ON FILE' as marker,
+       p.id, p.name, p.email, p.status, p.agreement_status,
+       (select count(*) from clients c where c.referral_partner_id = p.id)
+         as clients_attributed
+  from referral_partners p
+ where p.name = 'ZZ PORTAL TEST - DELETE ME';
 
 -- ============================================================
 -- VERIFY -- NOT commented out, and NOT a separate submission. Paste it
