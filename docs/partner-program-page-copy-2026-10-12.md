@@ -2,8 +2,8 @@
 
 **Page:** https://shipousa.com/partner-program/ (WordPress post 2072, Elementor)
 **Form:** Forminator 2074 (the partner-type dropdown)
-**Status:** DRAFT — **not written to the live site.** Awaiting Ophir's approval.
-**Date:** 2026-10-12
+**Status:** APPROVED and **LIVE.** All five mechanical steps below are done and verified.
+**Date:** 2026-10-12 (applied 2026-10-12/13)
 
 Two changes in one pass, because they touch the same blocks:
 
@@ -191,7 +191,11 @@ so renaming an existing option orphans the value on every row already recorded u
 - **The SEO title** ("3PL Referral Program — Earn $300 + 5% for 12 Months | Shipo"), which
   is service-neutral and carries no gate.
 
-## Open question for you
+## Open question for you — RESOLVED 2026-10-12, the gates are off the page
+
+_(Historical, kept for the reasoning. Both gates are gone from post 2072, from
+`/llms-full.txt`, from the agreement and from `REFERRAL_TERMS`. Verified anonymously
+twice on each surface.)_
 
 **The two gates are live on the page right now.** Until it is edited, a partner can read
 `≥ $500 in a calendar month` and `60 days active` on shipousa.com while the agreement
@@ -202,13 +206,41 @@ to. Worth doing in the same sitting as the agreement.
 
 ## After approval — the mechanical steps
 
-1. Edit post 2072 in Elementor (hero, benefit bullets, two-ways table, how-it-works step
+1. ✅ Edit post 2072 in Elementor (hero, benefit bullets, two-ways table, how-it-works step
    4, terms summary). Check the revision count before saving — a parallel session can
    rewrite the same post mid-edit.
-2. Add the three dropdown options to Forminator form 2074.
-3. Re-cut `/llms.txt` (WPCode snippet 2127) and `/llms-full.txt` (snippet 2419), which
+2. ✅ Add the three dropdown options to Forminator form 2074.
+3. ✅ Re-cut `/llms.txt` (WPCode snippet 2127) and `/llms-full.txt` (snippet 2419), which
    both still describe an FBA-only program with the old gates. `delete_cache()` alone
    kills every snippet — follow with `cache_all_loaded_snippets()`.
-4. Purge NitroPack (needs sudo, and the `.gz`), then verify anonymously **twice**, seconds
+4. ✅ Purge NitroPack (needs sudo, and the `.gz`), then verify anonymously **twice**, seconds
    apart.
-5. Do **not** test by submitting form 2074 — a submission files a genuine lead.
+5. ✅ Did **not** test by submitting form 2074 — a submission files a genuine lead.
+
+## What actually happened, and the two things that were not in the plan
+
+**The dropdown could not be reordered.** Forminator's option rows are drag-only and drag is
+unavailable here, so new options can only be appended *after* `Other`. Rather than rename
+rows in place — which regenerates the stored Value and orphans every
+`/api/referrals/intake` row already recorded under the old one — row 6 was rewritten to
+`Ecommerce / DTC agency` (`dtc_agency`) and three rows were appended: `shopify_dev`,
+`brand_consultant_dtc`, and a fresh `Other` (`other`). Net effect: nine options, `Other`
+last, and **every original value string still present**. Forminator also refused to apply
+the field until a placeholder existed; it was set to `Please select an option`, the exact
+string the page was already rendering, so nothing visible changed.
+
+**A months-old CSS defect surfaced and was fixed.** The widget's panel CSS lived in an
+inline `<style>` block inside the Elementor Text Editor, where TinyMCE separates every rule
+with a literal `<br />`. That is invalid inside `<style>`, so **the page never rendered
+styled at origin** — it only looked right in public because NitroPack re-parsed the CSS with
+a lenient parser. After the copy edit NitroPack's rebuild stopped carrying those rules and
+the live page went unstyled. The 45 rules were cleaned and moved to Appearance → Additional
+CSS (`wp-custom-css`), which is now the source of truth for the panel. Rollback:
+`/tmp/wp_custom_css_backup_20261012.css`. The inert inline block is still in the widget;
+removing it costs another Elementor publish and buys nothing.
+
+## Not changed, and why — form 2074's textarea label
+
+The free-text field still reads **"How will you refer sellers to us?"**. "Sellers" is
+Amazon's word and §2a's own reasoning says it "quietly re-narrows the page to Amazon", but
+§2e authorized only the three dropdown options. Flagged, not changed.
