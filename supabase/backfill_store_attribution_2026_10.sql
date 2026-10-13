@@ -28,10 +28,20 @@
 -- unbilled afterwards, and will show up in the unpriced reports instead of the
 -- unattributed ones. That is progress, not revenue.
 --
--- Nor does it recover the rate adjustments. src/lib/sync/shipstation.ts gates
--- the rate_adjustments write on `existingShipment.client_id`, so every refund
--- and void that landed on these 599 shipments was discarded at the time. That
--- history exists only on ShipStation's side; attribution does not recreate it.
+-- Nor does it recover the rate adjustments, though the forward half of that is
+-- fixed. The rate_adjustments gate in src/lib/sync/shipstation.ts now reads
+-- `attributedClientId` -- the client as of THIS pass, the one already stored
+-- or the one about to be -- and no longer `existingShipment.client_id`, the
+-- value from before attribution. Under the old gate a refund or void arriving
+-- on the same pass that attributed its shipment was computed, found no client,
+-- and was dropped; no later run recovered it either, because once actual_cost
+-- holds the new value the diff is 0 for ever and that branch is never
+-- re-entered.
+--
+-- What no code change recovers is the adjustments already lost. Every refund
+-- and void that landed on these 599 shipments while the gate read a client_id
+-- that was still blank was discarded at the time. That history exists only on
+-- ShipStation's side; attribution does not recreate it.
 
 
 -- ---------------------------------------------------------------------------

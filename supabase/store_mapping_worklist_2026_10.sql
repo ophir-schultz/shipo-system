@@ -3,12 +3,17 @@
 --
 -- THE DEFECT THIS SERVES. 599 of 890 shipments carry no client_id at all --
 -- $8,980.99 of carrier spend, 94% of everything unbilled, from 2026-07-07 to
--- 2026-10-03. The cause is in src/lib/sync/shipstation.ts: the `shipmentData`
--- object it upserts runs from shipstation_shipment_id to raw_data and has NO
--- client_id KEY. So an unattributed shipment is not an edge case, it is the
+-- 2026-10-03. The cause was in src/lib/sync/shipstation.ts: the `shipmentData`
+-- object it upserts ran from shipstation_shipment_id to raw_data and had NO
+-- client_id KEY. So an unattributed shipment was not an edge case, it was the
 -- DEFAULT, and the 291 attributed rows are hand-fixed exceptions. The comment
 -- in scripts/probe-store-client-gap.mjs:5 names the original intent -- "for now
--- match by order source" -- and the matching was never built.
+-- match by order source" -- and the matching was never built then.
+--
+-- IT IS BUILT NOW, and the 599 are the history it was built too late for. The
+-- sync reads this mapping table on every pass, so the table being empty is what
+-- leaves today's labels unattributed -- not missing code. PART 6 has the
+-- specifics and PART 4 counts the rows.
 --
 -- A shipment with no client_id reaches no client's rate card, so none of the
 -- rate-card work in rate_card_rescope_2026_10.sql touches these 599.
@@ -335,10 +340,16 @@ order by 2 desc;
 -- ===========================================================================
 -- PART 4 -- WHAT THE MAPPING TABLE HOLDS NOW. Expect zero rows.
 -- ===========================================================================
--- Measured 2026-10-05: client_store_ids is empty for all 9 clients, and
--- nothing in src/ reads it -- the only references are ledger_01_orders.sql,
--- two verify scripts, and ledger_08's existence check. So it has never been
--- populated and would do nothing yet if it were. PART 6.
+-- Measured 2026-10-05: client_store_ids is empty for all 9 clients. The rest of
+-- that note used to read "and nothing in src/ reads it", which is no longer
+-- true and was the one clause that made an empty table look harmless:
+-- loadStoreMap() in src/lib/sync/store-attribution.ts selects this table on
+-- every sync pass, so empty is not merely unpopulated -- it is the reason the
+-- labels pulled this morning have no client. PART 6.
+--
+-- Re-run the count rather than trusting the 2026-10-05 zero; mappings may have
+-- been inserted since, and a non-zero mapping_rows changes what PART 2's
+-- derived_client column is for.
 select
   (select count(*) from client_store_ids)                      as mapping_rows,
   (select count(*) from clients)                               as clients,
@@ -403,27 +414,93 @@ select
 
 
 -- ===========================================================================
--- PART 6 -- WHAT SQL CANNOT FIX HERE
+-- PART 6 -- WHAT THE MAPPING FIXES NOW, AND WHAT IT STILL DOES NOT
 -- ===========================================================================
--- Populating client_store_ids changes NOTHING about tomorrow's sync. Nothing in
--- src/ reads the table, and `shipmentData` in src/lib/sync/shipstation.ts has no
--- client_id key, so every shipment synced after this script runs is still
--- unattributed. SQL can recover the history; only a code change stops the
--- bleeding.
+-- THIS SECTION SAID THE OPPOSITE UNTIL 2026-10-13, and the old text is quoted
+-- because copies of it are presumably still being read and acting on it would
+-- now be exactly backwards:
 --
--- That change has one requirement worth stating in advance, because it is the
--- whole reason this file refuses to guess: AN UNMATCHED store_id MUST ANNOUNCE
--- ITSELF. The failure that produced the 599 was not that matching was hard --
--- it was that no-match was indistinguishable from not-trying, and nothing on
--- any screen said 599 shipments had no owner for three months. A lookup that
--- silently leaves client_id null rebuilds exactly that.
+--     Populating client_store_ids changes NOTHING about tomorrow's sync.
+--     Nothing in src/ reads the table [...] SQL can recover the history; only
+--     a code change stops the bleeding.
 --
--- Related, same root cause, and already visible in the file: shipstation.ts:198
--- gates rate-adjustment recording on
+-- True as measured on 2026-10-05. The code change has since landed and is
+-- deployed, so THE LOOKUP IS LIVE and populating this table is what stops the
+-- bleeding:
 --
---     if (diff !== null && Math.abs(diff) > 0.01 && existingShipment.client_id)
+--   loadStoreMap() in src/lib/sync/store-attribution.ts selects
+--   store_id, client_id from client_store_ids, once per run -- once, so that an
+--   edit to this table while a pull is in flight cannot attribute one page to
+--   one client and the next page to another.
 --
--- so for all 599 of these, every carrier refund and void has been silently
--- discarded. Those are real money movements with no record. Attributing the
--- shipments does not retroactively create the adjustments -- that history is
--- gone, and only the ShipStation side still has it.
+--   decideAttribution() in the same module turns a hit on a blank row into
+--   { action: 'attribute' }, and src/lib/sync/shipstation.ts spreads
+--   { client_id: attribution.clientId } into `shipmentData` on that action
+--   ALONE. A row that already holds a client_id keeps it: the key is simply
+--   absent from the update, so the 291 hand-attributed rows cannot be moved by
+--   a sync running three times a day.
+--
+-- So one row inserted by PART 5 attributes every shipment that store sends from
+-- the next pass onward -- and, because the sync re-upserts its whole window
+-- through the same `shipmentData`, every shipment of that store's still inside
+-- it. The window is 30 days (syncShipments(daysBack = 30)). That makes PART 2 a
+-- billing worklist rather than a diagnostic: answering a NEEDS A HUMAN ANSWER
+-- row and inserting the mapping is the whole forward fix, with nothing to
+-- deploy.
+--
+-- AN UNMATCHED store_id ANNOUNCES ITSELF, which is the requirement this file
+-- stated in advance and the reason it still refuses to guess. decideAttribution
+-- returns { action: 'unmapped-store', storeId }; shipstation.ts counts it into
+-- `unmappedStore`, collects the ids into a sorted, deduplicated
+-- `unmappedStoreIds` and warns once per run ('stores with no client_store_ids
+-- row'); src/app/api/agent/monitor/route.ts puts that into the alert's errors[]
+-- WITH THE STORE IDS IN THE MESSAGE, because the ids are the action. It recurs
+-- every eight hours until somebody inserts the row, and the recurrence is
+-- deliberate -- that is unbilled revenue accruing, not a transient. The failure
+-- that produced the 599 was never that matching was hard; it was that no-match
+-- was indistinguishable from not-trying for three months.
+--
+-- A FAILED READ OF THIS TABLE IS KEPT DISTINCT FROM AN EMPTY ONE, which is what
+-- makes a count of zero readable. loadStoreMap answers { map: null } on error
+-- rather than an empty Map, decideAttribution reads that null as
+-- 'map-unavailable' and attributes nothing, and the monitor raises its own
+-- errors[] line for `storeMapUnavailable`. Without that split, a dropped grant
+-- or a renamed column would present as "attributed 0" next to three healthy
+-- numbers -- identical to a quiet day with no new stores.
+--
+-- WHAT IS LEFT IS THE HISTORY AND THE STORELESS LABELS.
+--
+--   1. Shipments whose ship_date has fallen out of the 30-day window are never
+--      re-upserted, so the live path will not attribute them however complete
+--      this mapping becomes. They are the backfill, and it already has its own
+--      file -- supabase/backfill_store_attribution_2026_10.sql, which applies
+--      this same rule from the same module and is a no-op that correctly
+--      reports attributing nothing while client_store_ids is empty. It stays a
+--      separate file for the reason PART 5 gives: writing client_id onto 599
+--      shipments is the step that turns carrier cost into an invoice.
+--
+--   2. Labels carrying no store key at all -- PART 1's
+--      unattributed_AND_unmappable, PART 0's `<no store>` row, the sync's
+--      `noStoreId` counter. No row in this table can reach them. The monitor
+--      logs that count instead of alerting on it, because there is no insert to
+--      offer: they need the ShipStation order read by a person.
+--
+-- NO DDL STILL HOLDS AND PART 5 STAYS COMMENTED OUT. A live lookup raises the
+-- stakes on a wrong insert rather than lowering them: a mapping guessed from a
+-- display name now bills the wrong client three times a day going forward, not
+-- only across the history. PART 3 must return zero rows first.
+--
+-- THE RATE ADJUSTMENTS, same root cause, and the forward half of that is fixed
+-- too. The rate_adjustments gate in shipstation.ts now reads
+-- `attributedClientId` -- the client as of THIS pass -- and no longer
+-- `existingShipment.client_id`, the value from before attribution. Under the
+-- old gate, a refund or void arriving on the same pass that attributed its
+-- shipment was computed, found no client, and was dropped; no later run
+-- recovered it either, because once actual_cost holds the new value the diff is
+-- 0 for ever and the branch is never re-entered.
+--
+-- What no code change recovers is the adjustments already lost. Every carrier
+-- refund and void that landed on the 599 while that gate was blank-by-default
+-- was discarded at the time. Those are real money movements with no record;
+-- attributing the shipments does not recreate them, and only the ShipStation
+-- side still has them.
