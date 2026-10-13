@@ -42,6 +42,32 @@ const headers = { apikey: key, Authorization: `Bearer ${key}` }
 const ref = new URL(url).hostname.split('.')[0]
 console.log(`project  ${ref}`)
 console.log(`         SQL editor: https://supabase.com/dashboard/project/${ref}/sql/new`)
+
+// WHO is reading. A row count of 0 from an UNDER-privileged key is not a
+// measurement, it is RLS working as designed -- referral_partners with RLS on
+// and no anon policy returns [] to a non-service key whether or not rows
+// exist. So "referral_partners is EMPTY" can only be asserted by a reader
+// that bypasses RLS, and that had been assumed rather than checked.
+//
+// A Supabase key is a JWT; the middle segment is base64url JSON carrying a
+// `role` claim. Decoding it is not reading a secret out -- only the role name
+// is printed, never the token, and the signature is neither verified nor
+// shown. The point is that the script states its own authority instead of
+// leaving the reader to infer it from a variable name, since
+// SUPABASE_SERVICE_KEY is a name, not a guarantee of what is in it.
+let role = 'unknown'
+try {
+  const seg = key.split('.')[1]
+  role = JSON.parse(Buffer.from(seg, 'base64url').toString()).role ?? 'absent'
+} catch {
+  role = 'unparseable (not a JWT?)'
+}
+console.log(`reader   role=${role}`)
+if (role !== 'service_role') {
+  console.log('         !! NOT service_role. Row COUNTS from this key are not evidence:')
+  console.log('         !! RLS can return [] for a populated table. The column check below')
+  console.log('         !! is still valid -- 42703 is a parse error and RLS cannot cause it.')
+}
 console.log()
 
 // A control first. If a column that certainly does not exist returns the same

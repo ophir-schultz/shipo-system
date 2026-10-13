@@ -39,6 +39,38 @@
 -- of it, which is what every previous check of mine went through.
 -- ============================================================
 
+-- ------------------------------------------------------------
+-- ONE CELL. The same facts collapsed into a single text value, so the
+-- whole answer is one click and one paste.
+--
+-- !! RUN EXACTLY ONE OF THE TWO QUERIES IN THIS FILE, NOT BOTH.
+-- !! The Supabase editor displays only the LAST statement's result, so
+-- !! submitting the whole file shows the wide version and silently
+-- !! discards this one. That is the same editor behaviour that hid the
+-- !! notices in portal_email_test_partner.sql. Select the lines you
+-- !! want and use Run selection, or delete the other query.
+-- ------------------------------------------------------------
+select 'db=' || current_database()
+    || ' role=' || current_user
+    || ' clients=' || (select count(*) from clients)
+    || ' order_charges=' || (select count(*) from order_charges)
+    || ' w9_exists=' || (
+         select exists (
+           select 1 from information_schema.columns
+            where table_schema = 'public'
+              and table_name   = 'referral_partners'
+              and column_name  = 'w9_received_at')
+       )::text
+    || ' partners=' || (select count(*) from referral_partners)
+    || ' schemas=' || coalesce((
+         select string_agg(table_schema, '+' order by table_schema)
+           from information_schema.tables
+          where table_name = 'referral_partners'), 'NONE')
+  as answer;
+
+-- ------------------------------------------------------------
+-- The same thing as columns, if you would rather read it as a table.
+-- ------------------------------------------------------------
 select
   current_database()                                        as db,
   current_user                                              as role,
