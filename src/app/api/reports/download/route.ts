@@ -11,6 +11,78 @@ import { priceOf } from '@/lib/billing/unpriced'
 // it in 'Total Shipments', so the spreadsheet's own two columns disagreed and
 // the file gave no way to tell. Unpriced lines now get their own column, so the
 // number is still there to be added up and the omission travels with it.
+//
+// WHY THIS ROUTE REFUSES INSTEAD OF RETURNING AN EMPTY WORKBOOK.
+//
+// Every branch below used to read `const { data } = await q`, discarding the
+// error. A failed read therefore produced `rows = []`, and the tail of this
+// function turns `[]` into a one-row sheet reading
+//
+//     No Data | No records found for the selected period
+//
+// So a database that was unreachable for one second produced a .xlsx that
+// AFFIRMATIVELY STATED there was nothing to bill, for whatever client and month
+// was selected. That is not an empty file, it is a false record, and
+// reports/page.tsx already says why it is the worst possible artefact to get
+// wrong: a spreadsheet "outlives the outage, outlives the session, gets
+// attached to an email", and is then read as evidence that the period was
+// genuinely quiet.
+//
+// That page refuses before its export button renders. It cannot help here --
+// the browser requests this URL directly, so the page's gate is not in the
+// path, and a truncated or failed read inside THIS function is the one the file
+// is built from.
+//
+// ReportsTabs.handleDownload already checks `res.ok` and shows `data.error`, so
+// a non-2xx with a JSON body surfaces as "Download failed: <reason>" and no
+// file is written. The client side was always ready for a route that says no.
+
+/**
+ * The report types this route can actually build.
+ *
+ * Checked rather than trusted, because an unrecognised `type` fell through all
+ * six branches and left `rows` empty -- which the tail then rendered as "No
+ * records found for the selected period". A typo in a link produced a confident
+ * statement about a client's month.
+ */
+const REPORT_TYPES = [
+  'shipments',
+  'profit-loss',
+  'loss-shipments',
+  'adjustments',
+  'billing',
+  'warehouse',
+] as const
+
+function isReportType(t: string | null): t is (typeof REPORT_TYPES)[number] {
+  return t !== null && (REPORT_TYPES as readonly string[]).includes(t)
+}
+
+/**
+ * yyyy-mm-dd, which is what every branch's .gte()/.lte() assumes.
+ *
+ * The old code wrote `dateFrom!`, asserting a query parameter that the URL may
+ * simply not carry. With it absent the filter became `.gte('ship_date', null)`:
+ * `null >= anything` is NULL in SQL, never TRUE, so the comparison matched no
+ * rows and the route reported an empty period rather than a bad request. Same
+ * trap date-range.test.ts already documents for this file.
+ */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * A read failed, so there is no file.
+ *
+ * Names the read, because six of them feed this route and "could not read" with
+ * no subject tells the operator nothing about whether one table is unreachable
+ * or the whole database is.
+ */
+function unreadable(what: string, message: string) {
+  return NextResponse.json({
+    error: `No file was written: ${what} could not be read (${message}). `
+      + `Nothing was exported, so no spreadsheet claims this period was empty. `
+      + `Retry, and if it persists the figure is UNKNOWN rather than zero.`,
+  }, { status: 502 })
+}
 
 export async function GET(req: Request) {
   const denied = await requireStaff()
@@ -22,10 +94,35 @@ export async function GET(req: Request) {
   const dateTo = searchParams.get('dateTo')
   const clientId = searchParams.get('clientId')
 
+  // Validated before any read, and answered with 400 rather than a workbook.
+  // A bad request is the one case where an empty sheet is most misleading: the
+  // period and client in the filename are whatever was asked for, so the file
+  // looks like an answer to the question that was actually posed.
+  if (!isReportType(type)) {
+    return NextResponse.json({
+      error: `No file was written: unknown report type ${JSON.stringify(type)}. `
+        + `Expected one of ${REPORT_TYPES.join(', ')}.`,
+    }, { status: 400 })
+  }
+  if (!ISO_DATE.test(dateFrom ?? '') || !ISO_DATE.test(dateTo ?? '')) {
+    return NextResponse.json({
+      error: `No file was written: dateFrom and dateTo are required as `
+        + `yyyy-mm-dd (got ${JSON.stringify(dateFrom)} and `
+        + `${JSON.stringify(dateTo)}). Without them every row is filtered out `
+        + `by a null comparison and the report would look empty rather than wrong.`,
+    }, { status: 400 })
+  }
+  // Ordering is checked too: .gte(from).lte(to) with the two swapped is
+  // satisfiable by nothing, which again reads as a quiet month.
+  if (dateFrom! > dateTo!) {
+    return NextResponse.json({
+      error: `No file was written: dateFrom ${dateFrom} is after dateTo `
+        + `${dateTo}, which no row can satisfy.`,
+    }, { status: 400 })
+  }
+
   let rows: any[] = []
   let sheetName = 'Report'
-
-  const clientFilter = (q: any) => clientId ? q.eq('client_id', clientId) : q
 
   if (type === 'shipments') {
     sheetName = 'Shipments'
@@ -36,7 +133,8 @@ export async function GET(req: Request) {
       .lte('ship_date', dateTo!)
       .order('ship_date', { ascending: false })
     if (clientId) q = q.eq('client_id', clientId)
-    const { data } = await q
+    const { data, error } = await q
+    if (error) return unreadable('shipments', error.message)
     rows = (data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
@@ -64,7 +162,8 @@ export async function GET(req: Request) {
       .gte('ship_date', dateFrom!)
       .lte('ship_date', dateTo!)
     if (clientId) q = q.eq('client_id', clientId)
-    const { data } = await q
+    const { data, error } = await q
+    if (error) return unreadable('shipments (profit & loss)', error.message)
     const byClient: Record<string, any> = {}
     for (const s of data ?? []) {
       const name = (s.clients as any)?.name ?? 'Unknown'
@@ -102,7 +201,8 @@ export async function GET(req: Request) {
       .lte('ship_date', dateTo!)
       .order('profit_loss', { ascending: true })
     if (clientId) q = q.eq('client_id', clientId)
-    const { data } = await q
+    const { data, error } = await q
+    if (error) return unreadable('shipments (losses)', error.message)
     rows = (data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
@@ -125,7 +225,8 @@ export async function GET(req: Request) {
       .lte('adjustment_date', dateTo!)
       .order('adjustment_date', { ascending: false })
     if (clientId) q = q.eq('client_id', clientId)
-    const { data } = await q
+    const { data, error } = await q
+    if (error) return unreadable('rate_adjustments', error.message)
     rows = (data ?? []).map((a: any) => ({
       'Order #': a.order_number,
       'Client': a.clients?.name ?? '',
@@ -148,7 +249,8 @@ export async function GET(req: Request) {
       .lte('week_end', dateTo!)
       .order('week_start', { ascending: false })
     if (clientId) q = q.eq('client_id', clientId)
-    const { data } = await q
+    const { data, error } = await q
+    if (error) return unreadable('bills', error.message)
     rows = (data ?? []).map((b: any) => ({
       'Client': b.clients?.name ?? '',
       'Week Start': b.week_start,
@@ -171,7 +273,8 @@ export async function GET(req: Request) {
       .lte('log_date', dateTo!)
       .order('log_date', { ascending: false })
     if (clientId) q = q.eq('client_id', clientId)
-    const { data } = await q
+    const { data, error } = await q
+    if (error) return unreadable('warehouse_daily_log', error.message)
     rows = (data ?? []).map((w: any) => ({
       'Client': w.clients?.name ?? '',
       'Date': w.log_date,
