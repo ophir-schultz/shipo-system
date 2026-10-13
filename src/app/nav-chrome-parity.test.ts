@@ -101,6 +101,25 @@ function navHrefs(): string[] {
   return [...nav[1].matchAll(/href:\s*'([^']*)'/g)].map(m => m[1])
 }
 
+/** The hrefs on the root landing page's card grid. */
+function landingHrefs(): string[] {
+  const src = readFileSync(`${APP}/page.tsx`, 'utf8')
+  return [...src.matchAll(/<Link href="([^"]*)"/g)].map(m => m[1])
+}
+
+/**
+ * The screens that turn work into a figure someone sends a client. A new
+ * operator's first screen is the landing menu, so one of these missing from it
+ * is a screen that does not exist as far as they are concerned.
+ *
+ * This is not a style rule, it is the defect that just happened: /statements
+ * shipped, worked, and sat in no menu, so the only way to reach it was to be
+ * told the URL. The landing page had drifted to four cards while the nav had
+ * fourteen entries, and nothing could notice because the two lists are written
+ * out by hand in different files.
+ */
+const MONEY_SCREENS = ['/billing', '/statements', '/reports'] as const
+
 describe('every page renders inside some chrome', () => {
   it('found the routes and the nav it is about to judge', () => {
     // A guard on the guard. If the walk breaks or Sidebar's nav array is
@@ -162,6 +181,36 @@ describe('every page renders inside some chrome', () => {
       const rendersSidebar = chain.some(f => /<Sidebar\s*\/>/.test(readFileSync(f, 'utf8')))
       expect(rendersSidebar, `no layout above ${href} renders <Sidebar />: ${chain.join(', ')}`)
         .toBe(true)
+    })
+  }
+})
+
+describe('the landing page is a usable way in', () => {
+  it('found the cards it is about to judge', () => {
+    // Same guard-on-the-guard as above. If the card markup changes shape --
+    // a component extracted, double quotes becoming braces -- the scrape
+    // returns nothing and every claim below passes over an empty list.
+    const cards = landingHrefs()
+    expect(cards.length, 'cards scraped from the landing grid').toBeGreaterThanOrEqual(6)
+  })
+
+  it.each(MONEY_SCREENS)('%s is on the landing page', href => {
+    // A deliberately short list, and not "the landing page must mirror the
+    // nav". The landing grid is a CURATED subset -- fourteen cards would be a
+    // worse menu than six -- so the claim is about the screens that decide
+    // what a client is charged, not about completeness.
+    expect(landingHrefs(), `the landing menu omits ${href}`).toContain(href)
+  })
+
+  for (const href of landingHrefs()) {
+    it(`the landing card for ${href} goes somewhere real`, () => {
+      // A card is a bigger promise than a nav row: it has a title and a
+      // sentence describing what it does, so one pointing at a dead route
+      // reads as a feature that exists rather than a broken link.
+      expect(existsSync(join(APP, href)), `no route at ${join(APP, href)}`).toBe(true)
+      // And it must be in the sidebar too, or clicking it is a one-way trip
+      // into a screen the nav gives no way back to.
+      expect(navHrefs(), `${href} is on the landing page but not in the nav`).toContain(href)
     })
   }
 })

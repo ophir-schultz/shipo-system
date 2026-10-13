@@ -28,6 +28,16 @@ export default function Home() {
           <div className="font-semibold">Warehouse Log</div>
           <div className="text-gray-400 text-sm">Daily activity entry</div>
         </Link>
+        <Link href="/statements" className="bg-gray-800 hover:bg-gray-700 rounded-xl p-6 text-center transition">
+          <div className="text-3xl mb-2">🧾</div>
+          <div className="font-semibold">Statements</div>
+          <div className="text-gray-400 text-sm">Per-client charges by period</div>
+        </Link>
+        <Link href="/reports" className="bg-gray-800 hover:bg-gray-700 rounded-xl p-6 text-center transition">
+          <div className="text-3xl mb-2">📥</div>
+          <div className="font-semibold">Reports</div>
+          <div className="text-gray-400 text-sm">Exports &amp; downloads</div>
+        </Link>
       </div>
     </div>
   )
