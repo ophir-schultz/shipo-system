@@ -111,6 +111,24 @@ export interface ZoneRateLookup {
 }
 
 /**
+ * The destination country as the ShipStation payload spells it, or null.
+ *
+ * Null means NOT RECORDED, which is emphatically not "the US". Almost every
+ * domestic row reaching resolveZone has no country in raw_data at all, so
+ * reading an absent country as "foreign" would stop pricing the entire book.
+ * The caller therefore refuses only on a country that is present AND not US.
+ */
+function destinationCountry(raw: unknown): string | null {
+  const r = raw as Record<string, any> | undefined
+  // shipTo.country is where ShipStation puts it; the top-level key turns up in
+  // some payloads, and reading both costs nothing.
+  const c = r?.shipTo?.country ?? r?.country
+  if (typeof c !== 'string') return null
+  const trimmed = c.trim().toUpperCase()
+  return trimmed === '' ? null : trimmed
+}
+
+/**
  * Resolve the delivery zone (1..8) for a shipment, trying every available source:
  *   1. A zone already present in the ShipStation raw payload (raw_data.zone / shipTo.zone)
  *   2. A ZIP-prefix lookup in the zone_chart table (origin prefix -> dest prefix)
@@ -148,7 +166,35 @@ export async function resolveZone(
     }
   }
 
-  // 2. ZIP-prefix zone chart
+  // 2. ZIP-prefix zone chart -- US ONLY, and this guard is why.
+  //
+  // zone_chart maps a US ZIP PREFIX to a zone. The dest prefix below is derived
+  // by stripping non-digits and taking three, which never asks whether the
+  // parcel is going to the US. Foreign postcodes survive that intact:
+  //
+  //   B2Y 1M9  (Nova Scotia) -> '219' -> a real chart row -> zone 2
+  //   15172    (Spain)       -> '151' -> a real chart row -> zone 3
+  //   2292     (Australia)   -> '229' -> a real chart row -> zone 3
+  //
+  // So a parcel to Canada was priced on the Maryland lane -- not a missing
+  // answer, which would have been visible, but a confident wrong one. Found in
+  // production 2026-10-13 on four live shipments.
+  //
+  // The refusal is `{ zone: null, error: null }` -- "no DOMESTIC zone applies",
+  // a fact about the lane rather than a failed read -- so the shipment still
+  // falls through to the legacy card, where an agreed international row prices
+  // it properly and where matchLegacyRate already names what is missing if
+  // there is no such row. An `error` here would skip the row instead, which
+  // would hide a shipment nobody has agreed a price for.
+  //
+  // Only this step is gated. A zone already on the row, or one the carrier put
+  // in the payload, is somebody's assertion rather than our inference, and the
+  // inference is the only part that is unsound abroad.
+  const destCountry = destinationCountry(shipment.raw_data)
+  if (destCountry !== null && destCountry !== 'US' && destCountry !== 'USA') {
+    return { zone: null, error: null }
+  }
+
   if (originZip && shipment.recipient_zip) {
     const originPrefix = String(originZip).replace(/\D/g, '').slice(0, 3)
     const destPrefix = String(shipment.recipient_zip).replace(/\D/g, '').slice(0, 3)

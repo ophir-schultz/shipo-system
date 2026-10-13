@@ -228,6 +228,113 @@ describe('resolveZone: the zone chart', () => {
   })
 })
 
+describe('resolveZone: the chart is a US chart, so only US addresses may consult it', () => {
+  // Found in production 2026-10-13. zone_chart maps a US ZIP PREFIX to a zone.
+  // The dest prefix was derived as `recipient_zip.replace(/\D/g,'').slice(0,3)`,
+  // which does not ask whether the parcel is going to the US -- it just strips
+  // non-digits and takes three. Foreign postcodes survive that:
+  //
+  //   B2Y 1M9  (Nova Scotia)  -> '219' -> a real chart row -> zone 2
+  //   15172    (Spain)        -> '151' -> a real chart row -> zone 3
+  //   2292     (Australia)    -> '229' -> a real chart row -> zone 3
+  //
+  // So a parcel to Canada was being priced on the Maryland lane. Nothing had
+  // been MIS-billed yet only because the affected clients happened to miss on
+  // the rate card for other reasons -- and the carrier/service match was
+  // loosened in the same file the same day, which removed that accident.
+  //
+  // `{ zone: null, error: null }` and not an error: "no DOMESTIC zone applies"
+  // is a fact about the lane, not a failed read. The shipment then falls
+  // through to the legacy card, where a genuinely agreed international row
+  // prices it correctly, and where matchLegacyRate already says exactly what
+  // is missing if there is no such row.
+
+  it('does not turn a Canadian postcode into a US zone', async () => {
+    // The letters strip out and leave three digits that ARE a real US prefix.
+    seed({ zone_chart: [chart({ origin_prefix: '198', dest_prefix: '219', zone: 2 })] })
+    const r = await resolveZone(
+      { recipient_zip: 'B2Y 1M9', raw_data: { shipTo: { country: 'CA' } } }, '19801')
+    expect(r).toEqual({ zone: null, error: null })
+  })
+
+  it('does not turn a numeric foreign postcode into a US zone', async () => {
+    // Spain and Australia: no letters to save us, nothing about the digits
+    // themselves says which country they belong to.
+    seed({ zone_chart: [chart({ origin_prefix: '198', dest_prefix: '151', zone: 3 })] })
+    const es = await resolveZone(
+      { recipient_zip: '15172', raw_data: { shipTo: { country: 'ES' } } }, '19801')
+    expect(es).toEqual({ zone: null, error: null })
+
+    seed({ zone_chart: [chart({ origin_prefix: '198', dest_prefix: '229', zone: 3 })] })
+    const au = await resolveZone(
+      { recipient_zip: '2292', raw_data: { shipTo: { country: 'AU' } } }, '19801')
+    expect(au).toEqual({ zone: null, error: null })
+  })
+
+  it('the seeded chart really would have answered, but for the country', async () => {
+    // The positive control for the three tests above. Without it they pass
+    // whenever the fixture simply fails to cover the lane -- which is exactly
+    // how they passed the first time I ran them, against an unfixed
+    // resolveZone, because the chart defaults to a different origin prefix.
+    seed({ zone_chart: [chart({ origin_prefix: '198', dest_prefix: '219', zone: 2 })] })
+    const sameZipAsUS = await resolveZone({ recipient_zip: '21901' }, '19801')
+    expect(sameZipAsUS).toEqual({ zone: 2, error: null })
+  })
+
+  it('does not read the chart at all for a foreign address', async () => {
+    // Not merely discarding the answer afterwards: the lookup never happens.
+    seed({ zone_chart: [chart({ origin_prefix: '198', dest_prefix: '219', zone: 2 })] })
+    await resolveZone(
+      { recipient_zip: 'B2Y 1M9', raw_data: { shipTo: { country: 'CA' } } }, '19801')
+    expect(h.db.calls).toHaveLength(0)
+  })
+
+  it('still resolves a US address that says so', async () => {
+    seed({ zone_chart: [chart()] })
+    const r = await resolveZone(
+      { recipient_zip: '90210', raw_data: { shipTo: { country: 'US' } } }, '19101')
+    expect(r).toEqual({ zone: 8, error: null })
+  })
+
+  it('still resolves when no country is recorded at all', async () => {
+    // The regression that matters. Almost every domestic row reaching this
+    // function has no country in raw_data, and an absent country must not be
+    // read as "not the US" -- that would stop pricing the whole book.
+    seed({ zone_chart: [chart()] })
+    expect(await resolveZone({ recipient_zip: '90210' }, '19101'))
+      .toEqual({ zone: 8, error: null })
+    expect(await resolveZone({ recipient_zip: '90210', raw_data: {} }, '19101'))
+      .toEqual({ zone: 8, error: null })
+    expect(await resolveZone(
+      { recipient_zip: '90210', raw_data: { shipTo: { country: null } } }, '19101'))
+      .toEqual({ zone: 8, error: null })
+  })
+
+  it('reads the country however ShipStation spelled it', async () => {
+    // Lowercase, padded, and the top-level key the payload sometimes uses
+    // instead of nesting it under shipTo.
+    seed({ zone_chart: [chart()] })
+    expect(await resolveZone(
+      { recipient_zip: '90210', raw_data: { shipTo: { country: ' us ' } } }, '19101'))
+      .toEqual({ zone: 8, error: null })
+
+    seed({ zone_chart: [chart({ origin_prefix: '198', dest_prefix: '219', zone: 2 })] })
+    expect(await resolveZone(
+      { recipient_zip: 'B2Y 1M9', raw_data: { country: 'ca' } }, '19801'))
+      .toEqual({ zone: null, error: null })
+  })
+
+  it('still trusts a zone the carrier itself returned', async () => {
+    // Only the ZIP-PREFIX INFERENCE is unsound abroad. A zone already on the
+    // row, or one the carrier put in the payload, is somebody's assertion
+    // rather than our guess, and this change is not the place to overrule it.
+    seed({ zone_chart: [] })
+    const r = await resolveZone(
+      { recipient_zip: 'B2Y 1M9', zone: 5, raw_data: { shipTo: { country: 'CA' } } }, '19801')
+    expect(r).toEqual({ zone: 5, error: null })
+  })
+})
+
 describe('resolveZoneRate', () => {
   it('returns the cell for an exact carrier/service match', async () => {
     seed({ client_zone_rates: [cell()] })
