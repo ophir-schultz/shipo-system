@@ -60,6 +60,23 @@ let failures = 0
 function pass(msg) { console.log(`PASS  ${msg}`) }
 function fail(msg) { console.log(`FAIL  ${msg}`); failures++ }
 
+// A successful read is ANY 2xx, and the reason is not pedantry. A request that
+// sends `Range: 0-0` gets 206 Partial Content whenever the table holds more
+// rows than the range asked for; only an EMPTY table answers 200. Measured on
+// this database: `clients?select=*&limit=1` is 200 with no Range header and
+// 206 with one.
+//
+// So for the ranged calls, `status === 200` is true exactly when there is no
+// data and false as soon as there is any. It does not mean "readable", it
+// means "empty" — close enough to look right, and backwards where it counts.
+// The live run reported the two populated tables, clients and order_charges,
+// as UNREADABLE while the five empty ones passed.
+//
+// The exposure check below is NOT affected: it deliberately sends no Range, so
+// 200 there really does mean a row came back. Checked before assuming it, and
+// left alone.
+const readable = (status) => status >= 200 && status < 300
+
 async function q(key, path, extraHeaders = {}) {
   const res = await fetch(`${url}/rest/v1/${path}`, {
     headers: { apikey: key, Authorization: `Bearer ${key}`, ...extraHeaders },
@@ -76,9 +93,9 @@ async function reach(table) {
   const r = await q(service, `${table}?select=*&limit=1`, { Prefer: 'count=exact', Range: '0-0' })
   return {
     table,
-    exists: r.status === 200,
+    exists: readable(r.status),
     status: r.status,
-    count: r.status === 200 ? Number(r.range?.split('/')[1] ?? 0) : null,
+    count: readable(r.status) ? Number(r.range?.split('/')[1] ?? 0) : null,
     detail: r.body?.code ? `${r.body.code}: ${r.body.message ?? ''}` : '',
   }
 }
@@ -120,7 +137,7 @@ const attributed = await q(service, 'clients?select=id&referral_partner_id=not.i
   Prefer: 'count=exact',
   Range: '0-0',
 })
-if (attributed.status !== 200) {
+if (!readable(attributed.status)) {
   fail(`cannot count referred clients (HTTP ${attributed.status})`)
 } else {
   const n = Number(attributed.range?.split('/')[1] ?? 0)
@@ -141,9 +158,16 @@ if (!anon) {
 } else {
   for (const v of VIEWS) {
     const r = await q(anon, `${v}?select=*&limit=1`)
-    // A revoked view answers 401/403, or PostgREST reports it as undefined.
-    if (r.status === 200 && Array.isArray(r.body)) {
+    // No Range header here on purpose, so a 2xx really is "a row came back".
+    const absent = r.body?.code === 'PGRST205' || r.body?.code === '42P01'
+    if (readable(r.status) && Array.isArray(r.body)) {
       fail(`anon CAN READ ${v} (${r.body.length} row(s)) — the revoke did not take. This is every referred client's economics. Do not treat the file as applied.`)
+    } else if (absent) {
+      // NOT a pass. anon cannot read a view that does not exist, and saying
+      // "refused" here would credit the revoke for the absence — a green line
+      // that goes red the moment the SQL is applied, which is the opposite of
+      // what a safety check should do.
+      console.log(`UNKNOWN  ${v} does not exist, so this proves nothing about the revoke. Re-run after applying the SQL.`)
     } else {
       pass(`anon is refused on ${v} (HTTP ${r.status})`)
     }
@@ -155,7 +179,11 @@ console.log('\n--- existence ---')
 const counts = {}
 for (const v of VIEWS) {
   const r = await q(service, `${v}?select=*&limit=1`, { Prefer: 'count=exact', Range: '0-0' })
-  if (r.status !== 200) {
+  // Was `!== 200`, which is 206 for any view holding rows. The views are absent
+  // today so it read correctly by accident; it would have started failing on
+  // the day partner_ledger.sql was applied AND had data — i.e. the moment the
+  // thing it verifies began working.
+  if (!readable(r.status)) {
     fail(`${v} is NOT readable by the service role (HTTP ${r.status}): ${JSON.stringify(r.body)}`)
     counts[v] = null
   } else {
