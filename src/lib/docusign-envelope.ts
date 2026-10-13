@@ -1,0 +1,386 @@
+// Builds the envelope that gets a partner signed up: the Referral
+// Partner Agreement plus a blank IRS Form W-9, in one sitting.
+//
+// Nothing in this file talks to DocuSign. It builds a payload, and the
+// send happens through the DocuSign MCP. That split is on purpose: the
+// app holds no DocuSign credentials, so a route that sent envelopes
+// could not run anyway. What the app CAN own is the shape of the
+// envelope — and the shape is where the costly mistakes live, because
+// an envelope is wrong only once you have emailed it to a partner.
+//
+// Three invariants are encoded here and asserted in the test file:
+//
+//   1. W-9 tabs are REQUIRED. The webhook stamps w9_received_at from
+//      "completed AND carried a W-9"; that is only sound because
+//      DocuSign refuses to complete an envelope with a required tab
+//      unfilled. See docusign-w9.ts.
+//   2. W-9 tabs belong to the PARTNER. DocuSign's transformPdfFields
+//      assigns converted PDF fields to the first recipient by routing
+//      order, which here is Shipo — so the transform is NOT used, and
+//      every tab is declared against the partner explicitly. Left to
+//      the transform, we would have mailed Ophir a request for the
+//      partner's SSN.
+//   3. status is 'created'. A draft, every time, reviewed before it
+//      goes anywhere.
+
+import { W9_CUSTOM_FIELD, W9_INCLUDED } from './partner-w9'
+import {
+  W9_CLASSIFICATIONS,
+  W9_CLASSIFICATION_GROUP,
+  W9_LINE_3B,
+  W9_PAGE,
+  W9_REQUESTER_BOX,
+  W9_REQUESTER_TEXT,
+  W9_SIGNATURE_ANCHOR,
+  W9_SIGNATURE_DATE_X_OFFSET,
+  W9_SIGNATURE_X_OFFSET,
+  W9_SIGNATURE_Y_OFFSET,
+  W9_TEXT_FIELDS,
+  W9_TIN_EIN,
+  W9_TIN_GROUP,
+  W9_TIN_SSN,
+} from './docusign-w9'
+
+/**
+ * The server template holding the agreement PDF. Created 2026-10-13 in
+ * the Shipo DocuSign account; 8 pages, document name
+ * referral-agreement-TEMPLATE.pdf.
+ *
+ * We use the template as a DOCUMENT HOLDER only. Its own recipient
+ * (role "CEO", Ophir) is overridden by the inline template below,
+ * because the signer who matters varies per envelope and the template's
+ * does not.
+ */
+export const AGREEMENT_TEMPLATE_ID = 'bba422c1-329e-4a60-ad32-0327e0d13672'
+
+/**
+ * An account-level envelope custom field marked required:true on the
+ * template. It has to be carried on every envelope we build or the send
+ * is rejected — and the rejection would arrive on envelope number two,
+ * long after this looked like it worked.
+ */
+export const ENVELOPE_TYPE_FIELD = 'envelopeTypes'
+export const ENVELOPE_TYPE_VALUE = 'PartnershipAgreements'
+
+/** The field the webhook reads to find the partner row. */
+export const PARTNER_ID_FIELD = 'partner_id'
+
+/**
+ * Anchor strings printed in the agreement PDF. Verified present in the
+ * extracted text layer of docs/referral-agreement-TEMPLATE.pdf — which
+ * is the layer DocuSign itself searches, so "it is in the markdown" is
+ * not evidence. docusign-envelope.test.ts re-checks the PDF.
+ */
+export const AGREEMENT_ANCHORS = {
+  shipoSignature: '\\s1\\',
+  shipoName: '\\n1\\',
+  shipoDate: '\\d1\\',
+  partnerSignature: '\\s2\\',
+  partnerName: '\\n2\\',
+  partnerDate: '\\d2\\',
+  /** Appears twice — the parties block and the signature heading. */
+  partnerNamePrefill: '\\pname\\',
+} as const
+
+export const SHIPO_RECIPIENT_ID = '1'
+export const PARTNER_RECIPIENT_ID = '2'
+
+export interface EnvelopePartner {
+  id: string
+  name: string
+  email: string
+}
+
+export interface EnvelopeSigner {
+  name: string
+  email: string
+}
+
+export interface BuildEnvelopeInput {
+  partner: EnvelopePartner
+  /** Whoever signs for Shipo. Routing order 1 — they sign first. */
+  shipo: EnvelopeSigner
+  /** Page 1 of the IRS W-9, base64. See w9Page1Base64 in the send script. */
+  w9DocumentBase64: string
+}
+
+/**
+ * Anchored tab. `anchorIgnoreIfNotPresent` is 'false' on purpose: if the
+ * anchor is ever missing from the document we want DocuSign to refuse
+ * the envelope, not to quietly place no signature field and hand us an
+ * agreement that can be "completed" without being signed.
+ */
+function anchored(anchorString: string, extra: Record<string, unknown> = {}) {
+  return {
+    anchorString,
+    anchorUnits: 'pixels',
+    anchorXOffset: '0',
+    anchorYOffset: '0',
+    anchorIgnoreIfNotPresent: 'false',
+    ...extra,
+  }
+}
+
+function w9Tab(box: { x: number; y: number; w: number; h: number }, extra: Record<string, unknown>) {
+  return {
+    documentId: '2',
+    pageNumber: String(W9_PAGE),
+    xPosition: String(Math.round(box.x)),
+    yPosition: String(Math.round(box.y)),
+    width: String(Math.round(box.w)),
+    height: String(Math.round(box.h)),
+    ...extra,
+  }
+}
+
+/** Tabs the partner fills on the W-9. Every one of them is explicit. */
+function w9PartnerTabs() {
+  const textTabs = W9_TEXT_FIELDS.map((f) =>
+    w9Tab(f, {
+      tabLabel: `w9_${f.acroform}`,
+      name: f.label,
+      required: f.required ? 'true' : 'false',
+      font: 'helvetica',
+      fontSize: 'size10',
+    }),
+  )
+
+  // The TIN rows. Neither is required alone; the group below makes one
+  // of the two compulsory. See docusign-w9.ts for why this is not five
+  // tabs matching the five printed boxes.
+  const tinTabs = [
+    w9Tab(W9_TIN_SSN, {
+      tabLabel: 'w9_tin_ssn',
+      name: 'Social security number',
+      required: 'false',
+      font: 'helvetica',
+      fontSize: 'size12',
+      tabGroupLabels: [W9_TIN_GROUP],
+    }),
+    w9Tab(W9_TIN_EIN, {
+      tabLabel: 'w9_tin_ein',
+      name: 'Employer identification number',
+      required: 'false',
+      font: 'helvetica',
+      fontSize: 'size12',
+      tabGroupLabels: [W9_TIN_GROUP],
+    }),
+  ]
+
+  return {
+    textTabs: [...textTabs, ...tinTabs],
+
+    radioGroupTabs: [
+      {
+        documentId: '2',
+        groupName: W9_CLASSIFICATION_GROUP,
+        // Exactly one classification, enforced by DocuSign rather than
+        // by hoping. An untiered W-9 is one the IRS does not accept.
+        requireInitialOnSharedChange: 'false',
+        shared: 'false',
+        radios: W9_CLASSIFICATIONS.map((c) => ({
+          pageNumber: String(W9_PAGE),
+          xPosition: String(Math.round(c.x)),
+          yPosition: String(Math.round(c.y)),
+          value: c.value,
+          required: 'true',
+        })),
+      },
+    ],
+
+    checkboxTabs: [
+      w9Tab(W9_LINE_3B, {
+        tabLabel: 'w9_line_3b',
+        name: 'Flow-through entity with foreign partners',
+        required: 'false',
+        selected: 'false',
+      }),
+    ],
+
+    signHereTabs: [
+      {
+        documentId: '2',
+        anchorString: W9_SIGNATURE_ANCHOR,
+        anchorUnits: 'pixels',
+        anchorXOffset: String(W9_SIGNATURE_X_OFFSET),
+        anchorYOffset: String(W9_SIGNATURE_Y_OFFSET),
+        anchorIgnoreIfNotPresent: 'false',
+      },
+    ],
+
+    dateSignedTabs: [
+      {
+        documentId: '2',
+        anchorString: W9_SIGNATURE_ANCHOR,
+        anchorUnits: 'pixels',
+        anchorXOffset: String(W9_SIGNATURE_DATE_X_OFFSET),
+        anchorYOffset: String(W9_SIGNATURE_Y_OFFSET),
+        anchorIgnoreIfNotPresent: 'false',
+      },
+    ],
+
+    tabGroups: [
+      {
+        documentId: '2',
+        pageNumber: String(W9_PAGE),
+        groupLabel: W9_TIN_GROUP,
+        groupRule: 'SelectAtLeast',
+        minimumRequired: '1',
+        maximumAllowed: '2',
+        tabScope: 'Document',
+        xPosition: String(Math.round(W9_TIN_SSN.x)),
+        yPosition: String(Math.round(W9_TIN_SSN.y)),
+      },
+    ],
+  }
+}
+
+/**
+ * The envelope, as a draft.
+ *
+ * Two composite templates, because the two documents come from
+ * different places: the agreement from the server template, the W-9 as
+ * bytes. Recipient ids are shared across both so DocuSign treats them
+ * as the same two people rather than four.
+ */
+export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
+  const { partner, shipo, w9DocumentBase64 } = input
+
+  if (!partner.id) throw new Error('buildPartnerAgreementEnvelope: partner.id is required')
+  if (!partner.name?.trim()) throw new Error('buildPartnerAgreementEnvelope: partner.name is required')
+  if (!partner.email?.trim()) throw new Error('buildPartnerAgreementEnvelope: partner.email is required')
+  if (!w9DocumentBase64) throw new Error('buildPartnerAgreementEnvelope: w9DocumentBase64 is required')
+
+  const shipoSigner = {
+    recipientId: SHIPO_RECIPIENT_ID,
+    name: shipo.name,
+    email: shipo.email,
+    // Shipo signs FIRST. The envelope then completes the moment the
+    // partner finishes, so the webhook activates them with no further
+    // action from us. The other order works too, but it leaves a signed
+    // partner locked out of their own portal until someone countersigns.
+    routingOrder: '1',
+    roleName: 'Shipo',
+  }
+
+  const partnerSigner = {
+    recipientId: PARTNER_RECIPIENT_ID,
+    name: partner.name,
+    email: partner.email,
+    routingOrder: '2',
+    roleName: 'Partner',
+  }
+
+  return {
+    emailSubject: `Shipo Referral Partner Agreement — ${partner.name}`,
+    emailBlurb:
+      'Please review and sign the Shipo Referral Partner Agreement. ' +
+      'The second page is a blank IRS Form W-9 — we need it on file before we can pay you, ' +
+      'so completing it here saves a second round trip.',
+
+    // A draft. Always. Reviewed before it reaches anybody.
+    status: 'created',
+
+    customFields: {
+      textCustomFields: [
+        // How the webhook finds the partner row. Ours, so the signer
+        // cannot alter it — which is why resolvePartner trusts it over
+        // the signer's email address.
+        { name: PARTNER_ID_FIELD, value: partner.id, show: 'false', required: 'false' },
+        // The evidence the webhook stamps w9_received_at on. Taken from
+        // the shared constants, never spelled out here, so a rename on
+        // either side is a failed build rather than a W-9 recorded as
+        // never received.
+        { name: W9_CUSTOM_FIELD, value: W9_INCLUDED, show: 'false', required: 'false' },
+        // Required by the account. Omit it and the send is rejected.
+        {
+          name: ENVELOPE_TYPE_FIELD,
+          value: ENVELOPE_TYPE_VALUE,
+          show: 'false',
+          required: 'true',
+        },
+      ],
+    },
+
+    compositeTemplates: [
+      {
+        compositeTemplateId: '1',
+        serverTemplates: [{ sequence: '1', templateId: AGREEMENT_TEMPLATE_ID }],
+        inlineTemplates: [
+          {
+            sequence: '2',
+            recipients: {
+              signers: [
+                {
+                  ...shipoSigner,
+                  tabs: {
+                    signHereTabs: [anchored(AGREEMENT_ANCHORS.shipoSignature, { documentId: '1' })],
+                    dateSignedTabs: [anchored(AGREEMENT_ANCHORS.shipoDate, { documentId: '1' })],
+                  },
+                },
+                {
+                  ...partnerSigner,
+                  tabs: {
+                    signHereTabs: [
+                      anchored(AGREEMENT_ANCHORS.partnerSignature, { documentId: '1' }),
+                    ],
+                    fullNameTabs: [anchored(AGREEMENT_ANCHORS.partnerName, { documentId: '1' })],
+                    dateSignedTabs: [anchored(AGREEMENT_ANCHORS.partnerDate, { documentId: '1' })],
+                  },
+                },
+              ],
+            },
+            // Sender-filled, before anyone signs. The partner's legal
+            // name appears in the parties block as well as over the
+            // signature, and a contract that asks its own counterparty
+            // to type who they are in clause 1 is not a contract we
+            // should be sending.
+            documents: [],
+          },
+        ],
+      },
+      {
+        compositeTemplateId: '2',
+        document: {
+          documentId: '2',
+          name: 'IRS Form W-9',
+          fileExtension: 'pdf',
+          documentBase64: w9DocumentBase64,
+          // NOT transformPdfFields. See the header: the transform would
+          // assign every field — the TIN included — to routing order 1,
+          // which is Shipo.
+          transformPdfFields: 'false',
+        },
+        inlineTemplates: [
+          {
+            sequence: '1',
+            recipients: {
+              signers: [
+                // Shipo is listed so the routing order is unambiguous
+                // across both documents, but holds no tabs on the W-9.
+                // It is the partner's tax form, not ours to fill.
+                { ...shipoSigner, tabs: {} },
+                { ...partnerSigner, tabs: w9PartnerTabs() },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  }
+}
+
+/**
+ * Values we fill in before sending, keyed by the anchor they replace.
+ * Returned separately because DocuSign's prefill mechanism differs
+ * between API versions, and the send script should not have to re-derive
+ * WHAT to prefill in order to decide HOW.
+ */
+export function prefillValues(partner: EnvelopePartner): Record<string, string> {
+  return {
+    [AGREEMENT_ANCHORS.partnerNamePrefill]: partner.name,
+    w9_requester: W9_REQUESTER_TEXT,
+  }
+}
+
+export { W9_REQUESTER_BOX }
