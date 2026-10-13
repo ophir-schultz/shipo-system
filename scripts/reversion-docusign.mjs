@@ -25,10 +25,12 @@ import { join } from 'node:path'
 const FILES = [
   'src/lib/docusign-w9.ts',
   'src/lib/docusign-envelope.ts',
+  'src/lib/docusign-w9-document.ts',
 ]
 const TESTS = [
   'src/lib/docusign-w9.test.ts',
   'src/lib/docusign-envelope.test.ts',
+  'src/lib/docusign-w9-document.test.ts',
 ]
 
 /**
@@ -203,6 +205,37 @@ const REVERSIONS = [
     from: 'return partner.company?.trim() || partner.name.trim()',
     to: 'return partner.name.trim()',
     expect: 'company when there is one',
+  },
+  {
+    // The degradation the extractor exists to prevent. Six pages is a
+    // valid PDF and a valid envelope; only a page count catches it.
+    name: 'all six W-9 pages sent instead of page 1',
+    file: 'src/lib/docusign-w9-document.ts',
+    from: `            'w = pypdf.PdfWriter()',
+            \`w.add_page(r.pages[\${W9_PAGE - 1}])\`,`,
+    to: `            'w = pypdf.PdfWriter()',
+            'for p in r.pages: w.add_page(p)',`,
+    expect: 'exactly one page',
+  },
+  {
+    // Removing the hash check leaves the extractor happy to build an
+    // envelope against geometry nobody measured.
+    name: 'hash check removed from the extractor',
+    file: 'src/lib/docusign-w9-document.ts',
+    from: `  if (actual !== W9_PDF_SHA256) {
+    throw new W9HashMismatchError(W9_PDF_SHA256, actual)
+  }`,
+    to: '',
+    expect: 'not the measured form',
+  },
+  {
+    // The extractor returning its input would satisfy every "is it a PDF"
+    // check, because the full six-page form is also a PDF.
+    name: 'extractor returns the whole file instead of the page',
+    file: 'src/lib/docusign-w9-document.ts',
+    from: '    return page1.toString(\'base64\')',
+    to: '    return bytes.toString(\'base64\')',
+    expect: 'smaller than the six-page original',
   },
   // ---- CONTROLS ----
   // These must STAY GREEN. They are the reason a "caught it" verdict means

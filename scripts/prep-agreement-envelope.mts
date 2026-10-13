@@ -1,0 +1,164 @@
+// Prepare the partner agreement + W-9 envelope payload for ONE partner.
+//
+//   npx tsx --env-file=.env.local scripts/prep-agreement-envelope.mts <id>
+//
+// The .mts extension is load-bearing, not a style choice. tsx transforms a
+// plain .ts here as CJS, because package.json has no "type": "module", and
+// under CJS both the top-level awaits below and import.meta.url break. tsc
+// does NOT catch it: tsconfig sets module esnext, so the file type-checks
+// against rules the real loader does not honour. scripts/check-order-counts.ts
+// is .ts, has the same shape, and cannot run at all for this reason.
+//
+// This script does NOT create or send anything. It reads the partner row,
+// extracts page 1 of the W-9, builds the payload, re-checks the things
+// that are cheap to check and expensive to get wrong, and writes the JSON
+// out for review. Creating the envelope is a separate, deliberate step.
+//
+// Why a script and not a route: the app holds no DocuSign credentials, so
+// a route could not send even if we wanted one. What the app can own is
+// the envelope's SHAPE — see src/lib/docusign-envelope.ts — and that is
+// where the costly mistakes live. This is the harness that feeds it real
+// data and shows the result before anyone commits to it.
+
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createClient } from '@supabase/supabase-js'
+import { W9_PAGE } from '../src/lib/docusign-w9'
+import { extractW9Page1Base64 } from '../src/lib/docusign-w9-document'
+import {
+  AGREEMENT_TEMPLATE_ID,
+  buildPartnerAgreementEnvelope,
+  partyName,
+} from '../src/lib/docusign-envelope'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+const partnerId = process.argv[2]
+if (!partnerId) {
+  console.error('Usage: prep-agreement-envelope.mts <partner-id>')
+  console.error('Partner ids: node --env-file=.env.local scripts/probe-partner-rows.mjs')
+  process.exit(1)
+}
+
+// ---------------------------------------------------------------------
+// 1. The partner, from the row the webhook will later match on.
+// ---------------------------------------------------------------------
+// Read from the database rather than taking name/email on the command
+// line. The envelope carries partner_id as a custom field and the webhook
+// resolves the partner by it, so the envelope and the row have to agree
+// about who this is. Typing the name by hand is how they stop agreeing.
+const db = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+)
+
+const { data: partner, error } = await db
+  .from('referral_partners')
+  .select('id, name, company, email, status, agreement_status, agreement_envelope_id')
+  .eq('id', partnerId)
+  .maybeSingle()
+
+if (error) {
+  console.error(`Could not read referral_partners: ${error.message}`)
+  process.exit(1)
+}
+if (!partner) {
+  console.error(`No partner with id ${partnerId}.`)
+  process.exit(1)
+}
+if (!partner.email?.trim()) {
+  // DocuSign cannot address an envelope without one, and a placeholder
+  // here would mail a contract to whoever owns the placeholder.
+  console.error(`Partner ${partner.name} has no email address. Fix the row first.`)
+  process.exit(1)
+}
+
+// Refuse to prepare a second envelope for an agreement already in flight.
+// Two live envelopes for one partner means two signable contracts, and
+// the webhook would stamp agreement_signed_at from whichever came back
+// first — so the copy we keep might not be the copy they signed.
+if (partner.agreement_status === 'signed') {
+  console.error(`Partner ${partner.name} has already signed. Nothing to prepare.`)
+  process.exit(1)
+}
+if (partner.agreement_envelope_id) {
+  console.error(
+    `Partner ${partner.name} already has envelope ${partner.agreement_envelope_id}.\n` +
+      'Void that one in DocuSign before preparing another, or this partner ends up\n' +
+      'with two signable contracts and we cannot say which one is operative.',
+  )
+  process.exit(1)
+}
+
+// ---------------------------------------------------------------------
+// 2. Page 1 of the W-9.
+// ---------------------------------------------------------------------
+// Hash-checked against the file the coordinates were measured from, then
+// extracted — both inside extractW9Page1Base64, which is where the tests
+// can reach them. This used to be inline here, which meant the one step
+// that depends on a tool outside the repo (python3 + pypdf) was the one
+// step nothing tested.
+let w9DocumentBase64: string
+try {
+  w9DocumentBase64 = extractW9Page1Base64()
+} catch (e) {
+  console.error((e as Error).message)
+  process.exit(1)
+}
+
+// ---------------------------------------------------------------------
+// 3. The payload.
+// ---------------------------------------------------------------------
+const envelope = buildPartnerAgreementEnvelope({
+  partner: {
+    id: partner.id,
+    name: partner.name,
+    email: partner.email,
+    company: partner.company,
+  },
+  shipo: { name: 'Ophir Schultz', email: 'ophir@shipousa.com' },
+  w9DocumentBase64,
+})
+
+// A last assertion rather than a comment. The builder sets this, the
+// tests check it, and it is still worth refusing here: everything above
+// this line is reversible and everything after it is not.
+if (envelope.status !== 'created') {
+  console.error(`Refusing to continue: status is '${envelope.status}', expected 'created'.`)
+  process.exit(1)
+}
+
+const outDir = join(ROOT, 'scripts/out')
+mkdirSync(outDir, { recursive: true })
+const outFile = join(outDir, `envelope-${partner.id}.json`)
+writeFileSync(outFile, JSON.stringify(envelope, null, 2))
+
+// The base64 document is ~100KB of noise in a file meant to be read, so
+// report its size instead and keep the payload reviewable.
+const summary = {
+  ...envelope,
+  compositeTemplates: envelope.compositeTemplates.map((c) =>
+    'document' in c && c.document
+      ? { ...c, document: { ...c.document, documentBase64: `<${w9DocumentBase64.length} chars>` } }
+      : c,
+  ),
+}
+writeFileSync(join(outDir, `envelope-${partner.id}.summary.json`), JSON.stringify(summary, null, 2))
+
+console.log('Prepared — nothing has been created or sent.\n')
+console.log(`  partner        ${partner.name}  <${partner.email}>`)
+console.log(`  clause 1 names ${partyName({ ...partner, email: partner.email })}`)
+console.log(`  status         ${partner.status} / agreement ${partner.agreement_status ?? 'null'}`)
+console.log(`  template       ${AGREEMENT_TEMPLATE_ID}`)
+console.log(`  W-9            page ${W9_PAGE}, ${w9DocumentBase64.length} base64 chars`)
+console.log(`  subject        ${envelope.emailSubject}`)
+console.log(`\n  payload   ${outFile}`)
+console.log(`  readable  ${outFile.replace('.json', '.summary.json')}`)
+console.log(
+  '\nNext: review the summary, then create it as a DRAFT in DocuSign and open it in\n' +
+    'the web console to check tab placement before anything is sent. The partner\n' +
+    'types their own address, so clause 1 and the notices clause will show empty\n' +
+    'boxes in the draft — that is correct; what to check is that the boxes are\n' +
+    'THERE and sit on the right line.',
+)
