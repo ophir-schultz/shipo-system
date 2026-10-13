@@ -554,3 +554,87 @@ describe('GET /api/agent/monitor: a charge run that wrote nothing', () => {
     expect(body.has_issues).toBe(false)
   })
 })
+
+// ──────────────────────────────────────────────────────────────────────────────
+// AN UNDELIVERABLE ALERT MUST NOT ANSWER 200 OK.
+//
+// sendEmail() never throws: with no provider configured it returns
+// { sent: false, provider: 'none', error: 'No email provider configured' }
+// (lib/email.ts:99). The handler's only response was
+//
+//     log.push(`📧 Email → ${ALERT_TO}: ... FAILED (${err})`)
+//
+// and `log` IS THE BODY OF THE EMAIL THAT WAS NOT SENT. So a dead alerting
+// channel recorded itself exclusively in the message it failed to deliver, and
+// answered the cron with ok:true / HTTP 200 while doing it.
+//
+// Measured before writing this: no Shipo Monitor alert exists anywhere in the
+// ALERT_TO mailbox -- inbox, spam or trash -- so this path is not hypothetical.
+//
+// Every other test in this file mocks sendEmail to { sent: true }, which is why
+// the gap survived: the failure branch had no coverage at all.
+//
+// The cron is the only unattended caller and a non-2xx is the only thing it
+// surfaces, so the status code is the signal being asserted here -- not just
+// the body. `run` discards the Response, hence runRaw.
+describe('GET /api/agent/monitor: the alert could not be delivered', () => {
+  const runRaw = async (clientResult: Record<string, unknown>) => {
+    h.syncClientAssignments.mockResolvedValue(clientResult)
+    const res = await GET(new Request('https://shipo.test/api/agent/monitor'))
+    return { res, body: (await res.json()) as MonitorBody }
+  }
+
+  it('answers non-2xx with ok:false when the provider is not configured', async () => {
+    h.sendEmail.mockResolvedValue({
+      sent: false, provider: 'none', error: 'No email provider configured',
+    })
+
+    const { res, body } = await runRaw(cleanClientResult)
+
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect(body.ok).toBe(false)
+  })
+
+  it('says the channel is dead, and says it in errors[] where it is read', async () => {
+    h.sendEmail.mockResolvedValue({
+      sent: false, provider: 'none', error: 'No email provider configured',
+    })
+
+    const { body } = await runRaw(cleanClientResult)
+
+    // The reason has to travel. "email failed" sends nobody anywhere; the
+    // provider's own error names what to configure.
+    const line = body.errors.find((e) => e.includes('No email provider configured'))
+    expect(line).toBeDefined()
+    expect(body.has_issues).toBe(true)
+  })
+
+  it('still answers 200/ok on a clean run that WAS delivered (the control)', async () => {
+    // Guard-the-guard. Without this, returning 500 unconditionally would pass
+    // both assertions above and break every healthy run in production.
+    const { res, body } = await runRaw(cleanClientResult)
+
+    expect(res.status).toBe(200)
+    expect(body.ok).toBe(true)
+    expect(body.has_issues).toBe(false)
+  })
+
+  it('reports BOTH the real issues and the delivery failure, not one instead of the other', async () => {
+    // The failure mode this guards: folding delivery into the issue list in a
+    // way that replaces the findings. If the channel is dead AND there are six
+    // real problems, the response is the only place either is recorded, so it
+    // has to carry both.
+    h.recalculateShipments.mockResolvedValue({
+      updated: 0, zone_matched: 0, legacy_matched: 0, unmatched: 7,
+      skipped: 0, failed: 0, reasons: [],
+    })
+    h.sendEmail.mockResolvedValue({
+      sent: false, provider: 'none', error: 'No email provider configured',
+    })
+
+    const { body } = await runRaw(cleanClientResult)
+
+    expect(body.errors.some((e) => e.includes('no rate match'))).toBe(true)
+    expect(body.errors.some((e) => e.includes('No email provider configured'))).toBe(true)
+  })
+})

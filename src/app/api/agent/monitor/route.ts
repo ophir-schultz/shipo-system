@@ -688,9 +688,45 @@ export async function GET(req: Request) {
   const emailResult = await sendEmail({ to: ALERT_TO, subject, html, text: log.join('\n') })
   log.push(`📧 Email → ${ALERT_TO}: ${emailResult.sent ? `sent via ${emailResult.provider}` : `FAILED (${emailResult.error})`}`)
 
+  // THE ALERT DID NOT LEAVE THE BUILDING, AND THAT CANNOT BE A 200.
+  //
+  // sendEmail never throws -- with no provider configured it returns
+  // { sent: false, provider: 'none', error: 'No email provider configured' }
+  // (lib/email.ts:99). Until now the only response was the log.push directly
+  // above, and `log` is the TEXT BODY OF THE EMAIL THAT WAS NOT SENT. So a dead
+  // alerting channel recorded itself exclusively inside the message it failed
+  // to deliver, and still answered the cron ok:true / HTTP 200.
+  //
+  // That is the same green-over-broken shape the rest of this route is a
+  // post-mortem on, except one layer further out: every guard above is careful
+  // to tell "could not read" apart from "none found", and then the whole report
+  // was posted into a channel nobody had verified was open.
+  //
+  // The errors[] entry is for the human reading the JSON. The status code is
+  // for the cron, which is the ONLY unattended caller and cannot read prose --
+  // a non-2xx is the single signal it surfaces. Both are needed: the body is
+  // read when someone is already looking, and nobody is looking precisely when
+  // this fires.
+  //
+  // Pushed AFTER the send deliberately. `subject` and `html` are already built
+  // from errors[] above, so this entry cannot appear in the email it is
+  // reporting the failure of -- and must not, or a later successful run would
+  // carry a line about a delivery that did in fact succeed.
+  if (!emailResult.sent) {
+    errors.push(`✗ THIS REPORT WAS NOT DELIVERED to ${ALERT_TO} (provider `
+      + `'${emailResult.provider}': ${emailResult.error ?? 'unknown error'}). `
+      + `Every finding above was computed and then discarded. Configure a mail `
+      + `provider (RESEND_API_KEY, SENDGRID_API_KEY, or SMTP_*) or correct `
+      + `ALERT_EMAIL — until then this monitor is running three times a day and `
+      + `reporting to nobody.`)
+  }
+
   return NextResponse.json({
-    ok: true,
-    has_issues: hasErrors,
+    // false exactly when the report could not be delivered. A caller that only
+    // checks `ok` is checking the thing that actually matters: whether anyone
+    // was told.
+    ok: emailResult.sent,
+    has_issues: hasErrors || !emailResult.sent,
     errors,
     log,
     stats: {
@@ -709,5 +745,15 @@ export async function GET(req: Request) {
       undated_picked_lines: undatedPickError ? null : undatedPickCount,
     },
     email: emailResult,
+  }, {
+    // 500, not 200, when the report could not be delivered. Vercel records the
+    // status of every cron invocation, so this is what turns a silent alerting
+    // outage into a visible failed run.
+    //
+    // Vercel cron invocations are not retried on failure, so this does not
+    // re-enter recalculate (which writes client_rate). If that ever changes,
+    // this needs revisiting -- the write path must not be driven by a mail
+    // misconfiguration.
+    status: emailResult.sent ? 200 : 500,
   })
 }
