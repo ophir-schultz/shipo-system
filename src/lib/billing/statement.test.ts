@@ -1,12 +1,56 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import {
-  periodRange, buildStatement, statementTotal, GRAINS,
+  periodRange, buildStatement, statementTotal, statementToday, isGrain, GRAINS,
   type Grain, type StatementCharge,
 } from '@/lib/billing/statement'
+import { warehouseParts, WAREHOUSE_TZ } from '@/lib/ledger/pick-date'
 
 // The statement is the document that gets attached to an invoice, so the two
 // things it can get wrong are the PERIOD it claims to cover and the TOTAL it
 // claims is owed. This file is organised around those two, and nothing else.
+
+describe('statementToday', () => {
+  it('is the warehouse day, not the UTC day', () => {
+    // 02:00 UTC on the 13th is 22:00 on the 12th in the warehouse. A statement
+    // asked for "today" at that moment must mean the 12th, because the 12th is
+    // the charge_date the ledger is still writing -- the UTC reading would show
+    // an empty day while the warehouse was packing.
+    expect(statementToday(new Date('2026-10-13T02:00:00Z'))).toBe('2026-10-12')
+  })
+
+  it('is the warehouse day, not the day west of it either', () => {
+    // And the mirror case, so this is pinned on both sides rather than just
+    // being "not UTC": 23:00 UTC on the 12th is 19:00 on the 12th in the
+    // warehouse, and in Los Angeles it is still the 12th too -- so the case
+    // that distinguishes is one where UTC has already rolled over.
+    expect(statementToday(new Date('2026-10-12T23:00:00Z'))).toBe('2026-10-12')
+    expect(statementToday(new Date('2026-10-13T16:00:00Z'))).toBe('2026-10-13')
+  })
+
+  it('agrees with the function that stamps charge_date, by construction', () => {
+    // The claim being pinned is not a date, it is the SHARED ORIGIN. If someone
+    // reimplements this with its own formatter, this fails for every moment at
+    // which the two disagree rather than only for the two hours a day a
+    // hard-coded example would catch.
+    for (const iso of [
+      '2026-01-01T00:30:00Z', '2026-03-08T06:30:00Z', '2026-07-04T03:59:00Z',
+      '2026-11-01T05:30:00Z', '2026-12-31T23:59:00Z',
+    ]) {
+      const at = new Date(iso)
+      expect(statementToday(at)).toBe(warehouseParts(at, WAREHOUSE_TZ).date)
+    }
+  })
+
+  it('returns a date periodRange will accept', () => {
+    // These two are used together on every request, and periodRange THROWS on
+    // anything it cannot parse. A formatter change that produced '2026-1-5'
+    // would take the screen down rather than render it wrong, which is the
+    // right failure -- but it should fail here first.
+    for (const grain of GRAINS) {
+      expect(() => periodRange(grain, statementToday(new Date('2026-10-13T16:00:00Z')))).not.toThrow()
+    }
+  })
+})
 
 describe('periodRange', () => {
   it('a day is itself, both bounds', () => {
@@ -304,6 +348,78 @@ describe('buildStatement', () => {
     })
   })
 
+  describe('unit_rate', () => {
+    it('is the rate when every row on the line shares one', () => {
+      const s = buildStatement([
+        charge({ unit_rate: 0.35, quantity: 10, amount: 3.5 }),
+        charge({ unit_rate: 0.35, quantity: 4, amount: 1.4 }),
+      ], RANGE)
+      expect(s.lines[0].unit_rate).toBe(0.35)
+      expect(s.lines[0].rates).toBe(1)
+    })
+
+    it('is null, and counted, when the rate changed inside the period', () => {
+      // A rate card edited mid-month. Printing 0.35 beside an amount that
+      // 0.35 x units does not produce is the one error a client is guaranteed
+      // to find, because that multiplication is what the column invites.
+      const s = buildStatement([
+        charge({ unit_rate: 0.35, quantity: 10, amount: 3.5 }),
+        charge({ unit_rate: 0.40, quantity: 10, amount: 4 }),
+      ], RANGE)
+      expect(s.lines[0].unit_rate).toBeNull()
+      expect(s.lines[0].rates).toBe(2)
+      // The money is still complete. A disagreement about the rate is not a
+      // reason to withhold the amount actually charged.
+      expect(s.lines[0].sum.total).toBe(7.5)
+    })
+
+    it('counts a rate once however many rows carry it', () => {
+      const s = buildStatement(
+        [1, 2, 3, 4].map(() => charge({ unit_rate: '0.35' })), RANGE)
+      expect(s.lines[0].rates).toBe(1)
+      expect(s.lines[0].unit_rate).toBe(0.35)
+    })
+
+    it('does not round two near-identical rates into one', () => {
+      // unit_rate is numeric(10,4). 0.3500 and 0.3549 are two rates, and
+      // rounding them together to print one is the same misstatement in a
+      // smaller font.
+      const s = buildStatement([
+        charge({ unit_rate: 0.3500 }),
+        charge({ unit_rate: 0.3549 }),
+      ], RANGE)
+      expect(s.lines[0].rates).toBe(2)
+      expect(s.lines[0].unit_rate).toBeNull()
+    })
+
+    it('is null with a count of 0 when no row carries a rate', () => {
+      // An at-cost freight line is billed at whatever the carrier charged, so
+      // there is no rate-card rate to show. Distinct from the case above: the
+      // screen says "at cost" rather than "2 rates".
+      const s = buildStatement([charge({ charge_type: 'shipping', label: 'Freight, at cost', unit_rate: null })], RANGE)
+      expect(s.lines[0].unit_rate).toBeNull()
+      expect(s.lines[0].rates).toBe(0)
+    })
+
+    it('ignores an unreadable rate rather than counting it as a rate', () => {
+      const s = buildStatement([
+        charge({ unit_rate: 0.35 }),
+        charge({ unit_rate: '' }),
+        charge({ unit_rate: undefined }),
+      ], RANGE)
+      expect(s.lines[0].rates).toBe(1)
+      expect(s.lines[0].unit_rate).toBe(0.35)
+    })
+
+    it('keeps each line to its own rate', () => {
+      const s = buildStatement([
+        charge({ label: 'Pick — multi', unit_rate: 0.25 }),
+        charge({ label: 'Pick — single', unit_rate: 0.35 }),
+      ], RANGE)
+      expect(s.lines.map(l => l.unit_rate)).toEqual([0.25, 0.35])
+    })
+  })
+
   it('flags estimated rows per line and in total', () => {
     // is_estimate means the ledger priced it off an assumed rate rather than a
     // measured one. On a document going to a client that has to be visible.
@@ -363,5 +479,33 @@ describe('buildStatement', () => {
 describe('GRAINS', () => {
   it('is the four the operator asked for, in increasing length', () => {
     expect(GRAINS).toEqual(['day', 'week', 'month', 'year'] satisfies Grain[])
+  })
+})
+
+describe('isGrain', () => {
+  it('accepts every grain the screen offers', () => {
+    for (const g of GRAINS) expect(isGrain(g)).toBe(true)
+  })
+
+  it('rejects the near-misses a hand-written link produces', () => {
+    // 'weekly' and 'monthly' are the two a person types from memory, and both
+    // would fall through periodRange's day/week/month branches onto the year
+    // arm -- a twelve-month statement under a heading claiming one week.
+    for (const bad of ['weekly', 'monthly', 'Week', 'WEEK', 'quarter', 'all', '']) {
+      expect(isGrain(bad), bad).toBe(false)
+    }
+  })
+
+  it('rejects an absent parameter rather than reading it as a grain', () => {
+    expect(isGrain(null)).toBe(false)
+    expect(isGrain(undefined)).toBe(false)
+  })
+
+  it('rejects anything inherited from Array.prototype', () => {
+    // `.includes` on the array, not `value in someObject`: a membership test
+    // written against an object would accept 'constructor' and 'toString'.
+    for (const bad of ['includes', 'constructor', 'toString', 'length']) {
+      expect(isGrain(bad), bad).toBe(false)
+    }
   })
 })

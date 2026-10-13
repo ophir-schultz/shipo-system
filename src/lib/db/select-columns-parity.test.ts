@@ -57,7 +57,7 @@ import { join } from 'node:path'
 //   - against HEAD~1 it reports exactly the three sites above, and nothing else
 //   - against the fix it reports none
 //
-// WHY ONLY THESE THREE FILES.
+// WHY ONLY THESE FOUR FILES.
 //
 // Run over all 156 non-test files in src/ this reports seven more sites. Three
 // are gaps in the parser rather than defects -- `zone_chart` has no `create
@@ -79,11 +79,23 @@ import { join } from 'node:path'
 
 const SQL_DIR = 'supabase'
 
-/** The three files that turn rows into a figure an operator sends to a client. */
-const MONEY_PATH = [
-  'src/app/billing/page.tsx',
-  'src/app/reports/page.tsx',
-  'src/app/api/reports/download/route.ts',
+/**
+ * The files that turn rows into a figure an operator sends to a client, and how
+ * many `.from`/`.select` pairs the scraper below must still be able to see in
+ * each.
+ *
+ * The per-file count replaced a blanket `> 3`, which the statement read would
+ * have had to be excluded from for having only two -- and excluding a money-path
+ * file from the money-path guard to keep the guard's own threshold tidy is how
+ * this test would stop being worth having. Compared with >= and not ===, so
+ * adding a read raises the number without failing the build, while a `.from`
+ * written in a shape the scraper cannot see drops it and does.
+ */
+const MONEY_PATH: ReadonlyArray<{ file: string; selects: number }> = [
+  { file: 'src/app/billing/page.tsx', selects: 5 },
+  { file: 'src/app/reports/page.tsx', selects: 6 },
+  { file: 'src/app/api/reports/download/route.ts', selects: 6 },
+  { file: 'src/lib/billing/statement-charges.ts', selects: 2 },
 ]
 
 const NON_COLUMN_LINE_STARTS = new Set([
@@ -216,6 +228,11 @@ describe('the money path selects only columns that exist', () => {
     expect(known.get('rate_adjustments')).toContain('adjusted_cost')
     expect(known.get('shipments')).toContain('ship_date')
     expect(known.get('warehouse_daily_log')).toContain('log_date')
+    // order_charges is parsed out of ledger_03_charges.sql rather than
+    // schema.sql, so this also pins that the walk reaches the whole directory
+    // and not just the one file the first three entries happen to need.
+    expect(known.get('order_charges')).toContain('charge_date')
+    expect(known.get('order_charges')).toContain('unit_rate')
 
     // And the other half: the two phantom names must still be absent, or this
     // whole file is asserting nothing. If someone later adds a `manual_total`
@@ -227,14 +244,15 @@ describe('the money path selects only columns that exist', () => {
 
   it('can see the selects in each file', () => {
     // Same reason. A `.from(...)` written any other way -- a variable table
-    // name, double quotes -- would silently drop that read from the scan.
-    for (const file of MONEY_PATH) {
+    // name, double quotes, a select string hoisted into a const -- would
+    // silently drop that read from the scan.
+    for (const { file, selects } of MONEY_PATH) {
       const found = selectsIn(readFileSync(file, 'utf8'))
-      expect(found.length, `no .from/.select pairs scraped from ${file}`).toBeGreaterThan(3)
+      expect(found.length, `.from/.select pairs scraped from ${file}`).toBeGreaterThanOrEqual(selects)
     }
   })
 
-  for (const file of MONEY_PATH) {
+  for (const { file } of MONEY_PATH) {
     it(`${file} names no column the repo does not declare`, () => {
       // Reported as a list of `file: table.column` and compared to empty, so a
       // regression fails by PRINTING the offending column rather than as

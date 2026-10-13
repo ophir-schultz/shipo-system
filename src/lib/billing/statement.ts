@@ -2,6 +2,7 @@ import {
   priceOf, sumPriced, combinePriced, totalOrUnknown,
   type Money, type PricedSum,
 } from '@/lib/billing/unpriced'
+import { warehouseParts } from '@/lib/ledger/pick-date'
 
 // What a client is owed for a period, assembled from the charges the ledger
 // already priced.
@@ -33,10 +34,43 @@ import {
 // the client's own books use, and with the next period's, or two consecutive
 // statements double-count their overlap or leave a gap.
 
+/**
+ * The day the business is currently on, as 'YYYY-MM-DD'.
+ *
+ * Derived from warehouseParts, which is the function that decides which
+ * `charge_date` a pick gets in the first place (pick-date.ts, used at
+ * calculate-charges.ts:212). The shared origin is the point: computing "today"
+ * any other way -- `new Date().toISOString().slice(0, 10)` being the obvious one
+ * -- means that for the hours between warehouse midnight and UTC midnight the
+ * day grain asks for a date the ledger is not yet writing, so "today" renders an
+ * empty statement while the warehouse is packing. The period boundary and the
+ * data's own day boundary have to be the same boundary.
+ *
+ * Takes `now` so it can be tested, and so a caller can reproduce a statement as
+ * of some past moment.
+ */
+export function statementToday(now: Date = new Date()): string {
+  return warehouseParts(now).date
+}
+
 /** The grains the statement screen offers. */
 export type Grain = 'day' | 'week' | 'month' | 'year'
 
 export const GRAINS: readonly Grain[] = ['day', 'week', 'month', 'year'] as const
+
+/**
+ * Is this string one of the grains?
+ *
+ * A guard and not a `as Grain` cast, because the value arrives from a query
+ * string. `?grain=weekly` cast to Grain falls through every branch of
+ * periodRange and lands on the year arm -- so a typo in a link would produce a
+ * TWELVE MONTH statement under a heading the caller believed said week, which is
+ * the single worst wrong answer this function can give. The caller is made to
+ * decide what an unrecognised grain means instead.
+ */
+export function isGrain(value: string | null | undefined): value is Grain {
+  return typeof value === 'string' && (GRAINS as readonly string[]).includes(value)
+}
 
 export interface DateRange {
   /** Inclusive 'YYYY-MM-DD'. */
@@ -113,6 +147,8 @@ export interface StatementCharge {
   label: string
   quantity: Money
   amount: Money
+  /** The rate off the client's price list that this one row was priced at. */
+  unit_rate?: Money
   is_estimate?: boolean
 }
 
@@ -129,6 +165,34 @@ export interface StatementLine {
    * nothing was handled, beside a charge for handling it.
    */
   quantity: number | null
+  /**
+   * The rate off the price list that EVERY row on this line shares, or null when
+   * they do not share one.
+   *
+   * The rate is the column a client checks first -- it is the one figure on the
+   * statement they can compare against the agreement they signed. Rows grouped
+   * into one line need not agree about it: a rate card edited mid-period prices
+   * Monday's picks at one rate and Friday's at another, and both land on the
+   * same line. Printing `rows[0].unit_rate` there would state a rate that
+   * produced only some of the amount beside it, and the arithmetic would not
+   * check out for the client doing exactly what the column invites.
+   *
+   * So a disagreement is reported as a disagreement. `rates` below says how big
+   * one it is, and the screen prints that instead of a number.
+   */
+  unit_rate: number | null
+  /**
+   * How many DISTINCT rates the rows on this line were priced at.
+   *
+   * 0 -- no row carries a rate at all. Normal for an at-cost freight line,
+   *      which is billed at whatever the carrier charged.
+   * 1 -- one rate, in `unit_rate`.
+   * 2+ -- the rate changed inside the period. Worth surfacing rather than
+   *      averaging away: it is either a deliberate price change the client
+   *      should see on the statement that straddles it, or a rate card edit
+   *      nobody meant to backdate.
+   */
+  rates: number
   /** The money, and the rows it had to leave out. */
   sum: PricedSum
   /** How many of these rows the ledger flagged as an estimate, not a measure. */
@@ -177,15 +241,26 @@ export function buildStatement(
     // rows carry a quantity and others do not still reports the units it knows
     // about; a line where none do reports null.
     let qty: number | null = null
+    // Collected as a set, so the answer to "what rate is this" is derived from
+    // every row rather than from whichever one the ledger happened to write
+    // first. Values are compared as they were parsed and not rounded: two rates
+    // that differ in the fourth decimal (unit_rate is numeric(10,4)) are two
+    // rates, and rounding them together to print one would be the same lie in a
+    // smaller font.
+    const rates = new Set<number>()
     for (const r of rows) {
       const n = priceOf(r.quantity)
       if (n !== null) qty = (qty ?? 0) + n
+      const rate = priceOf(r.unit_rate)
+      if (rate !== null) rates.add(rate)
     }
 
     lines.push({
       charge_type: rows[0].charge_type,
       label: rows[0].label,
       quantity: qty === null ? null : Math.round(qty * 100) / 100,
+      unit_rate: rates.size === 1 ? [...rates][0] : null,
+      rates: rates.size,
       sum: sumPriced(rows, 'amount'),
       estimated: rows.filter(r => r.is_estimate === true).length,
     })
