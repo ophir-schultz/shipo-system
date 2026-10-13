@@ -77,6 +77,42 @@ export type MonitorAttempt =
 
 const UNREAD_TITLE = 'Sync status unknown'
 
+/**
+ * The monitor's own findings, but ONLY when this body is positively the
+ * monitor reporting a problem. `null` for everything else.
+ *
+ * Used on the failed-response path, where the question is not "what does this
+ * body say" but "is this body the route's completed report at all". Hence the
+ * two conditions, which are different and both load-bearing:
+ *
+ *   `has_issues` is a real boolean  -- it is the route's signature field, sent
+ *                                      on every response it builds itself, and
+ *                                      absent from anything in front of it
+ *   it positively reports a problem -- so a body claiming all is well on a
+ *                                      response that FAILED is refused, which
+ *                                      is the hole that must stay shut
+ *
+ * Returning the strings rather than a boolean matters: they are the findings,
+ * and on a 500 from route.ts:792 they are the only copy that survives, since
+ * the email carrying them is the thing that did not send.
+ */
+function readReportedProblem(body: unknown): string[] | null {
+  if (typeof body !== 'object' || body === null) return null
+  const b = body as Record<string, unknown>
+
+  if (typeof b.has_issues !== 'boolean') return null
+
+  const issues = Array.isArray(b.errors)
+    ? b.errors.filter((e): e is string => typeof e === 'string')
+    : []
+
+  // Either signal, matching the OK path: if a future version lets the flag and
+  // the list disagree, the direction that under-reports must not win.
+  if (b.has_issues !== true && issues.length === 0) return null
+
+  return issues
+}
+
 function unknown(detail: string, message: string): SyncStatus {
   return {
     outcome: 'unknown',
@@ -107,6 +143,49 @@ export function classifyMonitorAttempt(attempt: MonitorAttempt): SyncStatus {
   }
 
   if (!attempt.ok) {
+    // A NON-OK RESPONSE MAY NEVER PRODUCE `clean`. Everything below keeps that
+    // absolutely, and it is the whole of what the original bug needed.
+    //
+    // What it does NOT need is for every non-OK response to be treated as a
+    // pass that never happened, because one of them is a pass that completed
+    // in full. monitor/route.ts:792 returns `status: emailResult.sent ? 200
+    // : 500` -- a deliberate 500 meaning "I ran, I have your report, I could
+    // not DELIVER it". That 500 has to stay: Vercel records the status of
+    // every cron invocation and it is the only signal an unattended caller
+    // surfaces, so it is what makes a dead alerting channel visible.
+    //
+    // So 500 carries two meanings that want opposite words:
+    //
+    //   unhandled throw  -> did not run; the body is Next's HTML error page
+    //   route.ts:792     -> ran in full; the body IS the report
+    //
+    // Collapsing them put "this pass did not run. Nothing here reflects a
+    // completed check" on screen over passes whose results were in the very
+    // response being discarded -- provably, since sync_runs holds the rows
+    // those passes wrote. A shared status code with no discriminator, which is
+    // the same defect this module exists to fix, one layer out.
+    //
+    // The discriminator is the body, and the bar for trusting it on a failed
+    // response is deliberately higher than on a 200: it must carry
+    // `has_issues` as a real boolean -- the route's signature field, which a
+    // proxy error page or an auth interstitial has no reason to invent -- AND
+    // it must POSITIVELY report a problem. A body claiming all is well on a
+    // response that failed gets nothing, which is the exact hole that must
+    // stay shut.
+    const reported = readReportedProblem(attempt.bodyParsed ? attempt.body : undefined)
+    if (reported) {
+      return {
+        outcome: 'issues',
+        detail: '',
+        issues: reported,
+        // Honest here, and the distinction is the point. The original bug moved
+        // this clock over a pass that had NOT completed. This pass did, so its
+        // data is exactly as fresh as a 200's.
+        advancesTimestamp: true,
+        toast: null, // the per-issue toasts carry the detail, including the delivery failure
+      }
+    }
+
     return unknown(
       `status ${attempt.status}`,
       `The monitor returned HTTP ${attempt.status}, so this pass did not run. `

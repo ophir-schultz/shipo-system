@@ -58,6 +58,122 @@ describe('classifyMonitorAttempt separates a pass that ran from one that did not
     expect(result.outcome).toBe('unknown')
   })
 
+  // ── A 500 that means "ran, could not deliver the report" ──────────────────
+  //
+  // monitor/route.ts:792 returns `status: emailResult.sent ? 200 : 500`. That
+  // 500 is DELIBERATE and has to stay: Vercel records the status of every cron
+  // invocation, and it is the only signal an unattended caller surfaces, so it
+  // is what turns a dead alerting channel into a visible failed run.
+  //
+  // But it is a second meaning on the same code. An unhandled throw also gives
+  // 500, and those two want opposite words:
+  //
+  //   throw                -> the pass did not run, the body is worthless
+  //   route.ts:792         -> the pass RAN IN FULL, the body is the whole report
+  //
+  // Collapsing them made the widget say "this pass did not run. Nothing here
+  // reflects a completed check" over a pass whose results were sitting in the
+  // response it had just discarded -- provably so, since sync_runs holds the
+  // rows those passes wrote. That is the same defect this module was built to
+  // fix, one layer further out: a shared status code with no discriminator.
+  //
+  // The rule that resolves it without reopening the original hole: A NON-OK
+  // RESPONSE MAY NEVER PRODUCE `clean`. It may only ever produce `issues` or
+  // `unknown`, and `issues` only when the body POSITIVELY reports a problem.
+  // So a failed read still cannot render as reassurance -- the direction that
+  // mattered -- while a completed pass stops being thrown away.
+  it('reads a completed pass out of the 500 the route sends when mail is down', () => {
+    // The real body from route.ts:759-793 when sendEmail returns provider 'none'.
+    const result = classifyMonitorAttempt(responded({
+      ok: false,
+      status: 500,
+      body: {
+        ok: false,
+        has_issues: true,
+        errors: [
+          '⚠ 294 shipments on stores with no client_store_ids row',
+          "✗ THIS REPORT WAS NOT DELIVERED to ophir@shipousa.com (provider 'none')",
+        ],
+      },
+    }))
+    expect(result.outcome).toBe('issues')
+    expect(result.issues).toHaveLength(2)
+    // The findings must survive, or the operator loses them every pass.
+    expect(result.issues[1]).toMatch(/NOT DELIVERED/)
+    // The pass completed, so the clock is honest. The original bug was
+    // advancing it over a pass that had NOT completed; this one did.
+    expect(result.advancesTimestamp).toBe(true)
+  })
+
+  it('never says a pass did not run when the body proves it did', () => {
+    const result = classifyMonitorAttempt(responded({
+      ok: false,
+      status: 500,
+      body: { has_issues: true, errors: ['✗ THIS REPORT WAS NOT DELIVERED'] },
+    }))
+    // The precise sentence that was false on screen.
+    expect(result.toast?.message ?? '').not.toMatch(/did not run/)
+    expect(result.detail).not.toMatch(/did not run/)
+  })
+
+  it('still refuses a non-OK body that reports no problem at all', () => {
+    // The companion to the rescue above, and the line that keeps the original
+    // hole shut. has_issues false with an empty errors array is a body claiming
+    // everything is fine on a response that failed -- exactly the shape a cached
+    // or proxied 500 can carry. It gets nothing.
+    for (const body of [
+      { ok: true, has_issues: false, errors: [] },
+      { has_issues: false },
+      { ok: true },
+      {},
+    ]) {
+      const result = classifyMonitorAttempt(responded({ ok: false, status: 500, body }))
+      expect(result.outcome).toBe('unknown')
+      expect(result.advancesTimestamp).toBe(false)
+    }
+  })
+
+  it('does not mistake somebody else\'s JSON error for the monitor reporting', () => {
+    // The rescue above keys on has_issues because that is the route's signature
+    // field. An edge proxy, a gateway or an auth layer can return JSON with an
+    // `errors` array of its own, and that is NOT a completed monitor pass -- it
+    // is the "did not run" case wearing a familiar-looking shape. Without the
+    // has_issues requirement this would advance the clock on nothing.
+    for (const body of [
+      { errors: ['upstream request timeout'] },
+      { errors: ['blocked'], message: 'edge error' },
+      { has_issues: 'true', errors: ['looks right, is a string'] },
+    ]) {
+      const result = classifyMonitorAttempt(responded({ ok: false, status: 500, body }))
+      expect(result.outcome).toBe('unknown')
+      expect(result.advancesTimestamp).toBe(false)
+    }
+  })
+
+  it('still refuses a non-OK response whose body did not parse', () => {
+    // An unhandled throw renders Next's HTML error page, which does not parse.
+    // This is the genuine "did not run" 500 and must keep its original wording.
+    const result = classifyMonitorAttempt(responded({
+      ok: false, status: 500, bodyParsed: false, body: undefined,
+    }))
+    expect(result.outcome).toBe('unknown')
+    expect(result.advancesTimestamp).toBe(false)
+    expect(result.toast?.message).toMatch(/did not run/)
+  })
+
+  it('never lets a non-OK response reach clean, whatever the body says', () => {
+    // The invariant, stated once as itself rather than implied by the cases.
+    for (const body of [
+      { ok: true, has_issues: false, errors: [] },
+      { has_issues: true, errors: ['something'] },
+      { has_issues: false, errors: ['something'] },
+    ]) {
+      expect(
+        classifyMonitorAttempt(responded({ ok: false, status: 500, body })).outcome,
+      ).not.toBe('clean')
+    }
+  })
+
   it('treats an unparseable body as unknown even on a 200', () => {
     const result = classifyMonitorAttempt(responded({ bodyParsed: false, body: undefined }))
     expect(result.outcome).toBe('unknown')
