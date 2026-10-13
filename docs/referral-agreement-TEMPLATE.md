@@ -37,6 +37,94 @@ Shipo and Partner are each a "Party" and together the "Parties."
 
 ---
 
+## Summary of Terms
+
+This summary is for orientation only. **Sections 1 to 11 below are the operative terms of
+this Agreement, and where this summary and a numbered section differ, the numbered section
+governs.** A clause reference is given for every line so that each one can be checked
+against the text it summarises.
+
+**What Shipo pays Partner.** Two separate amounts, and they are additive — earning one
+never reduces the other (3):
+
+- A one-time **$300 USD** signup bonus for each referred client that signs a Shipo services
+  agreement and pays its first invoice. Paid once per referred client, never per month and
+  never per order (3.1, 3.3).
+- **5% of Net Profit each calendar month for twelve (12) consecutive months**, measured
+  from that client's first paid invoice, calculated on the client's entire account rather
+  than only the service the referral was made for (3.4).
+
+**How Net Profit is worked out.** The total amount invoiced to the client for the month,
+less only four costs: freight and carrier charges, packaging and prep materials, storage,
+and payment-processing fees. That list is closed — Shipo may not add a category of
+deduction without a written amendment signed by both Parties. Warehouse pick, pack and
+receiving labor is **not** deducted, which raises the figure Partner's 5% is calculated on
+(3.5).
+
+**No thresholds and no waiting period.** An invoice of any size qualifies once it is paid.
+There is no minimum invoice amount and no minimum number of orders, units or months, and
+nothing further need elapse before the signup bonus becomes payable (3.1, 3.2, 3.10).
+Every Qualified Referral earns the same terms; there is no promotional, launch or founding
+tier (3.11).
+
+**When Partner is paid.** A monthly statement in the Shipo partner portal shows, for each
+referred client and month, the amount invoiced, each deducted cost category, the resulting
+Net Profit and Partner's share. Amounts shown as payable are paid within **thirty (30)
+days** of the end of that month. A monthly balance under **$50 USD** rolls forward into the
+next month and is never forfeited (3.6, 3.7). Partner has **sixty (60) days** to object to
+a statement, after which it is final as to the amounts it shows (3.8).
+
+**What Shipo can recover.** If a qualifying invoice is not actually paid within sixty (60)
+days of its date — cancellation, chargeback or refund — nothing is owed on that month.
+Anything already paid is recovered only by offset against amounts next becoming payable to
+Partner, never by a demand for repayment, and any offset balance still outstanding when
+this Agreement ends is written off (3.9).
+
+**What Shipo expects of Partner.**
+
+- Submit referrals in writing, and only prospects that are not already a Shipo client, in
+  Shipo's active sales pipeline, or another partner's referral within the prior twelve (12)
+  months (2.1).
+- Return a completed **IRS Form W-9** before any amount is paid. A balance held back only
+  because the W-9 has not arrived carries forward and is not forfeited (4.2).
+- Represent the Services truthfully and only with Shipo-approved materials, and make no
+  guarantee about pricing, results, tax outcomes or savings (5).
+- Make no claim that engaging Shipo reduces, defers or otherwise changes any client's own
+  sales-tax, use-tax or nexus obligations. Shipo's Delaware location is a fact about where
+  Shipo operates and is not a tax benefit for the client (5.1).
+- Comply with applicable law in all outreach, including the CAN-SPAM Act and anti-spam and
+  do-not-contact rules (5).
+- Use Shipo's name, logo and trademarks only as approved in writing (5).
+- Keep the other Party's non-public information — including client lists, pricing and
+  commission terms — confidential during the term and for **two (2) years** afterwards (6).
+
+**What Partner is not.** Partner is an independent contractor, not an employee, agent or
+joint venturer, and has no authority to quote prices, make promises, or sign anything on
+Shipo's behalf (4.1). This Agreement gives Partner no right of access to Shipo's books, to
+any rate card, to per-unit prices, or to the cost of any individual order (3.8).
+
+**Who carries the risk if something goes wrong.** Indemnification under this Agreement
+runs **one way**. If a third party brings a claim arising from Partner's
+misrepresentations, unauthorized promises, unlawful outreach or breach of Section 5,
+Partner covers Shipo's losses and reasonable legal fees. Shipo owes Partner no indemnity
+(9). In the other direction, Shipo's total liability to Partner is capped at the amounts
+paid or payable under Section 3 — bonuses and revenue share combined — in the twelve (12)
+months before the claim, and neither Party owes the other indirect or consequential
+damages (8). These two clauses are the ones in this Agreement least favourable to Partner,
+and Partner should read them in full rather than rely on this paragraph.
+
+**Ending this Agreement.** Either Party may terminate for convenience on **thirty (30)
+days'** written notice (7.2). Clients that qualified before termination keep running their
+full twelve-month window, and Shipo's obligations to report and to pay on them continue
+until that window expires (7.3). That survival does not apply where Shipo terminates for
+cause under 7.4.
+
+**Where disputes go.** Delaware law governs, and the state and federal courts of New Castle
+County, Delaware have exclusive jurisdiction. Each Party pays its own legal fees except
+where the indemnification in Section 9 applies (10).
+
+---
+
 ## 1. Purpose
 
 Partner wishes to refer prospective clients to Shipo for third-party logistics (3PL),

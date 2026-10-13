@@ -286,6 +286,177 @@ describe.each(ALL_COPIES)('%s states the standing terms the system pays on', (do
 })
 
 // ---------------------------------------------------------------------------
+// The plain-English Summary of Terms at the front of each execution copy.
+// ---------------------------------------------------------------------------
+//
+// Added 2026-10-13 because a partner reads a summary and skims eleven sections
+// of Delaware contract language. It creates a problem the rest of this suite
+// does not have: every figure in the deal is now stated TWICE in the same
+// document. The template's own header note exists to stop one set of figures
+// living in two files and drifting apart; a summary does the same thing inside
+// one file, and the second statement is the one the partner will actually read.
+//
+// So the summary is tied to REFERRAL_TERMS, not to the prose of Section 3. That
+// catches drift in both directions with one assertion each: change 3.3 and
+// forget the summary and the summary check fails; change the summary and forget
+// 3.3 and the Section 3 check above fails. Comparing the summary against
+// Section 3 directly would have let a matched pair of wrong numbers through.
+//
+// Scoped to execution copies. The attorney-review draft has no summary and
+// should not grow one — it is read by a lawyer who wants the clauses.
+describe.each(executionCopies())('%s — the Summary of Terms', (doc) => {
+  const SUMMARY_HEADING = '## Summary of Terms'
+
+  function summary(): string {
+    const slice = contractSlice(doc)
+    const start = slice.indexOf(SUMMARY_HEADING)
+    expect(start, `${doc}: "${SUMMARY_HEADING}" is not inside the CONTRACT markers`).toBeGreaterThan(-1)
+    const end = slice.indexOf('\n## 1.', start)
+    expect(end, `${doc}: cannot bound the summary — "## 1." not found after it`).toBeGreaterThan(start)
+    return operative(slice.slice(start, end))
+  }
+
+  it('sits inside the contract markers, so the partner actually receives it', () => {
+    // A summary outside the markers would render into nothing: the build script
+    // slices on those markers and drops everything else. It would read correctly
+    // in the markdown and be absent from the signed PDF.
+    expect(summary().length, `${doc}: summary is empty`).toBeGreaterThan(500)
+  })
+
+  it('says the numbered sections govern if the summary disagrees with them', () => {
+    // This is the clause that makes a summary safe to include at all. Without
+    // it, a summary that drifts is not a documentation bug, it is a conflicting
+    // term in a signed contract, and a court resolving the conflict has no
+    // instruction about which one the Parties intended to bind them.
+    const s = summary()
+    expect(s, `${doc}: summary does not say it is for orientation only`).toContain('for orientation only')
+    expect(s, `${doc}: summary does not state that the numbered sections govern a conflict`).toMatch(
+      /numbered section\s+governs|the numbered section governs/,
+    )
+  })
+
+  it('states every figure the billing system pays on', () => {
+    const s = summary()
+    const figures: [string, string][] = [
+      [`$${REFERRAL_TERMS.SIGNUP_BONUS} USD`, 'signup bonus'],
+      [`${REFERRAL_TERMS.COMMISSION_RATE * 100}% of Net Profit`, 'commission rate'],
+      [`$${REFERRAL_TERMS.MIN_PAYOUT} USD`, 'minimum payout'],
+      // The window is the one figure NOT composed from the constant, and
+      // deliberately so. The contract writes it the way contracts write
+      // numbers — word then numeral, "twelve (12)" — so a composed
+      // `${COMMISSION_MONTHS} (${COMMISSION_MONTHS})` asks for "12 (12)",
+      // which is not English and is not what the document says. Hardcoding the
+      // phrase is not a hole here because the constant is pinned by `toBe(12)`
+      // in the Section 3 block above: changing COMMISSION_MONTHS fails there
+      // first and sends the author to every literal. And the literal buys
+      // something the composed form cannot — it checks the WORD against the
+      // numeral, so "twelve (18) consecutive months", where someone edited one
+      // half of the pair, fails here instead of shipping an ambiguous term.
+      ['twelve (12) consecutive months', 'revenue-share window'],
+    ]
+    for (const [phrase, what] of figures) {
+      expect(s, `${doc}: summary does not state the ${what}: "${phrase}"`).toContain(phrase)
+    }
+  })
+
+  it('invents no money or percentage figure that is not a term of the deal', () => {
+    // The checks above are presence checks, and a presence check cannot see an
+    // ADDITION. A summary that correctly states $300 and also mentions a $1,000
+    // tier that exists nowhere in the contract would pass all of them. This
+    // enumerates instead: every dollar and percent figure in the summary has to
+    // be one the deal actually has.
+    const s = summary()
+    const allowedMoney = new Set([`$${REFERRAL_TERMS.SIGNUP_BONUS}`, `$${REFERRAL_TERMS.MIN_PAYOUT}`])
+    const allowedPercent = new Set([`${REFERRAL_TERMS.COMMISSION_RATE * 100}%`])
+
+    const money = s.match(/\$[\d,]+(?:\.\d+)?/g) ?? []
+    const stray = money.filter((m) => !allowedMoney.has(m))
+    expect(
+      stray,
+      `${doc}: summary states a dollar figure that is not a term of this deal: ${JSON.stringify(stray)}. ` +
+        `Allowed: ${JSON.stringify([...allowedMoney])}`,
+    ).toEqual([])
+
+    const percent = s.match(/\d+(?:\.\d+)?%/g) ?? []
+    const strayPct = percent.filter((p) => !allowedPercent.has(p))
+    expect(
+      strayPct,
+      `${doc}: summary states a percentage that is not a term of this deal: ${JSON.stringify(strayPct)}. ` +
+        `Allowed: ${JSON.stringify([...allowedPercent])}`,
+    ).toEqual([])
+  })
+
+  it('cites only clause numbers that exist in the agreement it summarises', () => {
+    // The cover note shipped a citation to a clause that did not hold the
+    // clawback (see the next describe block). A summary is read more than the
+    // cover note and is bound into the signed document, so a dangling reference
+    // here is worse. Every "(3.4)" style citation must correspond to a clause
+    // actually drafted below.
+    const slice = contractSlice(doc)
+    const body = slice.slice(slice.indexOf('\n## 1.'))
+    // Citations appear singly "(3.4)" and in runs "(3.1, 3.2, 3.10)", so pull
+    // the whole parenthesised group and split it. Plain section references like
+    // "(5)" are deliberately not collected: there is no "5 " clause line to
+    // match them against, since the heading reads "## 5. Partner Conduct".
+    const cited = new Set<string>()
+    for (const m of summary().matchAll(/\(([\d.]+(?:,\s*[\d.]+)*)\)/g)) {
+      for (const n of m[1].split(/,\s*/)) if (/^\d+\.\d+$/.test(n)) cited.add(n)
+    }
+    expect(cited.size, `${doc}: summary cites no clause numbers at all — the cross-references are gone`).toBeGreaterThan(10)
+
+    // A clause counts as drafted when the body states it at the start of a
+    // line, e.g. "3.4 **Revenue share". `body` is the raw slice and still has
+    // its newlines; operative() collapsed them in the summary only.
+    const dangling = [...cited].filter(
+      (n) => !new RegExp(`(^|\\n)${n.replace('.', '\\.')} `).test(body),
+    )
+    expect(
+      dangling,
+      `${doc}: summary cites clauses that are not drafted in the agreement: ${JSON.stringify(dangling)}`,
+    ).toEqual([])
+  })
+
+  it('uses no markdown table, which this renderer cannot render', () => {
+    // Guarded at the source as well as in the PDF text layer. The PDF check
+    // catches it after a render; this one names the problem in the file the
+    // author is editing, and still fails if the PDF was never rebuilt.
+    const lines = summary().split('\n')
+    expect(
+      lines.filter((l) => l.trim().startsWith('|')),
+      `${doc}: the summary contains a markdown table. scripts/build-agreement-pdf.mjs has no ` +
+        'table branch — it will print the pipes verbatim to the counterparty. Use bullets.',
+    ).toEqual([])
+  })
+
+  it('states what Shipo expects of Partner, not only what Shipo pays', () => {
+    // The summary was asked for as "the prices AND what is expected of him".
+    // A summary that lists only the money is the version that gets written by
+    // accident, and it is the one that makes a partner feel misled later.
+    const s = summary()
+    for (const [phrase, what] of [
+      ['Form W-9', 'the W-9 precondition to payment'],
+      ['CAN-SPAM', 'the outreach-compliance obligation'],
+      ['confidential', 'the confidentiality obligation'],
+      ['independent contractor', 'the contractor status'],
+      ['no guarantee', 'the no-guarantees obligation'],
+      // The two terms that cost Partner money rather than merely constraining
+      // conduct, and the two the first draft of this summary left out. The
+      // conduct rules were listed without the consequence of breaking them,
+      // which is the same "reads better than the contract" failure as omitting
+      // a figure — it just hides in a sentence that is individually true.
+      // Section 9 runs ONE WAY, so the word "indemnif" appearing is not enough;
+      // a summary saying "each Party indemnifies the other" would contain it
+      // and be false. Hence the direction is asserted too.
+      ['one way', 'that indemnification runs one way'],
+      ['indemnif', 'the indemnification obligation'],
+      ['capped at', "the cap on Shipo's liability to Partner"],
+    ] as [string, string][]) {
+      expect(s, `${doc}: summary omits ${what}: "${phrase}"`).toContain(phrase)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // The cover note that goes WITH the agreement.
 // ---------------------------------------------------------------------------
 //
@@ -607,11 +778,26 @@ describe.each(PDF_PAIRS)('%s — the rendered PDF matches the markdown', (doc) =
     // whitespace and hyphens precisely so that a line wrap cannot cause a false
     // miss — and that is the same edit that makes "- Shipo LLC" and "Shipo LLC"
     // identical. So this one reads the RAW text layer, not the flattened one.
+    // Tables are in this list because the renderer has NO table branch — the
+    // header of build-agreement-pdf.mjs says so in terms ("No tables — the one
+    // table in the source file lives in the Schedule, which is outside the
+    // contract markers"). So a table added inside the CONTRACT markers does not
+    // render as a table; it falls through to <p> and prints its own pipes. The
+    // Summary of Terms added on 2026-10-13 is exactly the kind of content
+    // someone reaches for a table to express, which is why this is guarded
+    // rather than left to the author remembering.
     const raw = pdfText(pdf)
     const leaked = raw
       .split('\n')
       .map((l) => l.trim())
-      .filter((l) => /^[-*]\s+\S/.test(l) || /^#{1,6}\s+\S/.test(l) || /\*\*\S/.test(l))
+      .filter(
+        (l) =>
+          /^[-*]\s+\S/.test(l) ||
+          /^#{1,6}\s+\S/.test(l) ||
+          /\*\*\S/.test(l) ||
+          /^\|/.test(l) ||
+          /\|\s*-{3,}/.test(l),
+      )
     expect(
       leaked,
       `${pdf} prints raw markdown rather than rendering it: ${JSON.stringify(leaked.slice(0, 3))}. ` +
