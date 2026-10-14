@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { createClient } from '@/lib/supabase-server'
 import { sendPortalInvite } from '@/lib/partner-invite'
-import { portalAccessBlockedReason } from '@/lib/partner-access'
+import { invitePreconditionReason, portalAccessBlockedReason } from '@/lib/partner-access'
 
 // Staff-side control of a partner's portal access.
 //
@@ -46,7 +46,10 @@ export async function POST(req: Request) {
 
   const { data: partner, error: partnerError } = await supabaseAdmin
     .from('referral_partners')
-    .select('id, name, email, status, agreement_status')
+    // tax_status is read for invitePreconditionReason below. Asking about
+    // a column this select omitted would answer "unrecorded" for
+    // everybody — the gate would be total rather than conditional.
+    .select('id, name, email, status, agreement_status, tax_status')
     .eq('id', partner_id)
     .maybeSingle()
 
@@ -76,6 +79,18 @@ export async function POST(req: Request) {
   const blocked = portalAccessBlockedReason(partner)
   if (blocked) {
     return NextResponse.json({ error: blocked }, { status: 400 })
+  }
+
+  // AND THE DEAD END THAT RULE DOES NOT COVER. An unrecorded tax_status
+  // is the default for every new row, and the portal it opens onto is a
+  // W-9 screen we cannot generate a W-9 for — so the invite would be an
+  // invitation to an empty page and a "please email support". Refused
+  // here rather than at login, for the reason invitePreconditionReason
+  // gives: at login the same rule would evict partners who are entitled
+  // to be there.
+  const precondition = invitePreconditionReason(partner)
+  if (precondition) {
+    return NextResponse.json({ error: precondition }, { status: 400 })
   }
 
   // The email itself lives in src/lib/partner-invite.ts and is NOT rebuilt

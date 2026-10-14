@@ -1,5 +1,13 @@
-// Builds the envelope that gets a partner signed up: the Referral
-// Partner Agreement plus a blank IRS Form W-9, in one sitting.
+// Builds the two envelopes a partner signs: the Referral Partner
+// Agreement (buildPartnerAgreementEnvelope) and, separately, a blank
+// IRS Form W-9 carbon-copied to the accountant (buildW9Envelope).
+//
+// They were one envelope until Task 7. Splitting them costs a second
+// round trip and buys three things: the accountant can be copied on the
+// tax form without seeing the agreement's confidential commission terms
+// (§6), the W-9 can be re-collected without re-signing the contract,
+// and the two completions can stamp different columns — which the
+// combined envelope could not, since one completion meant both.
 //
 // Nothing in this file talks to DocuSign. It builds a payload, and the
 // send happens through the DocuSign MCP. That split is on purpose: the
@@ -24,6 +32,8 @@
 //      goes anywhere.
 
 import { W9_CUSTOM_FIELD, W9_INCLUDED } from './partner-w9'
+import { ENVELOPE_KIND_FIELD, KIND_W9_ONLY } from './partner-envelope-stamp'
+import { taxStatusOf, w9Refusal } from './partner-tax-status'
 import {
   W9_CLASSIFICATIONS,
   W9_CLASSIFICATION_GROUP,
@@ -92,6 +102,11 @@ export const AGREEMENT_ANCHORS = {
 
 export const SHIPO_RECIPIENT_ID = '1'
 export const PARTNER_RECIPIENT_ID = '2'
+/**
+ * The accountant, on the W-9-only envelope. A carbon copy, never a signer:
+ * see buildW9Envelope.
+ */
+export const ACCOUNTANT_RECIPIENT_ID = '3'
 
 export interface EnvelopePartner {
   id: string
@@ -105,6 +120,14 @@ export interface EnvelopePartner {
    * Party. Falls back to `name` for a sole trader, who is both.
    */
   company?: string | null
+  /**
+   * 'us_person' | 'foreign_individual' | 'foreign_entity', or null/absent
+   * when nobody has recorded it. See partner-tax-status.ts: anything but a
+   * US person REFUSES this builder, because the W-9 bundled here is the
+   * wrong IRS form for them. Typed as a loose string because it arrives
+   * straight off a Supabase row; taxStatusOf() narrows it.
+   */
+  tax_status?: string | null
 }
 
 /** Who clause 1 names as "Partner". See EnvelopePartner.company. */
@@ -121,8 +144,6 @@ export interface BuildEnvelopeInput {
   partner: EnvelopePartner
   /** Whoever signs for Shipo. Routing order 1 — they sign first. */
   shipo: EnvelopeSigner
-  /** Page 1 of the IRS W-9, base64. See w9Page1Base64 in the send script. */
-  w9DocumentBase64: string
 }
 
 /**
@@ -224,8 +245,17 @@ function w9Tab(box: { x: number; y: number; w: number; h: number }, extra: Recor
   }
 }
 
-/** Tabs the partner fills on the W-9. Every one of them is explicit. */
-function w9PartnerTabs() {
+/**
+ * Tabs the partner fills on the W-9. Every one of them is explicit.
+ *
+ * Exported so the W-9-only envelope below uses THIS list rather than a
+ * second copy of it. Required tabs are the whole basis for trusting a
+ * `completed` envelope: DocuSign will not complete one with a required tab
+ * unfilled, and the webhook stamps w9_received_at off that completion. Two
+ * copies of the list means one of them can quietly lose a tab, and then the
+ * stamp says "we have his W-9" about a form with no TIN on it.
+ */
+export function w9PartnerTabs() {
   const textTabs = W9_TEXT_FIELDS.map((f) =>
     w9Tab(f, {
       tabLabel: `w9_${f.acroform}`,
@@ -342,20 +372,35 @@ function w9PartnerTabs() {
 }
 
 /**
- * The envelope, as a draft.
+ * The agreement envelope, as a draft.
  *
- * Two composite templates, because the two documents come from
- * different places: the agreement from the server template, the W-9 as
- * bytes. Recipient ids are shared across both so DocuSign treats them
- * as the same two people rather than four.
+ * ONE document, since Task 7 split the W-9 out into buildW9Envelope
+ * (spec §2a.3). The agreement is signed once, at onboarding; the W-9 is
+ * a tax form that may be re-collected, goes to the accountant, and must
+ * not drag the agreement's confidential commission terms along with it.
  */
 export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
-  const { partner, shipo, w9DocumentBase64 } = input
+  const { partner, shipo } = input
 
   if (!partner.id) throw new Error('buildPartnerAgreementEnvelope: partner.id is required')
   if (!partner.name?.trim()) throw new Error('buildPartnerAgreementEnvelope: partner.name is required')
   if (!partner.email?.trim()) throw new Error('buildPartnerAgreementEnvelope: partner.email is required')
-  if (!w9DocumentBase64) throw new Error('buildPartnerAgreementEnvelope: w9DocumentBase64 is required')
+
+  // US PERSONS ONLY, AND THE CHECK IS HERE RATHER THAN AT THE CALL SITE
+  // (spec §2a.7). The guard stays on this builder even though the W-9 is
+  // no longer attached: a partner we cannot collect a W-9 from is a
+  // partner we cannot pay, so sending them the agreement promises a
+  // commission we have no lawful way to disburse. Neither W-8 path is
+  // built, deliberately, so the only correct behaviour is to refuse the
+  // agreement too.
+  //
+  // It sits above every line that assembles a document or a tab, so a
+  // refusal cannot leave a half-built envelope for a caller to send. A
+  // guard that runs after assembly protects nothing an exception does not
+  // already -- but it does invite someone to "just use the part that got
+  // built".
+  const refusal = w9Refusal(taxStatusOf(partner.tax_status))
+  if (refusal) throw new Error(`buildPartnerAgreementEnvelope: ${refusal}`)
 
   const shipoSigner = {
     recipientId: SHIPO_RECIPIENT_ID,
@@ -379,10 +424,12 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
 
   return {
     emailSubject: `Shipo Referral Partner Agreement — ${partner.name}`,
+    // No mention of the W-9. It is a separate envelope now (§2a.3), and
+    // the partner completes it in their dashboard — telling them it is
+    // attached here would send them looking for a page that is not there.
     emailBlurb:
       'Please review and sign the Shipo Referral Partner Agreement. ' +
-      'The second page is a blank IRS Form W-9 — we need it on file before we can pay you, ' +
-      'so completing it here saves a second round trip.',
+      'Once both parties have signed you will receive a link to your partner portal.',
 
     // A draft. Always. Reviewed before it reaches anybody.
     status: 'created',
@@ -393,11 +440,15 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
         // cannot alter it — which is why resolvePartner trusts it over
         // the signer's email address.
         { name: PARTNER_ID_FIELD, value: partner.id, show: 'false', required: 'false' },
-        // The evidence the webhook stamps w9_received_at on. Taken from
-        // the shared constants, never spelled out here, so a rename on
-        // either side is a failed build rather than a W-9 recorded as
-        // never received.
-        { name: W9_CUSTOM_FIELD, value: W9_INCLUDED, show: 'false', required: 'false' },
+        // No W9_CUSTOM_FIELD here, deliberately. That field is the
+        // evidence the webhook stamps w9_received_at on, and this
+        // envelope no longer carries a W-9. Setting it would stamp "we
+        // hold his tax form" off a document that does not exist.
+        //
+        // No ENVELOPE_KIND_FIELD either: absent means agreement, which
+        // is what keeps the combined envelope already in flight working.
+        // See completedEnvelopeStamp.
+        //
         // Required by the account. Omit it and the send is rejected.
         {
           name: ENVELOPE_TYPE_FIELD,
@@ -434,16 +485,136 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
           },
         ],
       },
+    ],
+  }
+}
+
+export interface BuildW9EnvelopeInput {
+  partner: EnvelopePartner
+  /** Page 1 of the IRS W-9, base64. Same bytes the agreement bundle uses. */
+  w9DocumentBase64: string
+  /**
+   * ACCOUNTANT_W9_EMAIL. Configuration, never a literal in this repo: the
+   * accountant is a person who can change, and a hardcoded address would
+   * keep mailing tax forms to whoever used to hold the job.
+   */
+  accountantEmail: string
+  /** A named human at the firm, not "Accounting". DocuSign shows this. */
+  accountantName: string
+  /**
+   * What makes the partner an EMBEDDED signer. DocuSign stops emailing a
+   * recipient that carries one and expects a recipient-view URL instead,
+   * which is how the dashboard opens the form in place. We use the partner
+   * row id — stable, and already what the webhook resolves on.
+   */
+  clientUserId: string
+}
+
+/**
+ * The W-9 on its own, as a draft, for a partner who already signed the
+ * agreement (spec §2a).
+ *
+ * WHY THIS IS SEPARATE FROM THE AGREEMENT ENVELOPE. The agreement is signed
+ * once, before anything; the W-9 is signed from the dashboard, is due again
+ * whenever the partner's details change, and — the reason that forces the
+ * split — must reach the accountant, which the agreement must NOT, because
+ * §6 makes the commission terms confidential. One envelope carrying both
+ * documents cannot copy a third party on only one of them.
+ *
+ * THE ACCOUNTANT IS A CARBON COPY, NOT SOMETHING WE SEND. We never fetch
+ * the signed PDF into this process and never attach it to an email of our
+ * own: a completed W-9 carries a TIN, and the only safe number of copies of
+ * a TIN in our logs, our mail provider and our storage is zero. DocuSign
+ * holds the bytes and delivers them. See docusign-redact.ts and Risk 5.
+ *
+ * SHIPO IS NOT A RECIPIENT HERE. On the agreement envelope Shipo is listed
+ * on both composite templates so the routing order is unambiguous across
+ * two documents. This envelope has one document and nothing for Shipo to
+ * sign, and a tabless signer is not free: DocuSign emails them and waits
+ * for them to click Finish before the envelope completes. Completion is
+ * what releases the accountant's copy and what the webhook stamps
+ * w9_received_at on, so listing Shipo would park a finished W-9 behind a
+ * click nobody is waiting for.
+ */
+export function buildW9Envelope(input: BuildW9EnvelopeInput) {
+  const { partner, w9DocumentBase64, accountantEmail, accountantName, clientUserId } = input
+
+  if (!partner.id) throw new Error('buildW9Envelope: partner.id is required')
+  if (!partner.name?.trim()) throw new Error('buildW9Envelope: partner.name is required')
+  if (!partner.email?.trim()) throw new Error('buildW9Envelope: partner.email is required')
+  if (!w9DocumentBase64) throw new Error('buildW9Envelope: w9DocumentBase64 is required')
+
+  // Same refusal as the agreement builder, same reason (§2a.7): a W-9 is
+  // the wrong form for anyone who is not a US person, and a signed wrong
+  // form is a false certification in our file.
+  const refusal = w9Refusal(taxStatusOf(partner.tax_status))
+  if (refusal) throw new Error(`buildW9Envelope: ${refusal}`)
+
+  // ACCOUNTANT_W9_EMAIL is unset in Vercel today. Without this guard the
+  // builder would happily produce an envelope carbon-copied to nobody --
+  // which completes, stamps w9_received_at, and looks in every way like a
+  // W-9 that reached the accountant.
+  if (!accountantEmail?.trim()) {
+    throw new Error('buildW9Envelope: accountantEmail is required (ACCOUNTANT_W9_EMAIL)')
+  }
+  if (!accountantName?.trim()) {
+    throw new Error('buildW9Envelope: accountantName is required (a named human at the firm)')
+  }
+
+  // An empty clientUserId is not "not embedded". It is an embedded
+  // recipient DocuSign cannot match: a 400 at send time if we are lucky,
+  // and a recipient who is neither emailed nor reachable by URL if we are
+  // not.
+  if (!clientUserId?.trim()) throw new Error('buildW9Envelope: clientUserId is required')
+
+  return {
+    // The partner signs embedded and is never emailed, so this subject has
+    // exactly one reader: the accountant, who will hold a folder of them.
+    emailSubject: `IRS Form W-9 — ${partner.name} (Shipo referral partner)`,
+    emailBlurb:
+      'Attached is the completed IRS Form W-9 for a Shipo referral partner, ' +
+      'signed electronically. No action is needed — this copy is for your records.',
+
+    // A draft. Always. Nothing in this repo sends it.
+    status: 'created',
+
+    customFields: {
+      textCustomFields: [
+        { name: PARTNER_ID_FIELD, value: partner.id, show: 'false', required: 'false' },
+        // The evidence the webhook stamps w9_received_at on, taken from the
+        // shared constants so a rename breaks the build rather than
+        // recording a received W-9 as never received.
+        { name: W9_CUSTOM_FIELD, value: W9_INCLUDED, show: 'false', required: 'false' },
+        // WHAT KEEPS THIS COMPLETION FROM BEING READ AS AN AGREEMENT.
+        // Without it the webhook re-stamps agreement_signed_at onto a date
+        // no contract was signed on, re-sends the portal invite, and
+        // re-activates a partner somebody had deliberately set inactive.
+        // See completedEnvelopeStamp.
+        // WHAT KEEPS THIS COMPLETION FROM BEING READ AS AN AGREEMENT.
+        // Without it the webhook re-stamps agreement_signed_at onto a date
+        // no contract was signed on, re-sends the portal invite, and
+        // re-activates a partner somebody had deliberately set inactive.
+        // See completedEnvelopeStamp.
+        { name: ENVELOPE_KIND_FIELD, value: KIND_W9_ONLY, show: 'false', required: 'false' },
+        // Required by the account. Omit it and the send is rejected.
+        { name: ENVELOPE_TYPE_FIELD, value: ENVELOPE_TYPE_VALUE, show: 'false', required: 'true' },
+      ],
+    },
+
+    compositeTemplates: [
       {
-        compositeTemplateId: '2',
+        compositeTemplateId: '1',
         document: {
+          // '2', not '1', because w9Tab() positions every tab against
+          // documentId '2' -- the id the W-9 carries in the agreement
+          // bundle. Renumbering the document here would leave every tab
+          // pointing at a document that does not exist in this envelope.
           documentId: '2',
           name: 'IRS Form W-9',
           fileExtension: 'pdf',
           documentBase64: w9DocumentBase64,
-          // NOT transformPdfFields. See the header: the transform would
-          // assign every field — the TIN included — to routing order 1,
-          // which is Shipo.
+          // NOT transformPdfFields: the transform assigns every AcroForm
+          // field -- the TIN included -- to routing order 1.
           transformPdfFields: 'false',
         },
         inlineTemplates: [
@@ -451,11 +622,28 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
             sequence: '1',
             recipients: {
               signers: [
-                // Shipo is listed so the routing order is unambiguous
-                // across both documents, but holds no tabs on the W-9.
-                // It is the partner's tax form, not ours to fill.
-                { ...shipoSigner, tabs: {} },
-                { ...partnerSigner, tabs: w9PartnerTabs() },
+                {
+                  recipientId: PARTNER_RECIPIENT_ID,
+                  name: partner.name,
+                  email: partner.email,
+                  routingOrder: '1',
+                  roleName: 'Partner',
+                  clientUserId,
+                  tabs: w9PartnerTabs(),
+                },
+              ],
+              carbonCopies: [
+                {
+                  recipientId: ACCOUNTANT_RECIPIENT_ID,
+                  name: accountantName,
+                  email: accountantEmail,
+                  // AFTER the signer. A carbon copy at or before the
+                  // signer's routing order receives the envelope in its
+                  // UNSIGNED state -- the accountant would be sent a blank
+                  // form and nothing afterwards, which is indistinguishable
+                  // from a delivered one.
+                  routingOrder: '2',
+                },
               ],
             },
           },

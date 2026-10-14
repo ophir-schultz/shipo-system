@@ -4,6 +4,7 @@ import type { ReferralPartner, ReferredClient, FbaInvoice, PayoutRecord } from '
 import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ReferralsManager from '@/components/referrals/ReferralsManager'
+import ClaimsQueue from '@/components/referrals/ClaimsQueue'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,12 +24,41 @@ export const dynamic = 'force-dynamic'
 // hand -- but approving is done by reading this screen, so a screen that errs
 // in the double-pay direction has consumed the entire safety margin.
 
+/** The claim as the staff queue needs it. Mirrors ClaimsQueue's prop type. */
+interface ClaimRow {
+  id: string
+  referral_partner_id: string | null
+  company_name: string | null
+  website: string | null
+  contact_name: string | null
+  contact_email: string | null
+  note: string | null
+  status: string | null
+  client_id: string | null
+  decided_by: string | null
+  decided_at: string | null
+  decision_note: string | null
+  /** Arrived past the partner's daily allowance; kept and marked, not dropped. */
+  over_cap: boolean | null
+  created_at: string | null
+}
+interface QueueClientRow {
+  id: string
+  name: string | null
+  referral_partner_id: string | null
+}
+interface QueuePartnerRow {
+  id: string
+  name: string | null
+  company: string | null
+}
+
 async function getData() {
-  const [partnersRes, clientsRes, invoicesRes, payoutsRes] = await Promise.all([
+  const [partnersRes, clientsRes, invoicesRes, payoutsRes, claimsRes] = await Promise.all([
     supabaseAdmin
       .from('referral_partners')
       .select(
-        'id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at, portal_last_seen_at, portal_invited_at, agreement_status, agreement_signed_at, w9_received_at, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue, founding_partner',
+        'id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at, portal_last_seen_at, portal_invited_at, agreement_status, agreement_signed_at, w9_received_at, tax_status, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue, founding_partner',
       )
       .order('created_at', { ascending: false }),
     supabaseAdmin
@@ -46,6 +76,25 @@ async function getData() {
     supabaseAdmin
       .from('referral_payouts')
       .select('id, dedupe_key, status, amount, approved_at, paid_at, kind, period, client_id, referral_partner_id')
+      .order('created_at', { ascending: false }),
+    // The claims queue (§3.4). Its own read, deliberately NOT folded into
+    // the four above: those four feed computeOwed and are gated together,
+    // because a wrong amount owed is worse than no screen. A claim is not
+    // an amount -- it is a request waiting on a human -- and claims piling
+    // up unseen is the failure this queue exists to prevent. So it renders
+    // whether or not the payout half of this page could be computed.
+    //
+    // `decision_note` is selected because STAFF may see it (§3.3 forbids
+    // it on the PARTNER surface only). Columns named, never '*'.
+    supabaseAdmin
+      .from('partner_client_claims')
+      .select(
+        // `over_cap` marks a claim that arrived past the partner's daily
+        // allowance. Kept rather than discarded (see
+        // src/app/api/partner/claims/route.ts) precisely so a human sees
+        // it, which cannot happen if the page does not read it.
+        'id, referral_partner_id, company_name, website, contact_name, contact_email, note, status, client_id, decided_by, decided_at, decision_note, over_cap, created_at',
+      )
       .order('created_at', { ascending: false }),
   ])
 
@@ -71,6 +120,16 @@ async function getData() {
 
   return {
     migrationMissing,
+    // Outside `page`, so a failed invoices read cannot hide the queue.
+    queue: {
+      claims: (claimsRes.data ?? []) as ClaimRow[],
+      readFailed: !!claimsRes.error,
+      clients: clients.rows as QueueClientRow[],
+      partners: partners.rows as QueuePartnerRow[],
+      // An unreadable client list must not render as "we have no client
+      // by that name" next to an Approve button.
+      clientsUnreadable: !!clients.error,
+    },
     // Inside the thunk, so on the failure path computeOwed never runs. It is
     // not that its answer would be wrong and discarded -- it is that a full set
     // of plausible amounts-owed should not exist in the program at all.
@@ -119,6 +178,19 @@ export default async function ReferralsPage() {
           </p>
         </div>
       )}
+
+      {/* ABOVE the payout tables, and outside the ok/unreadable branch.
+          A claim is a partner waiting on an answer from a human; the
+          tables below are a computed figure. If the figure cannot be
+          computed the right thing is still to show the queue, because
+          the worst outcome for a claim is nobody seeing it. */}
+      <ClaimsQueue
+        claims={d.queue.claims}
+        clients={d.queue.clients}
+        partners={d.queue.partners}
+        readFailed={d.queue.readFailed}
+        clientsUnreadable={d.queue.clientsUnreadable}
+      />
 
       {d.page.ok
         ? <Manager data={d.page.data} />

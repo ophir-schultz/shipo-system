@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { requireStaff } from '@/lib/require-staff'
+import { partnerWriteFields } from '@/lib/referral-partner-fields'
 
 // Create or update a referral partner (manual entry / review of a
 // website-form sign-up). No money moves here.
@@ -26,26 +27,19 @@ export async function POST(req: Request) {
   const denied = await requireStaff()
   if (denied) return denied
 
-  const body = await req.json()
-  const { id, name, company, email, phone, partner_type, refer_method, status, notes } = body
+  const body = (await req.json()) as Record<string, unknown>
+  const id = typeof body.id === 'string' ? body.id : null
 
-  if (!id && !name) {
-    return NextResponse.json({ error: 'Partner name is required.' }, { status: 400 })
+  // Which columns to write is decided in partnerWriteFields, under test.
+  // It used to be decided here, with `company: company ?? null` followed by
+  // a strip of the undefined keys -- which removed nothing, because `??
+  // null` had already replaced them. A partial POST therefore wrote nulls
+  // across the row, and the approve button below sends exactly that.
+  const write = partnerWriteFields(body)
+  if ('error' in write) {
+    return NextResponse.json({ error: write.error }, { status: 400 })
   }
-
-  const fields: Record<string, unknown> = {
-    name,
-    company: company ?? null,
-    email: email ?? null,
-    phone: phone ?? null,
-    partner_type: partner_type ?? null,
-    refer_method: refer_method ?? null,
-    status: status ?? 'active',
-    notes: notes ?? null,
-    updated_at: new Date().toISOString(),
-  }
-  // strip undefined so a partial edit doesn't null out columns
-  Object.keys(fields).forEach((k) => fields[k] === undefined && delete fields[k])
+  const { fields } = write
 
   if (id) {
     const { error } = await supabaseAdmin.from('referral_partners').update(fields).eq('id', id)

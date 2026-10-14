@@ -435,7 +435,15 @@ export function tenureReleaseDate(invoices: FbaInvoice[], minDays: number): Date
   return start
 }
 
-const isoDay = (d: Date) => d.toISOString().slice(0, 10)
+/**
+ * A Date as 'YYYY-MM-DD', in UTC.
+ *
+ * Exported alongside monthIndex so that a caller holding a Date can reach
+ * the same month arithmetic without writing its own getMonth() — a local
+ * one would put a 1st-of-the-month Date in the previous month west of
+ * Greenwich, and the window boundary is a month.
+ */
+export const isoDay = (d: Date) => d.toISOString().slice(0, 10)
 
 /**
  * Human sentence for why a bonus is or is not owed yet. Only ever
@@ -497,8 +505,16 @@ export function monthLabel(dateStr: string): string {
   return dateStr.slice(0, 7)
 }
 
-/** Whole-month index (year*12+month) for range math. */
-function monthIndex(dateStr: string): number {
+/**
+ * Whole-month index (year*12+month) for range math.
+ *
+ * Exported because the partner's client roster (partner-roster.ts) has to
+ * answer "where in the 12-month window is this client" and that answer must
+ * come out of the SAME arithmetic that decides whether a month's commission
+ * is owed. Two implementations would disagree on a boundary month, and the
+ * screen would then name a window the payout does not honour.
+ */
+export function monthIndex(dateStr: string): number {
   const [y, m] = dateStr.slice(0, 10).split('-').map(Number)
   return y * 12 + (m - 1)
 }

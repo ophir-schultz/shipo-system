@@ -36,6 +36,23 @@ export interface SessionPartner {
   // downstream — it is here so the field the gate reads is part of the
   // type, rather than selected by a query nothing declares.
   agreement_status: string | null
+  // Carried for §4.4: the partner's own account panel states WHEN he
+  // signed. Same select, no second query. Absent from the select it
+  // arrives as undefined, which the panel renders as "—" — telling the
+  // one person who did sign that we have no record of it.
+  agreement_signed_at: string | null
+  // Carried for the W-9 gate on /partner (spec §2.1), which runs after the
+  // disclaimer and before the statement. One more column on a select the
+  // session already performs, NOT a second query: the gate is asked on
+  // every page load, and a separate read would double the round trips on
+  // the hot path to save nothing.
+  w9_received_at: string | null
+  // Carried for §2a.7: the W-9 envelope the dashboard offers is the wrong
+  // IRS form for a non-US person, so the screen that offers it has to know.
+  // Typed loose because it comes straight off the row; partner-tax-status.ts
+  // narrows it, and null — the state every existing row is in — is a refusal,
+  // not a US person.
+  tax_status: string | null
 }
 
 /** SHA-256, lowercase hex. Used for both codes and session tokens. */
@@ -125,7 +142,8 @@ export async function getPartnerFromSession(): Promise<SessionPartner | null> {
 
   const { data: partner } = await supabaseAdmin
     .from('referral_partners')
-    .select('id, name, company, email, status, agreement_status')
+    // prettier-ignore
+    .select('id, name, company, email, status, agreement_status, agreement_signed_at, w9_received_at, tax_status')
     .eq('id', session.referral_partner_id)
     .maybeSingle()
 

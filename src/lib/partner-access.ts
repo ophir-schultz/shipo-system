@@ -26,6 +26,8 @@
 // the FIRST problem rather than all of them is deliberate — a list of three
 // faults reads as "this is broken", where one sentence reads as "do this next".
 
+import { taxStatusOf } from './partner-tax-status'
+
 /** The value the DocuSign webhook writes on envelope-completed. */
 export const AGREEMENT_SIGNED = 'signed'
 
@@ -34,6 +36,11 @@ export interface AccessCandidate {
   email?: string | null
   status?: string | null
   agreement_status?: string | null
+  /**
+   * Read by invitePreconditionReason only. Absent is the same as unset,
+   * which is the same as unrecognised — see taxStatusOf.
+   */
+  tax_status?: string | null
 }
 
 /**
@@ -128,7 +135,53 @@ export function portalAccessPartnerMessage(partner: AccessCandidate): string | n
   return block ? PARTNER_REASON[block] : null
 }
 
-/** Convenience for the UI: can the invite button be live? */
+/**
+ * null when this partner may be SENT AN INVITE; otherwise a sentence for
+ * staff. Checked in addition to portalAccessBlock, never instead of it.
+ *
+ * WHY THIS IS NOT AN AccessBlock. `referral_partners.tax_status` has no
+ * default, so every partner added from today on starts with it unset —
+ * and the whole dashboard sits behind the W-9 (src/app/partner/page.tsx
+ * returns <W9Gate /> instead of <Statement />), while w9SignRefusal
+ * refuses to assemble a W-9 for a partner whose tax status nobody
+ * recorded, deliberately vaguely, because our bookkeeping is not his
+ * business. The ordinary path therefore ends with a partner on an empty
+ * screen told to email support, over a dropdown nobody selected.
+ *
+ * The invite is the last moment we can prevent that, which is why the
+ * rule lives here. It is deliberately NOT part of portalAccessBlock,
+ * because that function is also consulted at login: adding it there would
+ * throw out a partner who already holds a W-9 — stamped by the old
+ * combined envelope — but whose tax_status was never recorded, taking
+ * away a statement he is entitled to read. The cost of being wrong in
+ * each direction is not the same, and it points the other way at login.
+ *
+ * A FOREIGN PARTNER MAY BE INVITED. He cannot be sent a W-9 and must not
+ * be, but he has an agreement and the portal has a statement in it.
+ * Refusing here would silently turn "we do not build W-8 envelopes yet"
+ * into "you get no portal", which is a larger refusal than anybody
+ * decided on.
+ */
+export function invitePreconditionReason(partner: AccessCandidate): string | null {
+  // taxStatusOf, not a truthiness check on the column: unset and
+  // unrecognised collapse to the same null there, and a value no human
+  // chose must not read as recorded.
+  if (taxStatusOf(partner.tax_status) === null) {
+    return 'This partner has no tax status recorded. Set it in the partner editor on /referrals before inviting them — without it the portal opens on a W-9 we cannot generate, and the partner is told to email support.'
+  }
+  return null
+}
+
+/**
+ * May this partner be in the portal at all?
+ *
+ * portalAccessBlock ONLY. This is the SESSION gate — partner-auth.ts calls
+ * it on every request from getPartnerFromSession — so folding
+ * invitePreconditionReason in here would sign out, mid-session, every
+ * partner whose tax_status nobody has recorded, including ones whose W-9
+ * is already on file. The invite precondition belongs to the invite; the
+ * button asks for both separately.
+ */
 export function canAccessPortal(partner: AccessCandidate): boolean {
   return portalAccessBlock(partner) === null
 }

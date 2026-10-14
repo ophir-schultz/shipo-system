@@ -4,6 +4,7 @@ import {
   AGREEMENT_SIGNED,
   agreementLabel,
   canAccessPortal,
+  invitePreconditionReason,
   portalAccessBlock,
   portalAccessBlockedReason,
   portalAccessPartnerMessage,
@@ -63,6 +64,109 @@ describe('portalAccessBlockedReason', () => {
     expect(reason).toBeTruthy()
     expect(reason!.length).toBeGreaterThan(20)
     expect(reason).not.toMatch(/^[A-Z_]+$/)
+  })
+})
+
+/**
+ * The invite is the LAST MOMENT Shipo can prevent a dead end.
+ *
+ * `referral_partners.tax_status` has no default (supabase/partner_tax_status.sql),
+ * so every new partner starts with it unset — and the whole dashboard is
+ * behind the W-9 (src/app/partner/page.tsx returns <W9Gate /> instead of
+ * <Statement />), while w9SignRefusal refuses to assemble a W-9 for a
+ * partner whose tax status nobody recorded. Deliberately vaguely, because
+ * our bookkeeping is not his business.
+ *
+ * So the ordinary path — invite, he signs, he logs in — ends with a
+ * partner on an empty screen told to email support, over a dropdown
+ * nobody selected. Not an edge case: the DEFAULT for every partner added
+ * from today on.
+ *
+ * This is a precondition for SENDING AN INVITE and deliberately not part
+ * of portalAccessBlock, which is also consulted at login. A partner
+ * already in the portal must not be thrown out over a column that governs
+ * only a form he may already have on file.
+ */
+describe('invitePreconditionReason', () => {
+  it('lets a signed, active partner with a recorded tax status through', () => {
+    expect(invitePreconditionReason({ ...signed, tax_status: 'us_person' })).toBeNull()
+  })
+
+  it('refuses to invite a partner whose tax status nobody recorded', () => {
+    for (const tax_status of [null, undefined, '']) {
+      expect(invitePreconditionReason({ ...signed, tax_status })).not.toBeNull()
+    }
+    expect(invitePreconditionReason({ ...signed })).not.toBeNull()
+  })
+
+  it('refuses an unrecognised value rather than reading it as recorded', () => {
+    // Same fail-closed rule as taxStatusOf: a typo past the database
+    // CHECK is not a tax status somebody chose.
+    expect(invitePreconditionReason({ ...signed, tax_status: 'US Person' })).not.toBeNull()
+  })
+
+  it('allows a foreign partner to be invited', () => {
+    // He cannot be sent a W-9 and must not be — but he has an agreement,
+    // and the portal has a statement in it. Refusing the invite would
+    // make "we do not build W-8 envelopes yet" into "you get no portal",
+    // which is a bigger refusal than the one anybody decided on.
+    for (const tax_status of ['foreign_individual', 'foreign_entity']) {
+      expect(invitePreconditionReason({ ...signed, tax_status })).toBeNull()
+    }
+  })
+
+  it('says what staff must do, and names the screen they do it on', () => {
+    const msg = invitePreconditionReason({ ...signed, tax_status: null })!
+    expect(msg).toMatch(/tax status/i)
+    expect(msg).toMatch(/referrals|partner editor/i)
+    expect(msg.length).toBeGreaterThan(20)
+  })
+
+  it('is about the invite only — it does not block a login', () => {
+    // The regression this forbids: adding the rule to portalAccessBlock
+    // would lock out a partner who already holds a W-9 (stamped by the
+    // old combined envelope) but whose tax_status was never recorded —
+    // taking away a statement he is entitled to read.
+    expect(portalAccessBlock({ ...signed, tax_status: null })).toBeNull()
+    expect(portalAccessPartnerMessage({ ...signed, tax_status: null })).toBeNull()
+
+    // canAccessPortal is the SESSION gate — partner-auth.ts asks it on
+    // every request. Folding the precondition into it signs out a
+    // logged-in partner over a column staff have not filled in, which is
+    // how the first draft of this fix broke the existing suite.
+    expect(canAccessPortal({ ...signed, tax_status: null })).toBe(true)
+  })
+})
+
+describe('the invite precondition is wired to both call sites', () => {
+  function body(text: string): string {
+    return text
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+      .filter((line) => !/^\s*import\b/.test(line))
+      .join('\n')
+  }
+
+  const route = body(readFileSync('src/app/api/referrals/portal-access/route.ts', 'utf8'))
+  const screen = body(readFileSync('src/components/referrals/ReferralsManager.tsx', 'utf8'))
+
+  it('the stripper keeps code and drops prose and imports', () => {
+    expect(body('  invitePreconditionReason(p)\n')).toContain('invitePreconditionReason')
+    expect(body('  // invitePreconditionReason is called below\n')).not.toContain(
+      'invitePreconditionReason',
+    )
+  })
+
+  it('the route refuses the invite, since a greyed button is not a control', () => {
+    expect(route).toContain('invitePreconditionReason(')
+    // And it must read the column, or it is asking about a field it never
+    // selected — which answers "unrecorded" for everybody.
+    expect(route).toMatch(/select\([^)]*tax_status/)
+  })
+
+  it('the screen reads the column too, so the button reflects the same rule', () => {
+    expect(screen).toContain('tax_status')
   })
 })
 
@@ -278,31 +382,83 @@ describe('the gate is actually wired to something', () => {
     expect(src).toMatch(/agreement_status/)
     expect(src).toMatch(/agreement_signed_at/)
   })
+
+  it('the SESSION select feeds the partner s own account panel too', () => {
+    // §4.4 shows the partner when he signed. The session select is the only
+    // read behind that panel, and a column missing from it arrives as
+    // undefined — which the panel renders as "—", i.e. "we have no record
+    // of you signing", to the one person who did sign. A silent wrong
+    // answer about his own contract, so it is pinned to the select rather
+    // than left to a reviewer noticing an em dash.
+    const src = body(readFileSync('src/lib/partner-auth.ts', 'utf8'))
+    expect(src).toMatch(/select\([^)]*agreement_signed_at/)
+    // And the type, because the component reads the field off SessionPartner.
+    expect(src).toMatch(/agreement_signed_at\s*:\s*string \| null/)
+  })
 })
 
 describe('the webhook and this module agree on the vocabulary', () => {
   // A rename on either side turns the gate into a permanent refusal: the
-  // webhook would write 'complete', this module would keep looking for
+  // writer would write 'complete', this module would keep looking for
   // 'signed', and every partner who signed would be told they had not. The
   // failure is silent and only a partner notices it, so it is asserted here
-  // against the webhook's source rather than left to memory.
-  const src = readFileSync('src/app/api/partner/agreement-webhook/route.ts', 'utf8')
+  // against the source rather than left to memory.
+  //
+  // BOTH FILES, because Task 7 moved the completion stamp out of the route
+  // and into partner-envelope-stamp.ts. Reading only the route would have
+  // left this describe green over a route that writes no agreement_status
+  // at all — which is exactly the state it is in now. The contract is
+  // between this module and whatever writes the column, so the guard reads
+  // everything that writes it; add a third writer and it belongs here too.
+  const WRITERS = [
+    'src/app/api/partner/agreement-webhook/route.ts',
+    'src/lib/partner-envelope-stamp.ts',
+  ]
+  const src = WRITERS.map((f) => readFileSync(f, 'utf8')).join('\n')
 
-  it(`writes agreement_status: '${AGREEMENT_SIGNED}' on completion`, () => {
-    expect(src).toContain(`agreement_status: '${AGREEMENT_SIGNED}'`)
+  it('every file this describe claims to read exists and is non-empty', () => {
+    // A typo'd path would throw, but a file that is renamed away and
+    // re-created empty would not — and an empty string satisfies no
+    // `toContain`, so the describe would go red for the right reason. What
+    // this catches is the opposite: a `WRITERS` entry quietly reduced to a
+    // file that no longer writes anything, leaving the greps below reading
+    // a shrinking surface.
+    for (const f of WRITERS) expect(readFileSync(f, 'utf8').length).toBeGreaterThan(200)
+  })
+
+  // Two ways to write the column, both real in this codebase: the route
+  // builds object literals (`agreement_status: 'voided'`) and the stamp
+  // module assigns onto a fields record (`fields.agreement_status =
+  // 'signed'`). Matching only the first is how this describe went green
+  // over a route that had stopped writing the column at all.
+  const ASSIGNS = /agreement_status(?::|\s*=)\s*'([^']+)'/g
+
+  it('the pattern recognises both assignment forms', () => {
+    // A control. Without it, a pattern that silently matched neither form
+    // would make every assertion below vacuous rather than red: they all
+    // read from the same matchAll, and an empty match set passes a filter.
+    const found = (s: string) => [...s.matchAll(new RegExp(ASSIGNS.source, 'g'))].map((m) => m[1])
+    expect(found("  agreement_status: 'voided',")).toEqual(['voided'])
+    expect(found("  fields.agreement_status = 'signed'")).toEqual(['signed'])
+    expect(found('  agreement_status,')).toEqual([])
+  })
+
+  const written = [...src.matchAll(ASSIGNS)].map((m) => m[1])
+
+  it(`writes agreement_status '${AGREEMENT_SIGNED}' on completion`, () => {
+    expect(written).toContain(AGREEMENT_SIGNED)
   })
 
   for (const state of ['declined', 'voided']) {
-    it(`writes agreement_status: '${state}', which agreementLabel maps`, () => {
-      expect(src).toContain(`agreement_status: '${state}'`)
+    it(`writes agreement_status '${state}', which agreementLabel maps`, () => {
+      expect(written).toContain(state)
       expect(agreementLabel(state).tone).toBe('bad')
     })
   }
 
   it('writes no completion state this module does not recognise', () => {
-    // Every literal the webhook assigns to agreement_status must be a state
+    // Every literal assigned to agreement_status must be a state
     // agreementLabel maps deliberately, i.e. not fall through to the default.
-    const written = [...src.matchAll(/agreement_status:\s*'([^']+)'/g)].map((m) => m[1])
     expect(written.length).toBeGreaterThan(0)
     const known = new Set(['signed', 'declined', 'voided', 'sent'])
     expect([...new Set(written)].filter((s) => !known.has(s))).toEqual([])

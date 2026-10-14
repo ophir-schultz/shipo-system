@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { sendPortalInvite } from '@/lib/partner-invite'
 import { redactForStorage } from '@/lib/docusign-redact'
-import { W9_CUSTOM_FIELD, W9_INCLUDED } from '@/lib/partner-w9'
+import { W9_CUSTOM_FIELD } from '@/lib/partner-w9'
+import { ENVELOPE_KIND_FIELD, completedEnvelopeStamp } from '@/lib/partner-envelope-stamp'
 
 // ============================================================
 // DocuSign Connect listener — the step that makes onboarding
@@ -199,71 +200,76 @@ export async function POST(req: Request) {
   const now = new Date().toISOString()
 
   if (event === 'envelope-completed' || event === 'completed') {
-    // Did this envelope carry the W-9?
+    // WHICH envelope completed, and therefore what it is allowed to stamp.
     //
-    // `w9` is an envelope custom field WE set when sending, which is the
-    // only reason it can be trusted: like partner_id it is ours, and the
-    // signer cannot alter it. Asking rather than assuming is what lets
-    // envelopes that predate the W-9 — including the one already sent —
-    // complete without claiming we hold a form we have never seen.
+    // Both custom fields are ones WE set when sending, which is the only
+    // reason they can be trusted: like partner_id they are ours, and the
+    // signer cannot alter them. The decision itself is in
+    // completedEnvelopeStamp, under test — inline here it could only be
+    // checked by sending a real envelope, and the two mistakes available
+    // are both expensive. See that module's test file.
     //
-    // The inference this licenses, stated because it has a dependency:
-    // the W-9's tabs are sent REQUIRED, and DocuSign will not complete an
-    // envelope while a required tab is unfilled. So "completed" plus "a
-    // W-9 was attached" is evidence the W-9 came back filled in. Make
-    // those tabs optional in a future send and this timestamp becomes a
-    // lie that authorises a payout we cannot file a 1099 for.
-    const w9Received =
-      customField(payload, W9_CUSTOM_FIELD)?.toLowerCase() === W9_INCLUDED ? now : null
-    if (!w9Received) {
-      // Not an error — it is the state of every envelope sent before the
-      // W-9 was added. Logged because it is a payout precondition that
-      // nothing else will mention until someone tries to pay them.
+    // One inference it licenses has a dependency worth stating: the W-9's
+    // tabs are sent REQUIRED, and DocuSign will not complete an envelope
+    // while a required tab is unfilled. So "completed" plus "declares a
+    // W-9" is evidence the form came back filled in. Make those tabs
+    // optional in a future send and w9_received_at becomes a lie that
+    // authorises a payout we cannot file a 1099-NEC for.
+    const decision = completedEnvelopeStamp({
+      kind: customField(payload, ENVELOPE_KIND_FIELD),
+      w9: customField(payload, W9_CUSTOM_FIELD),
+      envelopeId,
+      now,
+    })
+
+    // Only ever the abnormal paths. The old "signed but no W-9" warning
+    // fired on this line; after the split that is the normal path for
+    // every agreement, and a warning that fires every time is noise that
+    // hides the next real one.
+    if (decision.anomaly) {
       console.error(
-        `[agreement-webhook] envelope ${envelopeId} carried no W-9; partner ${partner.id} is signed but not payable.`,
+        `[agreement-webhook] ${decision.anomaly} (partner ${partner.id})`,
       )
     }
 
-    // Promote. `active` here is what /api/partner/request-code checks
-    // before it will issue a login code at all.
     const { error } = await supabaseAdmin
       .from('referral_partners')
-      .update({
-        agreement_status: 'signed',
-        agreement_signed_at: now,
-        agreement_envelope_id: envelopeId,
-        status: 'active',
-        updated_at: now,
-        // Spread, so a signed-but-no-W-9 envelope leaves the column
-        // untouched instead of writing NULL over a W-9 we already hold
-        // from an earlier envelope.
-        ...(w9Received ? { w9_received_at: w9Received } : {}),
-      })
+      .update(decision.fields)
       .eq('id', partner.id)
 
     if (error) {
-      console.error('[agreement-webhook] activation failed:', error.message)
-      return NextResponse.json({ error: 'Could not activate partner.' }, { status: 500 })
+      console.error('[agreement-webhook] stamp failed:', error.message)
+      return NextResponse.json({ error: 'Could not update partner.' }, { status: 500 })
     }
 
-    // The invite is best-effort. If mail is down the partner is still
+    // The invite goes out when the AGREEMENT completes, never when the
+    // W-9 does. A W-9 completion arrives from a partner who is already
+    // logged in — they signed it inside their own dashboard — so an
+    // invite there is at best confusing and at worst a working login
+    // link mailed to a partner we deliberately cut off.
+    //
+    // Best-effort either way: if mail is down the partner is still
     // active and can reach /partner/login unaided, so a send failure
     // must not turn into a retry that re-activates them.
-    const invite = await sendPortalInvite(partner, req.headers.get('origin'))
-    if (invite.sent) {
-      await supabaseAdmin
-        .from('referral_partners')
-        .update({ portal_invited_at: now })
-        .eq('id', partner.id)
-    } else {
-      console.error('[agreement-webhook] portal invite failed:', invite.provider, invite.error)
+    let invited = false
+    if (decision.invites) {
+      const invite = await sendPortalInvite(partner, req.headers.get('origin'))
+      invited = invite.sent
+      if (invite.sent) {
+        await supabaseAdmin
+          .from('referral_partners')
+          .update({ portal_invited_at: now })
+          .eq('id', partner.id)
+      } else {
+        console.error('[agreement-webhook] portal invite failed:', invite.provider, invite.error)
+      }
     }
 
     return NextResponse.json({
       success: true,
-      activated: true,
-      invited: invite.sent,
-      w9: w9Received !== null,
+      activated: decision.agreementSigned,
+      invited,
+      w9: decision.w9Received,
     })
   }
 

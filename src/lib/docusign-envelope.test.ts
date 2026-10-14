@@ -5,6 +5,12 @@ import { describe, expect, it } from 'vitest'
 import { W9_CUSTOM_FIELD, W9_INCLUDED } from './partner-w9'
 import { W9_CLASSIFICATIONS, W9_TEXT_FIELDS, W9_TIN_GROUP } from './docusign-w9'
 import {
+  ENVELOPE_KIND_FIELD,
+  KIND_W9_ONLY,
+  completedEnvelopeStamp,
+} from './partner-envelope-stamp'
+import {
+  ACCOUNTANT_RECIPIENT_ID,
   AGREEMENT_ANCHORS,
   AGREEMENT_TEMPLATE_ID,
   ENVELOPE_TYPE_FIELD,
@@ -13,7 +19,9 @@ import {
   PARTNER_RECIPIENT_ID,
   SHIPO_RECIPIENT_ID,
   buildPartnerAgreementEnvelope,
+  buildW9Envelope,
   partyName,
+  type BuildW9EnvelopeInput,
 } from './docusign-envelope'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -25,11 +33,27 @@ const partner = {
   id: '11111111-2222-3333-4444-555555555555',
   name: 'Dana Katz Consulting LLC',
   email: 'dana@example.com',
+  // Explicit, not incidental: §2a.7's guard refuses an UNSET status, so
+  // every test below that expects an envelope needs a partner the builder
+  // will actually build for. The refusal cases override this field.
+  tax_status: 'us_person',
 }
 const shipo = { name: 'Ophir Schultz', email: 'ophir@shipousa.com' }
 
 function build() {
-  return buildPartnerAgreementEnvelope({ partner, shipo, w9DocumentBase64: 'JVBERi0xLjQK' })
+  return buildPartnerAgreementEnvelope({ partner, shipo })
+}
+
+// The W-9-only envelope (spec §2a). The partner signs this one from his
+// dashboard, embedded, and the accountant gets a copy of the finished form
+// — as a DocuSign carbon copy, never as an email we send, because we never
+// hold the bytes (Risk 5, docusign-redact.ts).
+const w9Input: BuildW9EnvelopeInput = {
+  partner: { id: 'p1', name: 'Jane Doe', email: 'jane@example.com', tax_status: 'us_person' },
+  w9DocumentBase64: 'JVBERi0=',
+  accountantEmail: 'accountant@example.com',
+  accountantName: 'Test Accountant',
+  clientUserId: 'p1',
 }
 
 // Narrow helpers, so a change in the payload's shape fails here rather
@@ -42,11 +66,50 @@ type Signer = {
   tabs: Record<string, unknown[]>
 }
 
-function signersOf(env: ReturnType<typeof build>, compositeIndex: number): Signer[] {
-  const inline = env.compositeTemplates[compositeIndex].inlineTemplates[0] as {
-    recipients: { signers: Signer[] }
+function signersOf(
+  env: ReturnType<typeof build> | ReturnType<typeof buildW9Envelope>,
+  compositeIndex: number,
+): Signer[] {
+  const ct = env.compositeTemplates[compositeIndex] as {
+    inlineTemplates: Array<{ recipients: { signers: Signer[] } }>
   }
-  return inline.recipients.signers
+  return ct.inlineTemplates[0].recipients.signers
+}
+
+type Recipients = {
+  signers: Signer[]
+  carbonCopies?: Array<{ recipientId: string; email: string; name: string; routingOrder: string }>
+}
+
+/** The recipients block of the one inline template on a W-9 envelope. */
+function recipientsOf(env: ReturnType<typeof buildW9Envelope>): Recipients {
+  const ct = env.compositeTemplates[0] as {
+    inlineTemplates: Array<{ recipients: Recipients }>
+  }
+  return ct.inlineTemplates[0].recipients
+}
+
+/** The only signer on a W-9 envelope: the partner. */
+function w9PartnerSigner(env = buildW9Envelope(w9Input)): Signer {
+  return recipientsOf(env).signers.find((s) => s.recipientId === PARTNER_RECIPIENT_ID)!
+}
+
+function textCustomFieldsOf(env: {
+  customFields: { textCustomFields: Array<{ name: string; value: string }> }
+}) {
+  return env.customFields.textCustomFields
+}
+
+/** Every tab label and tab-group label the partner carries, sorted. */
+function w9TabLabels(env: ReturnType<typeof buildW9Envelope>): string[] {
+  const labels: string[] = []
+  for (const group of Object.values(w9PartnerSigner(env).tabs)) {
+    for (const tab of group as Array<Record<string, unknown>>) {
+      if (typeof tab.tabLabel === 'string') labels.push(tab.tabLabel)
+      if (typeof tab.groupLabel === 'string') labels.push(tab.groupLabel)
+    }
+  }
+  return labels.sort()
 }
 
 describe('it is always a draft', () => {
@@ -71,31 +134,40 @@ describe('it is always a draft', () => {
 describe('the W-9 reaches the partner, not us', () => {
   // The defect this guards is quiet and specific: DocuSign's
   // transformPdfFields assigns converted PDF fields to the first
-  // recipient in routing order. Shipo signs first. Left to the
-  // transform, every W-9 field — the taxpayer identification number
-  // included — would have been addressed to Ophir, and the partner
-  // would have received a contract with no tax form attached to them.
-  const env = build()
-  const w9Signers = signersOf(env, 1)
+  // recipient in routing order. Left to the transform, every W-9 field —
+  // the taxpayer identification number included — would have been
+  // addressed to whoever routes first rather than to the partner.
+  //
+  // These moved onto buildW9Envelope in Task 7, with the document. The
+  // transform is still disabled and the tabs are still explicit; what
+  // changed is which envelope carries them.
+  const env = buildW9Envelope(w9Input)
 
   it('does not use transformPdfFields', () => {
-    const doc = env.compositeTemplates[1].document as { transformPdfFields: string }
+    const doc = env.compositeTemplates[0].document as { transformPdfFields: string }
     expect(doc.transformPdfFields).toBe('false')
   })
 
-  it('gives the partner every W-9 tab and Shipo none', () => {
-    const shipoSigner = w9Signers.find((s) => s.recipientId === SHIPO_RECIPIENT_ID)!
-    const partnerSigner = w9Signers.find((s) => s.recipientId === PARTNER_RECIPIENT_ID)!
+  it('gives every W-9 tab to the partner and lists nobody else as a signer', () => {
+    // Shipo is deliberately NOT a recipient here. A listed signer with no
+    // tabs is not free: DocuSign emails them and waits for them to click
+    // Finish before the envelope COMPLETES, and completion is what
+    // releases the accountant's copy and what the webhook stamps
+    // w9_received_at on.
+    const signers = recipientsOf(env).signers
+    expect(signers).toHaveLength(1)
+    expect(signers[0].recipientId).toBe(PARTNER_RECIPIENT_ID)
 
-    expect(Object.keys(shipoSigner.tabs)).toHaveLength(0)
+    const partnerSigner = w9PartnerSigner(env)
     expect(partnerSigner.tabs.textTabs.length).toBeGreaterThan(5)
     expect(partnerSigner.tabs.signHereTabs).toHaveLength(1)
     expect(partnerSigner.tabs.radioGroupTabs).toHaveLength(1)
   })
 
   it('puts the taxpayer number on the partner', () => {
-    const partnerSigner = w9Signers.find((s) => s.recipientId === PARTNER_RECIPIENT_ID)!
-    const labels = (partnerSigner.tabs.textTabs as { tabLabel: string }[]).map((t) => t.tabLabel)
+    const labels = (w9PartnerSigner(env).tabs.textTabs as { tabLabel: string }[]).map(
+      (t) => t.tabLabel,
+    )
     expect(labels).toContain('w9_tin_ssn')
     expect(labels).toContain('w9_tin_ein')
   })
@@ -108,7 +180,7 @@ describe('the W-9 cannot be returned blank', () => {
   // unfilled. Relax these and the timestamp becomes a claim we hold a
   // form we have never read — which authorises a payout we cannot file a
   // 1099-NEC for.
-  const partnerSigner = signersOf(build(), 1).find((s) => s.recipientId === PARTNER_RECIPIENT_ID)!
+  const partnerSigner = w9PartnerSigner()
   const textTabs = partnerSigner.tabs.textTabs as { tabLabel: string; required: string }[]
 
   it('marks the name and address tabs required', () => {
@@ -169,11 +241,19 @@ describe('anchors', () => {
     // anchorIgnoreIfNotPresent: 'true' is the dangerous default to reach
     // for when an anchor misbehaves. It would leave the agreement with
     // NO signature field and let the envelope complete unsigned.
-    const all = env.compositeTemplates.flatMap((c) =>
-      (c.inlineTemplates[0] as { recipients: { signers: Signer[] } }).recipients.signers.flatMap(
-        (s) => Object.values(s.tabs).flat() as Record<string, unknown>[],
-      ),
-    )
+    // BOTH envelopes. The W-9's signature and date tabs are anchored too,
+    // and after Task 7 they live on a different envelope — a version of
+    // this test that still read only the agreement would have gone on
+    // passing while covering half of what it used to.
+    const tabsOf = (e: { compositeTemplates: unknown[] }) =>
+      e.compositeTemplates.flatMap((c) =>
+        (
+          c as { inlineTemplates: Array<{ recipients: { signers: Signer[] } }> }
+        ).inlineTemplates[0].recipients.signers.flatMap(
+          (s) => Object.values(s.tabs).flat() as Record<string, unknown>[],
+        ),
+      )
+    const all = [...tabsOf(env), ...tabsOf(buildW9Envelope(w9Input))]
     const anchoredTabs = all.filter((t) => t && typeof t.anchorString === 'string')
     expect(anchoredTabs.length).toBeGreaterThan(4)
     for (const tab of anchoredTabs) {
@@ -215,14 +295,18 @@ describe('custom fields — what the webhook reads back', () => {
     expect(f.value).toBe(partner.id)
   })
 
-  it('declares the W-9 using the shared constants, not its own spelling', () => {
-    const f = fields.find((x) => x.name === W9_CUSTOM_FIELD)!
-    expect(f.value).toBe(W9_INCLUDED)
+  it('no longer declares a W-9, because it no longer carries one', () => {
+    // Task 7. This field is the webhook's whole evidence for stamping
+    // w9_received_at. Leaving it on an envelope that no longer attaches
+    // the form would record a W-9 as received the moment the AGREEMENT
+    // completes — a payable partner whose tax form nobody has ever seen.
+    expect(fields.find((x) => x.name === W9_CUSTOM_FIELD)).toBeUndefined()
+  })
 
-    // And the literals must not be retyped in the source. A rename on
-    // either side would otherwise record every W-9 we collect as not
-    // collected — silent, and surfacing only as a partner being told we
-    // cannot pay them.
+  it('does not retype the shared W-9 literals anywhere in the source', () => {
+    // A rename on either side would otherwise record every W-9 we collect
+    // as not collected — silent, and surfacing only as a partner being
+    // told we cannot pay them.
     const src = readFileSync(ENVELOPE_SRC, 'utf8')
       .split('\n')
       .filter((l) => !/^\s*(\/\/|\*)/.test(l))
@@ -275,14 +359,6 @@ describe('recipients', () => {
     expect(Number(p.routingOrder)).toBeGreaterThan(Number(s.routingOrder))
   })
 
-  it('uses the same recipient ids on both documents', () => {
-    // Otherwise DocuSign treats them as four people and mails the
-    // agreement and the W-9 as separate asks.
-    const a = signersOf(env, 0).map((s) => s.recipientId).sort()
-    const b = signersOf(env, 1).map((s) => s.recipientId).sort()
-    expect(a).toEqual(b)
-  })
-
   it('sends to the partner we were given', () => {
     const p = signersOf(env, 0).find((x) => x.recipientId === PARTNER_RECIPIENT_ID)!
     expect(p.email).toBe(partner.email)
@@ -299,10 +375,20 @@ describe('documents', () => {
     expect(AGREEMENT_TEMPLATE_ID).toMatch(/^[0-9a-f-]{36}$/)
   })
 
-  it('attaches the W-9 as a second document', () => {
-    const doc = env.compositeTemplates[1].document as { documentId: string; documentBase64: string }
-    expect(doc.documentId).toBe('2')
-    expect(doc.documentBase64).toBeTruthy()
+  it('no longer carries the W-9 document', () => {
+    // Task 7, §2a.3. One envelope cannot carry both documents and copy the
+    // accountant on only one of them, and §6 makes the commission terms
+    // confidential — so the W-9 left, and the agreement stays agreement-
+    // only. The cost is honest: the partner now signs twice.
+    expect(env.compositeTemplates).toHaveLength(1)
+    expect(JSON.stringify(env)).not.toContain('IRS Form W-9')
+  })
+
+  it('no longer advertises the W-9 in the email blurb', () => {
+    // The blurb promised the W-9 "saves a second round trip". After the
+    // split that is exactly the thing it no longer does, and the partner
+    // reads this sentence before discovering otherwise.
+    expect(env.emailBlurb).not.toMatch(/W-9|round trip/i)
   })
 })
 
@@ -313,30 +399,94 @@ describe('refusals', () => {
     // falls back to the signer's email — which a forwarded envelope can
     // change, attaching the signature to the wrong partner row.
     expect(() =>
-      buildPartnerAgreementEnvelope({
-        partner: { ...partner, id: '' },
-        shipo,
-        w9DocumentBase64: 'x',
-      }),
+      buildPartnerAgreementEnvelope({ partner: { ...partner, id: '' }, shipo }),
     ).toThrow(/partner.id/)
   })
 
   it('will not build an envelope with no email to send it to', () => {
     expect(() =>
-      buildPartnerAgreementEnvelope({
-        partner: { ...partner, email: '' },
-        shipo,
-        w9DocumentBase64: 'x',
-      }),
+      buildPartnerAgreementEnvelope({ partner: { ...partner, email: '' }, shipo }),
     ).toThrow(/email/)
   })
 
-  it('will not build an envelope with no W-9 attached', () => {
-    // An envelope that claims w9: included and carries no W-9 would
-    // stamp w9_received_at off nothing at all.
+  it('will not build an envelope with no name on it', () => {
     expect(() =>
-      buildPartnerAgreementEnvelope({ partner, shipo, w9DocumentBase64: '' }),
-    ).toThrow(/w9DocumentBase64/)
+      buildPartnerAgreementEnvelope({ partner: { ...partner, name: '  ' }, shipo }),
+    ).toThrow(/name/)
+  })
+})
+
+// §2a.7, and the spec calls these "the test that matters". A signed W-9
+// from a non-US person is not a defective form, it is the WRONG form --
+// the IRS wants a W-8BEN or a W-8BEN-E, with a different withholding
+// regime behind each, and neither is built. The guard is what makes
+// "US only for now" a property of the software rather than of somebody's
+// memory. Task 7 keeps it on this builder after the W-9 is split out:
+// a foreign partner must not be sent the AGREEMENT either, until a W-8
+// path exists.
+describe('refuses anything but a US person', () => {
+  it('refuses to build for a foreign individual', () => {
+    expect(() =>
+      buildPartnerAgreementEnvelope({
+        partner: { ...partner, tax_status: 'foreign_individual' },
+        shipo,
+      }),
+    ).toThrow(/W-8BEN/)
+  })
+
+  it('refuses to build for a foreign entity', () => {
+    expect(() =>
+      buildPartnerAgreementEnvelope({
+        partner: { ...partner, tax_status: 'foreign_entity' },
+        shipo,
+      }),
+    ).toThrow(/W-8BEN-E/)
+  })
+
+  it('refuses to build when the tax status is UNSET', () => {
+    // Unset is its own refusal, not a pass. A default that happens to be
+    // the safe answer for today's roster is not a guard.
+    expect(() =>
+      buildPartnerAgreementEnvelope({
+        partner: { ...partner, tax_status: null },
+        shipo,
+      }),
+    ).toThrow(/tax status/i)
+  })
+
+  it('refuses an unrecognised value rather than treating it as US', () => {
+    // The CHECK constraint should make this unreachable from the database.
+    // Asserted anyway, because "unreachable" is a claim about today's
+    // schema and the failure direction here is a wrong IRS form.
+    expect(() =>
+      buildPartnerAgreementEnvelope({
+        partner: { ...partner, tax_status: 'US_PERSON' },
+        shipo,
+      }),
+    ).toThrow(/tax status/i)
+  })
+
+  it('never returns a partially built envelope on refusal', () => {
+    // The throw IS the assertion: the guard sits before any document
+    // assembly, so there is no object to inspect and no half-built
+    // envelope a caller could send by accident.
+    expect(() =>
+      buildPartnerAgreementEnvelope({
+        partner: { ...partner, tax_status: null },
+        shipo,
+      }),
+    ).toThrow()
+  })
+
+  it('builds for a US person', () => {
+    // The control. Without it, a guard that refused EVERYTHING would
+    // pass all four refusals above.
+    expect(() =>
+      buildPartnerAgreementEnvelope({
+        partner: { ...partner, tax_status: 'us_person' },
+        shipo,
+      }),
+    ).not.toThrow()
   })
 })
 
@@ -401,9 +551,9 @@ describe('the contract prose has no blanks left in it', () => {
     // Ours, not theirs. A partner asked to type the requester's address
     // will guess it or skip it, and either makes the form look like it
     // came from nobody.
-    const w9Signer = signersOf(build(), 1).find((s) => s.recipientId === PARTNER_RECIPIENT_ID)!
-    const tab = (w9Signer.tabs.textTabs as { tabLabel: string; value?: string; locked?: string }[])
-      .find((t) => t.tabLabel === 'w9_requester')!
+    const tab = (
+      w9PartnerSigner().tabs.textTabs as { tabLabel: string; value?: string; locked?: string }[]
+    ).find((t) => t.tabLabel === 'w9_requester')!
     expect(tab).toBeDefined()
     expect(tab.value).toMatch(/Shipo LLC/)
     expect(tab.locked).toBe('true')
@@ -429,5 +579,195 @@ describe('who clause 1 calls "Partner"', () => {
       .toBe('Dana Katz')
     expect(partyName({ id: 'x', name: 'Dana Katz', email: 'd@e.com', company: null }))
       .toBe('Dana Katz')
+  })
+})
+
+// ============================================================
+// The W-9-ONLY envelope (spec §2a). The partner signs this one from his
+// dashboard, embedded, and the accountant gets a copy of the finished
+// form — as a DocuSign carbon copy, never as an email we send, because
+// we never hold the bytes (Risk 5, docusign-redact.ts).
+// ============================================================
+
+
+describe('buildW9Envelope', () => {
+  it('is a draft', () => {
+    expect(buildW9Envelope(w9Input).status).toBe('created')
+  })
+
+  it('sets the w9 custom field from the shared constants, by name', () => {
+    const f = textCustomFieldsOf(buildW9Envelope(w9Input)).find((x) => x.name === W9_CUSTOM_FIELD)
+    expect(f).toBeDefined()
+    expect(f!.value).toBe(W9_INCLUDED)
+  })
+
+  it('carries the partner id so the webhook can resolve the row', () => {
+    const f = textCustomFieldsOf(buildW9Envelope(w9Input)).find((x) => x.name === PARTNER_ID_FIELD)
+    expect(f!.value).toBe('p1')
+  })
+
+  it('sets the account-required envelope type', () => {
+    const f = textCustomFieldsOf(buildW9Envelope(w9Input)).find(
+      (x) => x.name === ENVELOPE_TYPE_FIELD,
+    )
+    expect(f!.value).toBe(ENVELOPE_TYPE_VALUE)
+  })
+
+  it('marks itself W-9-only so the webhook does not read it as an agreement', () => {
+    // Without this marker the completion looks exactly like an agreement
+    // completion: re-stamped agreement_signed_at, re-sent portal invite,
+    // and a partner somebody deliberately deactivated silently reactivated.
+    // completedEnvelopeStamp reads THIS field; the agreement envelope
+    // deliberately omits it.
+    const f = textCustomFieldsOf(buildW9Envelope(w9Input)).find(
+      (x) => x.name === ENVELOPE_KIND_FIELD,
+    )
+    expect(f).toBeDefined()
+    expect(f!.value).toBe(KIND_W9_ONLY)
+  })
+
+  it('is read as a W-9 by the stamp decision it is built for', () => {
+    // The two halves in one assertion: the builder's output, fed to the
+    // consumer, must produce the W-9 decision. Pinning the constant alone
+    // would pass even if the stamp read a different field.
+    const fields = textCustomFieldsOf(buildW9Envelope(w9Input))
+    const d = completedEnvelopeStamp({
+      kind: fields.find((x) => x.name === ENVELOPE_KIND_FIELD)?.value ?? null,
+      w9: fields.find((x) => x.name === W9_CUSTOM_FIELD)?.value ?? null,
+      envelopeId: 'e1',
+      now: '2026-10-14T12:00:00.000Z',
+    })
+    expect(d.w9Received).toBe(true)
+    expect(d.agreementSigned).toBe(false)
+    expect('status' in d.fields).toBe(false)
+    expect(d.anomaly).toBeUndefined()
+  })
+
+  it('the agreement envelope is read as an agreement by that same decision', () => {
+    // The other side of the same contract, and the reason the agreement
+    // builder must NOT set either field.
+    const fields = textCustomFieldsOf(build())
+    const d = completedEnvelopeStamp({
+      kind: fields.find((x) => x.name === ENVELOPE_KIND_FIELD)?.value ?? null,
+      w9: fields.find((x) => x.name === W9_CUSTOM_FIELD)?.value ?? null,
+      envelopeId: 'e1',
+      now: '2026-10-14T12:00:00.000Z',
+    })
+    expect(d.agreementSigned).toBe(true)
+    expect(d.w9Received).toBe(false)
+    expect('w9_received_at' in d.fields).toBe(false)
+    expect(d.anomaly).toBeUndefined()
+  })
+
+  it('carbon-copies the accountant exactly once', () => {
+    const ccs = recipientsOf(buildW9Envelope(w9Input)).carbonCopies!
+    expect(ccs).toHaveLength(1)
+    expect(ccs[0].email).toBe('accountant@example.com')
+    expect(ccs[0].name).toBe('Test Accountant')
+    expect(ccs[0].recipientId).toBe(ACCOUNTANT_RECIPIENT_ID)
+  })
+
+  it('routes the carbon copy AFTER the signer', () => {
+    // A CC at or before the signer's routing order gets the envelope in its
+    // UNSIGNED state. The accountant would receive a blank W-9 and nothing
+    // afterwards -- which looks exactly like a delivered form.
+    const r = recipientsOf(buildW9Envelope(w9Input))
+    const partner = r.signers.find((s) => s.recipientId === PARTNER_RECIPIENT_ID)!
+    expect(Number(r.carbonCopies![0].routingOrder)).toBeGreaterThan(Number(partner.routingOrder))
+  })
+
+  it('THROWS when the accountant address is missing or blank', () => {
+    // The control the spec §6 names: "A test that only checks the happy
+    // path would stay green on an envelope silently CC'd to nobody."
+    // ACCOUNTANT_W9_EMAIL is unset in Vercel today, so an unguarded
+    // builder would have produced exactly that.
+    expect(() => buildW9Envelope({ ...w9Input, accountantEmail: '' })).toThrow(/accountant/i)
+    expect(() => buildW9Envelope({ ...w9Input, accountantEmail: '   ' })).toThrow(/accountant/i)
+    expect(() => buildW9Envelope({ ...w9Input, accountantName: '' })).toThrow(/accountant/i)
+  })
+
+  it('sets clientUserId on the partner signer, so DocuSign sends no email', () => {
+    const signer = recipientsOf(buildW9Envelope(w9Input)).signers.find(
+      (s) => s.recipientId === PARTNER_RECIPIENT_ID,
+    )!
+    expect((signer as unknown as { clientUserId: string }).clientUserId).toBe('p1')
+  })
+
+  it('does NOT set clientUserId on anyone else', () => {
+    // clientUserId is what makes a recipient "embedded": DocuSign stops
+    // emailing them and expects us to produce a signing URL instead. Set it
+    // on Shipo or the accountant and that person silently never hears about
+    // the envelope at all.
+    const r = recipientsOf(buildW9Envelope(w9Input))
+    const shipo = r.signers.find((s) => s.recipientId === SHIPO_RECIPIENT_ID)
+    if (shipo) expect(shipo).not.toHaveProperty('clientUserId')
+    expect(r.carbonCopies![0]).not.toHaveProperty('clientUserId')
+  })
+
+  it('refuses a blank clientUserId', () => {
+    // An empty string is not "no embedded signing", it is an embedded
+    // recipient DocuSign cannot match -- a 400 at send time, or worse a
+    // recipient who is neither emailed nor reachable by URL.
+    expect(() => buildW9Envelope({ ...w9Input, clientUserId: '' })).toThrow(/clientUserId/i)
+  })
+
+  it('contains the W-9 document and no agreement template', () => {
+    const env = buildW9Envelope(w9Input)
+    expect(JSON.stringify(env)).not.toContain(AGREEMENT_TEMPLATE_ID)
+    expect(JSON.stringify(env)).toContain('JVBERi0=')
+  })
+
+  it('kept every W-9 tab through the split out of the agreement envelope', () => {
+    // Anchored in docusign-w9.ts, not in the other envelope: after Task 7
+    // the agreement carries no W-9 tabs at all, so comparing the two
+    // envelopes would compare this list against an EMPTY one and pass on
+    // a W-9 with nothing on it.
+    //
+    // Why it matters that nothing was lost: DocuSign refuses to complete
+    // an envelope with an unfilled REQUIRED tab, and that refusal is the
+    // entire basis for the webhook stamping w9_received_at. A dropped
+    // required tab turns that stamp into a claim we hold a form nobody
+    // filled in.
+    const labels = w9TabLabels(buildW9Envelope(w9Input))
+    for (const f of W9_TEXT_FIELDS) {
+      expect(labels, `lost the tab for ${f.acroform}`).toContain(`w9_${f.acroform}`)
+    }
+    expect(labels).toContain('w9_tin_ssn')
+    expect(labels).toContain('w9_tin_ein')
+    expect(labels).toContain('w9_requester')
+    expect(labels).toContain('w9_line_3b')
+    expect(labels).toContain(W9_TIN_GROUP)
+  })
+
+  it('refuses a foreign individual, a foreign entity and an UNSET tax status', () => {
+    const at = (tax_status: string | null) => () =>
+      buildW9Envelope({ ...w9Input, partner: { ...w9Input.partner, tax_status } })
+    expect(at('foreign_individual')).toThrow(/W-8BEN/)
+    expect(at('foreign_entity')).toThrow(/W-8BEN-E/)
+    expect(at(null)).toThrow(/tax status/i)
+  })
+
+  it('builds for a US person', () => {
+    // The control. Without it a builder that threw on everything would
+    // satisfy every refusal above.
+    expect(() => buildW9Envelope(w9Input)).not.toThrow()
+  })
+
+  it('names the partner and the form in the subject the accountant receives', () => {
+    // The partner signs embedded and gets no email, so this subject line
+    // exists for exactly one reader: the accountant, who will have a folder
+    // of these. "Completed" with no name in it is unfileable.
+    const subject = String((buildW9Envelope(w9Input) as { emailSubject: string }).emailSubject)
+    expect(subject).toContain('Jane Doe')
+    expect(subject).toMatch(/W-9/)
+  })
+
+  it('refuses without a partner id, name, email or document', () => {
+    const bad = (over: Partial<BuildW9EnvelopeInput['partner']>) => () =>
+      buildW9Envelope({ ...w9Input, partner: { ...w9Input.partner, ...over } })
+    expect(bad({ id: '' })).toThrow(/id/i)
+    expect(bad({ name: '  ' })).toThrow(/name/i)
+    expect(bad({ email: '' })).toThrow(/email/i)
+    expect(() => buildW9Envelope({ ...w9Input, w9DocumentBase64: '' })).toThrow(/w9Document/i)
   })
 })

@@ -1,4 +1,4 @@
-// Prepare the partner agreement + W-9 envelope payload for ONE partner.
+// Prepare the partner AGREEMENT envelope payload for ONE partner.
 //
 //   npx tsx --env-file=.env.local scripts/prep-agreement-envelope.mts <id>
 //
@@ -11,9 +11,13 @@
 // to .mts for this reason.
 //
 // This script does NOT create or send anything. It reads the partner row,
-// extracts page 1 of the W-9, builds the payload, re-checks the things
-// that are cheap to check and expensive to get wrong, and writes the JSON
-// out for review. Creating the envelope is a separate, deliberate step.
+// builds the payload, re-checks the things that are cheap to check and
+// expensive to get wrong, and writes the JSON out for review. Creating
+// the envelope is a separate, deliberate step.
+//
+// The W-9 is NOT here. Task 7 split it into its own envelope, which the
+// partner signs embedded in their dashboard -- so it is built by the app
+// at the moment they ask for it, not prepared in advance by hand.
 //
 // Why a script and not a route: the app holds no DocuSign credentials, so
 // a route could not send even if we wanted one. What the app can own is
@@ -25,8 +29,6 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
-import { W9_PAGE } from '../src/lib/docusign-w9'
-import { extractW9Page1Base64 } from '../src/lib/docusign-w9-document'
 import {
   AGREEMENT_TEMPLATE_ID,
   buildPartnerAgreementEnvelope,
@@ -56,7 +58,11 @@ const db = createClient(
 
 const { data: partner, error } = await db
   .from('referral_partners')
-  .select('id, name, company, email, status, agreement_status, agreement_envelope_id')
+  // tax_status is REQUIRED by the builder (spec 2a.7): it refuses any
+  // partner who is not a recorded US person, and an unselected column
+  // arrives as undefined, which reads as "not recorded" and refuses.
+  // prettier-ignore
+  .select('id, name, company, email, status, agreement_status, agreement_envelope_id, tax_status')
   .eq('id', partnerId)
   .maybeSingle()
 
@@ -93,34 +99,27 @@ if (partner.agreement_envelope_id) {
 }
 
 // ---------------------------------------------------------------------
-// 2. Page 1 of the W-9.
+// 2. The payload.
 // ---------------------------------------------------------------------
-// Hash-checked against the file the coordinates were measured from, then
-// extracted — both inside extractW9Page1Base64, which is where the tests
-// can reach them. This used to be inline here, which meant the one step
-// that depends on a tool outside the repo (python3 + pypdf) was the one
-// step nothing tested.
-let w9DocumentBase64: string
+// The builder throws on a non-US person rather than returning a flag, so
+// catch it here: a stack trace tells whoever ran this nothing about what
+// to do next, and the refusal text says exactly what to do.
+let envelope: ReturnType<typeof buildPartnerAgreementEnvelope>
 try {
-  w9DocumentBase64 = extractW9Page1Base64()
+  envelope = buildPartnerAgreementEnvelope({
+    partner: {
+      id: partner.id,
+      name: partner.name,
+      email: partner.email,
+      company: partner.company,
+      tax_status: partner.tax_status,
+    },
+    shipo: { name: 'Ophir Schultz', email: 'ophir@shipousa.com' },
+  })
 } catch (e) {
   console.error((e as Error).message)
   process.exit(1)
 }
-
-// ---------------------------------------------------------------------
-// 3. The payload.
-// ---------------------------------------------------------------------
-const envelope = buildPartnerAgreementEnvelope({
-  partner: {
-    id: partner.id,
-    name: partner.name,
-    email: partner.email,
-    company: partner.company,
-  },
-  shipo: { name: 'Ophir Schultz', email: 'ophir@shipousa.com' },
-  w9DocumentBase64,
-})
 
 // A last assertion rather than a comment. The builder sets this, the
 // tests check it, and it is still worth refusing here: everything above
@@ -135,29 +134,22 @@ mkdirSync(outDir, { recursive: true })
 const outFile = join(outDir, `envelope-${partner.id}.json`)
 writeFileSync(outFile, JSON.stringify(envelope, null, 2))
 
-// The base64 document is ~100KB of noise in a file meant to be read, so
-// report its size instead and keep the payload reviewable.
-const summary = {
-  ...envelope,
-  compositeTemplates: envelope.compositeTemplates.map((c) =>
-    'document' in c && c.document
-      ? { ...c, document: { ...c.document, documentBase64: `<${w9DocumentBase64.length} chars>` } }
-      : c,
-  ),
-}
-writeFileSync(join(outDir, `envelope-${partner.id}.summary.json`), JSON.stringify(summary, null, 2))
+// No summary file any more. It existed to elide ~100KB of inlined W-9
+// base64 so the payload could be read; the agreement comes from a server
+// template, so the payload above is already the readable one. Writing
+// both would mean two identical files, and two identical files is how
+// somebody ends up reviewing the stale one.
 
 console.log('Prepared — nothing has been created or sent.\n')
 console.log(`  partner        ${partner.name}  <${partner.email}>`)
 console.log(`  clause 1 names ${partyName({ ...partner, email: partner.email })}`)
 console.log(`  status         ${partner.status} / agreement ${partner.agreement_status ?? 'null'}`)
 console.log(`  template       ${AGREEMENT_TEMPLATE_ID}`)
-console.log(`  W-9            page ${W9_PAGE}, ${w9DocumentBase64.length} base64 chars`)
+console.log(`  tax status     ${partner.tax_status ?? 'NOT RECORDED'}`)
 console.log(`  subject        ${envelope.emailSubject}`)
 console.log(`\n  payload   ${outFile}`)
-console.log(`  readable  ${outFile.replace('.json', '.summary.json')}`)
 console.log(
-  '\nNext: review the summary, then create it as a DRAFT in DocuSign and open it in\n' +
+  '\nNext: review the payload, then create it as a DRAFT in DocuSign and open it in\n' +
     'the web console to check tab placement before anything is sent. The partner\n' +
     'types their own address, so clause 1 and the notices clause will show empty\n' +
     'boxes in the draft — that is correct; what to check is that the boxes are\n' +

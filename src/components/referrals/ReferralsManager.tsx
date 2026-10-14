@@ -4,8 +4,17 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
 import { REFERRAL_TERMS, netProfit, totalCosts, commissionOn } from '@/lib/referrals'
-import { agreementLabel, portalAccessBlockedReason } from '@/lib/partner-access'
+import {
+  agreementLabel,
+  invitePreconditionReason,
+  portalAccessBlockedReason,
+} from '@/lib/partner-access'
 import { payoutBlockedReason, w9Label } from '@/lib/partner-w9'
+import {
+  TAX_STATUS_OPTIONS,
+  TAX_STATUS_UNSET_LABEL,
+  taxStatusOf,
+} from '@/lib/partner-tax-status'
 import type { OwedLine, FbaInvoice } from '@/lib/referrals'
 
 const PCT = `${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%`
@@ -26,6 +35,7 @@ interface Partner {
   agreement_status?: string | null
   agreement_signed_at?: string | null
   w9_received_at?: string | null
+  tax_status?: string | null
   founding_partner?: boolean | null
 }
 interface Client {
@@ -236,10 +246,17 @@ export default function ReferralsManager({
 // Partners
 // ============================================================
 // Why this partner cannot be let in, or null. Imported rather than restated:
-// the API route refuses on exactly this function, so a second copy here would
-// eventually grey out a button the server allows, or worse, light up one it
-// refuses.
-const blockedReason = (p: Partner) => portalAccessBlockedReason(p)
+// the API route refuses on exactly these functions, so a second copy here
+// would eventually grey out a button the server allows, or worse, light up one
+// it refuses.
+//
+// BOTH RULES, IN THE ROUTE'S ORDER. The access block is about the partner's
+// paperwork; the precondition is about ours — an unrecorded tax_status opens
+// the portal onto a W-9 we cannot generate, so the partner lands on an empty
+// screen and a "please email support". The route refuses on either, so the
+// button is dead for either and the tooltip shows whichever applies first.
+const blockedReason = (p: Partner) =>
+  portalAccessBlockedReason(p) ?? invitePreconditionReason(p)
 
 /**
  * Where the partner's agreement stands, and when.
@@ -331,6 +348,33 @@ function PartnersPanel({
     await call('/api/referrals/partners', { id: p.id, name: p.name, status }, 'POST', p.id)
   }
 
+  // §2a.7. Staff record this from the partner's paperwork; the partner is
+  // never asked to self-certify it in a web form, because the answer is
+  // ours to establish and a wrong self-certification would be ours to
+  // explain. Nothing is pre-selected: "not recorded" means nobody has
+  // looked, which is a refusal downstream, and the one thing that must
+  // not happen is a screen implying somebody already answered.
+  async function setTaxStatus(p: Partner, value: string) {
+    // `name` is NOT sent. The route now writes only the keys it receives,
+    // so this touches tax_status and updated_at alone.
+    const ok = await call(
+      '/api/referrals/partners',
+      { id: p.id, tax_status: value },
+      'POST',
+      `tax-${p.id}`,
+    )
+    if (ok) {
+      showSuccess(
+        'Tax status saved',
+        value === 'us_person'
+          ? `${p.name} can be sent a W-9.`
+          : value === ''
+            ? `${p.name} has no tax status on file — no IRS form will be sent.`
+            : `${p.name} needs a W-8, which Shipo does not send yet. Collect it outside the portal.`,
+      )
+    }
+  }
+
   // ---- portal access ----
   // Partners sign in themselves: their email, then a 6-digit code we
   // mail them. There is no link to hand out and nothing to copy.
@@ -404,6 +448,7 @@ function PartnersPanel({
                 <th className="pb-2 pr-3">Source</th>
                 <th className="pb-2 pr-3">Status</th>
                 <th className="pb-2 pr-3">Agreement</th>
+                <th className="pb-2 pr-3">Tax status</th>
                 <th className="pb-2 pr-3">Portal</th>
                 <th className="pb-2 text-right">Action</th>
               </tr>
@@ -422,6 +467,31 @@ function PartnersPanel({
                   <td className="py-2.5 pr-3"><StatusBadge status={p.status ?? 'active'} /></td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">
                     <AgreementCell partner={p} />
+                  </td>
+                  <td className="py-2.5 pr-3 whitespace-nowrap">
+                    <select
+                      value={taxStatusOf(p.tax_status) ?? ''}
+                      onChange={(e) => setTaxStatus(p, e.target.value)}
+                      disabled={busy === `tax-${p.id}`}
+                      className="rounded bg-gray-900 border border-gray-700 px-1.5 py-1 text-xs text-gray-200 disabled:opacity-40"
+                      title="From their paperwork, not from a form they filled in. Anything but a US person needs a W-8, which Shipo does not send yet."
+                    >
+                      {/* The placeholder is not an option a staff member can
+                          mean. It is what the row looks like when nobody has
+                          answered, and it stays selectable only so a wrong
+                          entry can be taken back. */}
+                      <option value="">{TAX_STATUS_UNSET_LABEL}</option>
+                      {TAX_STATUS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    {taxStatusOf(p.tax_status) === null ? (
+                      <span className="block text-[10px] text-yellow-600/80 mt-0.5">no W-9 until set</span>
+                    ) : taxStatusOf(p.tax_status) !== 'us_person' ? (
+                      <span className="block text-[10px] text-yellow-600/80 mt-0.5">needs a W-8</span>
+                    ) : null}
                   </td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">
                     {p.email ? (
