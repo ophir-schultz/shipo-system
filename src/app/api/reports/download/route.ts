@@ -3,7 +3,16 @@ import { supabaseAdmin } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
-import { priceOf } from '@/lib/billing/unpriced'
+// `priceOf` is no longer imported here. The profit-loss branch was its only
+// consumer in this file, and that branch now goes through profit-rollup, which
+// calls priceOf itself on every column before any arithmetic. The per-shipment
+// sheets never needed it: they pass `client_rate` and `actual_cost` straight
+// into cells, where a null arrives as a blank rather than as 0.00, which is
+// already the honest rendering.
+import { isReportType, REPORT_TYPES } from '@/lib/billing/report-types'
+import {
+  combineReconciled, marginPct, reconcile, reconciledOrUnknown,
+} from '@/lib/billing/profit-rollup'
 
 // The per-shipment sheets pass `s.client_rate` straight through, which is
 // already honest: a null arrives in the cell as a blank, not as 0.00. The
@@ -60,26 +69,18 @@ import { priceOf } from '@/lib/billing/unpriced'
 // one already returned and skip one it never did -- a billable line charged
 // twice and another dropped, with the row count still looking plausible.
 
-/**
- * The report types this route can actually build.
- *
- * Checked rather than trusted, because an unrecognised `type` fell through all
- * six branches and left `rows` empty -- which the tail then rendered as "No
- * records found for the selected period". A typo in a link produced a confident
- * statement about a client's month.
- */
-const REPORT_TYPES = [
-  'shipments',
-  'profit-loss',
-  'loss-shipments',
-  'adjustments',
-  'billing',
-  'warehouse',
-] as const
-
-function isReportType(t: string | null): t is (typeof REPORT_TYPES)[number] {
-  return t !== null && (REPORT_TYPES as readonly string[]).includes(t)
-}
+// The report types this route can build, and the guard for them, now live in
+// @/lib/billing/report-types -- imported at the top of this file.
+//
+// They used to be declared right here, which is how 'profit-loss' came to be a
+// working export that no tab could reach: this list had six entries and the tab
+// list in ReportsTabs.tsx had five, with nothing relating them. The guard is
+// still applied below, for the same reason as before -- an unrecognised `type`
+// falls through all six branches and leaves `rows` empty, which the tail then
+// renders as "No records found for the selected period", so a typo in a link
+// produced a confident statement about a client's month. What changed is that
+// the accepted set is now derived from the tabs instead of restated here, and
+// report-types.test.ts fails if this route's branches and that list disagree.
 
 /**
  * yyyy-mm-dd, which is what every branch's .gte()/.lte() assumes.
@@ -183,7 +184,9 @@ export async function GET(req: Request) {
     const { data, error } = await readAllPages((from, to) => {
       let q = supabaseAdmin
         .from('shipments')
-        .select('clients(name), ship_date, actual_cost, client_rate, profit_loss, is_loss')
+        // `client_id` is NEW here and is the point of the rewrite below: this
+        // branch used to roll up by `clients.name`, which is not a key.
+        .select('client_id, clients(name), ship_date, actual_cost, client_rate, profit_loss, is_loss')
         .gte('ship_date', dateFrom!)
         .lte('ship_date', dateTo!)
       if (clientId) q = q.eq('client_id', clientId)
@@ -194,31 +197,118 @@ export async function GET(req: Request) {
       return q.order('id').range(from, to)
     })
     if (error) return unreadable('shipments (profit & loss)', error.message)
-    const byClient: Record<string, any> = {}
+
+    // WHAT THIS BRANCH USED TO DO, AND WHY IT WAS THE WORST OF THE SIX.
+    //
+    // This is the sheet that gets emailed, and it was the one place in the app
+    // still printing the stack of figures that does not subtract. Four separate
+    // defects, all of which are fixed by routing it through the same
+    // profit-rollup module the Profit tab on /reports now uses -- so the
+    // spreadsheet and the screen cannot disagree about a client's margin:
+    //
+    //   1. `cost += priceOf(s.actual_cost) ?? 0` -- a shipment the carrier has
+    //      not billed yet was added into Total Carrier Cost as FREE, which
+    //      inflates margin. The null-vs-zero rule this repo applies everywhere
+    //      else: null is UNKNOWN and must not be spent as a 0.
+    //   2. `profit += priceOf(s.profit_loss) ?? 0` -- read from the STORED
+    //      column rather than derived. That column goes stale whenever a rate
+    //      or a cost is corrected afterwards, so the sheet could disagree with
+    //      its own two neighbouring columns.
+    //   3. Revenue was summed over priced rows only while cost was summed over
+    //      ALL rows, so 'Revenue - Cost' did not equal 'Net Profit/Loss' and
+    //      nothing on the sheet said so. Three individually-defensible figures
+    //      printed as a column that implies arithmetic it does not do.
+    //   4. Grouped by `clients.name ?? 'Unknown'`. Two clients sharing a name
+    //      merged into one line, and every unattributed row -- the 241 from 9
+    //      unmapped stores the monitor reports -- was filed under a client
+    //      literally called Unknown, where it read as a real customer.
+    //
+    // `reconcile` sums revenue and cost over the SAME rows and derives profit
+    // by subtracting them in integer cents, so the identity holds by
+    // construction. Rows it cannot reconcile are counted into three named
+    // columns rather than being absorbed at 0.
+    const groups = new Map<string, { name: string | null; rows: typeof data }>()
     for (const s of data ?? []) {
-      const name = (s.clients as any)?.name ?? 'Unknown'
-      if (!byClient[name]) byClient[name] = { revenue: 0, cost: 0, profit: 0, shipments: 0, losses: 0, unpriced: 0 }
-      const rate = priceOf(s.client_rate)
-      if (rate === null) byClient[name].unpriced++
-      else byClient[name].revenue += rate
-      byClient[name].cost += priceOf(s.actual_cost) ?? 0
-      byClient[name].profit += priceOf(s.profit_loss) ?? 0
-      byClient[name].shipments++
-      if (s.is_loss) byClient[name].losses++
+      // The empty string is the bucket for rows with no client. A real key, so
+      // it cannot collide with a uuid and cannot be read as a client's name.
+      const key = typeof s.client_id === 'string' ? s.client_id : ''
+      const g = groups.get(key)
+      if (g) g.rows!.push(s)
+      else groups.set(key, { name: (s.clients as any)?.name ?? null, rows: [s] })
     }
-    rows = Object.entries(byClient).map(([name, d]) => ({
-      'Client': name,
-      'Total Shipments': d.shipments,
-      'Loss Shipments': d.losses,
-      // Named for what it is rather than 'Total Revenue', because it is not the
-      // revenue for 'Total Shipments' whenever the next column is non-zero.
-      'Priced Shipments': d.shipments - d.unpriced,
-      'Unpriced Shipments (excluded)': d.unpriced,
-      'Revenue, Priced Only ($)': d.revenue.toFixed(2),
-      'Total Carrier Cost ($)': d.cost.toFixed(2),
-      'Net Profit/Loss ($)': d.profit.toFixed(2),
-      'Margin %': d.revenue > 0 ? ((d.profit / d.revenue) * 100).toFixed(1) + '%' : '0%',
+
+    const lines = [...groups.entries()].map(([key, g]) => ({
+      key,
+      label: key === ''
+        ? 'NO CLIENT ASSIGNED'
+        : g.name ?? `(unnamed client ${key.slice(0, 8)})`,
+      unattributed: key === '',
+      r: reconcile(g.rows ?? []),
+      losses: (g.rows ?? []).filter(s => s.is_loss).length,
     }))
+      // Worst margin first, unattributed last. Same order as the screen.
+      .sort((a, b) => {
+        if (a.unattributed !== b.unattributed) return a.unattributed ? 1 : -1
+        return a.r.profit - b.r.profit
+      })
+
+    // A money cell whose value is UNKNOWN is left BLANK, not '0.00'. In a
+    // spreadsheet a 0 is worse than anywhere else: it is indistinguishable from
+    // a real zero AND it silently joins every SUM the recipient draws over the
+    // column. An empty cell is skipped by SUM and shows up as a gap.
+    const money = (n: number | null) => (n === null ? '' : n.toFixed(2))
+
+    const lineRow = (l: typeof lines[number]) => {
+      const v = reconciledOrUnknown(l.r)
+      const pct = marginPct(l.r)
+      return {
+        'Client': l.label,
+        'Shipments': l.r.counted,
+        'Reconciled (in the figures below)': l.r.reconciled,
+        'No agreed rate (excluded)': l.r.unrated,
+        'Awaiting carrier cost (excluded)': l.r.uncosted,
+        'Neither known (excluded)': l.r.unmeasured,
+        'Revenue ($)': money(v.revenue),
+        'Carrier Cost ($)': money(v.cost),
+        // Derived by subtraction, in cents, from the two columns to its left.
+        // Revenue - Carrier Cost equals this exactly, for every row.
+        'Profit ($)': money(v.profit),
+        // Blank and not '0%' when there is no revenue to be a ratio of.
+        // `profit / 0` is Infinity or NaN and both render through toFixed
+        // without complaint; the old code printed '0%', which reads as "we
+        // broke even" for a client who was never billed at all.
+        'Margin %': pct === null ? '' : `${pct.toFixed(1)}%`,
+        'Loss-flagged Shipments': l.losses,
+        'Stored profit_loss disagrees': l.r.stale,
+      }
+    }
+
+    // Empty period: leave `rows` empty and let the tail of this function say
+    // "No records found for the selected period", the same as every other
+    // branch. Guarded explicitly rather than falling through, because the
+    // total-row construction below indexes `lines[0]` to learn the column
+    // names, and `noUncheckedIndexedAccess` is off in this project -- so
+    // `lines[0]` type-checks as a line while being undefined at runtime, and
+    // the spacer row threw a TypeError on `r.counted` for any client with no
+    // shipments in range. Measured with node, not reasoned about.
+    if (lines.length > 0) {
+      const totals = combineReconciled(...lines.map(l => l.r))
+      const dataRows = lines.map(lineRow)
+      const columns = Object.keys(dataRows[0])
+      rows = [
+        ...dataRows,
+        // One blank row, then the total. Appended rather than left for the
+        // recipient to SUM, because a column with blanks in it is exactly
+        // where a hand-drawn total goes wrong, and because the whole claim of
+        // this sheet is that these three figures reconcile -- it should
+        // demonstrate that at the bottom rather than assert it in a header.
+        Object.fromEntries(columns.map(k => [k, ''])),
+        lineRow({
+          key: '', label: 'TOTAL', unattributed: false,
+          r: totals, losses: lines.reduce((s, l) => s + l.losses, 0),
+        }),
+      ]
+    }
   }
 
   else if (type === 'loss-shipments') {

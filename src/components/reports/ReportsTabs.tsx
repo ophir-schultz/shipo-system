@@ -4,10 +4,14 @@ import { useState } from 'react'
 import { showError, showSuccess } from '@/components/ui/Toast'
 import {
   formatPrice, formatSignedPrice, isPriced, sumPriced, totalOrUnknown,
-  unpricedNote, type Money,
+  unpricedNote, UNPRICED_DASH, type Money,
 } from '@/lib/billing/unpriced'
+import {
+  combineReconciled, exclusionNote, marginPct, reconcile, reconciledOrUnknown,
+} from '@/lib/billing/profit-rollup'
 import { embedOne, type Embed } from '@/lib/db/read'
 import { scopeRows, undatedNote, unattributedNote, type Scoped } from '@/lib/billing/date-range'
+import { REPORT_TABS, reportTypeForTab } from '@/lib/billing/report-types'
 
 // `client_rate`, the profit derived from it, and `warehouse_daily_log.total`
 // are all nullable: recalculate.ts and the daily-log route write null when they
@@ -166,13 +170,12 @@ type TableProps<T> = {
   dateTo: string
 }
 
-const TABS = [
-  { id: 'shipments', label: 'Shipments', icon: '🚚' },
-  { id: 'loss', label: 'Losses', icon: '⚠️' },
-  { id: 'adjustments', label: 'Adjustments', icon: '🔔' },
-  { id: 'billing', label: 'Billing', icon: '💰' },
-  { id: 'warehouse', label: 'Warehouse', icon: '📦' },
-]
+// The tab list and the tab -> export-type mapping used to be declared here, as
+// `TABS` and as a `typeMap` object inside handleDownload. Both are now derived
+// from REPORT_TABS in @/lib/billing/report-types, which the download route also
+// reads. See that file's header for the drift this removes; the short version is
+// that the two lists here and the one in the route had already diverged, leaving
+// 'profit-loss' a working export with no tab able to request it.
 
 export default function ReportsTabs({ data }: { data: ReportsData }) {
   const [activeTab, setActiveTab] = useState('shipments')
@@ -186,15 +189,22 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
   }
 
   async function handleDownload() {
-    setDownloading(true)
-    const typeMap: Record<string, string> = {
-      shipments: 'shipments',
-      loss: 'loss-shipments',
-      adjustments: 'adjustments',
-      billing: 'billing',
-      warehouse: 'warehouse',
+    // Resolved BEFORE setDownloading, so a tab with no spreadsheet cannot
+    // leave the button stuck in its '⏳…' state. The old code set the flag
+    // first and read the map second, and the map returning undefined still
+    // went down the fetch path -- `type=undefined` on the wire, a 400 back,
+    // and a toast about query parameters.
+    const reportType = reportTypeForTab(activeTab)
+    if (reportType === null) {
+      // Not reachable from the UI: the button below does not render for these
+      // tabs. Kept because "the button is hidden" is a fact about a different
+      // expression twenty lines away, and this function is exported to the
+      // click handler, not to a proof.
+      showError('No spreadsheet for this tab', 'This view has no Excel export.')
+      return
     }
-    const params = new URLSearchParams({ type: typeMap[activeTab], dateFrom, dateTo, ...(clientId ? { clientId } : {}) })
+    setDownloading(true)
+    const params = new URLSearchParams({ type: reportType, dateFrom, dateTo, ...(clientId ? { clientId } : {}) })
     try {
       const res = await fetch(`/api/reports/download?${params}`)
       if (!res.ok) {
@@ -205,7 +215,7 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${typeMap[activeTab]}-${dateFrom}-${dateTo}.xlsx`
+      a.download = `${reportType}-${dateFrom}-${dateTo}.xlsx`
       a.click()
       URL.revokeObjectURL(url)
       showSuccess('Report downloaded')
@@ -239,10 +249,19 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
           </select>
         </div>
         <div className="ml-auto flex gap-2">
-          <button onClick={handleDownload} disabled={downloading}
-            className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gray-700 hover:bg-gray-600 disabled:opacity-50 transition">
-            {downloading ? '⏳…' : '↓ Excel'}
-          </button>
+          {/*
+            Rendered only when the active tab HAS a spreadsheet. A button that
+            is present but cannot work is worse than an absent one: the operator
+            clicks it, waits, and gets an error about a query parameter.
+            PDF stays unconditional -- it is window.print(), so it works on
+            whatever is on screen regardless of which exports exist.
+          */}
+          {reportTypeForTab(activeTab) !== null && (
+            <button onClick={handleDownload} disabled={downloading}
+              className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gray-700 hover:bg-gray-600 disabled:opacity-50 transition">
+              {downloading ? '⏳…' : '↓ Excel'}
+            </button>
+          )}
           <button onClick={handlePrintPDF} disabled={downloading}
             className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition"
             style={{ background: '#00AAFF' }}>
@@ -253,7 +272,7 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-900 rounded-xl p-1">
-        {TABS.map(tab => (
+        {REPORT_TABS.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
               activeTab === tab.id ? 'text-white' : 'text-gray-400 hover:text-white'
@@ -267,6 +286,7 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
       {/* Tab content */}
       <div className="bg-gray-800 rounded-xl overflow-hidden">
         {activeTab === 'shipments' && <ShipmentsTable rows={data.shipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+        {activeTab === 'profit' && <ProfitTable rows={data.shipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
         {activeTab === 'loss' && <LossTable rows={data.lossShipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
         {activeTab === 'adjustments' && <AdjustmentsTable rows={data.adjustments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
         {activeTab === 'billing' && <BillingTable rows={data.bills} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
@@ -345,6 +365,228 @@ function omissionNote(s: { unattributed: number; undated: number }, noun?: strin
 
 function Empty({ msg }: { msg: string }) {
   return <div className="px-6 py-12 text-center text-gray-500 text-sm">{msg}</div>
+}
+
+/**
+ * Margin as a percentage, or a dash when it is not a ratio.
+ *
+ * `marginPct` returns null for zero revenue rather than 0, because zero revenue
+ * is an undefined ratio and not a zero margin -- `profit / 0` is Infinity or
+ * NaN, and both of those render through `toFixed(1)` without complaining
+ * ("Infinity%", "NaN%"). The download route's profit-loss branch printed '0%'
+ * for exactly this case, which reads as "we broke even" on a client who was
+ * never billed at all.
+ */
+function marginPctText(r: Parameters<typeof marginPct>[0]): string {
+  const pct = marginPct(r)
+  return pct === null ? UNPRICED_DASH : `${pct.toFixed(1)}%`
+}
+
+/**
+ * Per-client margin, built so the three money columns actually subtract.
+ *
+ * WHY THIS TAB IS NOT THE SHIPMENTS TAB WITH A GROUP BY.
+ *
+ * ShipmentsTable below prints "We Paid", "Charged" and "Net P/L" as three
+ * independent sums, the last of which is the STORED `profit_loss` column. Each
+ * is individually defensible and the stack of them is not: the three figures
+ * are taken over different readable subsets, so Charged minus We Paid does not
+ * equal Net P/L, and nothing on screen says so. That is the defect
+ * profit-rollup.ts was written to remove, and it was removed from the dashboard
+ * first; this tab is the /reports half of the same fix.
+ *
+ * So every figure here comes from `reconcile`, which sums revenue and cost over
+ * the SAME rows -- the ones where both are known -- and derives profit by
+ * subtracting them in integer cents. The identity holds by construction rather
+ * than by being checked afterwards. Rows it cannot reconcile are not dropped;
+ * they are counted into three named buckets and reported under the figure, and
+ * `reconciled + unrated + uncosted + unmeasured === counted` is pinned by a
+ * test next to the function.
+ *
+ * SORTED WORST FIRST, which is the question being asked. "Where do I lose from
+ * each client, I need to see all the cents I'm losing" -- so the client costing
+ * the most money sorts to the top rather than being found by scrolling.
+ *
+ * GROUPED BY client_id AND NEVER BY NAME. The profit-loss branch of
+ * api/reports/download keyed its roll-up on `clients.name ?? 'Unknown'`, which
+ * merges two clients who share a name into one line and files every unattributed
+ * row under a client literally called Unknown. Grouping on the id keeps them
+ * distinct, and the rows with no client get their own labelled line below --
+ * they are not noise, they are the 241 shipments from 9 unmapped stores the
+ * production monitor reports, carrying real money nobody has assigned. Note
+ * those rows only reach here when "All Clients" is selected: filterByClient
+ * passes everything through untouched for the empty clientId and counts nothing
+ * as unattributed, which is why this groups them rather than relying on the
+ * omission note.
+ */
+function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShipment>) {
+  const period = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
+
+  // Keyed on client_id. The empty string is the bucket for rows with no client
+  // at all -- a real key here, not a missing one, so it cannot collide with a
+  // uuid and cannot be mistaken for a client named 'Unknown'.
+  const groups = new Map<string, { name: string | null; rows: ReportShipment[] }>()
+  for (const r of period.rows) {
+    const key = typeof r.client_id === 'string' ? r.client_id : ''
+    const g = groups.get(key)
+    if (g) g.rows.push(r)
+    else groups.set(key, { name: embedOne(r.clients)?.name ?? null, rows: [r] })
+  }
+
+  const lines = [...groups.entries()]
+    .map(([key, g]) => ({
+      key,
+      // Named only when the join actually carried a name. A client row whose
+      // name is null is a data problem worth seeing, not a blank cell to fill
+      // with the id.
+      label: key === ''
+        ? 'No client assigned'
+        : g.name ?? `(unnamed client ${key.slice(0, 8)})`,
+      unattributed: key === '',
+      r: reconcile(g.rows),
+    }))
+    // Worst margin first, and the unattributed line last regardless of its
+    // figures: it is not a client and ranking it among them invites reading it
+    // as one. `sort` is in-place on an array this expression just built.
+    .sort((a, b) => {
+      if (a.unattributed !== b.unattributed) return a.unattributed ? 1 : -1
+      return a.r.profit - b.r.profit
+    })
+
+  const totals = combineReconciled(...lines.map(l => l.r))
+  const t = reconciledOrUnknown(totals)
+  const totalNote = exclusionNote(totals)
+
+  if (period.rows.length === 0) {
+    return <Empty msg="No shipments found for the selected period." />
+  }
+
+  return (
+    <>
+      <div className="grid grid-cols-4 divide-x divide-gray-700 border-b border-gray-700">
+        {([
+          ['Revenue', t.revenue === null ? UNPRICED_DASH : `$${t.revenue.toFixed(2)}`, 'text-white'],
+          ['Cost', t.cost === null ? UNPRICED_DASH : `$${t.cost.toFixed(2)}`, 'text-white'],
+          [
+            'Profit',
+            t.profit === null
+              ? UNPRICED_DASH
+              : `${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}`,
+            // `t.profit === null` first: `null >= 0` is TRUE in JS, so testing
+            // the sign before the null would paint an UNKNOWN margin green.
+            t.profit === null ? 'text-gray-400' : t.profit >= 0 ? 'text-green-400' : 'text-red-400',
+          ],
+          ['Margin', marginPctText(totals), 'text-white'],
+        ] as Array<[string, string, string]>).map(([l, v, cls]) => (
+          <div key={l} className="px-5 py-3">
+            <p className="text-xs text-gray-400">{l}</p>
+            <p className={`font-bold text-lg ${cls}`}>{v}</p>
+          </div>
+        ))}
+      </div>
+
+      {/*
+        One note for the panel, not one per column -- unlike ShipmentsTable.
+        Here it is correct: all three figures are built from the SAME reconciled
+        rows, so they are short by exactly the same shipments. That is the
+        property this tab exists to have, and a per-column note would imply
+        three different shortfalls.
+      */}
+      {totalNote && (
+        <p className="px-5 py-2 text-[11px] text-amber-400 border-b border-gray-700">⚠ {totalNote}</p>
+      )}
+      {omissionNote(period) && (
+        <p className="px-5 py-2 text-[11px] text-amber-400 border-b border-gray-700">⚠ {omissionNote(period)}</p>
+      )}
+      {totals.stale > 0 && (
+        <p className="px-5 py-2 text-[11px] text-amber-400 border-b border-gray-700">
+          ⚠ {totals.stale} of {totals.reconciled} reconciled shipments have a stored
+          profit_loss that disagrees with charged minus paid. The figures above are
+          derived by subtraction and do not use that column; the disagreement means
+          it was written against a rate or cost that has since changed.
+        </p>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-900 text-gray-400">
+            <tr>
+              <th className="text-left px-4 py-2 font-medium">Client</th>
+              <th className="text-right px-4 py-2 font-medium">Shipments</th>
+              <th className="text-right px-4 py-2 font-medium">Revenue</th>
+              <th className="text-right px-4 py-2 font-medium">Cost</th>
+              <th className="text-right px-4 py-2 font-medium">Profit</th>
+              <th className="text-right px-4 py-2 font-medium">Margin</th>
+              <th className="text-left px-4 py-2 font-medium">Not counted</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-700">
+            {lines.map(line => {
+              const v = reconciledOrUnknown(line.r)
+              return (
+                <tr key={line.key} className={line.unattributed ? 'bg-gray-900/40' : ''}>
+                  <td className="px-4 py-2 text-white">
+                    {line.unattributed ? <span className="text-amber-400">⚠ {line.label}</span> : line.label}
+                  </td>
+                  {/*
+                    reconciled OF counted, not just one of them. "40" alone
+                    cannot distinguish a client whose every shipment priced
+                    cleanly from one where 40 of 300 did, and those are
+                    opposite situations with the same margin.
+                  */}
+                  <td className="px-4 py-2 text-right text-gray-300">
+                    {line.r.reconciled === line.r.counted
+                      ? line.r.counted
+                      : `${line.r.reconciled} of ${line.r.counted}`}
+                  </td>
+                  <td className="px-4 py-2 text-right text-gray-300">
+                    {v.revenue === null ? UNPRICED_DASH : `$${v.revenue.toFixed(2)}`}
+                  </td>
+                  <td className="px-4 py-2 text-right text-gray-300">
+                    {v.cost === null ? UNPRICED_DASH : `$${v.cost.toFixed(2)}`}
+                  </td>
+                  <td className={`px-4 py-2 text-right font-semibold ${
+                    v.profit === null ? 'text-gray-400' : v.profit >= 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {v.profit === null
+                      ? UNPRICED_DASH
+                      : `${v.profit >= 0 ? '+' : ''}$${v.profit.toFixed(2)}`}
+                  </td>
+                  <td className="px-4 py-2 text-right text-gray-300">{marginPctText(line.r)}</td>
+                  <td className="px-4 py-2 text-[11px] text-amber-400">{exclusionNote(line.r)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+          <tfoot className="bg-gray-900 font-semibold">
+            <tr>
+              <td className="px-4 py-2 text-white">Total</td>
+              <td className="px-4 py-2 text-right text-gray-300">
+                {totals.reconciled === totals.counted
+                  ? totals.counted
+                  : `${totals.reconciled} of ${totals.counted}`}
+              </td>
+              <td className="px-4 py-2 text-right text-gray-300">
+                {t.revenue === null ? UNPRICED_DASH : `$${t.revenue.toFixed(2)}`}
+              </td>
+              <td className="px-4 py-2 text-right text-gray-300">
+                {t.cost === null ? UNPRICED_DASH : `$${t.cost.toFixed(2)}`}
+              </td>
+              <td className={`px-4 py-2 text-right ${
+                t.profit === null ? 'text-gray-400' : t.profit >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {t.profit === null
+                  ? UNPRICED_DASH
+                  : `${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}`}
+              </td>
+              <td className="px-4 py-2 text-right text-gray-300">{marginPctText(totals)}</td>
+              <td />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </>
+  )
 }
 
 function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShipment>) {
