@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   validateLegacyRates, LEGACY_UNITS, WAREHOUSE_SERVICE_TYPES,
+  WAREHOUSE_SERVICE_GROUPS, composeServiceNotes, overlapWarning,
 } from './warehouse-rate-card'
 
 // The function under test is the only thing standing between a request body
@@ -345,14 +346,108 @@ describe('WAREHOUSE_SERVICE_TYPES', () => {
 
   it('names every service the daily log can record', () => {
     expect(WAREHOUSE_SERVICE_TYPES.map((s) => s.value)).toEqual([
-      'storage', 'receiving', 'returns', 'labeling', 'kitting',
-      'pallet_in', 'pallet_out', 'labor_hours', 'special_task',
+      'storage', 'receiving',
+      'receiving_pallet', 'receiving_carton', 'devan_20ft', 'devan_40ft',
+      'pallet_in',
+      'fba_prep', 'returns', 'labeling', 'kitting', 'pallet_out',
+      'labor_hours', 'special_task',
     ])
+  })
+
+  it('keeps generic receiving alongside the variants, not replaced by them', () => {
+    // The variants were added for the shapes the structured card prices
+    // separately. Generic 'receiving' has to survive that edit: existing
+    // client_warehouse_rates rows and logged warehouse_daily_log history both
+    // name it, so removing it strands those rates and makes history unreadable.
+    const values = WAREHOUSE_SERVICE_TYPES.map((s) => s.value)
+    expect(values).toContain('receiving')
+    expect(values).toContain('receiving_pallet')
+  })
+
+  it('does NOT offer pick_pack, which the ledger already bills per order', () => {
+    /**
+     * The one entry whose ADDITION is the defect, which is why this is an
+     * assertion and not a comment.
+     *
+     * Pick and pack is the headline line on the published DTC card and is named
+     * in the original schema comment, so it reads like an obvious omission. It
+     * is raised automatically per order by lib/ledger/calculate-charges.ts and
+     * counted in lib/billing/statement.ts. A hand-logged pick_pack line would
+     * bill work the ledger has already billed -- the client pays twice, and the
+     * statement looks internally consistent while doing it.
+     */
+    expect(WAREHOUSE_SERVICE_TYPES.map((s) => s.value)).not.toContain('pick_pack')
   })
 
   it('has no duplicate values and a label for each', () => {
     const values = WAREHOUSE_SERVICE_TYPES.map((s) => s.value)
     expect(new Set(values).size).toBe(values.length)
     for (const s of WAREHOUSE_SERVICE_TYPES) expect(s.label.trim()).not.toBe('')
+  })
+
+  it('puts every service in a group the form actually renders', () => {
+    // The form iterates WAREHOUSE_SERVICE_GROUPS to lay out sections. A service
+    // whose group is not in that list would be silently unreachable -- loggable
+    // in principle, absent from the screen, which is how labor_hours became
+    // unbillable in the first place.
+    for (const s of WAREHOUSE_SERVICE_TYPES) {
+      expect(
+        WAREHOUSE_SERVICE_GROUPS as readonly string[],
+        `service '${s.value}' is in group '${s.group}', which the form does not render`,
+      ).toContain(s.group)
+    }
+  })
+})
+
+describe('composeServiceNotes', () => {
+  it('keeps typed text when no step is ticked', () => {
+    expect(composeServiceNotes([], 'rush order')).toBe('rush order')
+  })
+
+  it('joins ticked steps when nothing was typed', () => {
+    expect(composeServiceNotes(['FNSKU label', 'Poly bag'], ''))
+      .toBe('FNSKU label, Poly bag')
+  })
+
+  it('keeps BOTH, because the typed note is the part nothing else records', () => {
+    // The requirement that matters. A composer preferring the checkboxes would
+    // discard the only free-form thing on the row.
+    expect(composeServiceNotes(['Inspection'], 'two cartons damaged'))
+      .toBe('Inspection — two cartons damaged')
+  })
+
+  it('is empty when there is nothing to say', () => {
+    expect(composeServiceNotes([], '   ')).toBe('')
+  })
+
+  it('ignores blank steps rather than emitting stray separators', () => {
+    expect(composeServiceNotes(['', '  ', 'Bundle'], '')).toBe('Bundle')
+  })
+})
+
+describe('overlapWarning', () => {
+  it('warns when FBA prep and kitting are logged together', () => {
+    const w = overlapWarning(['fba_prep', 'kitting'])
+    expect(w).not.toBeNull()
+    expect(w).toMatch(/billed for it twice/)
+  })
+
+  it('stays silent for either one alone', () => {
+    // The warning has to be specific to the PAIR. Firing on FBA prep by itself
+    // would train the operator to dismiss it, at which point it stops working
+    // for the case it exists for.
+    expect(overlapWarning(['fba_prep'])).toBeNull()
+    expect(overlapWarning(['kitting'])).toBeNull()
+  })
+
+  it('stays silent for an empty day', () => {
+    expect(overlapWarning([])).toBeNull()
+  })
+
+  it('names the blended rate as the reason, not just the collision', () => {
+    // The operator has to be able to decide whether this instance is legitimate
+    // -- kitting on non-FBA stock the same day is -- so the text must say WHY
+    // the pair is suspect, not merely that it was detected.
+    expect(overlapWarning(['kitting', 'fba_prep'])).toMatch(/blended FBA prep rate/)
   })
 })

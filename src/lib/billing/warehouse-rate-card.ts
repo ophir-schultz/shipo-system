@@ -31,18 +31,117 @@ export const LEGACY_UNITS = [
  * Both components now import this, which makes the two lists the same list
  * rather than two lists that have to be kept the same. Adding a service in one
  * place adds it to both.
+ *
+ * `group` is presentation only -- app/warehouse/page.tsx renders one section
+ * per group so a 14-row form stays scannable. It is deliberately NOT a billing
+ * concept: nothing prices, sums or partitions on it, because a second
+ * money-bearing classifier alongside service_type is a second thing that can
+ * disagree with the rate card.
+ *
+ * NOTE ON WHAT IS ABSENT. `pick_pack` is in the original schema comment and is
+ * the headline line on the published DTC card, and it is deliberately NOT here.
+ * Pick and pack is raised automatically per order by the ledger
+ * (lib/ledger/calculate-charges.ts, counted in lib/billing/statement.ts), so a
+ * hand-logged pick_pack line would bill the same work a second time. Adding it
+ * to this list is the one edit here that silently overcharges a client.
  */
 export const WAREHOUSE_SERVICE_TYPES = [
-  { value: 'storage', label: 'Storage' },
-  { value: 'receiving', label: 'Receiving' },
-  { value: 'returns', label: 'Returns Processing' },
-  { value: 'labeling', label: 'Labeling / Repackaging' },
-  { value: 'kitting', label: 'Kitting / Assembly' },
-  { value: 'pallet_in', label: 'Pallet In' },
-  { value: 'pallet_out', label: 'Pallet Out' },
-  { value: 'labor_hours', label: 'Labor Hours' },
-  { value: 'special_task', label: 'Special Task' },
+  { value: 'storage', label: 'Storage', group: 'Storage' },
+  { value: 'receiving', label: 'Receiving (unspecified)', group: 'Inbound' },
+  // The four receiving variants carry the shapes the structured card already
+  // prices per client (see supabase/ledger_05_seed_nayax.sql: pallet $20.00,
+  // carton $0.85, devanning $450/$650). They are separate service types rather
+  // than one 'receiving' line because they are priced on different units, and
+  // one rate cannot express per-pallet and per-container at once.
+  //
+  // Generic 'receiving' is KEPT above, not replaced. Existing
+  // client_warehouse_rates rows and existing warehouse_daily_log history both
+  // name it; dropping it would strand those rates and make logged history
+  // unreadable. It is relabelled '(unspecified)' so the variants read as the
+  // better answer without the old value becoming a lie.
+  { value: 'receiving_pallet', label: 'Pallet receiving', group: 'Inbound' },
+  { value: 'receiving_carton', label: 'Carton receiving', group: 'Inbound' },
+  { value: 'devan_20ft', label: 'Container devanning — 20ft', group: 'Inbound' },
+  { value: 'devan_40ft', label: 'Container devanning — 40ft', group: 'Inbound' },
+  { value: 'pallet_in', label: 'Pallet In', group: 'Inbound' },
+  // The ONE billable FBA line, matching the published card's single blended
+  // figure ($1.25 per unit covering FNSKU labelling, poly bagging, bundling,
+  // kitting and inspection). Which steps were performed is recorded in `notes`
+  // via composeServiceNotes and does NOT multiply the charge: the server
+  // computes total = rate x quantity from this one rate, so per-step detail is
+  // structurally incapable of billing. That is the property that makes the
+  // detail safe to collect at all.
+  { value: 'fba_prep', label: 'Amazon FBA prep', group: 'Prep & outbound' },
+  { value: 'returns', label: 'Returns Processing', group: 'Prep & outbound' },
+  { value: 'labeling', label: 'Labeling / Repackaging', group: 'Prep & outbound' },
+  { value: 'kitting', label: 'Kitting / Assembly', group: 'Prep & outbound' },
+  { value: 'pallet_out', label: 'Pallet Out', group: 'Prep & outbound' },
+  { value: 'labor_hours', label: 'Labor Hours', group: 'Labour & other' },
+  { value: 'special_task', label: 'Special Task', group: 'Labour & other' },
 ] as const
+
+/** Section order for the log form. Any group not listed here renders last. */
+export const WAREHOUSE_SERVICE_GROUPS = [
+  'Inbound', 'Storage', 'Prep & outbound', 'Labour & other',
+] as const
+
+/**
+ * The service whose per-step detail is collected, and the steps themselves.
+ *
+ * Steps are labels and not codes because their only destination is the `notes`
+ * column, which a human reads. Keeping them out of `service_type` is the whole
+ * design: five separately-priced prep services would mean a unit that gets
+ * three steps bills three times, against a published card that promises one
+ * blended $1.25.
+ */
+export const FBA_PREP_SERVICE = 'fba_prep'
+
+export const FBA_PREP_STEPS = [
+  'FNSKU label', 'Poly bag', 'Bundle', 'Kitting', 'Inspection',
+] as const
+
+/**
+ * `notes` for a line, combining the ticked steps with anything typed.
+ *
+ * Free text is never dropped, which is the only real requirement: the operator
+ * typed it, and a composer that silently preferred the checkboxes would lose
+ * the one part of the row nothing else records.
+ */
+export function composeServiceNotes(
+  steps: readonly string[], freeText: string,
+): string {
+  const picked = steps.map((s) => s.trim()).filter((s) => s !== '')
+  const typed = freeText.trim()
+  if (picked.length === 0) return typed
+  if (typed === '') return picked.join(', ')
+  return `${picked.join(', ')} — ${typed}`
+}
+
+/**
+ * Lines that look like they bill the same work twice, for a warning shown
+ * BEFORE submit.
+ *
+ * Only one pair qualifies today: the published card folds kitting into the
+ * blended FBA prep rate, while `kitting` is also its own billable service. A
+ * client priced for both, with both logged against the same units, pays twice.
+ *
+ * This returns a warning and not an error. The combination is legitimate --
+ * kitting performed on non-FBA stock on the same day is exactly it -- so the
+ * operator is told, not blocked. Blocking a valid day's entry is worse than a
+ * sentence asking someone to check.
+ */
+export function overlapWarning(
+  services: readonly string[],
+): string | null {
+  const has = new Set(services)
+  if (has.has(FBA_PREP_SERVICE) && has.has('kitting')) {
+    return 'Both Amazon FBA prep and Kitting / Assembly are filled in. The '
+      + 'published card folds kitting into the blended FBA prep rate, so if '
+      + 'these cover the same units the client is billed for it twice. Log '
+      + 'Kitting separately only for work outside the FBA prep.'
+  }
+  return null
+}
 
 /**
  * The only columns this endpoint may author.
