@@ -221,8 +221,11 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
       a.click()
       URL.revokeObjectURL(url)
       showSuccess('Report downloaded')
-    } catch (err: any) {
-      showError('Download failed', err?.message ?? 'Could not generate report')
+    } catch (err) {
+      showError('Download failed',
+        err instanceof Error && err.message !== ''
+          ? err.message
+          : 'Could not generate report')
     } finally {
       setDownloading(false)
     }
