@@ -2,6 +2,10 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { parseScan, duplicatesWithin } from '@/lib/scan/parse'
+// Whether the client list is a list, or a read that failed, is decided in
+// lib/ because vitest excludes `.test.tsx`. See client-list.ts for why an
+// empty dropdown on this screen is worse than an error on it.
+import { readClientList, type Client } from '@/lib/clients/client-list'
 
 // ============================================================
 // SERIALIZATION SCAN STATION
@@ -13,8 +17,6 @@ import { parseScan, duplicatesWithin } from '@/lib/scan/parse'
 // falls back to guessing when a label carries no separator, and a
 // guess that nobody looked at must never become a billing line.
 // ============================================================
-
-type Client = { id: string; name: string }
 
 type Recorded = {
   serial_count: number
@@ -39,12 +41,37 @@ export default function ScanPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [last, setLast] = useState<Recorded | null>(null)
+  // Kept apart from `error`, which is about a scan that failed to record.
+  // This one is about not knowing who the clients are, and it REPLACES the
+  // station rather than appearing beside it -- see the refusal below.
+  const [loadError, setLoadError] = useState('')
+  // Set only on a successful read, so an empty list can be reported as empty
+  // rather than as still loading. `clients.length === 0` cannot tell those
+  // apart, and the dropdown said "Select a client…" for both.
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
+    let live = true
     fetch('/api/clients/list')
-      .then((r) => r.json())
-      .then((data: Client[]) => setClients(Array.isArray(data) ? data : []))
-      .catch(() => setClients([]))
+      .then(async (r) => {
+        // Parsed here and handed over, so readClientList stays pure and
+        // testable. `.catch(() => null)` because a body that is not JSON at
+        // all -- a proxy's HTML error page -- must not throw past the status
+        // check and land in the network `.catch` as an unexplained refusal.
+        const body = await r.json().catch(() => null)
+        if (!live) return
+        const list = readClientList(r, body)
+        if (!list.ok) {
+          setLoadError(list.error)
+          return
+        }
+        setClients(list.data)
+        setLoaded(true)
+      })
+      // A network failure is a failure, not a client list with nobody on it.
+      // This used to be `.catch(() => setClients([]))`.
+      .catch((e) => { if (live) setLoadError(String(e)) })
+    return () => { live = false }
   }, [])
 
   const result = useMemo(
@@ -109,6 +136,35 @@ export default function ScanPage() {
   const field =
     'w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]'
 
+  // No scan station at all when the client list could not be read. Every scan
+  // is posted against a client_id that can only come from that dropdown, so
+  // the form has no usable function without it -- and a station that renders
+  // anyway invites an operator to work through a pallet of cartons, which the
+  // submit will then refuse one at a time with "Pick a client."
+  if (loadError) return (
+    <div className="max-w-5xl pb-10">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-white">Serialization Scan</h2>
+      </div>
+      <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-5">
+        <p className="text-red-300 text-sm font-semibold">
+          Could not load the client list
+        </p>
+        <p className="text-red-200/70 text-xs mt-1">
+          {loadError}
+        </p>
+        <p className="text-red-200/70 text-xs mt-2">
+          This is a read failure, not a sign that there are no clients set up.
+          Nothing already recorded has been lost or changed. A scan cannot be
+          saved without a client, so do not work through the cartons on this
+          screen until it loads — reload, and if it keeps failing, leave the
+          boxes unsealed and scan them once this is fixed. The serials are
+          still on them; a scan that was never recorded is not billed.
+        </p>
+      </div>
+    </div>
+  )
+
   return (
     <div className="max-w-5xl pb-10">
       <div className="mb-6">
@@ -129,7 +185,19 @@ export default function ScanPage() {
               onChange={(e) => setClientId(e.target.value)}
               className={field}
             >
-              <option value="">Select a client…</option>
+              {/* Three states, not one. "Select a client…" over a list that
+                  has not arrived yet tells the operator to pick from nothing,
+                  and over a SUCCESSFUL read that returned nobody it tells
+                  them to keep waiting for a list that is never coming. A read
+                  FAILURE does not reach here at all -- loadError returns
+                  above, in place of the whole station. */}
+              <option value="">
+                {!loaded
+                  ? 'Loading clients…'
+                  : clients.length === 0
+                    ? 'No active clients'
+                    : 'Select a client…'}
+              </option>
               {clients.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
