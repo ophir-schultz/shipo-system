@@ -53,6 +53,46 @@ export type ClientEntry = {
   name: string
   rows: ServiceRow[]
   state: CardState
+  /** Charge lines on the card this screen cannot price from. See structuredNote. */
+  structuredCount: number
+}
+
+/**
+ * What to tell an operator whose client has boxes on screen AND charge lines
+ * that are not among them.
+ *
+ * Returns null unless there is something to say, which is the common case: on
+ * a card with no structured partition this adds nothing to the screen.
+ *
+ * Deliberately NOT a fifth CardState and NOT routed through cardStateNotice.
+ * Those four are refusals -- they replace the form, because entering work
+ * against them produces an unbillable line. This one sits above a form that
+ * works. Nayax is the case that forced it: 19 rows, 18 structured, exactly one
+ * loggable action, and `state` is therefore 'priced'. The operator got a
+ * single Storage box and no hint that eighteen other priced lines exist, bill
+ * elsewhere, and are not their job tonight. Telling them nothing is how those
+ * eighteen get re-typed into the one box that was visible, or skipped.
+ *
+ * It names the charge calculator because "handled elsewhere" with no address
+ * is an instruction to go looking.
+ */
+export function structuredNote(
+  state: CardState, structuredCount: number,
+): string | null {
+  // Only on a usable form. The other three states already show a banner that
+  // says more than this one would, and stacking a grey note under an amber
+  // refusal reads as though the refusal had an exception.
+  if (state !== 'priced') return null
+  // `<= 0`, not `=== 0`. The count comes from a payload, and a negative one
+  // would otherwise render as "-1 further charge lines".
+  if (structuredCount <= 0) return null
+  // The verb agrees too. "1 further charge line are billed" is the kind of
+  // detail that makes an operator distrust the rest of the screen.
+  const subject = structuredCount === 1
+    ? '1 further charge line on this client’s card is'
+    : `${structuredCount} further charge lines on this client’s card are`
+  return `${subject} billed through the charge calculator, not from this `
+    + `screen. The boxes below are the complete list of what can be logged here.`
 }
 
 /** The registry entry for a service_type, when the registry happens to know

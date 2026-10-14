@@ -18,7 +18,7 @@ import {
 // names and the constant used its own. The long version is in the lib header.
 import {
   rowsFromCard, rowsInGroup, groupsToRender, filledRows, clearedEntries, money,
-  cardStateNotice, type ClientEntry,
+  cardStateNotice, structuredNote, type ClientEntry,
 } from '@/lib/billing/warehouse-log-form'
 import type { ClientCard } from '@/lib/billing/warehouse-priced-services'
 
@@ -78,6 +78,12 @@ export default function WarehousePage() {
           name: c.name,
           rows: rowsFromCard(c.services ?? []),
           state: c.state,
+          // `?? 0` only for a route that predates the field. Not a default
+          // meaning "none": a card we could not count is counted as nothing to
+          // say, which is the silent behaviour this note exists to replace --
+          // so the route is typed to require it (ServicesRow above) and this
+          // coalesce should be unreachable.
+          structuredCount: c.structuredCount ?? 0,
         })))
         setSelected(prev => prev === '' ? (list[0]?.id ?? '') : prev)
         setLoaded(true)
@@ -256,6 +262,13 @@ export default function WarehousePage() {
     ? null
     : cardStateNotice(current.state, current.name, today)
 
+  // Not a refusal: the form below works. This says what is NOT in it, for a
+  // card whose structured lines outnumber its loggable ones. Null for most
+  // clients. See structuredNote for why it is not a fifth CardState.
+  const currentStructured = current === null
+    ? null
+    : structuredNote(current.state, current.structuredCount)
+
   // Everything submit will write, which is deliberately not scoped to the
   // dropdown. Computed from the same filledRows() the submit loop uses, so the
   // count cannot promise a different set than the one written.
@@ -332,6 +345,18 @@ export default function WarehousePage() {
                   {currentNotice.title}
                 </p>
                 <p className="text-amber-200/70 text-xs">{currentNotice.body}</p>
+              </div>
+            )}
+
+            {/* Grey, not amber, and deliberately quieter than the banner
+                above: this form IS usable. It is here because `priced` fires
+                on one billable line, so a card that is 18 structured lines and
+                1 loggable action showed a single box and said nothing about
+                the other eighteen. Mutually exclusive with the banner by
+                construction -- structuredNote returns null unless `priced`. */}
+            {currentStructured && (
+              <div className="px-5 py-3 bg-gray-800/40 border-b border-gray-700">
+                <p className="text-gray-400 text-xs">{currentStructured}</p>
               </div>
             )}
 

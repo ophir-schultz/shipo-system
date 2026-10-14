@@ -43,7 +43,10 @@ describe('pricedServices', () => {
       // Four of the nine active clients are in exactly this state. Every
       // warehouse service for them is unbillable, not just the new ones, and
       // the old screen rendered them a full menu of actions anyway.
-      expect(pricedServices([], DATE)).toEqual({ state: 'no-card', services: [] })
+      // structuredCount 0 because there are no rows -- not because the count
+      // was skipped on this path. The early return reports it too.
+      expect(pricedServices([], DATE))
+        .toEqual({ state: 'no-card', services: [], structuredCount: 0 })
     })
 
     it('reports structured-only when the card holds charge_type lines it cannot price from', () => {
@@ -57,7 +60,8 @@ describe('pricedServices', () => {
         row({ id: 'a', service_type: null, charge_type: 'receiving' }),
         row({ id: 'b', service_type: null, charge_type: 'storage' }),
       ]
-      expect(pricedServices(card, DATE)).toEqual({ state: 'structured-only', services: [] })
+      expect(pricedServices(card, DATE))
+        .toEqual({ state: 'structured-only', services: [], structuredCount: 2 })
     })
 
     it('reports none-priced when legacy lines exist but none can be priced', () => {
@@ -68,7 +72,8 @@ describe('pricedServices', () => {
        * a card that already exists.
        */
       const card = [row({ id: 'a', service_type: 'storage', effective_to: '2026-01-01' })]
-      expect(pricedServices(card, DATE)).toEqual({ state: 'none-priced', services: [] })
+      expect(pricedServices(card, DATE))
+        .toEqual({ state: 'none-priced', services: [], structuredCount: 0 })
     })
   })
 
@@ -84,6 +89,9 @@ describe('pricedServices', () => {
           { service_type: 'inbound_pallet_handling', rate: 7, unit: 'per_pallet' },
           { service_type: 'loose_case', rate: 0.3, unit: 'per_unit' },
         ],
+        // A card with no structured partition has nothing extra to say, and
+        // the screen shows no note. Creative Pea and SitnStand are this shape.
+        structuredCount: 0,
       })
     })
 
@@ -134,7 +142,8 @@ describe('pricedServices', () => {
         row({ id: 'a', service_type: 'storage', rate: 10 }),
         row({ id: 'b', service_type: 'storage', rate: 99 }),
       ]
-      expect(pricedServices(card, DATE)).toEqual({ state: 'none-priced', services: [] })
+      expect(pricedServices(card, DATE))
+        .toEqual({ state: 'none-priced', services: [], structuredCount: 0 })
     })
 
     it('offers the service that IS priced even when a sibling is not', () => {
@@ -186,7 +195,8 @@ describe('pricedServices', () => {
         row({ id: 'b', service_type: '   ', rate: 1 }),
         row({ id: 'c', service_type: null, rate: 1 }),
       ]
-      expect(pricedServices(card, DATE)).toEqual({ state: 'none-priced', services: [] })
+      expect(pricedServices(card, DATE))
+        .toEqual({ state: 'none-priced', services: [], structuredCount: 0 })
     })
 
     it('lists each service once even when the card repeats it in dead rows', () => {
@@ -243,6 +253,10 @@ describe('pricedServices', () => {
       expect(pricedServices(card, DATE)).toEqual({
         state: 'priced',
         services: [{ service_type: 'storage', rate: 25, unit: 'per_pallet' }],
+        // Counted and reported even though the state is `priced`. This is the
+        // Nayax case in miniature, and it is why structuredCount exists: the
+        // state says the form works, and this says what is not in it.
+        structuredCount: 1,
       })
     })
 
@@ -266,6 +280,61 @@ describe('pricedServices', () => {
       // 'per_unit' would put a number on screen that nobody agreed to.
       expect(pricedServices([row({ service_type: 'storage', rate: 4 })], DATE).services)
         .toEqual([{ service_type: 'storage', rate: 4, unit: null }])
+    })
+  })
+
+  describe('structuredCount', () => {
+    /**
+     * Nayax as production actually holds it, measured 2026-10-14 by
+     * supabase/verify/warehouse_log_gap_by_client.sql: 19 rows, 18 structured,
+     * exactly ONE loggable action (storage @25.00 per_pallet).
+     *
+     * This is the shape that `state` alone describes badly. It is `priced`,
+     * which is true -- and it was all the screen said, so an operator saw one
+     * box and nothing about the eighteen other priced lines.
+     */
+    const nayax = [
+      ...Array.from({ length: 18 }, (_, i) =>
+        row({ id: `s${i}`, service_type: null, charge_type: `receiving_${i}` })),
+      row({ id: 'legacy', service_type: 'storage', rate: 25, unit: 'per_pallet' }),
+    ]
+
+    it('counts the structured lines on a card that is still priced', () => {
+      const card = pricedServices(nayax, DATE)
+      expect(card.state).toBe('priced')
+      expect(card.services).toHaveLength(1)
+      expect(card.structuredCount).toBe(18)
+    })
+
+    it('counts only charge_type rows, not every row that is not loggable', () => {
+      /**
+       * A null rate and an expired window are also not loggable, and both
+       * belong on the rate card rather than the charge calculator. Counting
+       * them here would tell the operator to go bill them somewhere that
+       * cannot bill them.
+       */
+      const card = [
+        row({ id: 'a', service_type: 'storage', rate: 25 }),
+        row({ id: 'b', service_type: 'broken', rate: null }),
+        row({ id: 'c', service_type: 'gone', rate: 9, effective_to: '2026-01-01' }),
+      ]
+      expect(pricedServices(card, DATE).structuredCount).toBe(0)
+    })
+
+    it('counts a structured row even when it ALSO carries a service_type', () => {
+      /**
+       * Both columns populated on one row is not hypothetical -- charge_type
+       * and service_type were added in different migrations and nothing
+       * forbids the combination. The row is priceable here AND billed by the
+       * calculator, so it is counted: the note says what else exists, not what
+       * is missing.
+       */
+      const card = [
+        row({ id: 'a', service_type: 'storage', rate: 25, charge_type: 'storage' }),
+      ]
+      const result = pricedServices(card, DATE)
+      expect(result.state).toBe('priced')
+      expect(result.structuredCount).toBe(1)
     })
   })
 

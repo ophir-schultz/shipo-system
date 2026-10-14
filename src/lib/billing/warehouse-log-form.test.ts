@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest'
 import {
   CARD_GROUP, labelFor, knownService, rowsFromCard, groupOf, rowsInGroup,
   groupsToRender, filledRows, clearedEntries, money, cardStateNotice,
+  structuredNote,
   type ServiceRow, type ClientEntry, type CardState,
 } from './warehouse-log-form'
 import { WAREHOUSE_SERVICE_GROUPS } from './warehouse-rate-card'
@@ -230,7 +231,7 @@ describe('filledRows', () => {
 
 describe('clearedEntries', () => {
   const entries: ClientEntry[] = [{
-    client_id: 'c1', name: 'Kivema', state: 'priced',
+    client_id: 'c1', name: 'Kivema', state: 'priced', structuredCount: 0,
     rows: [
       row({ service_type: 'loose_case', label: 'loose case', quantity: '40', notes: 'am shift', rate: 0.3, unit: 'per_unit' }),
       row({ service_type: 'fba_prep', label: 'Amazon FBA prep', quantity: '5', notes: '', steps: ['Bagging'], rate: 1.25, unit: 'per_unit' }),
@@ -282,7 +283,10 @@ describe('clearedEntries', () => {
 
   it('clears a client with an empty card without inventing rows for it', () => {
     const noCard: ClientEntry[] = [
-      { client_id: 'c2', name: 'Orcam', state: 'no-card', rows: [] },
+      // Orcam as production holds it: zero rows on the card, so zero
+      // structured lines too -- and the note stays silent on a state that
+      // already refuses.
+      { client_id: 'c2', name: 'Orcam', state: 'no-card', rows: [], structuredCount: 0 },
     ]
     expect(clearedEntries(noCard)).toEqual(noCard)
   })
@@ -361,6 +365,58 @@ describe('cardStateNotice', () => {
     // nothing throws, and exactly one state is silent.
     const silent = ALL.filter(s => cardStateNotice(s, 'X', '2026-10-14') === null)
     expect(silent).toEqual(['priced'])
+  })
+})
+
+describe('structuredNote', () => {
+  it('speaks for the Nayax case: priced, with structured lines behind it', () => {
+    // 18 is the production number. The note has to carry it, because "some
+    // other lines exist" gives an operator nothing to check against.
+    const note = structuredNote('priced', 18)
+    expect(note).toContain('18 further charge lines')
+    expect(note).toContain('charge calculator')
+  })
+
+  it('says nothing for a card with no structured lines', () => {
+    // The common case. Creative Pea, Time Systems and SitnStand are all
+    // 12/12 or 15/15 loggable, and this must add nothing to their screen.
+    expect(structuredNote('priced', 0)).toBeNull()
+  })
+
+  it('says nothing on any state that already shows a refusal banner', () => {
+    /**
+     * The two notices are mutually exclusive BY CONSTRUCTION, not by luck of
+     * the JSX ordering. A grey "the rest are billed elsewhere" stacked under
+     * an amber "nothing here can be billed" reads as though the refusal had
+     * an exception -- and structured-only in particular would show both,
+     * since it is defined by having structured lines.
+     */
+    for (const state of ['no-card', 'structured-only', 'none-priced'] as CardState[]) {
+      expect(structuredNote(state, 18)).toBeNull()
+    }
+  })
+
+  it('is singular for one line', () => {
+    // "1 further charge lines" is the kind of thing that makes an operator
+    // distrust the rest of the screen.
+    expect(structuredNote('priced', 1)).toContain('1 further charge line on')
+    expect(structuredNote('priced', 1)).toContain('card is billed')
+    expect(structuredNote('priced', 1)).not.toContain('charge lines')
+  })
+
+  it('treats a negative or absent count as nothing to say', () => {
+    // Not reachable from pricedServices, which counts an array. Pinned
+    // because the guard is `<= 0` rather than `=== 0`, and a `> 0` written as
+    // `!== 0` would render "-1 further charge lines" from a bad payload.
+    expect(structuredNote('priced', -1)).toBeNull()
+  })
+
+  it('does not name the client, because the heading above it already does', () => {
+    // The refusal banners name the client -- they are read in isolation when
+    // someone is deciding whether to go and fix a card. This one sits inside
+    // that client's open form.
+    expect(structuredNote('priced', 3)).not.toContain('undefined')
+    expect(structuredNote('priced', 3)!.trim()).not.toBe('')
   })
 })
 

@@ -49,6 +49,23 @@ export interface ClientCard {
   state: CardState
   /** Empty for every state except `priced`. */
   services: PricedService[]
+  /**
+   * How many rows on this card carry a `charge_type` -- the structured
+   * partition, which this screen cannot price from.
+   *
+   * Reported for EVERY state, including `priced`, and that is the point. The
+   * `structured-only` state only fires when nothing at all priced, so a card
+   * that is mostly structured but has one usable service_type line comes back
+   * `priced` and says nothing about the rest. Measured on production: Nayax
+   * holds 19 rows, 18 of them structured, and exactly one loggable action.
+   * The operator saw a single box and no explanation of where the other
+   * eighteen priced lines went -- which is the same "logged but never
+   * invoiced" failure this module exists to stop, just quieter.
+   *
+   * A count rather than a fifth CardState: the form is genuinely usable here,
+   * so this must not take over the screen the way the refusal banners do.
+   */
+  structuredCount: number
 }
 
 /**
@@ -62,7 +79,13 @@ export interface ClientCard {
  *             another.
  */
 export function pricedServices(card: WarehouseRateRow[], date: string): ClientCard {
-  if (card.length === 0) return { state: 'no-card', services: [] }
+  // Counted once, up front, and reported on every return path below. Computing
+  // it only on the `priced` path would make the field mean "structured lines,
+  // when we happened to look", and the no-card path returns 0 because there
+  // are no rows at all -- not because nobody counted.
+  const structuredCount = card.filter((r) => r.charge_type).length
+
+  if (card.length === 0) return { state: 'no-card', services: [], structuredCount }
 
   // Blank and whitespace-only names are dropped here rather than in the
   // component: they would render as an unlabelled row and submit as a
@@ -106,11 +129,14 @@ export function pricedServices(card: WarehouseRateRow[], date: string): ClientCa
     })
   }
 
-  if (services.length > 0) return { state: 'priced', services }
+  if (services.length > 0) return { state: 'priced', services, structuredCount }
   // Only reached when nothing priced. The structured check comes second
   // because a card can hold both partitions, and if any service_type line is
-  // billable the screen is usable -- the structured lines are then beside the
-  // point rather than the finding.
-  if (card.some((r) => r.charge_type)) return { state: 'structured-only', services: [] }
-  return { state: 'none-priced', services: [] }
+  // billable the screen is usable.
+  //
+  // It is usable, NOT complete: `structuredCount` rides along on the `priced`
+  // return above precisely because the structured lines are not beside the
+  // point when they outnumber the loggable ones 18 to 1.
+  if (structuredCount > 0) return { state: 'structured-only', services: [], structuredCount }
+  return { state: 'none-priced', services: [], structuredCount }
 }
