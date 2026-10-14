@@ -3,7 +3,11 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
-import { WAREHOUSE_SERVICE_TYPES, LEGACY_UNITS } from '@/lib/billing/warehouse-rate-card'
+import {
+  WAREHOUSE_SERVICE_TYPES, LEGACY_UNITS,
+  toEditableRates, ratesToSubmit, droppedServices, nextUnusedService,
+  type StoredRate, type EditableRate,
+} from '@/lib/billing/warehouse-rate-card'
 
 // Imported rather than declared, because the local copy had drifted from the
 // daily log's list and the missing entry was `labor_hours`: labour could be
@@ -13,11 +17,24 @@ import { WAREHOUSE_SERVICE_TYPES, LEGACY_UNITS } from '@/lib/billing/warehouse-r
 const SERVICE_TYPES = WAREHOUSE_SERVICE_TYPES
 const UNITS = LEGACY_UNITS
 
-export default function WarehouseRatesUpload({ clientId }: { clientId: string }) {
+/**
+ * @param existingRates the client's stored card, or NULL when the read FAILED.
+ *
+ * The distinction is the whole point of the prop. POST
+ * /api/clients/[id]/warehouse-rates replaces the legacy card with exactly what
+ * this form submits, so seeding the form from a failed read -- which looks
+ * identical to an empty card -- would open an editor claiming the client has
+ * no rates and then delete the ones they do have. lib/db/read.ts exists to
+ * keep those two apart; passing `rows` regardless of `error` would collapse
+ * them again right at the point where it destroys data.
+ */
+export default function WarehouseRatesUpload(
+  { clientId, existingRates }: { clientId: string; existingRates: StoredRate[] | null },
+) {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
-  const [rows, setRows] = useState([{ service_type: 'storage', rate: '', unit: 'per_unit' }])
+  const [rows, setRows] = useState<EditableRate[]>([])
   const [loading, setLoading] = useState(false)
   const [xlsxLoading, setXlsxLoading] = useState(false)
   const [error, setError] = useState('')
@@ -26,8 +43,31 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
   // these lines are the ones that will never bill.
   const [saved, setSaved] = useState<{ count: number; warnings: string[] } | null>(null)
 
+  /**
+   * Seed the form with the card as it stands. The endpoint replaces rather
+   * than merges, so the editor has to start from everything the client
+   * already has or saving silently deletes the rest.
+   */
+  function openEditor() {
+    // Belt and braces: the buttons are disabled in this state, but a form
+    // seeded from an unreadable card is the one outcome that destroys data,
+    // so it is refused here too rather than relying on a `disabled` attribute.
+    if (existingRates === null) return
+    const seeded = toEditableRates(existingRates)
+    setRows(seeded.length > 0
+      ? seeded
+      : [{ service_type: nextUnusedService([]), rate: '', unit: 'per_unit' }])
+    setSaved(null)
+    setError('')
+    setOpen(true)
+  }
+
   function addRow() {
-    setRows(r => [...r, { service_type: 'storage', rate: '', unit: 'per_unit' }])
+    setRows(r => [...r, {
+      service_type: nextUnusedService(r.map(x => x.service_type)),
+      rate: '',
+      unit: 'per_unit',
+    }])
   }
 
   function removeRow(i: number) {
@@ -78,8 +118,10 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
   async function handleSave() {
     setLoading(true)
     setError('')
-    const rates = rows
-      .filter(r => r.rate && parseFloat(r.rate) > 0)
+    // ratesToSubmit, not a local filter: the "will be removed" warning above
+    // the button is computed from the same function, so the two cannot
+    // disagree about which rows survive.
+    const rates = ratesToSubmit(rows)
       .map(r => ({
         client_id: clientId,
         service_type: r.service_type,
@@ -128,6 +170,13 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
     setError('')
   }
 
+  // Computed from droppedServices -- the same function the test suite pins --
+  // rather than from a local filter, so the warning cannot promise to keep a
+  // rate that handleSave then deletes. `[]` when the read failed: there is
+  // nothing to compare against, and the editor is refused in that state anyway.
+  const dropped = existingRates === null ? [] : droppedServices(existingRates, rows)
+  const unreadable = existingRates === null
+
   return (
     <div className="flex gap-2">
       <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelUpload} className="hidden" />
@@ -141,22 +190,30 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
         ↓ Template
       </a>
 
-      {/* Upload Excel */}
+      {/* Upload Excel. Disabled when the card could not be READ: the sheet
+          replaces the whole card, so uploading without knowing what is there
+          deletes whatever the spreadsheet happens to omit. */}
       <button
         onClick={() => fileRef.current?.click()}
-        disabled={xlsxLoading}
-        className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+        disabled={xlsxLoading || unreadable}
+        title={unreadable ? 'Current rates could not be loaded -- reload before replacing them' : undefined}
+        className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition"
       >
-        {xlsxLoading ? 'Reading...' : '↑ Upload Excel'}
+        {xlsxLoading ? 'Reading...' : '↑ Replace from Excel'}
       </button>
 
-      {/* Manual entry */}
+      {/* Edit. Label says "Edit", not "Add", because the endpoint replaces the
+          card with exactly what the form submits -- there is no append. The
+          button used to say "Add Manually" and open one blank row, so adding
+          one service deleted every other rate the client had. */}
       <button
-        onClick={() => { setSaved(null); setError(''); setOpen(true) }}
-        className="text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+        onClick={openEditor}
+        disabled={unreadable}
+        title={unreadable ? 'Current rates could not be loaded -- reload before editing them' : undefined}
+        className="text-white px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
         style={{ background: '#00AAFF' }}
       >
-        + Add Manually
+        ✎ Edit Rates
       </button>
 
       {open && (
@@ -192,6 +249,16 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
               </>
             ) : (
             <>
+            {/* Says what saving DOES, next to the button that does it. The
+                endpoint replaces the legacy card with exactly these lines, so
+                an operator who deletes a row here is deleting a rate -- that
+                has to be stated where the decision is made, not discovered
+                afterwards from a bill that came out short. */}
+            <p className="text-gray-400 text-xs mb-3 bg-gray-700/40 border border-gray-600/60 rounded-lg px-3 py-2">
+              Saving sets this client&apos;s warehouse rates to exactly the lines below.
+              Anything removed from this list stops being billed.
+            </p>
+
             <div className="space-y-2 mb-4">
               <div className="grid grid-cols-3 gap-2 text-xs text-gray-400 px-1">
                 <span>Service</span><span>Rate ($)</span><span>Unit</span>
@@ -227,6 +294,20 @@ export default function WarehouseRatesUpload({ clientId }: { clientId: string })
             </div>
 
             <button onClick={addRow} className="text-[#00AAFF] text-sm hover:text-[#33BBFF] mb-4 block">+ Add row</button>
+
+            {/* Named BEFORE the save, from the same function the save uses.
+                A row left blank is not kept at its old rate -- it is dropped --
+                and the only moment that is still fixable is this one. */}
+            {dropped.length > 0 && (
+              <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg p-3 mb-3">
+                <p className="text-amber-300 text-sm font-medium mb-1">
+                  Saving now will remove {dropped.length} existing rate(s)
+                </p>
+                <p className="text-amber-200/80 text-xs">
+                  {dropped.map(s => s.replace(/_/g, ' ')).join(', ')}
+                </p>
+              </div>
+            )}
 
             {error && <p className="text-red-400 text-sm mb-3 whitespace-pre-wrap">{error}</p>}
             <div className="flex gap-3">

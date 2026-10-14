@@ -262,7 +262,18 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             <h3 className="text-lg font-semibold text-white">Warehouse Price List</h3>
             <p className="text-gray-400 text-sm mt-0.5">Pick & pack, storage, receiving and other services</p>
           </div>
-          <WarehouseRatesUpload clientId={id} />
+          {/*
+            `error ? null : rows` -- NOT `rows`. The editor replaces the whole
+            legacy card with what it submits, and a failed read returns an
+            empty `rows` that is indistinguishable from a client who genuinely
+            has no rates. Passing `rows` unconditionally would open an editor
+            claiming the card is empty and then save that claim over a card
+            that was fine. `null` means "unknown", and the component refuses.
+          */}
+          <WarehouseRatesUpload
+            clientId={id}
+            existingRates={warehouseRates.error ? null : warehouseRates.rows}
+          />
         </div>
 
         {warehouseRates.error ? (
