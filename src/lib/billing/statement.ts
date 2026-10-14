@@ -202,6 +202,158 @@ export function periodRange(grain: Grain, today: string): DateRange {
   return { from: fmt(Date.UTC(y, 0, 1)), to: fmt(Date.UTC(y, 11, 31)) }
 }
 
+/**
+ * A period asked for in a query string, in either of the two forms.
+ *
+ * Strings and not `Grain`/`DateRange`, because this is the UNVALIDATED request.
+ * The whole purpose of resolvePeriod is to be the one place that turns these
+ * into a period or refuses, so a caller that had already narrowed them would
+ * have done the dangerous half of the job somewhere else.
+ */
+export interface PeriodRequest {
+  grain?: string | null
+  from?: string | null
+  to?: string | null
+}
+
+export type PeriodResolution =
+  | {
+      ok: true
+      range: DateRange
+      /**
+       * The calendar grain the range came from, or null when the caller named
+       * explicit dates.
+       *
+       * Null is not "unknown" here, it is "there isn't one" -- an arbitrary
+       * from/to is not a calendar period and must not be labelled as one. A
+       * range of 2026-10-01..2026-10-31 asked for explicitly happens to equal
+       * 'month', and saying `(month)` on it would be a claim about how it was
+       * derived that the next period's boundary will not honour.
+       */
+      grain: Grain | null
+    }
+  | { ok: false; error: string }
+
+/**
+ * The period a request is asking for: a calendar grain, or two explicit dates.
+ *
+ * WHY BOTH FORMS EXIST, AND WHY ONE FUNCTION.
+ *
+ * /statements offers a grain dropdown, because an invoice period is a calendar
+ * claim (see the Grain docstring). /reports has free From and To date inputs
+ * shared by every tab, and the Statement tab inside it cannot grow its own
+ * second period control without the screen asking two different questions at
+ * once. So the statement has to accept both -- and the moment two call sites
+ * each parse the period their own way, they disagree about a boundary day
+ * exactly once, quietly, on the document that gets attached to an invoice.
+ *
+ * REFUSES ON AMBIGUITY RATHER THAN PICKING.
+ *
+ * `?grain=week&from=2026-01-01&to=2026-12-31` is two contradictory claims about
+ * what period is being requested. Either answer would be defensible and both
+ * would be a guess, and the caller gets back a figure headed with a period it
+ * did not choose. A precedence rule would make that silent forever; refusing
+ * makes the bad link show up the first time anyone follows it.
+ *
+ * A HALF-SPECIFIED RANGE IS ALSO A REFUSAL.
+ *
+ * `?from=2026-10-01` with no `to` is the shape a dropped parameter takes.
+ * Defaulting the missing end to today, or to the end of time, turns a typo into
+ * a plausible-looking statement over the wrong period -- the same failure the
+ * Grain guard exists to prevent, arriving through a different parameter.
+ *
+ * A REVERSED RANGE IS NOT AN EMPTY PERIOD.
+ *
+ * `from > to` matches no rows in `.gte(from).lte(to)`, so it reads back as a
+ * confident $0.00 for a client who was in fact invoiced. That is the single
+ * most dangerous wrong answer available here, and it costs one comparison.
+ *
+ * Deliberately NOT capped in length. An explicit decade would be slow and might
+ * exceed the download route's budget, but refusing it would mean inventing a
+ * limit nobody asked for and having it reject a legitimate backfill; the route
+ * already documents its cost against the 'year' grain and the failure mode of a
+ * too-long read is a timeout, not a wrong number.
+ */
+export function resolvePeriod(
+  req: PeriodRequest,
+  today: string = statementToday(),
+): PeriodResolution {
+  // '' is treated as absent throughout. `searchParams.get('from')` returns ''
+  // for `?from=` and null for a parameter that is not there, and those are the
+  // same request as far as anyone typing a link is concerned -- so they must
+  // not take different paths. Same rule isReportType applies.
+  const has = (v: string | null | undefined): v is string =>
+    typeof v === 'string' && v !== ''
+
+  const grain = has(req.grain) ? req.grain : null
+  const from = has(req.from) ? req.from : null
+  const to = has(req.to) ? req.to : null
+
+  if (grain !== null && (from !== null || to !== null)) {
+    return {
+      ok: false,
+      error: `A period was asked for twice: grain ${JSON.stringify(grain)} and `
+        + `dates ${JSON.stringify(from)}..${JSON.stringify(to)}. Send one or `
+        + `the other, because picking between them would head a figure with a `
+        + `period the caller did not choose.`,
+    }
+  }
+
+  if (grain !== null) {
+    if (!isGrain(grain)) {
+      return {
+        ok: false,
+        error: `Unknown period ${JSON.stringify(grain)}. Expected one of `
+          + `${GRAINS.join(', ')}. An unrecognised grain would otherwise fall `
+          + `through to a year, and a year of revenue under a heading that says `
+          + `week is the worst wrong answer this can give.`,
+      }
+    }
+    return { ok: true, range: periodRange(grain, today), grain }
+  }
+
+  if (from === null && to === null) {
+    return {
+      ok: false,
+      error: `No period was asked for. Send either grain=<${GRAINS.join('|')}> `
+        + `or both from= and to= as YYYY-MM-DD.`,
+    }
+  }
+  if (from === null || to === null) {
+    return {
+      ok: false,
+      error: `Half a period: ${from === null ? 'from' : 'to'} is missing. Both `
+        + `ends are required, because defaulting the other one would turn a `
+        + `dropped parameter into a statement over a period nobody asked for.`,
+    }
+  }
+
+  // parseDay throws on a malformed or non-real date ('2026-02-30'). Caught
+  // rather than propagated: this function's contract is to return a refusal a
+  // route can render as a 400, and a thrown error from a query-string read
+  // lands as a 500, which reads as "the server is broken" rather than "the
+  // link is wrong".
+  try {
+    parseDay(from)
+    parseDay(to)
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+
+  if (from > to) {
+    // Lexicographic on YYYY-MM-DD is chronological, which is why these are
+    // compared as strings and no Date is constructed.
+    return {
+      ok: false,
+      error: `The period runs backwards: from ${from} is after to ${to}. That `
+        + `matches no charges at all, which would render as a confident $0.00 `
+        + `rather than as the bad request it is.`,
+    }
+  }
+
+  return { ok: true, range: { from, to }, grain: null }
+}
+
 /** One row of `order_charges`, as the statement reads it. */
 export interface StatementCharge {
   charge_type: string

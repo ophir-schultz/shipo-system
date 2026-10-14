@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import {
   periodRange, buildStatement, statementTotal, statementToday, isGrain, GRAINS,
-  GRAIN_LABELS,
-  type Grain, type StatementCharge,
+  GRAIN_LABELS, resolvePeriod,
+  type Grain, type StatementCharge, type PeriodRequest,
 } from '@/lib/billing/statement'
 import { warehouseParts, WAREHOUSE_TZ } from '@/lib/ledger/pick-date'
 
@@ -631,6 +631,177 @@ describe('isGrain', () => {
     // written against an object would accept 'constructor' and 'toString'.
     for (const bad of ['includes', 'constructor', 'toString', 'length']) {
       expect(isGrain(bad), bad).toBe(false)
+    }
+  })
+})
+
+describe('resolvePeriod', () => {
+  /**
+   * The period is one of the two things a statement can get wrong, and this is
+   * now the only function that decides it for both forms the request can take.
+   * So the tests here are about the REFUSALS. Every one of them is a case that
+   * would otherwise produce a correctly-formatted statement over a period
+   * nobody asked for -- which is indistinguishable, on the screen and in the
+   * emailed file, from a correct one.
+   */
+  const TODAY = '2026-10-13' // a Tuesday
+
+  it('resolves a grain to the same range periodRange gives', () => {
+    // Pinned against periodRange rather than against literal dates, because
+    // the point is that there is ONE period rule and this is a path into it,
+    // not a second implementation that agrees today.
+    for (const g of GRAINS) {
+      const r = resolvePeriod({ grain: g }, TODAY)
+      expect(r.ok, g).toBe(true)
+      if (!r.ok) continue
+      expect(r.range, g).toEqual(periodRange(g, TODAY))
+      expect(r.grain, g).toBe(g)
+    }
+  })
+
+  it('resolves explicit dates to themselves, with no grain', () => {
+    const r = resolvePeriod({ from: '2026-09-01', to: '2026-09-30' }, TODAY)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.range).toEqual({ from: '2026-09-01', to: '2026-09-30' })
+    // Null and not 'month'. The range happens to BE September, and claiming
+    // the grain would be a statement about how it was derived -- false the
+    // next time someone asks for the 1st to the 29th.
+    expect(r.grain).toBeNull()
+  })
+
+  it('accepts a single day as from === to', () => {
+    const r = resolvePeriod({ from: TODAY, to: TODAY }, TODAY)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.range).toEqual({ from: TODAY, to: TODAY })
+  })
+
+  it('refuses a reversed range instead of reporting an empty period', () => {
+    // THE test in this describe. `.gte('2026-10-31').lte('2026-10-01')`
+    // matches nothing, so without this check the answer is a confident $0.00
+    // for a client who was in fact invoiced -- and $0.00 is a sentence about
+    // the client's activity, not about the request.
+    const r = resolvePeriod({ from: '2026-10-31', to: '2026-10-01' }, TODAY)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.error).toMatch(/backwards/)
+    // Names both ends, so the reader can see which one to fix.
+    expect(r.error).toContain('2026-10-31')
+    expect(r.error).toContain('2026-10-01')
+  })
+
+  it('refuses half a range rather than defaulting the other end', () => {
+    // The shape a dropped parameter takes. Defaulting `to` to today would turn
+    // a typo into a plausible statement over the wrong period.
+    const onlyFrom = resolvePeriod({ from: '2026-10-01' }, TODAY)
+    expect(onlyFrom.ok).toBe(false)
+    if (!onlyFrom.ok) expect(onlyFrom.error).toMatch(/to is missing/)
+
+    const onlyTo = resolvePeriod({ to: '2026-10-31' }, TODAY)
+    expect(onlyTo.ok).toBe(false)
+    if (!onlyTo.ok) expect(onlyTo.error).toMatch(/from is missing/)
+  })
+
+  it('refuses a request that asks for a period twice', () => {
+    // Two contradictory claims. Either answer would be a guess, and a
+    // precedence rule would make the guess silent forever.
+    const r = resolvePeriod(
+      { grain: 'week', from: '2026-01-01', to: '2026-12-31' }, TODAY,
+    )
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/asked for twice/)
+  })
+
+  it('refuses grain plus a half range too', () => {
+    // The ambiguity check has to come BEFORE the half-range check, or this
+    // case reports 'to is missing' and invites the caller to add it -- which
+    // produces the ambiguous request rather than resolving anything.
+    const r = resolvePeriod({ grain: 'month', from: '2026-01-01' }, TODAY)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/asked for twice/)
+  })
+
+  it('refuses an unknown grain, naming the valid ones', () => {
+    for (const bad of ['weekly', 'monthly', 'quarter', 'Week']) {
+      const r = resolvePeriod({ grain: bad }, TODAY)
+      expect(r.ok, bad).toBe(false)
+      if (r.ok) continue
+      expect(r.error, bad).toContain(bad)
+      // Lists what IS accepted. An error naming only the rejected value leaves
+      // the caller guessing at the spelling.
+      for (const g of GRAINS) expect(r.error, `${bad} -> ${g}`).toContain(g)
+    }
+  })
+
+  it('refuses a date that is not a real date', () => {
+    // Date.UTC rolls 2026-02-30 over into March 2, so without parseDay this
+    // resolves to a real range two days wide of the one requested.
+    for (const bad of ['2026-02-30', '2026-13-01', '13-10-2026', 'yesterday', '2026-10']) {
+      const r = resolvePeriod({ from: bad, to: '2026-12-31' }, TODAY)
+      expect(r.ok, bad).toBe(false)
+    }
+  })
+
+  it('refuses rather than throwing on a malformed date', () => {
+    // parseDay throws. A throw out of a query-string read lands as a 500,
+    // which reads as "the server is broken" rather than "the link is wrong",
+    // so this function is obliged to catch it.
+    expect(() => resolvePeriod({ from: 'nope', to: 'nope' }, TODAY)).not.toThrow()
+  })
+
+  it('refuses an empty request', () => {
+    const r = resolvePeriod({}, TODAY)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/No period/)
+  })
+
+  it('treats a present-but-empty parameter as absent', () => {
+    // `?grain=&from=&to=` is what a form submits for untouched fields, and
+    // URLSearchParams reports '' not null. An '' grain must not reach isGrain
+    // as a value worth naming back, and an '' from must not count as half a
+    // range -- all three are the same request as `?` with nothing in it.
+    const r = resolvePeriod({ grain: '', from: '', to: '' }, TODAY)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/No period/)
+
+    // And '' alongside real dates must not trip the ambiguity check.
+    const ok = resolvePeriod({ grain: '', from: '2026-10-01', to: '2026-10-31' }, TODAY)
+    expect(ok.ok).toBe(true)
+    if (ok.ok) expect(ok.range).toEqual({ from: '2026-10-01', to: '2026-10-31' })
+  })
+
+  it('treats null and undefined alike', () => {
+    const nulls = resolvePeriod({ grain: null, from: null, to: null }, TODAY)
+    const undef = resolvePeriod({ grain: undefined, from: undefined, to: undefined }, TODAY)
+    expect(nulls.ok).toBe(false)
+    expect(undef.ok).toBe(false)
+    if (!nulls.ok && !undef.ok) expect(nulls.error).toBe(undef.error)
+  })
+
+  it('defaults today to the warehouse day, not the UTC day', () => {
+    // The default argument is the one thing here that cannot be seen from a
+    // caller, and getting it from statementToday is what keeps the day grain
+    // from asking for a date the ledger is not yet writing. Compared against
+    // statementToday() rather than a literal so this does not expire.
+    const r = resolvePeriod({ grain: 'day' })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.range).toEqual({ from: statementToday(), to: statementToday() })
+  })
+
+  it('never returns a range that runs backwards, for any accepted request', () => {
+    // The invariant every caller relies on: whatever comes out is safe to hand
+    // to .gte(from).lte(to) without checking it again.
+    const requests: PeriodRequest[] = [
+      ...GRAINS.map(g => ({ grain: g })),
+      { from: '2026-10-01', to: '2026-10-31' },
+      { from: TODAY, to: TODAY },
+      { from: '2020-01-01', to: '2030-12-31' },
+    ]
+    for (const req of requests) {
+      const r = resolvePeriod(req, TODAY)
+      expect(r.ok, JSON.stringify(req)).toBe(true)
+      if (r.ok) expect(r.range.from <= r.range.to, JSON.stringify(req)).toBe(true)
     }
   })
 })

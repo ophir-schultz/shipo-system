@@ -7,7 +7,7 @@ import {
   readStatementCharges, readEarliestChargeDate,
 } from '@/lib/billing/statement-charges'
 import {
-  periodRange, buildStatement, statementTotal, statementToday, isGrain, GRAINS,
+  buildStatement, statementTotal, resolvePeriod,
 } from '@/lib/billing/statement'
 import {
   rateText, periodLabel, coverageNote, estimateNote,
@@ -119,7 +119,6 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const clientId = searchParams.get('client')
-  const grain = searchParams.get('grain')
 
   // Both validated before any read, and answered with a 400 rather than a
   // workbook. A bad request is where an empty sheet misleads most: the client
@@ -131,14 +130,25 @@ export async function GET(req: Request) {
         + 'client is not an empty statement, it is no statement.',
     }, { status: 400 })
   }
-  if (!isGrain(grain)) {
+
+  // Accepts `grain=month` (the /statements dropdown) OR `from=&to=` (the
+  // Statement tab inside /reports, which shares that screen's date inputs with
+  // five other tabs and so cannot grow a second period control). resolvePeriod
+  // is shared with the JSON route behind that tab, so the sheet and the screen
+  // cannot resolve the same query string to two different periods -- which is
+  // the divergence that would surface as a client disputing a figure the screen
+  // still displays.
+  const period = resolvePeriod({
+    grain: searchParams.get('grain'),
+    from: searchParams.get('from'),
+    to: searchParams.get('to'),
+  })
+  if (!period.ok) {
     return NextResponse.json({
-      error: `No file was written: unknown period ${JSON.stringify(grain)}. `
-        + `Expected one of ${GRAINS.join(', ')}. An unrecognised period would `
-        + `otherwise fall through to a year, and a year of revenue under a `
-        + `heading that says week is the worst wrong answer this route can give.`,
+      error: `No file was written: ${period.error}`,
     }, { status: 400 })
   }
+  const { range, grain } = period
 
   // The client is resolved, not trusted. An id that matches no client would
   // otherwise read every table successfully, match nothing, and produce a
@@ -159,8 +169,6 @@ export async function GET(req: Request) {
     }, { status: 404 })
   }
   const { name } = client.row
-
-  const range = periodRange(grain, statementToday())
 
   const [chargesRes, earliestRes] = await Promise.all([
     readStatementCharges(clientId, range),

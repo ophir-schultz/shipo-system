@@ -287,6 +287,57 @@ describe('ReportsTabs', () => {
       .toEqual([])
   })
 
+  it('gates every requiresClient tab through the registry, in exactly one place', () => {
+    /**
+     * The companion to the test above, for the OTHER thing the registry
+     * declares. `requiresClient: true` is a claim that a tab refuses to render
+     * for "All Clients"; it is worth nothing unless some code reads it, and it
+     * is worth less than nothing if two pieces of code read it differently.
+     *
+     * Not hypothetical in either direction. The flag shipped in the registry
+     * with no reader at all for one edit, and before that the refusal lived
+     * inside StatementPanel as its own `clientId === ''` branch -- a second
+     * copy of a rule the registry already held, which is the exact pattern
+     * report-types.ts was written to delete.
+     *
+     * Source text again, for the reason given above: vitest excludes .test.tsx
+     * here, so there is no way to render the component and ask.
+     */
+    const gated = (REPORT_TABS as readonly ReportTab[])
+      .filter(t => t.requiresClient === true)
+
+    // Positive control. With no tab opting in, every assertion below is a
+    // statement about a rule nothing uses, and this test would sit here
+    // "passing" while proving nothing.
+    expect(gated.length, 'no tab sets requiresClient, so this test checks nothing')
+      .toBeGreaterThan(0)
+
+    // ONE call site. A count rather than a mere `toContain`, because the
+    // failure this guards against is a SECOND reader, not a missing one: two
+    // gates disagree about a boundary exactly once, quietly, and the losing one
+    // renders a client-facing document for nobody.
+    const calls = [...source.matchAll(/tabRequiresClient\(/g)]
+    expect(
+      calls.length,
+      `tabRequiresClient is called ${calls.length} times in ReportsTabs.tsx; `
+        + `the rule belongs in one gate`,
+    ).toBe(1)
+
+    // And that one call is the gate -- it tests the dropdown's empty value.
+    // Without this, a call that merely READ the flag (to label a tab, say)
+    // would satisfy the count above while nothing refused to render.
+    expect(source, 'tabRequiresClient is called but not against an unset client')
+      .toMatch(/tabRequiresClient\(activeTab\) && clientId === ''/)
+
+    // No per-tab copy of the same decision beside the registry-driven one.
+    for (const tab of gated) {
+      expect(
+        source,
+        `tab '${tab.id}' decides the client rule for itself as well as via the registry`,
+      ).not.toMatch(new RegExp(`activeTab === '${tab.id}' && clientId`))
+    }
+  })
+
   it('renders no panel for a tab that does not exist', () => {
     // The other direction. A leftover branch for a removed tab is dead code
     // that looks alive, and the next person to read this file would reasonably

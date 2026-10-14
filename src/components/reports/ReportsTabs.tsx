@@ -11,7 +11,9 @@ import {
 } from '@/lib/billing/profit-rollup'
 import { embedOne, type Embed } from '@/lib/db/read'
 import { scopeRows, undatedNote, unattributedNote, type Scoped } from '@/lib/billing/date-range'
-import { REPORT_TABS, reportTypeForTab } from '@/lib/billing/report-types'
+import {
+  REPORT_TABS, reportTabById, reportTypeForTab, tabRequiresClient,
+} from '@/lib/billing/report-types'
 
 // `client_rate`, the profit derived from it, and `warehouse_daily_log.total`
 // are all nullable: recalculate.ts and the daily-log route write null when they
@@ -285,13 +287,78 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
 
       {/* Tab content */}
       <div className="bg-gray-800 rounded-xl overflow-hidden">
-        {activeTab === 'shipments' && <ShipmentsTable rows={data.shipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
-        {activeTab === 'profit' && <ProfitTable rows={data.shipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
-        {activeTab === 'loss' && <LossTable rows={data.lossShipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
-        {activeTab === 'adjustments' && <AdjustmentsTable rows={data.adjustments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
-        {activeTab === 'billing' && <BillingTable rows={data.bills} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
-        {activeTab === 'warehouse' && <WarehouseTable rows={data.warehouse} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+        {/*
+          THE ONE PLACE the "this tab needs a client" rule is enforced.
+
+          Read from the registry via tabRequiresClient rather than compared
+          against a tab id here, and checked ABOVE the panels rather than inside
+          them. Both of those are the point. A panel that re-decides it is a
+          second copy of the rule -- the pattern report-types.ts exists to
+          remove -- and a rule enforced once per panel is a rule the next tab
+          that needs it will be added without.
+
+          The gate also means the panel below never renders with `clientId ===
+          ''`, so it does not have to handle it. If one ever did get through,
+          its fetch sends an empty `client` and /api/statements/data answers 400
+          with its own sentence, which the panel's error state renders verbatim.
+        */}
+        {tabRequiresClient(activeTab) && clientId === '' ? (
+          <ChooseClientFirst tabId={activeTab} />
+        ) : (
+          <>
+            {activeTab === 'shipments' && <ShipmentsTable rows={data.shipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+            {activeTab === 'profit' && <ProfitTable rows={data.shipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+            {activeTab === 'loss' && <LossTable rows={data.lossShipments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+            {activeTab === 'adjustments' && <AdjustmentsTable rows={data.adjustments} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+            {activeTab === 'billing' && <BillingTable rows={data.bills} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+            {activeTab === 'warehouse' && <WarehouseTable rows={data.warehouse} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />}
+            {/*
+              Handed `data.clients` and not a pre-loaded payload. Every other
+              tab here renders rows reports/page.tsx already read; this one
+              reads on demand, because a statement is ONE client's charges and
+              pre-loading it would mean reading every client's `order_charges`
+              on every visit to /reports to serve a tab that shows one of them.
+              reports/page.tsx also refuses the whole screen when any single
+              read fails, so a slow or failing charges read would blank the six
+              tabs that work today.
+            */}
+            {activeTab === 'statement' && (
+              <StatementPanel clients={data.clients} clientId={clientId} dateFrom={dateFrom} dateTo={dateTo} />
+            )}
+          </>
+        )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * What a `requiresClient` tab shows while the dropdown says All Clients.
+ *
+ * One component for the whole class of tabs rather than one refusal per tab,
+ * and the wording is built from the registry entry so it names whichever tab
+ * the operator is looking at. The alternative -- copy written per tab -- is how
+ * two tabs end up refusing for what reads like two different reasons.
+ *
+ * It says what to do next and WHY the tab refuses, because "Choose a client"
+ * alone reads as a broken screen. The reason is not a UI nicety: the obvious
+ * thing to do with a screen full of figures and a Download button is to send
+ * it, and the sum of every client's charges under the heading 'Statement' is a
+ * correct figure that must not be sent to anybody.
+ */
+function ChooseClientFirst({ tabId }: { tabId: string }) {
+  const tab = reportTabById(tabId)
+  return (
+    <div className="px-6 py-12 text-center">
+      <div className="text-3xl mb-3">{tab?.icon ?? '📄'}</div>
+      <div className="text-white font-semibold mb-2">
+        Choose a client to see {tab?.label === undefined ? 'this view' : `the ${tab.label}`}
+      </div>
+      <p className="text-gray-400 text-sm max-w-md mx-auto">
+        This one is a single client&rsquo;s document &mdash; the charges for the
+        period, as they go out with that client&rsquo;s invoice &mdash; not a
+        management view across all of them. Pick a client in the dropdown above.
+      </p>
     </div>
   )
 }
@@ -586,6 +653,331 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
         </table>
       </div>
     </>
+  )
+}
+
+/**
+ * What /api/statements/data sends back.
+ *
+ * Declared, not inferred from a `res.json()` that is `any`. This is the shape
+ * of a document an operator invoices from, and `any` here would let a renamed
+ * field render as `undefined` -- which `?? 0` or a template string turns into a
+ * figure or a blank rather than an error. The route builds every one of these
+ * from the same statement.ts the .xlsx uses; the matching test is
+ * api/statements/data/route.test.ts's 'agrees with the spreadsheet'.
+ *
+ * `amount` and `total` are `number | null` and the null is load-bearing: a line
+ * whose every row is billed at cost and not yet reported is UNKNOWN, and 0
+ * there says the work was free. Measured by mutation -- swapping the route's
+ * `totalOrUnknown` for a plain sum left every other assertion in that file
+ * green, because no line in the original fixture was entirely unpriced.
+ */
+type StatementLineDTO = {
+  charge_type: string
+  label: string
+  quantity: number | null
+  /** Already rendered: '$0.3500', 'at cost', '3 rates', or the unknown dash. */
+  rate: string
+  amount: number | null
+  unpriced: number
+  counted: number
+  estimated: number
+}
+
+type StatementDTO = {
+  client: { id: string; name: string | null }
+  from: string
+  to: string
+  period: string
+  lines: StatementLineDTO[]
+  total: number | null
+  unpriced: number
+  counted: number
+  estimated: number
+  notes: string[]
+}
+
+/**
+ * One client's statement: the lines, the total, and the caveats.
+ *
+ * WHY THIS TAB REFUSES WITHOUT A CLIENT.
+ *
+ * Every other tab here is a management view across all clients, and "All
+ * Clients" is a meaningful selection on them. A statement is not: it is the
+ * document that gets attached to one client's invoice, and a statement with no
+ * client is not an empty statement, it is no statement. Rendering the sum of
+ * everybody's charges under the heading 'Statement' would be a correct figure
+ * that nobody can send -- and the obvious thing to do with a screen full of
+ * figures and a Download button is to send it. /statements already enforces
+ * this rule, and `requiresClient` in the registry carries it here so the two
+ * screens agree rather than one of them quietly showing a blank document.
+ *
+ * The refusal itself is NOT in this function: it is ChooseClientFirst, in the
+ * tab container, which reads the flag off the registry. This component is only
+ * ever rendered with a client already chosen.
+ *
+ * WHY IT HAS ITS OWN DOWNLOAD BUTTON.
+ *
+ * The toolbar's Excel button posts to /api/reports/download, which builds the
+ * internal exports from `shipments` -- carrier cost, profit, margin. The
+ * statement is the client-facing artefact built from `order_charges` by
+ * /api/statements/download, and it deliberately contains none of those columns.
+ * Those are two different documents on two different bases, and the way to keep
+ * them that way is for the client-facing one not to share a code path with the
+ * exporter that knows what we paid.
+ */
+function StatementPanel({ clients, clientId, dateFrom, dateTo }: {
+  clients: ClientOption[]
+  clientId: string
+  dateFrom: string
+  dateTo: string
+}) {
+  const [state, setState] = useState<
+    | { status: 'idle' }
+    | { status: 'loading' }
+    | { status: 'error'; message: string }
+    | { status: 'ready'; data: StatementDTO }
+  >({ status: 'idle' })
+
+  // What the figures currently on screen were read FOR. Compared against the
+  // live props below so a stale statement is never shown under a new client or
+  // period: the fetch is async, and the operator can change the dropdown while
+  // one is in flight. Without this, the previous client's total sits there
+  // looking like an answer to the question just asked -- the worst available
+  // outcome on a screen whose next action is "download and email".
+  const [loadedFor, setLoadedFor] = useState('')
+  // NUL as the separator, written as the `\x00` ESCAPE and not as the raw byte.
+  // The separator has to be a character none of the three parts can contain, or
+  // two different triples can build the same key and a stale statement passes
+  // the freshness check. A raw 0x00 in the source does that job and also makes
+  // `file` call this .tsx "data", at which point the grep on the PATH here
+  // (ugrep, with -I) skips the whole file silently and every line in it becomes
+  // unsearchable. source-encoding.test.ts fails on the raw byte for exactly
+  // that reason; the escape parses to the identical character.
+  const key = `${clientId}\x00${dateFrom}\x00${dateTo}`
+
+  async function load() {
+    setState({ status: 'loading' })
+    // Captured BEFORE the await, so a response is matched against the request
+    // that asked for it rather than against whatever the dropdown says when it
+    // lands. Two overlapping fetches otherwise resolve in arbitrary order and
+    // the slower one wins.
+    const asked = key
+    const params = new URLSearchParams({ client: clientId, from: dateFrom, to: dateTo })
+    try {
+      const res = await fetch(`/api/statements/data?${params}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error ?? `Server error ${res.status}`)
+      setLoadedFor(asked)
+      setState({ status: 'ready', data: json as StatementDTO })
+    } catch (err) {
+      setLoadedFor(asked)
+      setState({
+        status: 'error',
+        // Narrowed rather than typed `any`. The `err?.message ?? fallback`
+        // spelling used elsewhere in this file has a hole the fallback looks
+        // like it covers: `??` passes the EMPTY STRING through, so a response
+        // carrying `{"error": ""}` reaches `throw new Error('')` and renders as
+        // a red heading with nothing under it -- the one case where the
+        // operator is told least and the screen looks most broken.
+        message: err instanceof Error && err.message !== ''
+          ? err.message
+          : 'Could not read this statement',
+      })
+    }
+  }
+
+  function handleDownload() {
+    // A plain navigation and not a fetch-then-blob, because this response is a
+    // file with a Content-Disposition filename the route composes from the
+    // client name and the real dates. Re-deriving that filename here would be a
+    // second naming rule, and 'statement-week.xlsx' sitting beside last week's
+    // copy is two files with one name.
+    const params = new URLSearchParams({ client: clientId, from: dateFrom, to: dateTo })
+    window.location.href = `/api/statements/download?${params}`
+  }
+
+  // No `clientId === ''` branch here. That refusal is the registry's
+  // `requiresClient: true`, enforced once by ChooseClientFirst in the tab
+  // container above for every tab that opts in -- re-deciding it in this
+  // component would be a second source of truth for the same rule, which is
+  // the exact pattern report-types.ts was written to remove. If one ever did
+  // get through, `load()` sends an empty `client` and the route answers 400
+  // with its own sentence, which the error state below renders verbatim.
+  const stale = state.status === 'ready' && loadedFor !== key
+  const clientName = clients.find(c => c.id === clientId)?.name ?? null
+
+  return (
+    <div className="divide-y divide-gray-700">
+      <div className="px-5 py-4 flex flex-wrap items-center gap-3">
+        <div className="mr-auto">
+          <div className="text-white font-semibold">
+            {clientName ?? 'Selected client'}
+          </div>
+          <div className="text-xs text-gray-400 font-mono">
+            {dateFrom} to {dateTo}
+          </div>
+        </div>
+        <button onClick={load} disabled={state.status === 'loading'}
+          className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition"
+          style={{ background: '#00AAFF' }}>
+          {state.status === 'loading'
+            ? '⏳…'
+            : state.status === 'idle' ? 'Build statement' : '↻ Rebuild'}
+        </button>
+        {/*
+          Shown only once figures have been read and are current. A download
+          offered before the screen has any is a download nobody has checked,
+          and offered beside a stale total it is the WRONG period's file -- the
+          route would in fact build the current one, so the operator would send
+          a file that disagrees with the figures they approved.
+        */}
+        {state.status === 'ready' && !stale && (
+          <button onClick={handleDownload}
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gray-700 hover:bg-gray-600 transition">
+            ↓ Excel for client
+          </button>
+        )}
+      </div>
+
+      {stale && (
+        <div className="px-5 py-3 bg-amber-500/10 text-amber-300 text-sm">
+          The client or period changed. These figures are for{' '}
+          <span className="font-mono">{state.data.client.name ?? state.data.client.id}</span>,{' '}
+          <span className="font-mono">{state.data.period}</span>. Rebuild to see
+          the period selected above.
+        </div>
+      )}
+
+      {state.status === 'idle' && (
+        <Empty msg="Nothing has been read yet. Build the statement to see this client's charges for the period." />
+      )}
+
+      {state.status === 'loading' && (
+        <Empty msg="Reading this client's charges from the ledger…" />
+      )}
+
+      {state.status === 'error' && (
+        // The route's own sentence, verbatim. It names which read failed and
+        // says the figure is UNKNOWN rather than zero; replacing it with
+        // 'Could not load' here would discard the only part an operator can act
+        // on, and a generic message beside a blank table reads as "no charges".
+        <div className="px-5 py-6">
+          <div className="text-red-400 font-semibold text-sm mb-1">
+            No figures were shown
+          </div>
+          <p className="text-gray-300 text-sm">{state.message}</p>
+        </div>
+      )}
+
+      {state.status === 'ready' && <StatementLines data={state.data} />}
+    </div>
+  )
+}
+
+/** The read-only half: lines, total, notes. Split out so the fetch state above stays legible. */
+function StatementLines({ data }: { data: StatementDTO }) {
+  if (data.lines.length === 0) {
+    return (
+      <>
+        <Empty msg={`No charges recorded for ${data.client.name ?? 'this client'} in ${data.period}.`} />
+        <StatementNotes notes={data.notes} />
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-900 text-gray-400 text-xs uppercase">
+            <tr>
+              <th className="px-4 py-3 text-left">Charge</th>
+              <th className="px-4 py-3 text-left">Line</th>
+              <th className="px-4 py-3 text-right">Units</th>
+              <th className="px-4 py-3 text-right">Rate</th>
+              <th className="px-4 py-3 text-right">Amount</th>
+              <th className="px-4 py-3 text-left">Note</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-700">
+            {data.lines.map(line => (
+              // Keyed on (type, label), which is exactly what buildStatement
+              // grouped by -- so the key is unique by construction rather than
+              // by hoping two lines differ. The same NUL join the route uses.
+              <tr key={`${line.charge_type}\x00${line.label}`} className="hover:bg-gray-750">
+                <td className="px-4 py-2 text-gray-400">{line.charge_type}</td>
+                <td className="px-4 py-2 text-white">{line.label}</td>
+                <td className="px-4 py-2 text-right text-gray-300">
+                  {/*
+                    A dash and not a 0. A peak surcharge is a percentage of a
+                    basis and carries no quantity; '0' beside it states that
+                    nothing was handled, next to a charge for handling it.
+                  */}
+                  {line.quantity === null ? UNPRICED_DASH : line.quantity}
+                </td>
+                <td className="px-4 py-2 text-right text-gray-300 font-mono text-xs">{line.rate}</td>
+                <td className="px-4 py-2 text-right text-white">
+                  {line.amount === null ? UNPRICED_DASH : `$${line.amount.toFixed(2)}`}
+                </td>
+                <td className="px-4 py-2 text-[11px] text-amber-400">
+                  {lineCaveat(line)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="bg-gray-900 font-semibold">
+            <tr>
+              <td className="px-4 py-3 text-white" colSpan={4}>Total owed</td>
+              <td className="px-4 py-3 text-right text-white">
+                {data.total === null ? UNPRICED_DASH : `$${data.total.toFixed(2)}`}
+              </td>
+              <td className="px-4 py-3 text-[11px] text-amber-400">
+                {data.unpriced > 0
+                  ? `${data.unpriced} of ${data.counted} charges not yet priced`
+                  : ''}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <StatementNotes notes={data.notes} />
+    </>
+  )
+}
+
+/**
+ * What one line could not account for, or ''.
+ *
+ * Built here and not on the server only because it is arithmetic on two counts
+ * the route already sends, not a claim about money -- the three sentences that
+ * ARE claims (coverage, unpriced, estimate) come from statement-view.ts, which
+ * is tested.
+ */
+function lineCaveat(line: StatementLineDTO): string {
+  return [
+    line.unpriced > 0 ? `${line.unpriced} of ${line.counted} not yet priced` : '',
+    line.estimated > 0 ? `${line.estimated} estimated` : '',
+  ].filter(Boolean).join(' · ')
+}
+
+/**
+ * The caveats, below the total.
+ *
+ * Rendered as given. Every string here was built by statement-view.ts and they
+ * are the same ones the .xlsx carries on its Statement sheet -- so a figure
+ * checked on this screen and a figure read out of the emailed file arrive with
+ * the same qualifications. A note that only exists on one of the two is a note
+ * that is missing from the other.
+ */
+function StatementNotes({ notes }: { notes: string[] }) {
+  if (notes.length === 0) return null
+  return (
+    <div className="px-5 py-3 space-y-1">
+      {notes.map(note => (
+        <p key={note} className="text-[11px] text-amber-400">{note}</p>
+      ))}
+    </div>
   )
 }
 

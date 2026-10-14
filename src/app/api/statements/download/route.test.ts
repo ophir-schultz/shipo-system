@@ -370,3 +370,111 @@ describe('GET /api/statements/download: a failed lookup is not a parcel we have 
     expect(rowsOf(wb, 'Charges')).toHaveLength(1)
   })
 })
+
+describe('GET /api/statements/download: the period can be named by grain OR by dates', () => {
+  /**
+   * The Statement tab inside /reports shares that screen's From and To inputs
+   * with five other tabs, so it cannot ask for a grain. Both forms therefore
+   * reach this route, and these tests are about the one thing that must stay
+   * true of the pair: the FILE's period is the period that was requested.
+   *
+   * A wrong answer here is not an error message. It is a correctly-formatted
+   * workbook, headed with the right client name, totalling a period the
+   * operator did not pick -- and it gets emailed.
+   */
+
+  /** Like `url()`, but with no grain, so the dates are the only period named. */
+  function datedUrl(params: Record<string, string>) {
+    const qs = new URLSearchParams({ client: CLIENT, ...params })
+    return new Request(`http://localhost/api/statements/download?${qs}`)
+  }
+
+  it('builds the file from explicit from/to', async () => {
+    const res = await GET(datedUrl({ from: RANGE.from, to: RANGE.to }))
+    expect(res.ok).toBe(true)
+
+    // The filename carries the dates, and they are the requested ones.
+    expect(res.headers.get('content-disposition'))
+      .toContain(`${RANGE.from}-to-${RANGE.to}`)
+
+    // And it is the SAME file the grain form produces for the same dates --
+    // which is the claim that matters, and the one a test asserting only
+    // "status 200" would miss entirely.
+    const dated = rowsOf(await workbook(res), 'Charges')
+    h.db = createFakeSupabase(structuredClone(seed()))
+    const grained = rowsOf(await workbook(await GET(url())), 'Charges')
+    expect(dated).toEqual(grained)
+  })
+
+  it('honours dates that are NOT a calendar period', async () => {
+    // The case that distinguishes a real range from one quietly rounded to a
+    // month: a single day inside the period, which must return only that day's
+    // charges rather than the month containing it.
+    const res = await GET(datedUrl({ from: RANGE.from, to: RANGE.from }))
+    expect(res.ok).toBe(true)
+    expect(res.headers.get('content-disposition'))
+      .toContain(`${RANGE.from}-to-${RANGE.from}`)
+  })
+
+  it('reports an empty period for dates the ledger has no charges in', async () => {
+    // The positive control for the filter actually being applied. Without it,
+    // the test above passes against a route that ignores from/to entirely.
+    const res = await GET(datedUrl({ from: '2019-01-01', to: '2019-01-31' }))
+    expect(res.ok).toBe(true)
+    expect(rowsOf(await workbook(res), 'Statement')[0]['Line'])
+      .toContain('No charges recorded for Creative Pea')
+  })
+
+  it('does not print a grain on a period that has none', async () => {
+    // periodLabel's nullable grain, measured in the artefact. An explicit
+    // 1st-to-month-end is not 'month' -- it coincides with it -- and labelling
+    // it as one states how the figure was derived.
+    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [] })
+    const line = String(rowsOf(await workbook(
+      await GET(datedUrl({ from: RANGE.from, to: RANGE.to })),
+    ), 'Statement')[0]['Line'])
+    expect(line).toContain(`${RANGE.from} to ${RANGE.to}`)
+    expect(line).not.toContain('(month)')
+  })
+
+  it('WRITES NO FILE when the period is asked for twice', async () => {
+    // `url()` already sets grain, so adding dates is the ambiguous request --
+    // and it is the one a half-finished refactor of the Statement tab would
+    // actually send.
+    const res = await GET(url({ from: RANGE.from, to: RANGE.to }))
+    expect(res.status).toBe(400)
+    const { error } = await res.json()
+    expect(error).toMatch(/asked for twice/)
+    expect(res.headers.get('content-disposition')).toBeNull()
+  })
+
+  it('WRITES NO FILE for a reversed range', async () => {
+    // Not a 200 with an empty Statement sheet. `.gte(to).lte(from)` matches
+    // nothing, so the file would say "No charges recorded" about a client who
+    // was invoiced -- a false record, in writing, over a period that cannot
+    // exist.
+    const res = await GET(datedUrl({ from: RANGE.to, to: RANGE.from }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/backwards/)
+  })
+
+  it('WRITES NO FILE for half a range', async () => {
+    const res = await GET(datedUrl({ from: RANGE.from }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/to is missing/)
+  })
+
+  it('WRITES NO FILE when no period is named at all', async () => {
+    const res = await GET(datedUrl({}))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/No period/)
+  })
+
+  it('still refuses an unknown grain', async () => {
+    // Unchanged behaviour, pinned because the validation moved. 'weekly' used
+    // to fall through periodRange onto the year arm.
+    const res = await GET(url({ grain: 'weekly' }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain('weekly')
+  })
+})

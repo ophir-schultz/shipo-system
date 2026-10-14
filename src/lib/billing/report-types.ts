@@ -91,6 +91,20 @@ export const REPORT_TABS = [
   { id: 'adjustments', label: 'Adjustments', icon: '🔔', reportType: 'adjustments' },
   { id: 'billing', label: 'Billing', icon: '💰', reportType: 'billing' },
   { id: 'warehouse', label: 'Warehouse', icon: '📦', reportType: 'warehouse' },
+  // The only tab with no `api/reports/download` export and the only one that
+  // refuses to render without a client.
+  //
+  // `reportType: null` is not "no spreadsheet". The statement HAS one -- three
+  // sheets of it -- but it is built by api/statements/download from
+  // `order_charges`, on a different basis from every other tab here, and it is
+  // the client-facing document: no `actual_cost`, no `profit_loss`, nothing
+  // about what we paid the carrier. Giving it a `reportType` would put it
+  // behind the shared Excel button and into the reports route's own
+  // type-branching, which is exactly the merge that would eventually leak a
+  // cost column into a file addressed to a client. So the panel carries its own
+  // download, and this field says truthfully that the reports exporter cannot
+  // build this one.
+  { id: 'statement', label: 'Statement', icon: '📄', reportType: null, requiresClient: true },
 ] as const satisfies readonly ReportTab[]
 
 export const REPORT_TYPES: readonly ReportType[] =

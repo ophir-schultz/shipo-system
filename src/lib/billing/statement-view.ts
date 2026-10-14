@@ -48,10 +48,18 @@ export function rateText(line: Pick<StatementLine, 'unit_rate' | 'rates'>): stri
  * ISO dates and not a localised format. This string gets copied into an email
  * beside an amount, and '10/13/2026' means two different days depending on who
  * reads it -- the client is in Germany and so is the operator.
+ *
+ * `grain` is nullable because a period can now arrive as two explicit dates
+ * (resolvePeriod), and such a range is NOT a calendar period even when it
+ * happens to coincide with one. Printing `(month)` beside an explicitly-asked
+ * 2026-10-01..2026-10-31 would state how the figure was derived, and the claim
+ * would be false the next time someone asks for the 1st to the 30th. The dates
+ * themselves are the whole truth available, so they are all that is printed.
  */
-export function periodLabel(grain: Grain, range: DateRange): string {
+export function periodLabel(grain: Grain | null, range: DateRange): string {
   if (range.from === range.to) return range.from
-  return `${range.from} to ${range.to} (${grain})`
+  const span = `${range.from} to ${range.to}`
+  return grain === null ? span : `${span} (${grain})`
 }
 
 /** The grain in effect, and what to say if it is not the one that was asked for. */
