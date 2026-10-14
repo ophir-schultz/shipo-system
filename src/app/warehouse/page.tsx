@@ -2,62 +2,33 @@
 
 import { useState, useEffect } from 'react'
 import {
-  WAREHOUSE_SERVICE_TYPES, WAREHOUSE_SERVICE_GROUPS,
   FBA_PREP_SERVICE, FBA_PREP_STEPS,
   composeServiceNotes, overlapWarning,
 } from '@/lib/billing/warehouse-rate-card'
+// The form's shape -- which rows exist, their labels, their sections, and
+// which ones submit writes -- lives in lib/ because vitest excludes
+// `.test.tsx`: logic held in this file cannot be tested at all, and that is
+// logic deciding what a client gets billed for. See
+// lib/billing/warehouse-log-form.test.ts.
+//
+// The short version of why it is card-derived rather than a fixed list: a
+// read-only probe against production found the fixed list priced almost
+// nothing -- across 9 active clients and the 5 most recently added actions,
+// ZERO combinations were billable, because the cards use the price list's
+// names and the constant used its own. The long version is in the lib header.
+import {
+  rowsFromCard, rowsInGroup, groupsToRender, filledRows, clearedEntries, money,
+  cardStateNotice, type ClientEntry,
+} from '@/lib/billing/warehouse-log-form'
+import type { ClientCard } from '@/lib/billing/warehouse-priced-services'
 
-// Imported rather than declared. This list and the rate uploader's had drifted
-// by one entry -- `labor_hours` was loggable here but had no option in the
-// uploader, so no rate for it could be entered through the UI at all and every
-// hour of it priced at nothing. One list means the two screens cannot disagree
-// about which services exist.
-const SERVICE_TYPES = WAREHOUSE_SERVICE_TYPES
-
-type ServiceRow = {
-  service_type: string
-  label: string
-  quantity: string
-  notes: string
-  /** Ticked prep steps. Recorded in `notes`; never priced. See composeServiceNotes. */
-  steps: string[]
-}
-type ClientEntry = { client_id: string; name: string; rows: ServiceRow[] }
 type Unpriced = { client_id: string; service_type: string; reason: string }
 
-/** Rows the operator actually filled in. The submit filter and the per-client
- *  counts have to agree on this, or the summary promises a different set of
- *  clients than the one that gets written. */
-function filledRows(rows: ServiceRow[]): ServiceRow[] {
-  return rows.filter(r => r.quantity !== '' && parseFloat(r.quantity) > 0)
-}
-
-function defaultRows(): ServiceRow[] {
-  return SERVICE_TYPES.map(s => ({
-    service_type: s.value, label: s.label, quantity: '', notes: '', steps: [],
-  }))
-}
-
-/** The services in one form section, in registry order. */
-function rowsInGroup(rows: ServiceRow[], group: string): ServiceRow[] {
-  // Set<string>, not the `as const` literal union: ServiceRow.service_type is a
-  // plain string (it round-trips through the database, which has no CHECK
-  // constraint on the column), so a narrower Set would not accept it.
-  const inGroup: Set<string> = new Set(
-    SERVICE_TYPES.filter(s => s.group === group).map(s => String(s.value)))
-  return rows.filter(r => inGroup.has(r.service_type))
-}
-
-// `e.rate?.toFixed(2)` was one `?.` away from crashing the panel: optional
-// chaining guards `e.rate` being null, not `toFixed` being absent, so a
-// numeric column arriving as a string throws "toFixed is not a function" and
-// takes the whole list with it. An em-dash is also kept distinct from $0.00 --
-// that distinction is the entire point of the column being nullable.
-function money(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '—'
-  const n = Number(v)
-  return Number.isFinite(n) ? `$${n.toFixed(2)}` : '—'
-}
+/** One entry in GET /api/warehouse/services. Spelled as the route's own
+ *  ClientCard plus the client's identity rather than re-declared, so a change
+ *  to the card shape fails the typecheck here instead of silently handing
+ *  rowsFromCard a field that no longer exists. */
+type ServicesRow = { id: string; name: string } & ClientCard
 
 export default function WarehousePage() {
   const [clients, setClients] = useState<any[]>([])
@@ -71,16 +42,49 @@ export default function WarehousePage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [unpriced, setUnpriced] = useState<Unpriced[]>([])
+  // Kept apart from `error`, which is about a submit that failed. This one is
+  // about not knowing what to render at all, and it REPLACES the form rather
+  // than appearing beside it -- a form built from a card we could not read
+  // would offer rates nobody agreed to.
+  const [loadError, setLoadError] = useState('')
+  // Set only on a successful read, so an empty list can be reported as empty
+  // rather than as still loading. `entries.length === 0` cannot tell those
+  // apart, and the dropdown said "Loading clients…" for both.
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
-    fetch('/api/clients/list')
-      .then(r => r.json())
-      .then((data: any[]) => {
-        setClients(data)
-        setEntries(data.map(c => ({ client_id: c.id, name: c.name, rows: defaultRows() })))
-        setSelected(prev => prev === '' ? (data[0]?.id ?? '') : prev)
+    let live = true
+    // The date goes in the request. The menu and the save must be asked about
+    // the SAME day: `today` is fixed once in state above and is what the POST
+    // carries, so sending it here is what stops the screen offering one rate
+    // and the save billing another across midnight.
+    fetch(`/api/warehouse/services?date=${today}`)
+      .then(async res => {
+        const payload = await res.json().catch(() => null)
+        if (!live) return
+        // A failed read is REFUSED, not emptied. The route answers 503 when
+        // the database cannot be asked, and the `.then(r => r.json())` this
+        // replaced would have fed that error body straight to `.map` -- a
+        // blank screen with a console error, which an operator reads as
+        // "there is no work to log today".
+        if (!res.ok) {
+          setLoadError(payload?.error ?? `HTTP ${res.status}`)
+          return
+        }
+        const list: ServicesRow[] = payload?.clients ?? []
+        setClients(list.map(c => ({ id: c.id, name: c.name })))
+        setEntries(list.map(c => ({
+          client_id: c.id,
+          name: c.name,
+          rows: rowsFromCard(c.services ?? []),
+          state: c.state,
+        })))
+        setSelected(prev => prev === '' ? (list[0]?.id ?? '') : prev)
+        setLoaded(true)
       })
-  }, [])
+      .catch(e => { if (live) setLoadError(String(e)) })
+    return () => { live = false }
+  }, [today])
 
   // Keyed on client_id and service_type rather than array indices. The form
   // renders a filtered, grouped subset, so a row's position on screen is not
@@ -199,7 +203,7 @@ export default function WarehousePage() {
         onClick={() => {
           setSubmitted(false)
           setUnpriced([])
-          setEntries(clients.map(c => ({ client_id: c.id, name: c.name, rows: defaultRows() })))
+          setEntries(clearedEntries)
           // `selected` is deliberately left alone: the operator is most likely
           // to log the next entry against the client they were just on.
         }}
@@ -207,6 +211,32 @@ export default function WarehousePage() {
       >
         Submit Another Entry
       </button>
+    </div>
+  )
+
+  // No form at all when the cards could not be read. Every row on this screen
+  // carries a rate taken from a card; without the cards there is nothing
+  // honest to render, and a form that shrugs and shows blank rates is how work
+  // gets logged against prices nobody agreed to.
+  if (loadError) return (
+    <div className="max-w-2xl">
+      <h2 className="text-2xl font-bold text-white mb-4">Daily Warehouse Log</h2>
+      <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-5">
+        <p className="text-red-300 text-sm font-semibold">
+          Could not load the clients and their rates
+        </p>
+        <p className="text-red-200/70 text-xs mt-1">
+          {loadError}
+        </p>
+        <p className="text-red-200/70 text-xs mt-2">
+          This is a read failure, not an empty day and not a list of clients
+          with no rates. Nothing already submitted for {today} has been lost.
+          Reload; if it keeps failing, the log needs to be taken on paper and
+          entered once this is fixed, rather than entered here against rates
+          that could not be checked.
+        </p>
+      </div>
+      <TodayLog date={today} />
     </div>
   )
 
@@ -218,6 +248,13 @@ export default function WarehousePage() {
   const currentOverlap = current === null
     ? null
     : overlapWarning(filledRows(current.rows).map(r => r.service_type))
+
+  // null when the card is usable. `today` is passed in because the notice for
+  // `none-priced` names the day the rates were checked against -- the same day
+  // the menu was fetched for and the same day the save will use.
+  const currentNotice = current === null
+    ? null
+    : cardStateNotice(current.state, current.name, today)
 
   // Everything submit will write, which is deliberately not scoped to the
   // dropdown. Computed from the same filledRows() the submit loop uses, so the
@@ -253,7 +290,16 @@ export default function WarehousePage() {
             onChange={e => setSelected(e.target.value)}
             className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
           >
-            {entries.length === 0 && <option value="">Loading clients…</option>}
+            {/* Three states, not two. "Loading clients…" is true only before
+                the fetch resolves; leaving it up after a SUCCESSFUL read that
+                returned nothing tells the operator to keep waiting for a list
+                that is never coming. A read FAILURE does not reach here at
+                all -- loadError returns above, in place of the whole form. */}
+            {entries.length === 0 && (
+              <option value="">
+                {loaded ? 'No active clients' : 'Loading clients…'}
+              </option>
+            )}
             {entries.map(entry => {
               const n = filledRows(entry.rows).length
               return (
@@ -275,7 +321,21 @@ export default function WarehousePage() {
               </span>
             </div>
 
-            {WAREHOUSE_SERVICE_GROUPS.map(group => {
+            {/* The banner, not an empty form. A client with no usable rate
+                card used to get the same twenty boxes as everyone else, and
+                every line typed into them saved unpriced -- work recorded and
+                never invoiced. The four states send the operator to four
+                different places, so they are not collapsed into one message. */}
+            {currentNotice && (
+              <div className="px-5 py-4 bg-amber-500/10 border-b border-amber-500/40">
+                <p className="text-amber-300 text-sm font-semibold mb-1">
+                  {currentNotice.title}
+                </p>
+                <p className="text-amber-200/70 text-xs">{currentNotice.body}</p>
+              </div>
+            )}
+
+            {groupsToRender(current.rows).map(group => {
               const groupRows = rowsInGroup(current.rows, group)
               if (groupRows.length === 0) return null
               return (
@@ -289,7 +349,27 @@ export default function WarehousePage() {
                     {groupRows.map(row => (
                       <div key={row.service_type} className="px-5 py-2.5">
                         <div className="grid grid-cols-[2fr_1fr_2fr] gap-3 items-center">
-                          <span className="text-sm text-gray-300">{row.label}</span>
+                          <span className="text-sm text-gray-300">
+                            {row.label}
+                            {/*
+                              The agreed rate, shown where the quantity is
+                              typed. This is the number the save will multiply
+                              -- it came from priceServiceLine, the same
+                              function POST /api/warehouse/log calls -- so it
+                              cannot promise a price the save would not use.
+
+                              The unit is printed only when the card says one.
+                              A bare "7.00" beside a quantity box is how a
+                              per-pallet rate gets entered as though it were
+                              per-carton, and inventing "per_unit" to fill the
+                              gap would put a unit on screen that nobody
+                              agreed to.
+                            */}
+                            <span className="block text-[11px] text-gray-500 mt-0.5">
+                              {money(row.rate)}
+                              {row.unit ? ` ${row.unit.replace(/_/g, ' ')}` : ''}
+                            </span>
+                          </span>
                           <div className="relative">
                             <input
                               type="number"
