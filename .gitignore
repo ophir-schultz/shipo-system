@@ -88,3 +88,8 @@ scripts/diag-zone-chart-provenance.mjs
 
 # Supabase CLI scratch — version cache, not source
 supabase/.temp/
+
+# Intermediate render from `build-agreement-pdf.mjs --keep-html`. The PDF
+# beside it is the artifact that gets signed; this is a debugging view of the
+# same markdown and goes stale the moment the script changes.
+docs/referral-agreement-*.html

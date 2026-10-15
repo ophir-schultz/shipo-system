@@ -237,23 +237,23 @@ severability; counterparts and electronic signatures (including DocuSign) are va
 
 **Shipo LLC**
 
-Signature: _______________________  \s1\
+Signature: \s1\
 
 Name: Ophir Schultz  \n1\
 
 Title: Owner / Principal
 
-Date: _______________  \d1\
+Date: \d1\
 
 **Partner**
 
-Signature: _______________________  \s2\
+Signature: \s2\
 
-Name: _______________________  \n2\
+Name: \n2\
 
-Title: _______________________
+Title:
 
-Date: _______________  \d2\
+Date: \d2\
 
 > DocuSign anchor tags (\s1\ \n1\ \d1\ signer 1 = Shipo; \s2\ \n2\ \d2\ signer 2 = Partner)
 > are placed for automated tab positioning and are removed/hidden at send time.

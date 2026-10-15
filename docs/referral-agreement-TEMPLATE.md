@@ -36,6 +36,8 @@
 
 <!-- CONTRACT-START -->
 
+# Referral Partner Agreement
+
 **This Referral Partner Agreement** ("Agreement") is entered into as of the date of the last
 signature below (the "Effective Date") by and between:
 
@@ -348,23 +350,23 @@ severability; counterparts and electronic signatures (including DocuSign) are va
 
 **Shipo LLC**
 
-Signature: _______________________  \s1\
+Signature: \s1\
 
 Name: Ophir Schultz  \n1\
 
 Title: Owner / Principal
 
-Date: _______________  \d1\
+Date: \d1\
 
 **Partner — \pname\**
 
-Signature: _______________________  \s2\
+Signature: \s2\
 
-Name: _______________________  \n2\
+Name: \n2\
 
-Title: _______________________
+Title:
 
-Date: _______________  \d2\
+Date: \d2\
 
 <!-- CONTRACT-END -->
 

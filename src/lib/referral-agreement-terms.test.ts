@@ -825,6 +825,46 @@ describe.each(executionCopies())('%s is actually ready to send', (doc) => {
     expect(contractSlice(doc)).not.toContain('NOT FOR USE OR SIGNATURE')
   })
 
+  it('opens with a title, so the signed document says what it is', () => {
+    // The file's own `# Shipo LLC — Referral Partner Agreement` sits ABOVE
+    // CONTRACT-START, which means it is internal-record furniture and never
+    // reaches the counterparty. The rendered execution PDF therefore opened
+    // straight into "This Referral Partner Agreement ("Agreement") is entered
+    // into as of..." with no heading of any kind — eight pages of numbered
+    // clauses and a signature block, under no title.
+    //
+    // Asserted on the slice rather than the file for exactly that reason: the
+    // title outside the markers is the one that was already there while the
+    // signed document had none.
+    const first = contractSlice(doc).trim().split(/\n{2,}/)[0].trim()
+    expect(first, `${doc}: the contract slice does not begin with a markdown heading`).toMatch(
+      /^#\s+\S/,
+    )
+    expect(first.replace(/^#+\s*/, '')).toContain('Referral Partner Agreement')
+  })
+
+  it('rules its signature lines in CSS instead of typing underscores', () => {
+    // "Signature: _______________________" is a typewriter artifact. It renders
+    // as a run of low dashes in a serif face, it cannot align with the label
+    // above or below it, and its length is whatever the author happened to
+    // hold the key down for. The build script draws these as a border-bottom
+    // on a sized box instead, which is what makes the signature block read as
+    // a contract rather than a form someone typed in 1994.
+    //
+    // Scoped to the signature block: a run of underscores is legitimate
+    // nowhere else in this document either, but this is the place it came
+    // from and the place a copy-paste would put it back.
+    const slice = contractSlice(doc)
+    const sigs = slice.slice(slice.indexOf('## Signatures'))
+    expect(sigs, `${doc}: '## Signatures' not found — cannot bound the block`).not.toBe('')
+    const typed = sigs.match(/_{3,}/g) ?? []
+    expect(
+      typed.length,
+      `${doc}: ${typed.length} typed underscore rules in the signature block. ` +
+        'The rule is drawn by .sig-line in scripts/build-agreement-pdf.mjs.',
+    ).toBe(0)
+  })
+
   it('has no unresolved bracket left in the contract text', () => {
     // The draft's open questions are written as [12], [30], [60], [2],
     // [refund it / have it offset] and [venue: ...]. Each one is a term with no
