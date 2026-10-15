@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   validateLegacyRates, LEGACY_UNITS, WAREHOUSE_SERVICE_TYPES,
-  WAREHOUSE_SERVICE_GROUPS, composeServiceNotes, overlapWarning,
+  WAREHOUSE_SERVICE_GROUPS, composeServiceNotes, overlapWarning, rateCellLabel,
 } from './warehouse-rate-card'
 
 // The function under test is the only thing standing between a request body
@@ -449,5 +449,70 @@ describe('overlapWarning', () => {
     // -- kitting on non-FBA stock the same day is -- so the text must say WHY
     // the pair is suspect, not merely that it was detected.
     expect(overlapWarning(['kitting', 'fba_prep'])).toMatch(/blended FBA prep rate/)
+  })
+})
+
+// --- how a rate card row reads on the client detail screen -----------------
+//
+// THE BUG THIS EXISTS TO PREVENT, found while adding cost_plus.
+//
+// src/app/clients/[id]/page.tsx rendered the rate column as
+// `r.rate === null ? 'At cost' : $${Number(r.rate).toFixed(2)}`. That reading
+// was correct while `rate` was null on exactly one kind of row — an at_cost
+// line — and a cost_plus line is the second kind: its `rate` is null BY
+// DESIGN, because the agreed figure lives in `markup`.
+//
+// So the screen staff open to check a client's commercial terms would state
+// "At cost" over a client who is in fact billed cost plus a markup. Not a
+// formatting nit: it is a confident, specific, wrong claim about what we
+// charge, on the screen someone would use to answer a client asking.
+describe('rateCellLabel', () => {
+  it('names the markup on a cost_plus line instead of calling it at cost', () => {
+    expect(rateCellLabel({ rate: null, rate_type: 'cost_plus', markup: 5 }))
+      .toEqual({ text: 'Cost + $5.00', agreed: true })
+  })
+
+  // PostgREST serialises `numeric` as a JSON string, and this screen reads the
+  // row through `select('*')` with no coercion layer. `'5' .toFixed` is not a
+  // function, so a raw pass-through is a crashed page, not a wrong number.
+  it('reads a markup that arrived from Postgres as a string', () => {
+    expect(rateCellLabel({ rate: null, rate_type: 'cost_plus', markup: '5.00' }))
+      .toEqual({ text: 'Cost + $5.00', agreed: true })
+  })
+
+  // A cost_plus row with no markup is incomplete, and the calculator refuses to
+  // price it. The screen must not round that off to either neighbour: "At cost"
+  // understates the terms and "Cost + $0.00" invents one.
+  it('says the markup is missing rather than implying cost price', () => {
+    const out = rateCellLabel({ rate: null, rate_type: 'cost_plus', markup: null })
+    expect(out.text).toBe('Cost + (markup not set)')
+    // Not styled as an agreed amount, because it is not one.
+    expect(out.agreed).toBe(false)
+  })
+
+  // The column may be absent entirely: there is no migration runner here, so a
+  // deploy that predates client_warehouse_rates_markup.sql reads `undefined`.
+  // That is the same state as "not set" and must not print "Cost + $NaN".
+  it('treats an absent markup column the same as an empty one', () => {
+    expect(rateCellLabel({ rate: null, rate_type: 'cost_plus' }).text)
+      .toBe('Cost + (markup not set)')
+  })
+
+  // Unchanged behaviour for the two rows that already existed.
+  it('still reads a null rate on an at_cost line as At cost', () => {
+    expect(rateCellLabel({ rate: null, rate_type: 'at_cost', markup: null }))
+      .toEqual({ text: 'At cost', agreed: false })
+  })
+
+  it('still prints a flat rate as a dollar amount', () => {
+    expect(rateCellLabel({ rate: 2.5, rate_type: 'flat', markup: null }))
+      .toEqual({ text: '$2.50', agreed: true })
+  })
+
+  // A null rate with NO rate_type at all is the legacy writer's row shape.
+  // "At cost" is the established reading of it and stays.
+  it('reads a null rate with no rate type as At cost', () => {
+    expect(rateCellLabel({ rate: null, rate_type: null, markup: null }).text)
+      .toBe('At cost')
   })
 })

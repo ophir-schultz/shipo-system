@@ -8,6 +8,7 @@ import DeleteClientButton from '@/components/clients/DeleteClientButton'
 import ZenventoryCredentials from '@/components/clients/ZenventoryCredentials'
 import OriginZipEditor from '@/components/clients/OriginZipEditor'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
+import { rateCellLabel } from '@/lib/billing/warehouse-rate-card'
 import { read, readOne } from '@/lib/db/read'
 
 // Every getter on this page used to end `return data ?? []` and drop the error
@@ -293,6 +294,16 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
                 null-versus-zero confusion this whole ledger exists to stop
                 (src/lib/ledger/cost-rate.ts:5-10). Render "At cost" instead,
                 unstyled by the green that means "a real agreed amount".
+
+                That reading is now in rateCellLabel() rather than inline,
+                because "rate is null" stopped meaning one thing. A cost_plus
+                line has `rate` null BY DESIGN too — its agreed figure is the
+                markup, in its own column — so the inline version printed
+                "At cost" over a client billed cost plus a markup. Same class
+                of error as the "$0.00" above, on the same cell, and this
+                screen is where someone would look to answer a client asking
+                what they pay. The function is tested in
+                src/lib/billing/warehouse-rate-card.test.ts.
               - `service_type` is the SUPERSEDED legacy column, kept only so
                 older readers are not broken (ledger_03_charges.sql:229-237).
                 Seeded rows omit it and land null. Prefer `label` — the quote's
@@ -311,15 +322,18 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
               This was the lone outlier.
             */}
             <tbody>
-              {warehouseRates.rows.map((r: any) => (
-                <tr key={r.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
-                  <td className="py-3 font-medium capitalize">{r.label ?? r.service_type?.replace(/_/g, ' ') ?? '—'}</td>
-                  <td className="py-3 text-gray-400 capitalize">{r.unit?.replace(/_/g, ' ') ?? '—'}</td>
-                  <td className={`py-3 text-right font-semibold ${r.rate === null ? 'text-gray-400' : 'text-green-400'}`}>
-                    {r.rate === null ? 'At cost' : `$${Number(r.rate).toFixed(2)}`}
-                  </td>
-                </tr>
-              ))}
+              {warehouseRates.rows.map((r: any) => {
+                const cell = rateCellLabel(r)
+                return (
+                  <tr key={r.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                    <td className="py-3 font-medium capitalize">{r.label ?? r.service_type?.replace(/_/g, ' ') ?? '—'}</td>
+                    <td className="py-3 text-gray-400 capitalize">{r.unit?.replace(/_/g, ' ') ?? '—'}</td>
+                    <td className={`py-3 text-right font-semibold ${cell.agreed ? 'text-green-400' : 'text-gray-400'}`}>
+                      {cell.text}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}

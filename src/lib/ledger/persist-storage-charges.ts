@@ -217,6 +217,18 @@ export async function persistStorageCharges(): Promise<StorageResult> {
       variant: r.variant,
       rate: num(r.rate),
       rateType: String(r.rate_type ?? ''),
+      // null, and NOT read from the database, which is the one place these two
+      // mappers deliberately differ.
+      //
+      // `markup` only means anything to a cost_plus line, and storage has no
+      // cost_plus: buildStorageCharges prices through FLAT_STORAGE_RATE_TYPES
+      // (storage-charges.ts:115) and refuses any other rate_type by name, so a
+      // cost_plus storage row is already reported rather than priced and the
+      // markup would never be consulted. Adding the column to the select above
+      // would make the storage sync fail on a database that has not had
+      // client_warehouse_rates_markup.sql applied — a hard dependency bought
+      // for a field this path cannot use.
+      markup: null,
       effectiveFrom: r.effective_from ?? null,
       effectiveTo: r.effective_to ?? null,
     })

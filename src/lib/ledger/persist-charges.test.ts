@@ -17,11 +17,11 @@ const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString(
 
 const pickRate: RateCardLine = {
   id: 'rate-pick', chargeType: 'pick', variant: 'device',
-  rate: 2, rateType: 'per_unit', effectiveFrom: null, effectiveTo: null,
+  rate: 2, rateType: 'per_unit', markup: null, effectiveFrom: null, effectiveTo: null,
 }
 const shipRate: RateCardLine = {
   id: 'rate-ship', chargeType: 'shipping', variant: null,
-  rate: null, rateType: 'at_cost', effectiveFrom: null, effectiveTo: null,
+  rate: null, rateType: 'at_cost', markup: null, effectiveFrom: null, effectiveTo: null,
 }
 const pickCost: CostRateRow = {
   id: 'cost-pick', cost_type: 'pick', variant: 'device', unit: 'per_unit',

@@ -34,6 +34,7 @@ const MIGRATION_FOR: ReadonlyArray<readonly [string, string]> = [
   ['client_storage_months',   'supabase/ledger_07_storage.sql'],
   ['shipstation_shipment_id', 'supabase/ledger_03_charges.sql'],
   ['order_number_key',        'supabase/ledger_03_charges.sql'],
+  ['markup',                  'supabase/client_warehouse_rates_markup.sql'],
   ['effective_from',          'supabase/ledger_03_charges.sql'],
   ['effective_to',            'supabase/ledger_03_charges.sql'],
   ['charge_type',             'supabase/ledger_03_charges.sql'],
@@ -154,6 +155,7 @@ interface RateRow {
   variant: string | null
   rate: number | string | null
   rate_type: string | null
+  markup: number | string | null
   effective_from: string | null
   effective_to: string | null
 }
@@ -269,7 +271,7 @@ export async function loadChargeInputs(
       // ledger_03_charges.sql rather than appearing in a CREATE TABLE, which is
       // how they came to be dropped from this select. Without them the rate
       // lookup is a bare .find() and a superseded rate wins by array order.
-      .select('id, client_id, charge_type, variant, rate, rate_type, effective_from, effective_to')
+      .select('id, client_id, charge_type, variant, rate, rate_type, markup, effective_from, effective_to')
       .not('charge_type', 'is', null)
       .order('id', { ascending: true })
       .range(from, to))
@@ -435,6 +437,10 @@ export async function loadChargeInputs(
         variant: r.variant,
         rate: num(r.rate),
         rateType: String(r.rate_type ?? ''),
+        // Through `num()` like `rate`, and for the same reason: Supabase hands
+        // back a numeric column as a STRING, so a raw pass-through would make
+        // `actualCost + markup` string-concatenate — 8.2 + "5" = "8.25".
+        markup: num(r.markup),
         // Passed through as null when null. buildCharges reads a null
         // effective_from as "has always been in effect", which is what every
         // row in the table today needs: the columns were added by ALTER TABLE

@@ -6,9 +6,9 @@ import { buildStorageCharges } from '@/lib/ledger/storage-charges'
 // without these fields; Ruling 11 requires them to be added.
 const rateCard = [
   { id: 'rs', chargeType: 'storage', variant: 'pallet', rate: 25, rateType: 'per_pallet',
-    effectiveFrom: null, effectiveTo: null },
+    markup: null, effectiveFrom: null, effectiveTo: null },
   { id: 'rh', chargeType: 'storage', variant: 'shelf',  rate: 12, rateType: 'per_shelf',
-    effectiveFrom: null, effectiveTo: null },
+    markup: null, effectiveFrom: null, effectiveTo: null },
 ]
 
 const costRates = [
@@ -114,7 +114,7 @@ describe('buildStorageCharges', () => {
   it('produces no charge when the rate card line is switched off via empty daterange', () => {
     const switchedOffCard = [
       { id: 'rs', chargeType: 'storage', variant: 'pallet', rate: 25, rateType: 'per_pallet',
-        effectiveFrom: '2026-09-01', effectiveTo: '2026-09-01' },
+        markup: null, effectiveFrom: '2026-09-01', effectiveTo: '2026-09-01' },
     ]
     const out = buildStorageCharges({ ...base, rateCard: switchedOffCard })
     expect(out).toEqual([])
@@ -129,9 +129,9 @@ describe('buildStorageCharges', () => {
     // The old rate is listed FIRST, so a bare .find() would return it.
     const succession = [
       { id: 'old', chargeType: 'storage', variant: 'pallet', rate: 25, rateType: 'per_pallet',
-        effectiveFrom: null, effectiveTo: '2026-06-01' },
+        markup: null, effectiveFrom: null, effectiveTo: '2026-06-01' },
       { id: 'new', chargeType: 'storage', variant: 'pallet', rate: 30, rateType: 'per_pallet',
-        effectiveFrom: '2026-06-01', effectiveTo: null },
+        markup: null, effectiveFrom: '2026-06-01', effectiveTo: null },
     ]
     const out = buildStorageCharges({ ...base, rateCard: succession })
     expect(out).toHaveLength(1)
@@ -147,11 +147,11 @@ describe('buildStorageCharges', () => {
   it('tie-breaks overlapping rates deterministically and says so', () => {
     const overlapping = [
       { id: 'a', chargeType: 'storage', variant: 'pallet', rate: 25, rateType: 'per_pallet',
-        effectiveFrom: null, effectiveTo: '2026-06-01' },
+        markup: null, effectiveFrom: null, effectiveTo: '2026-06-01' },
       { id: 'b', chargeType: 'storage', variant: 'pallet', rate: 30, rateType: 'per_pallet',
-        effectiveFrom: '2026-06-01', effectiveTo: null },
+        markup: null, effectiveFrom: '2026-06-01', effectiveTo: null },
       { id: 'c', chargeType: 'storage', variant: 'pallet', rate: 40, rateType: 'per_pallet',
-        effectiveFrom: '2026-08-01', effectiveTo: null },
+        markup: null, effectiveFrom: '2026-08-01', effectiveTo: null },
     ]
     const w = collector()
     const out = buildStorageCharges({ ...base, rateCard: overlapping }, w.warn)
@@ -173,7 +173,7 @@ describe('buildStorageCharges', () => {
   it('rounds an exact half-cent UP, as calculate-charges.cents does', () => {
     const halfCentCard = [
       { id: 'rs', chargeType: 'storage', variant: 'pallet', rate: 16.49, rateType: 'per_pallet',
-        effectiveFrom: null, effectiveTo: null },
+        markup: null, effectiveFrom: null, effectiveTo: null },
     ]
     const out = buildStorageCharges({
       ...base, rateCard: halfCentCard, palletPositions: 0.5, shelfPositions: 0,
@@ -238,12 +238,20 @@ describe('buildStorageCharges', () => {
   })
 
   // --- m10: rate_type is not decoration ----------------------------------
-  // A hand-entered cost_plus line with rate 15.00 means cost + 15%, not $15 a
-  // pallet. Multiplying it by 4 bills $60 against a true figure near $55.
+  // A hand-entered cost_plus line does not mean "$15 a pallet", so multiplying
+  // it by 4 positions bills $60 for something that was never priced that way.
+  //
+  // What `rate` means on a cost_plus row was settled after this test was
+  // written (Ophir 2026-10-15): the markup is DOLLARS, not a percentage, and it
+  // lives in its own `markup` column with `rate` left null. This fixture is
+  // therefore not a price under EITHER reading — it is a miskeyed row, with a
+  // figure in the column cost_plus does not use and nothing in the one it does.
+  // What this test pins is the only safe response to that: refuse it by name,
+  // rather than guess which column the 15 was meant for.
   it('refuses to multiply a rate type it cannot read, and names it', () => {
     const costPlusCard = [
       { id: 'rs', chargeType: 'storage', variant: 'pallet', rate: 15, rateType: 'cost_plus',
-        effectiveFrom: null, effectiveTo: null },
+        markup: null, effectiveFrom: null, effectiveTo: null },
     ]
     const w = collector()
     const out = buildStorageCharges({ ...base, rateCard: costPlusCard }, w.warn)

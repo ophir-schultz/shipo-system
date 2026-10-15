@@ -6,9 +6,11 @@ import type { CostRateRow } from '@/lib/ledger/cost-rate'
 // were added by ALTER TABLE after the rows existed. `line()` defaults to that
 // state so the suite exercises the path production is actually on, and the
 // dating tests below pass the dates explicitly.
-const line = (l: Omit<RateCardLine, 'effectiveFrom' | 'effectiveTo'>
-                & Partial<Pick<RateCardLine, 'effectiveFrom' | 'effectiveTo'>>): RateCardLine =>
-  ({ effectiveFrom: null, effectiveTo: null, ...l })
+// `markup` defaults to null for the same reason: it is null on every rate
+// type except cost_plus, so the default is the state nearly every line is in.
+const line = (l: Omit<RateCardLine, 'effectiveFrom' | 'effectiveTo' | 'markup'>
+                & Partial<Pick<RateCardLine, 'effectiveFrom' | 'effectiveTo' | 'markup'>>): RateCardLine =>
+  ({ effectiveFrom: null, effectiveTo: null, markup: null, ...l })
 
 const costRates: CostRateRow[] = [
   { id: 'cr-pick-d', cost_type: 'pick', variant: 'device', unit: 'per_unit',
@@ -338,7 +340,7 @@ describe('buildCharges', () => {
     const out = buildCharges({
       ...base,
       rateCard: [line({ id: 'rc-ship-cp', chargeType: 'shipping', variant: null,
-                        rate: 5.00, rateType: 'cost_plus' })],
+                        rate: null, rateType: 'cost_plus', markup: 5.00 })],
       shipments: [{ id: 's3h', shipmentId: 564, shipDate: '2026-09-02', actualCost: 8.20, voided: false }],
     }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
 
@@ -351,8 +353,67 @@ describe('buildCharges', () => {
     // figure a human entered. Writing the computed total here would make the
     // rate card unreconcilable against the charge it produced.
     expect(out[0].unit_rate).toBeCloseTo(5.00, 2)
-    // Nothing is wrong with this charge, so nothing is reported.
+    // Nothing is wrong with this charge, so nothing is reported. In particular
+    // the "line in effect with an empty rate cell" warning must NOT fire: on a
+    // cost_plus line a null `rate` is the correct and expected state, and a
+    // warning here would cry wolf on every correctly-configured client.
     expect(warnings).toHaveLength(0)
+  })
+
+  // A cost_plus line whose markup cell is empty is a data error, exactly as an
+  // empty rate cell is on a flat line -- and it must be reported as ITS OWN
+  // cause. "Fill in the rate" sends someone to the wrong column, where they
+  // find a null that is supposed to be there.
+  it('leaves cost_plus revenue unknown and names the markup when it is not set', () => {
+    const warnings: string[] = []
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-ship-cp0', chargeType: 'shipping', variant: null,
+                        rate: null, rateType: 'cost_plus', markup: null })],
+      shipments: [{ id: 's3k', shipmentId: 567, shipDate: '2026-09-02', actualCost: 8.20, voided: false }],
+    }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+
+    expect(out).toHaveLength(1)
+    // The freight we paid survives, as it does down every other unpriced path.
+    expect(out[0].cost).toBeCloseTo(8.20, 2)
+    expect(out[0].amount).toBeNull()
+    expect(out[0].unit_rate).toBeNull()
+    expect(out[0].rate_id).toBe('rc-ship-cp0')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('cost_plus line with no markup')
+    expect(warnings[0]).toContain('rc-ship-cp0')
+  })
+
+  // ---- the catch-all that made the cost_plus hazard possible ---------------
+  //
+  // The branch used to END in `: rate.rate`, which prices ANY rate type it
+  // does not recognise as a flat per-shipment amount. That is how a 'cost_plus'
+  // row billed $5.00 instead of $13.20 before this type existed, and it would
+  // do the identical thing to the next type anyone adds -- 'cost_plus_pct',
+  // 'per_lb', a typo like 'at-cost' -- each time producing a specific,
+  // confident, wrong number that sums into revenue with nothing to flag it.
+  //
+  // Shipping prices three ways and only three: at_cost, cost_plus, flat.
+  // Anything else is a data error to report, not a price to bill from.
+  it('refuses to price a shipping line whose rate type it does not recognise', () => {
+    const warnings: string[] = []
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-ship-huh', chargeType: 'shipping', variant: null,
+                        rate: 5.00, rateType: 'at-cost' })],
+      shipments: [{ id: 's3l', shipmentId: 568, shipDate: '2026-09-02', actualCost: 8.20, voided: false }],
+    }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+
+    expect(out).toHaveLength(1)
+    expect(out[0].cost).toBeCloseTo(8.20, 2)
+    // NOT 5.00. The rate cell is populated, which is exactly why the old
+    // catch-all billed it so willingly.
+    expect(out[0].amount).toBeNull()
+    expect(out[0].unit_rate).toBeNull()
+    expect(out[0].rate_id).toBe('rc-ship-huh')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('unknown shipping rate type')
+    expect(warnings[0]).toContain('at-cost')
   })
 
   // THE CASE THAT DECIDES WHETHER THIS TYPE IS SAFE.
@@ -373,7 +434,7 @@ describe('buildCharges', () => {
     const out = buildCharges({
       ...base,
       rateCard: [line({ id: 'rc-ship-cp', chargeType: 'shipping', variant: null,
-                        rate: 5.00, rateType: 'cost_plus' })],
+                        rate: null, rateType: 'cost_plus', markup: 5.00 })],
       shipments: [{ id: 's3i', shipmentId: 565, shipDate: '2026-09-02', actualCost: null, voided: false }],
     }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
 
@@ -392,7 +453,7 @@ describe('buildCharges', () => {
     const out = buildCharges({
       ...base,
       rateCard: [line({ id: 'rc-ship-cp', chargeType: 'shipping', variant: null,
-                        rate: 5.00, rateType: 'cost_plus' })],
+                        rate: null, rateType: 'cost_plus', markup: 5.00 })],
       shipments: [{ id: 's3j', shipmentId: 566, shipDate: '2026-09-02', actualCost: 9.10, voided: true }],
     })
     expect(out).toHaveLength(1)

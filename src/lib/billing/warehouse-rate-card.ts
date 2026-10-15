@@ -308,3 +308,51 @@ export function validateLegacyRates(raw: unknown, clientId: string): Validated {
 
   return { rates, warnings }
 }
+
+/**
+ * How one rate card row reads in the rate column of the client detail screen.
+ *
+ * It is a function here rather than an expression in the JSX because the
+ * expression it replaces was wrong, and wrong in a way nothing could catch:
+ *
+ *   r.rate === null ? 'At cost' : `$${Number(r.rate).toFixed(2)}`
+ *
+ * That reading held while a null `rate` meant one thing — an at_cost line. A
+ * cost_plus line is the second thing it can mean: `rate` is null there BY
+ * DESIGN, because the agreed figure is the markup and lives in its own column
+ * (see supabase/client_warehouse_rates_markup.sql for why it is not in
+ * `rate`). So the screen staff open to check a client's terms would print
+ * "At cost" over a client billed cost plus a markup — a specific and
+ * confident claim about what we charge, on the screen someone would read to
+ * answer a client who asked.
+ *
+ * `agreed` drives the styling and is deliberately not derived from "did we
+ * print a number". The screen renders an agreed amount in green, and the two
+ * states that are NOT agreed amounts — at cost, and a cost_plus line whose
+ * markup has not been filled in — must not borrow that confidence.
+ *
+ * Takes a loose row rather than a typed one because the caller reads through
+ * `select('*')` with no mapping layer, and `markup` is `undefined` rather than
+ * null on any deploy that predates the migration. `== null` covers both.
+ */
+export function rateCellLabel(r: {
+  rate?: number | string | null
+  rate_type?: string | null
+  markup?: number | string | null
+}): { text: string; agreed: boolean } {
+  if (r.rate_type === 'cost_plus') {
+    // Not `?? 0`. A missing markup is not a markup of nothing: the calculator
+    // refuses to price the line at all and reports it, so the screen says the
+    // same thing rather than inventing a term ("Cost + $0.00" is cost price,
+    // which is a different deal) or understating one ("At cost").
+    if (r.markup == null) return { text: 'Cost + (markup not set)', agreed: false }
+    // Number() because PostgREST serialises `numeric` as a JSON string and this
+    // row arrives unmapped: `'5.00'.toFixed` is not a function, so the raw
+    // value would crash the page rather than misprint.
+    return { text: `Cost + $${Number(r.markup).toFixed(2)}`, agreed: true }
+  }
+  // Unchanged for every other row, including the legacy writer's rows, which
+  // carry no rate_type at all. A null rate there still reads "At cost".
+  if (r.rate == null) return { text: 'At cost', agreed: false }
+  return { text: `$${Number(r.rate).toFixed(2)}`, agreed: true }
+}

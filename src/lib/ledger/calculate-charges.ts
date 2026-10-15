@@ -11,6 +11,30 @@ export interface RateCardLine {
   variant: string | null
   rate: number | null
   rateType: string
+  /**
+   * The dollar markup added to carrier cost on a `cost_plus` line, and null on
+   * every other rate type.
+   *
+   * IT IS A SEPARATE COLUMN FROM `rate` ON PURPOSE, and the reason is about
+   * code that is already in production rather than about taste.
+   *
+   * Carrying the markup in `rate` would type-check, read naturally, and bill
+   * correctly here — and would be mis-billed by the deploy that is live right
+   * now. The shipping branch below used to end in a catch-all `: rate.rate`,
+   * so a row reading (rate_type 'cost_plus', rate 5.00) bills $5.00 FLAT per
+   * shipment: the markup alone, with the carrier cost silently dropped. On the
+   * 257 shipments already in order_charges that is ~$1,285 billed against
+   * $2,306.50 of freight we actually paid, booked as real revenue, with
+   * nothing anywhere flagging it.
+   *
+   * With the markup over here, `rate` stays null on a cost_plus line, and the
+   * old code's own "line in effect with an empty rate cell" guard catches it
+   * first: it warns and writes amount = null. Unknown, flagged, and unpayable
+   * in partner_client_monthly — which is the honest answer from code that does
+   * not understand the row, and it makes the deploy ORDER irrelevant. Rate
+   * card rows and the code that prices them can now ship in either order.
+   */
+  markup: number | null
   // Effective dates, inclusive/exclusive, exactly as cost_rates uses them.
   // null effective_from means "has always been in effect": the columns were
   // added by ALTER TABLE after the rows existed, so every rate card in the
@@ -19,6 +43,27 @@ export interface RateCardLine {
   effectiveFrom: string | null
   effectiveTo: string | null
 }
+
+/**
+ * The three ways freight can be priced, and the only three.
+ *
+ * It exists because the shipping branch used to END in a bare `: rate.rate`,
+ * which prices any rate type it has never heard of as a flat per-shipment
+ * amount. That catch-all is how a `cost_plus` row billed the markup alone
+ * before cost_plus existed, and the shape of the bug is not specific to
+ * cost_plus: `rate_type` is a bare `text` column with NO check constraint
+ * (ledger_03_charges.sql:348), so the next type anyone adds, and every typo
+ * on the way there — 'at-cost', 'costplus', 'per_lb' — would each be billed
+ * as a confident, specific, wrong number that sums into revenue with nothing
+ * to flag it.
+ *
+ * An allowlist inverts that. An unrecognised type is a data error to REPORT,
+ * priced at null: unknown, warned, and unpayable rather than quietly wrong.
+ * Adding a fourth pricing rule now means adding it here and in the branch
+ * below, which is the point — the failure mode of forgetting is a flagged
+ * null, not a mis-billed client.
+ */
+export const SHIPPING_RATE_TYPES = new Set(['at_cost', 'flat', 'cost_plus'])
 
 export interface ChargeInput {
   order:     { id: string; clientId: string | null; cancelled: boolean }
@@ -324,7 +369,42 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // empty (fill that cell). Both now produce amount null, which
     // pnl_client_monthly counts as revenue_unknown_charges and which nulls the
     // month's margin rather than overstating it.
-    } else if (rate.rateType !== 'at_cost' && rate.rate === null) {
+    // A THIRD WAY, and the one the old catch-all hid completely. The line is in
+    // effect and its rate cell is populated — so neither guard above fires —
+    // but its rate_type is not one this code prices. Billing `rate.rate` here
+    // is a guess that the unknown type means "flat", and it is wrong by exactly
+    // the carrier cost whenever the type was meant to involve one.
+    //
+    // FIRST of the three, because the other two ask questions that only make
+    // sense once the type is known: "is the rate cell empty" is the wrong
+    // question to put to a row whose pricing rule we cannot name.
+    } else if (!SHIPPING_RATE_TYPES.has(rate.rateType)) {
+      onWarn?.('unknown shipping rate type', `client ${clientId ?? 'unattributed'}: `
+        + `the shipping line in effect on ${s.shipDate} (rate_id ${rate.id}) has `
+        + `rate_type '${rate.rateType}', which is not one of `
+        + `${[...SHIPPING_RATE_TYPES].join(', ')}, so shipment ${s.shipmentId} was `
+        + `recorded with its carrier cost `
+        + `${s.actualCost === null ? '(unreported)' : s.actualCost.toFixed(2)} and `
+        + `the amount left null (unknown, not zero). Correct the rate_type on `
+        + `that rate card line to bill it.`)
+    // The cost_plus equivalent of the empty-rate-cell error, and it has to be
+    // its own message because it sends someone to a DIFFERENT COLUMN. Telling
+    // them to "fill in the rate" on a cost_plus line points at a null that is
+    // supposed to be there, and the markup cell stays empty.
+    } else if (rate.rateType === 'cost_plus' && rate.markup === null) {
+      onWarn?.('cost_plus line with no markup', `client ${clientId ?? 'unattributed'}: `
+        + `the cost_plus shipping line in effect on ${s.shipDate} `
+        + `(rate_id ${rate.id}) carries no markup, so shipment ${s.shipmentId} `
+        + `was recorded with its carrier cost `
+        + `${s.actualCost === null ? '(unreported)' : s.actualCost.toFixed(2)} and `
+        + `the amount left null (unknown, not zero). Fill in the markup on that `
+        + `rate card line to bill it.`)
+    // Unchanged in effect but narrowed in reach: cost_plus is now excluded as
+    // well as at_cost, because a null `rate` on a cost_plus line is the correct
+    // and expected state — the markup lives in its own column. Left as
+    // `!== 'at_cost'` this fired on every correctly-configured cost_plus
+    // client, which is a warning channel that teaches people to ignore it.
+    } else if (rate.rateType === 'flat' && rate.rate === null) {
       onWarn?.('rate card line with no rate', `client ${clientId ?? 'unattributed'}: `
         + `the ${rate.rateType} shipping line in effect on ${s.shipDate} `
         + `(rate_id ${rate.id}) carries no rate, so shipment ${s.shipmentId} was `
@@ -370,23 +450,30 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     //     a specific and confident 62% undercharge that sums into revenue on
     //     every screen with nothing to flag it. `(s.actualCost ?? 0) + rate`
     //     has the same defect in a different coat.
-    //   - unlike at_cost, the markup is a real agreed rate, so an empty rate
-    //     cell is a data error. The `rateType !== 'at_cost' && rate === null`
-    //     guard above already reports it and leaves the amount null, which is
-    //     the behaviour this arm needs and the reason it is not special-cased
-    //     here: `null + 5` would be 5, but we never reach that.
+    //   - unlike at_cost, the markup is a real agreed rate, so an empty markup
+    //     cell is a data error, reported by its own guard above. It is ALSO
+    //     tested here rather than relying on that guard, because `null + 5`
+    //     is 5 in JavaScript: a missing markup would otherwise bill the raw
+    //     carrier cost as though the client had agreed to pay cost price.
     //
     // DOLLARS, not a percentage (Ophir 2026-10-15). Nothing divides by 100. A
     // percentage markup would be a separate rate type, and adding it by
     // reinterpreting this one would silently reprice every client on it.
+    //
+    // The arm that USED to be last is now `rate.rateType === 'flat'`, and the
+    // final arm is `null`. That inversion is the structural half of the fix:
+    // the old bare `: rate.rate` made "price it as flat" the default for every
+    // type this code has never heard of, so forgetting to add an arm produced
+    // a wrong number. Now it produces a flagged null.
     const amount = s.voided ? 0
                  : !rate ? null
                  : rate.rateType === 'at_cost' ? s.actualCost
                  : rate.rateType === 'cost_plus'
-                   ? (s.actualCost === null || rate.rate === null
+                   ? (s.actualCost === null || rate.markup === null
                        ? null
-                       : cents(s.actualCost + rate.rate))
-                 : rate.rate
+                       : cents(s.actualCost + rate.markup))
+                 : rate.rateType === 'flat' ? rate.rate
+                 : null
 
     out.push({
       order_id: input.order.id,
@@ -400,7 +487,16 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
       // line" is representable — and it is exactly what makes this row
       // recognisable later as one to go and price, rather than one that was
       // priced at nothing.
-      unit_rate: rate?.rate ?? null,
+      // On a cost_plus line the figure a human AGREED is the markup, so that is
+      // what gets recorded — not the computed total, which would make the
+      // charge unreconcilable against the rate card row that produced it, and
+      // not `rate`, which is null by design on those rows. On an unrecognised
+      // type it is null for the same reason the amount is: we do not know what
+      // the populated `rate` cell was supposed to mean.
+      unit_rate: !rate ? null
+               : !SHIPPING_RATE_TYPES.has(rate.rateType) ? null
+               : rate.rateType === 'cost_plus' ? rate.markup
+               : rate.rate,
       amount: amount === null ? null : cents(amount),
       cost: cost === null ? null : cents(cost),
       cost_basis: cost === null ? null : 'measured',

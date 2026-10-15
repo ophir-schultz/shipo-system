@@ -22,7 +22,8 @@ function seed(over: Partial<Record<string, Record<string, unknown>[]>> = {}) {
 
 const rateRow = (over: Record<string, unknown> = {}) => ({
   id: 'r1', client_id: 'client-a', charge_type: 'pick', variant: 'device',
-  rate: 2, rate_type: 'per_unit', effective_from: null, effective_to: null, ...over,
+  rate: 2, rate_type: 'per_unit', markup: null,
+  effective_from: null, effective_to: null, ...over,
 })
 
 beforeEach(() => seed())
@@ -268,11 +269,46 @@ describe('loadChargeInputs — the rate card', () => {
     // than trusting array position, which is the defect this select fixes.
     expect(input.rateCard).toEqual(expect.arrayContaining([
       { id: 'old', chargeType: 'pick', variant: 'device', rate: 1, rateType: 'per_unit',
-        effectiveFrom: '2020-01-01', effectiveTo: '2026-06-01' },
+        markup: null, effectiveFrom: '2020-01-01', effectiveTo: '2026-06-01' },
       { id: 'new', chargeType: 'pick', variant: 'device', rate: 3, rateType: 'per_unit',
-        effectiveFrom: '2026-06-01', effectiveTo: null },
+        markup: null, effectiveFrom: '2026-06-01', effectiveTo: null },
     ]))
     expect(input.rateCard).toHaveLength(2)
+  })
+
+  // THE COERCION, and it is not pedantry about types.
+  //
+  // PostgREST serialises a `numeric` column as a JSON STRING, so this column
+  // arrives as "5.00" and not 5. buildCharges prices a cost_plus shipment as
+  // `cents(actualCost + markup)` — and in JavaScript `8.2 + "5.00"` is the
+  // string "8.25.00", which `cents()` then turns into NaN. Written to
+  // order_charges.amount that is either a rejected insert or a null, on the
+  // one charge type where money certainly moved.
+  //
+  // `rate` already goes through the same `num()` for the same reason; this
+  // pins the new column to it, because the failure is invisible in TypeScript
+  // (the DB row type says `number | string | null`, so a raw pass-through
+  // type-checks).
+  it('reads the markup as a number even when Postgres sends it as a string', async () => {
+    seed({
+      orders: [{ id: 'o1', client_id: 'client-a', order_key: 'A1', order_number: 'A1',
+                 cancelled: false, order_date: '2026-09-10' }],
+      client_warehouse_rates: [
+        rateRow({ id: 'cp', charge_type: 'shipping', variant: null,
+                  rate: null, rate_type: 'cost_plus', markup: '5.00' }),
+      ],
+    })
+
+    const [input] = await loadChargeInputs(WINDOW)
+
+    expect(input.rateCard).toHaveLength(1)
+    expect(input.rateCard[0].markup).toBe(5)
+    expect(typeof input.rateCard[0].markup).toBe('number')
+    // And `rate` stays null rather than becoming 0, which is the state a
+    // cost_plus row is supposed to be in: the markup is the agreed figure and
+    // `rate` is deliberately empty. A `?? 0` here would make the row look like
+    // a $0 flat rate to anything that reads `rate` without checking the type.
+    expect(input.rateCard[0].rate).toBeNull()
   })
 
   it('gives an order only its own client rate card', async () => {
