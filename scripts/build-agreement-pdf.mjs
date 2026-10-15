@@ -39,10 +39,11 @@
 //    Deleting them would move every tab to its default position, which on a
 //    multi-page contract means page 1.
 
-import { readFileSync, writeFileSync, mkdtempSync, rmSync, statSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, statSync, existsSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, basename, resolve } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const START = '<!-- CONTRACT-START -->'
@@ -367,6 +368,185 @@ const doc = `<!doctype html>
 ${html.join('\n')}
 `
 
+/**
+ * The page footer. Chrome substitutes .pageNumber and .totalPages itself, so
+ * the count stays correct when the document grows a page — which is the whole
+ * reason to let it number the pages rather than counting them here.
+ *
+ * The inline font-size is required, not stylistic: header and footer templates
+ * are rendered as separate documents that inherit none of the page's CSS, and
+ * Chrome's default for them computes to a size that reads as a smudge. The
+ * horizontal padding keeps the number off the paper's edge; the template spans
+ * the full sheet, not the text measure.
+ */
+const FOOTER = `<div style="width:100%;padding:0 0.75in;box-sizing:border-box;
+  font-family:Georgia,'Times New Roman',serif;font-size:8.5pt;color:#666;text-align:center;">
+  Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+</div>`
+
+/** Reject if `p` has not settled within `ms`, naming what was being waited on. */
+function withTimeout(p, ms, what) {
+  return Promise.race([
+    p,
+    sleep(ms).then(() => {
+      throw new Error(`timed out after ${ms}ms waiting for ${what}`)
+    }),
+  ])
+}
+
+/**
+ * Render `htmlPath` to a PDF at `out`, driving Chrome over the DevTools
+ * Protocol instead of the --print-to-pdf command line.
+ *
+ * The reason is page numbers, and the CLI cannot do them. Its footer has two
+ * settings: Chrome's default furniture, which prints the source URL across the
+ * bottom of every page — here a path inside /var/folders — or nothing at all
+ * via --no-pdf-header-footer. There is no flag for a footer you control. CSS
+ * cannot supply one either: headless Chrome does not implement @page margin
+ * boxes, so `@bottom-center { content: counter(page) }` renders nothing.
+ * Page.printToPDF takes a footerTemplate, which is the supported way to do
+ * this and needs no dependency — Node has had a WebSocket client since 22.
+ *
+ * Page SIZE and MARGINS still come from the stylesheet's @page rule
+ * (preferCSSPageSize, and no margin params below), so the measure stays defined
+ * in one place next to the typography it belongs to.
+ */
+async function printToPdf(htmlPath, out, profileDir) {
+  const chrome = spawn(
+    CHROME,
+    [
+      '--headless',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-extensions',
+      '--disable-background-networking',
+      // Port 0 means "choose a free one and tell me". A fixed port collides
+      // with a sibling build, and the collision is silent: the second Chrome
+      // fails to bind and the first one's socket answers instead, so the wrong
+      // process renders the document.
+      '--remote-debugging-port=0',
+      // A private profile per run. Without it every invocation shares the
+      // default user-data-dir, and a second Chrome started while another still
+      // holds that profile's lock exits 0 having done NOTHING.
+      `--user-data-dir=${profileDir}`,
+      'about:blank',
+    ],
+    { stdio: ['ignore', 'ignore', 'pipe'] },
+  )
+
+  let stderr = ''
+  chrome.stderr.on('data', (b) => {
+    stderr += b
+  })
+
+  let ws
+  try {
+    // Chrome writes the port it actually bound to into the profile directory
+    // once the socket is listening. Polling for that file is how you learn the
+    // port when you asked for 0, and it doubles as "Chrome is up".
+    const portFile = join(profileDir, 'DevToolsActivePort')
+    let port
+    for (let i = 0; i < 200 && port === undefined; i++) {
+      if (chrome.exitCode !== null) {
+        throw new Error(`Chrome exited (${chrome.exitCode}) before listening.\n${stderr.trim()}`)
+      }
+      if (existsSync(portFile)) {
+        const first = readFileSync(portFile, 'utf8').split('\n')[0].trim()
+        if (first) port = Number(first)
+      }
+      if (port === undefined) await sleep(50)
+    }
+    if (!port) throw new Error(`Chrome never reported a debugging port.\n${stderr.trim()}`)
+
+    const targets = await withTimeout(
+      fetch(`http://127.0.0.1:${port}/json/list`).then((r) => r.json()),
+      10_000,
+      'the DevTools target list',
+    )
+    const page = targets.find((t) => t.type === 'page' && t.webSocketDebuggerUrl)
+    if (!page) throw new Error('Chrome is listening but exposes no page target to print')
+
+    ws = new WebSocket(page.webSocketDebuggerUrl)
+    await withTimeout(
+      new Promise((res, rej) => {
+        ws.onopen = res
+        ws.onerror = () => rej(new Error('the DevTools socket refused the connection'))
+      }),
+      10_000,
+      'the DevTools socket',
+    )
+
+    let nextId = 0
+    const pending = new Map()
+    const waiters = new Map()
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data)
+      if (msg.id !== undefined) {
+        const p = pending.get(msg.id)
+        pending.delete(msg.id)
+        if (!p) return
+        if (msg.error) p.reject(new Error(`${msg.error.message} (${msg.error.code})`))
+        else p.resolve(msg.result)
+        return
+      }
+      const list = waiters.get(msg.method)
+      if (!list) return
+      waiters.delete(msg.method)
+      for (const resolve of list) resolve(msg.params)
+    }
+
+    const send = (method, params = {}) =>
+      new Promise((resolve, reject) => {
+        const id = ++nextId
+        pending.set(id, { resolve, reject })
+        ws.send(JSON.stringify({ id, method, params }))
+      })
+    const once = (method) =>
+      new Promise((resolve) => waiters.set(method, [...(waiters.get(method) ?? []), resolve]))
+
+    await send('Page.enable')
+    // Subscribed BEFORE navigating: a document this small can finish loading
+    // between the two calls, and a listener attached afterwards waits forever
+    // for an event that already fired.
+    const loaded = once('Page.loadEventFired')
+    const nav = await send('Page.navigate', { url: `file://${resolve(htmlPath)}` })
+    if (nav.errorText) throw new Error(`could not load ${htmlPath}: ${nav.errorText}`)
+    await withTimeout(loaded, 30_000, 'the page to finish loading')
+
+    const { data } = await withTimeout(
+      send('Page.printToPDF', {
+        printBackground: true,
+        preferCSSPageSize: true,
+        displayHeaderFooter: true,
+        // Non-empty, or Chrome falls back to its default header — the date on
+        // one side and the document title on the other.
+        headerTemplate: '<span></span>',
+        footerTemplate: FOOTER,
+      }),
+      60_000,
+      'the PDF to render',
+    )
+    if (!data) throw new Error('Chrome returned an empty PDF')
+    writeFileSync(out, Buffer.from(data, 'base64'))
+  } finally {
+    ws?.close()
+    chrome.kill('SIGKILL')
+    // Waited for, not fired and forgotten. kill() returns as soon as the signal
+    // is delivered, while the process is still being torn down and still has
+    // its profile directory open — and the caller's next act is to delete that
+    // directory, which then fails with ENOTEMPTY underneath a PDF that rendered
+    // perfectly well.
+    if (chrome.exitCode === null && chrome.signalCode === null) {
+      await withTimeout(
+        new Promise((res) => chrome.once('exit', res)),
+        10_000,
+        'Chrome to exit',
+      )
+    }
+  }
+}
+
 const tmp = mkdtempSync(join(tmpdir(), 'agreement-pdf-'))
 const out = src.replace(/\.md$/, '.pdf')
 const htmlPath = keepHtml ? src.replace(/\.md$/, '.html') : join(tmp, 'contract.html')
@@ -377,55 +557,34 @@ const startedAt = Date.now()
 
 try {
   writeFileSync(htmlPath, doc, 'utf8')
-  execFileSync(
-    CHROME,
-    [
-      '--headless',
-      '--disable-gpu',
-      '--no-pdf-header-footer',
-      '--run-all-compositor-stages-before-draw',
-      '--virtual-time-budget=2000',
-      // A private profile per run. Without it every invocation shares the
-      // default user-data-dir, and a second Chrome started while another still
-      // holds that profile's lock exits 0 having done NOTHING. That is how the
-      // stale PDF below got through: two builds chained with && printed two
-      // success lines and produced one file.
-      `--user-data-dir=${join(tmp, 'chrome')}`,
-      `--print-to-pdf=${out}`,
-      // resolve() is load-bearing. htmlPath is only absolute in the default
-      // case, where it comes from join(tmpdir(), ...); under --keep-html it is
-      // src with its extension swapped, so a relative argv gives a relative
-      // path and "file://docs/x.html" parses "docs" as the HOSTNAME. Chrome
-      // then loads nothing, exits 0, and writes no PDF — which is how a
-      // --keep-html build printed "wrote …pdf" over yesterday's file.
-      `file://${resolve(htmlPath)}`,
-    ],
-    { stdio: ['ignore', 'ignore', 'pipe'] },
-  )
+  await printToPdf(htmlPath, out, join(tmp, 'chrome'))
 
-  // Chrome exiting 0 is NOT evidence that it rendered anything.
+  // A render that reported success is NOT evidence that a file reached disk.
   //
   // Measured, not theorised: on 2026-10-15 this script printed
   // "wrote docs/referral-agreement-TEMPLATE.pdf" while leaving yesterday's
-  // file untouched on disk, because a sibling Chrome held the profile lock.
-  // The failure is silent, and what it leaves behind is a CONTRACT that does
-  // not match the markdown it claims to render — the exact artifact the
-  // drift guard in referral-agreement-terms.test.ts exists to catch, except
-  // that guard only asserts markdown ⊆ PDF and the title block it would have
-  // tripped on happened to appear in a body paragraph too.
+  // file untouched, because the path handed to Chrome was relative and
+  // "file://docs/x.html" parses "docs" as a HOSTNAME — it loaded nothing and
+  // exited 0. The failure is silent, and what it leaves behind is a CONTRACT
+  // that does not match the markdown it claims to render — the exact artifact
+  // the drift guard in referral-agreement-terms.test.ts exists to catch,
+  // except that guard only asserts markdown ⊆ PDF and the title block it would
+  // have tripped on happened to appear in a body paragraph too.
   //
-  // So the script verifies its own output instead of trusting an exit code.
+  // Driving the protocol directly closes that particular hole, since a failed
+  // navigation now throws instead of being swallowed by an exit code. The
+  // post-condition stays regardless: it is cheap, and it is the check that does
+  // not care which of the many ways to produce no PDF was taken this time.
   const stamp = statSync(out, { throwIfNoEntry: false })
   if (!stamp) {
-    console.error(`${out}: Chrome exited 0 but wrote no file. Nothing was rendered.`)
+    console.error(`${out}: the render reported success but wrote no file.`)
     process.exit(1)
   }
   if (stamp.mtimeMs < startedAt) {
     console.error(
-      `${out}: Chrome exited 0 but did not touch the output — the file on disk is from ` +
+      `${out}: the render did not touch the output — the file on disk is from ` +
         `${stamp.mtime.toISOString()}, before this run started.\n` +
-        'It is a STALE RENDER of an older version of the markdown. Do not send it. ' +
-        'Close any other Chrome started by this script and run again.',
+        'It is a STALE RENDER of an older version of the markdown. Do not send it.',
     )
     process.exit(1)
   }
@@ -434,7 +593,8 @@ try {
     process.exit(1)
   }
 } finally {
-  rmSync(tmp, { recursive: true, force: true })
+  // Retries because this deletes a directory a browser has just let go of.
+  rmSync(tmp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
 }
 
 console.log(`wrote ${out}`)

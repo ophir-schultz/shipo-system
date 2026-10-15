@@ -580,14 +580,25 @@ describe('the attorney cover note briefs the real deal', () => {
 //    control below, and why short blocks are dropped rather than silently
 //    passing.
 
-/** Extraction only. All normalization lives in TS, on one side of the wire. */
+/**
+ * Extraction only. All normalization lives in TS, on one side of the wire.
+ *
+ * One page per record so the page-number guard below can ask "what does page 4
+ * say" and not merely "does this string appear somewhere". The count is
+ * emitted on its own first line and checked against the number of records: the
+ * separator is a form feed, which pypdf does not produce, but "does not
+ * produce" is an assumption and a wrong split would silently renumber every
+ * page this guard reasons about.
+ */
 const EXTRACT = `import sys, pypdf
 r = pypdf.PdfReader(sys.argv[1])
-sys.stdout.write(''.join(p.extract_text() or '' for p in r.pages))`
+sys.stdout.write(str(len(r.pages)) + '\\n')
+sys.stdout.write('\\f'.join(p.extract_text() or '' for p in r.pages))`
 
-const PDF_CACHE = new Map<string, string>()
+const PDF_CACHE = new Map<string, string[]>()
 
-function pdfText(file: string): string {
+/** The text layer of each page, in order. */
+function pdfPages(file: string): string[] {
   const abs = join(DOCS, file)
   const hit = PDF_CACHE.get(abs)
   if (hit !== undefined) return hit
@@ -608,8 +619,40 @@ function pdfText(file: string): string {
         'This guard needs pypdf on the system python3: python3 -m pip install pypdf',
     )
   }
-  PDF_CACHE.set(abs, out)
-  return out
+
+  const nl = out.indexOf('\n')
+  const count = Number(out.slice(0, nl))
+  const pages = out.slice(nl + 1).split('\f')
+  if (!Number.isInteger(count) || count < 1 || pages.length !== count) {
+    throw new Error(
+      `${file}: extractor reported ${count} pages but produced ${pages.length} records. ` +
+        'A page must have contained the form-feed separator; this guard cannot trust its page numbering.',
+    )
+  }
+
+  PDF_CACHE.set(abs, pages)
+  return pages
+}
+
+/**
+ * The whole text layer, with the generated page-number footer removed.
+ *
+ * The footer is stripped because this string is what the drift guard compares
+ * markdown prose against, and the pages are joined with nothing between them so
+ * that a sentence running from one page to the next still reads as one run of
+ * text. Leaving "Page 4 of 9" in would wedge that generated string into the
+ * middle of any paragraph that spans a page break, and the guard would report a
+ * stale render over a paragraph that is present and correct.
+ *
+ * Stripping it here does not leave it unchecked — it is asserted per page, by
+ * number, in the guard below.
+ */
+const PAGE_FOOTER = /Page \d+ of \d+/g
+
+function pdfText(file: string): string {
+  return pdfPages(file)
+    .map((p) => p.replace(PAGE_FOOTER, ''))
+    .join('')
 }
 
 /**
@@ -723,6 +766,31 @@ it('every agreement markdown with a PDF beside it is in the PDF check', () => {
 
 describe.each(PDF_PAIRS)('%s — the rendered PDF matches the markdown', (doc) => {
   const pdf = pdfFor(doc)
+
+  it('numbers every page, so a signer can tell when one is missing', () => {
+    // A multi-page agreement with unnumbered pages cannot be audited by the
+    // person signing it. Drop page 6 out of a printed stack and nothing in the
+    // document says so; the clause numbering is no help because the sections
+    // are not one-per-page. "Page N of M" makes a short stack self-evident,
+    // which matters for a contract that gets printed, scanned, and emailed
+    // back.
+    //
+    // Asserted page by page rather than as a set, because the failure this is
+    // really aimed at is a footer that renders the same number on every page —
+    // which looks fine in a thumbnail view and is worthless.
+    const pages = pdfPages(pdf)
+    expect(pages.length, `${pdf}: single page — nothing to number`).toBeGreaterThan(1)
+
+    const wrong = pages
+      .map((text, i) => ({ n: i + 1, want: `Page ${i + 1} of ${pages.length}`, text }))
+      .filter(({ want, text }) => !flatten(text).includes(flatten(want)))
+
+    expect(
+      wrong.length,
+      `${pdf}: ${wrong.length} of ${pages.length} pages do not carry their own footer. ` +
+        `First: page ${wrong[0]?.n} should say "${wrong[0]?.want}".`,
+    ).toBe(0)
+  })
 
   it('contains every prose block of the markdown it was rendered from', () => {
     const text = flatten(pdfText(pdf))
