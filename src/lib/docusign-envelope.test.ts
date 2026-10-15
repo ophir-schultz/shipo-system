@@ -527,16 +527,30 @@ describe('the contract prose has no blanks left in it', () => {
   // contract rather than as a bug. These three tabs were missing from
   // the first cut of this file for exactly that reason: nothing looked
   // wrong.
-  const agreementSigners = signersOf(build(), 0)
-  const partnerSigner = agreementSigners.find((s) => s.recipientId === PARTNER_RECIPIENT_ID)!
-  const textTabs = partnerSigner.tabs.textTabs as {
+  type TextTab = {
     anchorString: string
     tabLabel: string
     value?: string
     locked: string
     required: string
-  }[]
-  const byAnchor = (a: string) => textTabs.find((t) => t.anchorString === a)!
+    width?: string
+  }
+
+  /**
+   * Every text tab on the agreement, with the recipient it belongs to.
+   *
+   * Which recipient owns a prose-fill tab is the whole point of the
+   * tests below, so these helpers deliberately do NOT narrow to one
+   * signer first: a tab that moved to the wrong side has to fail on the
+   * ownership assertion, not vanish into an undefined.
+   */
+  function agreementTextTabs(env = build()): Array<TextTab & { owner: string }> {
+    return signersOf(env, 0).flatMap((s) =>
+      ((s.tabs.textTabs ?? []) as TextTab[]).map((t) => ({ ...t, owner: s.recipientId })),
+    )
+  }
+  const byAnchor = (a: string, env?: ReturnType<typeof build>) =>
+    agreementTextTabs(env).find((t) => t.anchorString === a)!
 
   it('fills every fill-anchor the document contains', () => {
     // Derived from the document, not from a list kept here: the md is
@@ -550,6 +564,31 @@ describe('the contract prose has no blanks left in it', () => {
     }
   })
 
+  it('shows the counterparty to BOTH signers, not only to the partner', () => {
+    // DocuSign renders only the CURRENT recipient's tabs. A prefilled
+    // value assigned to recipient 2 is invisible to recipient 1 -- so
+    // with these tabs on the partner's side, Shipo signs a contract
+    // whose clause 1 and whose page-8 'Partner --' heading read blank.
+    //
+    // Measured, not theorised: envelope 79dee1b4 went out on 2026-10-15
+    // built exactly that way, and Ophir's reply was 'where is the
+    // partner details?'. It was voided and reissued with these tabs on
+    // recipient 1. The values were provably on the envelope the whole
+    // time; the ASSIGNMENT was the defect.
+    //
+    // Shipo's side is the right home for them because they are values WE
+    // supply from our own record, not facts the partner tells us.
+    for (const anchor of [
+      AGREEMENT_ANCHORS.partnerNamePrefill,
+      AGREEMENT_ANCHORS.partnerEmailPrefill,
+    ]) {
+      const tab = byAnchor(anchor)
+      expect(tab.owner, `${anchor} must be on Shipo's side to be visible to both`).toBe(
+        SHIPO_RECIPIENT_ID,
+      )
+    }
+  })
+
   it('names the partner in clause 1 and locks it', () => {
     // Locked because this is our record of the entity we approved. A
     // party block the counterparty can retype is a party block that can
@@ -557,23 +596,74 @@ describe('the contract prose has no blanks left in it', () => {
     const tab = byAnchor(AGREEMENT_ANCHORS.partnerNamePrefill)
     expect(tab.value).toBe(partyName(partner))
     expect(tab.locked).toBe('true')
+    // Locked but NOT required. We supply the value, so requiredness
+    // protects nothing -- and a required+locked tab on the signer's own
+    // side can block them from completing their signature.
+    expect(tab.required).toBe('false')
+  })
+
+  it('keeps the name box clear of the signature column on page 8', () => {
+    // \pname\ appears TWICE -- clause 1 on page 1, and the 'Partner --'
+    // heading on page 8 -- and one anchor definition sizes both. On page
+    // 8 the box starts at x127 and the partner's signature column starts
+    // at x274, so a 260-wide box runs 53px into it and the rendered
+    // entity name overlaps the signature. 170 keeps it clear, at the
+    // cost of a narrower box on page 1, which has room to spare.
+    const tab = byAnchor(AGREEMENT_ANCHORS.partnerNamePrefill)
+    expect(Number(tab.width)).toBeLessThanOrEqual(170)
   })
 
   it('fills the notices clause with the partner email and locks it', () => {
     const tab = byAnchor(AGREEMENT_ANCHORS.partnerEmailPrefill)
     expect(tab.value).toBe(partner.email)
     expect(tab.locked).toBe('true')
+    expect(tab.required).toBe('false')
   })
 
-  it('makes the partner type their address, and requires it', () => {
-    // referral_partners holds no address, so this is the one fact on the
-    // agreement the partner tells us. Required borrows the W-9's
-    // guarantee: DocuSign will not complete an envelope with a required
-    // tab empty, so the notices clause cannot end up blank.
+  it('makes the partner type their address when we hold none, and requires it', () => {
+    // referral_partners has no address column, so with nothing passed in
+    // this is the one fact on the agreement the partner tells us. It
+    // stays on the PARTNER's side precisely because it is theirs to
+    // supply -- an empty tab on Shipo's side would be Ophir guessing it.
+    // Required borrows the W-9's guarantee: DocuSign will not complete
+    // an envelope with a required tab empty, so the notices clause
+    // cannot end up blank.
     const tab = byAnchor(AGREEMENT_ANCHORS.partnerAddressPrefill)
     expect(tab.value).toBeUndefined()
     expect(tab.required).toBe('true')
     expect(tab.locked).toBe('false')
+    expect(tab.owner).toBe(PARTNER_RECIPIENT_ID)
+  })
+
+  it('prefills the address on Shipo’s side when the caller supplies one', () => {
+    // When we DO hold the address -- Dr. Halloon sent his with his
+    // application -- it becomes a value we supply, so it moves to
+    // recipient 1 and locks, like the name and email. Otherwise Ophir
+    // signs a notices clause he cannot read and the partner can retype
+    // the address we were given.
+    const env = buildPartnerAgreementEnvelope({
+      partner: { ...partner, address: '4291 Express Ln, Ste 4995-901, Sarasota, FL 34249, USA' },
+      shipo,
+    })
+    const tab = byAnchor(AGREEMENT_ANCHORS.partnerAddressPrefill, env)
+    expect(tab.value).toBe('4291 Express Ln, Ste 4995-901, Sarasota, FL 34249, USA')
+    expect(tab.owner).toBe(SHIPO_RECIPIENT_ID)
+    expect(tab.locked).toBe('true')
+    expect(tab.required).toBe('false')
+  })
+
+  it('treats a blank address as no address at all', () => {
+    // A whitespace-only column value must not become a locked, blank,
+    // unfillable notices clause -- that is strictly worse than asking
+    // the partner for it, because nobody can fix it after the send.
+    const env = buildPartnerAgreementEnvelope({
+      partner: { ...partner, address: '   ' },
+      shipo,
+    })
+    const tab = byAnchor(AGREEMENT_ANCHORS.partnerAddressPrefill, env)
+    expect(tab.value).toBeUndefined()
+    expect(tab.required).toBe('true')
+    expect(tab.owner).toBe(PARTNER_RECIPIENT_ID)
   })
 
   it('fills the W-9 requester block with Shipo, locked', () => {

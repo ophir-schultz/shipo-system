@@ -111,9 +111,9 @@ export const AGREEMENT_ANCHORS = {
   /** Appears twice — the parties block and the signature heading. */
   partnerNamePrefill: '\\pname\\',
   /**
-   * Clause 1: 'with its address at \paddr\ ("Partner")'. The partner
-   * types this, because referral_partners has no address column — see
-   * agreementPartnerTabs for why it is nonetheless REQUIRED.
+   * Clause 1: 'with its address at \paddr\ ("Partner")'. Prefilled when
+   * the caller holds an address, and typed by the partner when nobody
+   * does — see agreementProseTabs for both halves.
    */
   partnerAddressPrefill: '\\paddr\\',
   /** The notices clause: 'Notices to Partner may be given at \pemail\'. */
@@ -148,6 +148,14 @@ export interface EnvelopePartner {
    * straight off a Supabase row; taxStatusOf() narrows it.
    */
   tax_status?: string | null
+  /**
+   * The notice address for clause 1, when we hold one. referral_partners
+   * has no address column, so this arrives from whatever the caller
+   * collected — an application email, the intake form. Supplied means we
+   * prefill and lock it on OUR side of the envelope; absent or blank
+   * means the partner types it. See agreementProseTabs.
+   */
+  address?: string | null
 }
 
 /** Who clause 1 names as "Partner". See EnvelopePartner.company. */
@@ -184,10 +192,8 @@ function anchored(anchorString: string, extra: Record<string, unknown> = {}) {
 }
 
 /**
- * The partner's tabs on the AGREEMENT (document 1).
- *
- * Three of these fill blanks in the contract prose rather than collecting
- * a signature, and they exist because of how the template is built: the
+ * The tabs that fill blanks in the contract PROSE rather than collecting
+ * a signature. They exist because of how the template is built: the
  * counterparty's details are not typed into the file — that would mean a
  * fresh copy of the whole agreement, and all its figures, per partner —
  * they are DocuSign anchors filled at send time.
@@ -200,56 +206,104 @@ function anchored(anchorString: string, extra: Record<string, unknown> = {}) {
  * rather than a bug, on an executed contract, which is why these are
  * tabs and not a TODO.
  *
- * Name and email are LOCKED: they are our record of who we approved, and
- * a party block the counterparty can retype is a party block that can
- * name a different entity than the one we agreed to.
+ * THE SPLIT IS THE POINT. DocuSign renders only the CURRENT recipient's
+ * tabs in a signing session, so a prefilled value assigned to the partner
+ * is INVISIBLE to Shipo. Everything we supply from our own record
+ * therefore belongs to recipient 1 — then BOTH parties read the
+ * counterparty's identity, because the partner (recipient 2, routed
+ * second) also sees values completed by earlier signers.
  *
- * The address is the partner's to type, and REQUIRED. We hold no address
- * for them — referral_partners has name/company/email/phone and nothing
- * else — so the alternatives were an empty notices clause or blocking
- * every send on data we would have to collect by email first. Required
- * borrows the W-9's guarantee: DocuSign will not complete an envelope
- * with a required tab empty, so the clause cannot end up blank.
+ * Measured, not theorised: envelope 79dee1b4 went out on 2026-10-15 with
+ * all three on the partner's side. Ophir opened it and asked "where is
+ * the partner details?" — clause 1 and the page-8 "Partner —" heading
+ * were blank in his session. The values were provably on the envelope the
+ * whole time; the ASSIGNMENT was the defect. Voided and reissued.
+ *
+ * What goes where:
+ * - Name and email: always OURS. Locked, because a party block the
+ *   counterparty can retype is a party block that can name a different
+ *   entity than the one we agreed to.
+ * - Address: ours when the caller holds one (see EnvelopePartner.address),
+ *   otherwise the partner's to type and REQUIRED. referral_partners has
+ *   no address column, so with nothing passed in the alternatives were an
+ *   empty notices clause or blocking every send on data we would have to
+ *   collect by email first. Required borrows the W-9's guarantee:
+ *   DocuSign will not complete an envelope with a required tab empty, so
+ *   the clause cannot end up blank. An empty LOCKED tab on our side would
+ *   be the worst of the three — unreadable AND unfixable after the send.
+ *
+ * Locked tabs are deliberately NOT required. We supply the value, so
+ * requiredness protects nothing, and a required+locked tab on a signer's
+ * own side risks blocking them from completing their own signature.
  */
+function agreementProseTabs(partner: EnvelopePartner) {
+  const address = partner.address?.trim()
+
+  const ours = [
+    anchored(AGREEMENT_ANCHORS.partnerNamePrefill, {
+      documentId: '1',
+      tabLabel: 'agreement_partner_name',
+      value: partyName(partner),
+      locked: 'true',
+      required: 'false',
+      // \pname\ appears TWICE — clause 1 on page 1, and the 'Partner —'
+      // signature heading on page 8 — and ONE anchor definition sizes
+      // every occurrence, so this width is the tighter page's
+      // constraint. On page 8 the box starts at x127 and the partner's
+      // signature column starts at x274; a 260-wide box ran 53px into it
+      // and overlapped the signature. Page 1 has room to spare, so it
+      // pays the cost of the narrower box.
+      width: '170',
+      font: 'georgia',
+      fontSize: 'size11',
+      bold: 'true',
+    }),
+    anchored(AGREEMENT_ANCHORS.partnerEmailPrefill, {
+      documentId: '1',
+      tabLabel: 'agreement_partner_email',
+      value: partner.email.trim(),
+      locked: 'true',
+      required: 'false',
+      width: '220',
+      font: 'georgia',
+      fontSize: 'size11',
+    }),
+  ]
+
+  const addressTab = anchored(AGREEMENT_ANCHORS.partnerAddressPrefill, {
+    documentId: '1',
+    tabLabel: 'agreement_partner_address',
+    width: '260',
+    font: 'georgia',
+    fontSize: 'size11',
+    ...(address
+      ? { value: address, locked: 'true', required: 'false' }
+      : { required: 'true', locked: 'false' }),
+  })
+
+  return address
+    ? { shipo: [...ours, addressTab], partner: [] }
+    : { shipo: ours, partner: [addressTab] }
+}
+
+/** Shipo's tabs on the AGREEMENT: their signature, their date, our prose fills. */
+function agreementShipoTabs(partner: EnvelopePartner) {
+  return {
+    signHereTabs: [anchored(AGREEMENT_ANCHORS.shipoSignature, { documentId: '1' })],
+    dateSignedTabs: [anchored(AGREEMENT_ANCHORS.shipoDate, { documentId: '1' })],
+    // No fullNameTabs on \n1\, deliberately: the template already prints
+    // 'Name: Ophir Schultz' beside it, and a tab there double-prints it.
+    textTabs: agreementProseTabs(partner).shipo,
+  }
+}
+
+/** The partner's tabs on the AGREEMENT (document 1). */
 function agreementPartnerTabs(partner: EnvelopePartner) {
   return {
     signHereTabs: [anchored(AGREEMENT_ANCHORS.partnerSignature, { documentId: '1' })],
     fullNameTabs: [anchored(AGREEMENT_ANCHORS.partnerName, { documentId: '1' })],
     dateSignedTabs: [anchored(AGREEMENT_ANCHORS.partnerDate, { documentId: '1' })],
-    textTabs: [
-      anchored(AGREEMENT_ANCHORS.partnerNamePrefill, {
-        documentId: '1',
-        tabLabel: 'agreement_partner_name',
-        value: partyName(partner),
-        locked: 'true',
-        required: 'false',
-        width: '260',
-        font: 'georgia',
-        fontSize: 'size11',
-        bold: 'true',
-      }),
-      anchored(AGREEMENT_ANCHORS.partnerEmailPrefill, {
-        documentId: '1',
-        tabLabel: 'agreement_partner_email',
-        value: partner.email.trim(),
-        locked: 'true',
-        required: 'false',
-        width: '220',
-        font: 'georgia',
-        fontSize: 'size11',
-      }),
-      anchored(AGREEMENT_ANCHORS.partnerAddressPrefill, {
-        documentId: '1',
-        tabLabel: 'agreement_partner_address',
-        // No value: this is the one thing on the agreement the partner
-        // tells US. Required, so the notices clause cannot ship blank.
-        required: 'true',
-        locked: 'false',
-        width: '260',
-        font: 'georgia',
-        fontSize: 'size11',
-      }),
-    ],
+    textTabs: agreementProseTabs(partner).partner,
   }
 }
 
@@ -490,10 +544,7 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
               signers: [
                 {
                   ...shipoSigner,
-                  tabs: {
-                    signHereTabs: [anchored(AGREEMENT_ANCHORS.shipoSignature, { documentId: '1' })],
-                    dateSignedTabs: [anchored(AGREEMENT_ANCHORS.shipoDate, { documentId: '1' })],
-                  },
+                  tabs: agreementShipoTabs(partner),
                 },
                 {
                   ...partnerSigner,

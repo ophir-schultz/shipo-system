@@ -39,10 +39,21 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const partnerId = process.argv[2]
 if (!partnerId) {
-  console.error('Usage: prep-agreement-envelope.mts <partner-id>')
+  console.error('Usage: prep-agreement-envelope.mts <partner-id> [notice address]')
   console.error('Partner ids: node --env-file=.env.local scripts/probe-partner-rows.mjs')
   process.exit(1)
 }
+
+// The notice address for clause 1, optional, from the command line rather
+// than the database — referral_partners has no address column, and the
+// address usually arrives in the application email rather than the form.
+//
+// Supplying it moves the tab to OUR side of the envelope, prefilled and
+// locked, so both signers can read it (see agreementProseTabs). Omitting
+// it leaves the partner an empty required box, which still works. This is
+// the one place the two behaviours are chosen between, so it is a visible
+// argument rather than a lookup that silently finds nothing.
+const noticeAddress = process.argv[3]?.trim() || undefined
 
 // ---------------------------------------------------------------------
 // 1. The partner, from the row the webhook will later match on.
@@ -113,6 +124,7 @@ try {
       email: partner.email,
       company: partner.company,
       tax_status: partner.tax_status,
+      address: noticeAddress,
     },
     shipo: { name: 'Ophir Schultz', email: 'ophir@shipousa.com' },
   })
@@ -146,12 +158,18 @@ console.log(`  clause 1 names ${partyName({ ...partner, email: partner.email })}
 console.log(`  status         ${partner.status} / agreement ${partner.agreement_status ?? 'null'}`)
 console.log(`  template       ${AGREEMENT_TEMPLATE_ID}`)
 console.log(`  tax status     ${partner.tax_status ?? 'NOT RECORDED'}`)
+console.log(`  notice address ${noticeAddress ?? 'NOT SUPPLIED — the partner will type it'}`)
 console.log(`  subject        ${envelope.emailSubject}`)
 console.log(`\n  payload   ${outFile}`)
 console.log(
   '\nNext: review the payload, then create it as a DRAFT in DocuSign and open it in\n' +
-    'the web console to check tab placement before anything is sent. The partner\n' +
-    'types their own address, so clause 1 and the notices clause will show empty\n' +
-    'boxes in the draft — that is correct; what to check is that the boxes are\n' +
-    'THERE and sit on the right line.',
+    'the web console to check tab placement before anything is sent.\n' +
+    '\nWhat to check: the name and email in clause 1 and the notices clause are on\n' +
+    "SHIPO's side of the envelope, prefilled and locked, so both parties can read\n" +
+    'the counterparty from page 1. Envelope 79dee1b4 had them on the partner and\n' +
+    'Ophir saw blanks, because DocuSign renders only the current recipient\'s tabs.\n' +
+    (noticeAddress
+      ? 'The address is prefilled too, so no box on the agreement should look empty.'
+      : 'No address was supplied, so clause 1 will show ONE empty box for the partner\n' +
+        'to type — that is correct; check the box is THERE and sits on the right line.'),
 )
