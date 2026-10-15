@@ -56,12 +56,32 @@ import {
  * the Shipo DocuSign account; 8 pages, document name
  * referral-agreement-TEMPLATE.pdf.
  *
- * We use the template as a DOCUMENT HOLDER only. Its own recipient
- * (role "CEO", Ophir) is overridden by the inline template below,
- * because the signer who matters varies per envelope and the template's
- * does not.
+ * We use the template as a DOCUMENT HOLDER: the inline template below
+ * supplies the recipients and every tab, because the signer who matters
+ * varies per envelope and the template's does not.
  */
 export const AGREEMENT_TEMPLATE_ID = 'bba422c1-329e-4a60-ad32-0327e0d13672'
+
+/**
+ * The template's OWN role names — not labels we are free to pick.
+ *
+ * A composite template matches inline recipients to the server
+ * template's recipients by role name. Matching replaces the template's
+ * recipient; NOT matching adds a new one beside it. So a role name we
+ * invented does not override anything, it supplements.
+ *
+ * Measured against the live account on 2026-10-15, preparing the first
+ * real envelope: built with roleName 'Shipo' it came back with THREE
+ * recipients — the template's CEO (Ophir), our Shipo (Ophir again), and
+ * the partner. Ophir would have had to sign the same contract twice,
+ * and until he did the envelope could not complete, so the webhook
+ * would never have activated the partner. Built with 'CEO' it comes
+ * back with two.
+ *
+ * Change these only to follow a change in the template.
+ */
+export const AGREEMENT_SHIPO_ROLE = 'CEO'
+export const AGREEMENT_PARTNER_ROLE = 'Partner'
 
 /**
  * An account-level envelope custom field marked required:true on the
@@ -411,7 +431,7 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
     // action from us. The other order works too, but it leaves a signed
     // partner locked out of their own portal until someone countersigns.
     routingOrder: '1',
-    roleName: 'Shipo',
+    roleName: AGREEMENT_SHIPO_ROLE,
   }
 
   const partnerSigner = {
@@ -419,7 +439,7 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
     name: partner.name,
     email: partner.email,
     routingOrder: '2',
-    roleName: 'Partner',
+    roleName: AGREEMENT_PARTNER_ROLE,
   }
 
   return {
