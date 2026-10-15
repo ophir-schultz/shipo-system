@@ -6,6 +6,8 @@ import { W9_CUSTOM_FIELD, W9_INCLUDED } from './partner-w9'
 import { W9_CLASSIFICATIONS, W9_TEXT_FIELDS, W9_TIN_GROUP } from './docusign-w9'
 import {
   AGREEMENT_ANCHORS,
+  AGREEMENT_PARTNER_ROLE,
+  AGREEMENT_SHIPO_ROLE,
   AGREEMENT_TEMPLATE_ID,
   ENVELOPE_TYPE_FIELD,
   ENVELOPE_TYPE_VALUE,
@@ -46,6 +48,8 @@ type Signer = {
   routingOrder: string
   email: string
   name: string
+  /** How the composite template matches this signer to the server template. */
+  roleName: string
   tabs: Record<string, unknown[]>
 }
 
@@ -294,6 +298,31 @@ describe('recipients', () => {
     const p = signersOf(env, 0).find((x) => x.recipientId === PARTNER_RECIPIENT_ID)!
     expect(p.email).toBe(partner.email)
     expect(p.name).toBe(partner.name)
+  })
+
+  it('names each signer with the role the SERVER TEMPLATE uses', () => {
+    // A composite template matches inline recipients to the server
+    // template's recipients BY ROLE NAME. A role name that matches
+    // nothing does not override the template's recipient -- it ADDS one.
+    //
+    // This is not theory. Measured against the live account on
+    // 2026-10-15: an envelope built with roleName 'Shipo' produced THREE
+    // recipients (the template's CEO/Ophir, our Shipo/Ophir, and the
+    // partner), so Ophir would have been asked to sign the same contract
+    // twice and the envelope could not complete until he did. With the
+    // template's own role names it returns recipientCount 2.
+    //
+    // The values below are the template's, not ours to choose. Changing
+    // one means the template changed.
+    const signers = signersOf(env, 0)
+    const s = signers.find((x) => x.recipientId === SHIPO_RECIPIENT_ID)!
+    const p = signers.find((x) => x.recipientId === PARTNER_RECIPIENT_ID)!
+    expect(s.roleName).toBe(AGREEMENT_SHIPO_ROLE)
+    expect(p.roleName).toBe(AGREEMENT_PARTNER_ROLE)
+    expect(AGREEMENT_SHIPO_ROLE).toBe('CEO')
+    expect(AGREEMENT_PARTNER_ROLE).toBe('Partner')
+    // Distinct, or the two inline signers compete for one template slot.
+    expect(s.roleName).not.toBe(p.roleName)
   })
 })
 
