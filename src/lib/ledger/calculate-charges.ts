@@ -358,9 +358,34 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // up, in the arm that is supposed to be the known-price case: it turned an
     // empty rate cell into a billed zero. A null here is the honest answer and
     // is reported by the warning above.
+    //
+    // cost_plus: the client pays the carrier cost plus an agreed DOLLAR
+    // markup. It is its own arm rather than a variation of either neighbour
+    // because it inherits from BOTH and from neither entirely:
+    //
+    //   - like at_cost, the amount is a function of the carrier figure, so an
+    //     unreported cost makes the revenue UNKNOWN. Falling through to the
+    //     final `rate.rate` arm (which is what happened before this existed)
+    //     billed the markup alone — $5.00 on a parcel that cost $8.20 to ship,
+    //     a specific and confident 62% undercharge that sums into revenue on
+    //     every screen with nothing to flag it. `(s.actualCost ?? 0) + rate`
+    //     has the same defect in a different coat.
+    //   - unlike at_cost, the markup is a real agreed rate, so an empty rate
+    //     cell is a data error. The `rateType !== 'at_cost' && rate === null`
+    //     guard above already reports it and leaves the amount null, which is
+    //     the behaviour this arm needs and the reason it is not special-cased
+    //     here: `null + 5` would be 5, but we never reach that.
+    //
+    // DOLLARS, not a percentage (Ophir 2026-10-15). Nothing divides by 100. A
+    // percentage markup would be a separate rate type, and adding it by
+    // reinterpreting this one would silently reprice every client on it.
     const amount = s.voided ? 0
                  : !rate ? null
                  : rate.rateType === 'at_cost' ? s.actualCost
+                 : rate.rateType === 'cost_plus'
+                   ? (s.actualCost === null || rate.rate === null
+                       ? null
+                       : cents(s.actualCost + rate.rate))
                  : rate.rate
 
     out.push({

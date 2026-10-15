@@ -322,6 +322,84 @@ describe('buildCharges', () => {
     expect(warnings[0]).toContain('rc-ship-blank')
   })
 
+  // ---- cost_plus -----------------------------------------------------------
+  //
+  // The third freight pricing, and the one the five clients with charges are
+  // actually on: the client pays the carrier cost plus an agreed dollar
+  // markup. Measured 2026-10-15, neither existing type can express it.
+  // `at_cost` yields revenue == cost, so margin is zero by construction and a
+  // referral partner's 5% of it is zero. `flat` IGNORES the carrier cost, so
+  // one price covers a 1 lb zone-2 parcel and a 40 lb zone-8 one.
+  //
+  // The markup is DOLLARS, not a percentage, per Ophir 2026-10-15. Nothing
+  // here divides by 100; a percentage would need its own type.
+  it('bills cost plus the markup when the shipping line is cost_plus', () => {
+    const warnings: string[] = []
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-ship-cp', chargeType: 'shipping', variant: null,
+                        rate: 5.00, rateType: 'cost_plus' })],
+      shipments: [{ id: 's3h', shipmentId: 564, shipDate: '2026-09-02', actualCost: 8.20, voided: false }],
+    }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+
+    expect(out).toHaveLength(1)
+    expect(out[0].charge_type).toBe('shipping')
+    expect(out[0].cost).toBeCloseTo(8.20, 2)
+    expect(out[0].amount).toBeCloseTo(13.20, 2)
+    expect(out[0].rate_id).toBe('rc-ship-cp')
+    // unit_rate records the MARKUP, which is the agreed term and the only
+    // figure a human entered. Writing the computed total here would make the
+    // rate card unreconcilable against the charge it produced.
+    expect(out[0].unit_rate).toBeCloseTo(5.00, 2)
+    // Nothing is wrong with this charge, so nothing is reported.
+    expect(warnings).toHaveLength(0)
+  })
+
+  // THE CASE THAT DECIDES WHETHER THIS TYPE IS SAFE.
+  //
+  // A cost_plus amount is a FUNCTION of the carrier cost, so an unreported
+  // cost makes the revenue unknown — exactly as it does for at_cost. The
+  // tempting implementation, `(actualCost ?? 0) + rate`, bills the markup
+  // alone: $5.00 on a parcel whose freight has not been reported yet. That is
+  // a confident, specific, wrong number, and it is worse than a null because
+  // it sums into revenue on every screen and nothing flags it. The month must
+  // read "we do not know yet", which is what revenue_unknown_charges counts
+  // and what makes the month unpayable in partner_client_monthly.
+  //
+  // `toBeNull()`, never `toBeCloseTo(0, 2)` — the tolerance form PASSES on
+  // null and would assert nothing against the bug it exists to catch.
+  it('leaves cost_plus revenue unknown when the carrier cost is unreported', () => {
+    const warnings: string[] = []
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-ship-cp', chargeType: 'shipping', variant: null,
+                        rate: 5.00, rateType: 'cost_plus' })],
+      shipments: [{ id: 's3i', shipmentId: 565, shipDate: '2026-09-02', actualCost: null, voided: false }],
+    }, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
+
+    expect(out).toHaveLength(1)
+    expect(out[0].cost).toBeNull()
+    expect(out[0].amount).toBeNull()
+    // The line is still named: the card is fine, the carrier figure is missing.
+    expect(out[0].rate_id).toBe('rc-ship-cp')
+  })
+
+  // A voided cost_plus label is a known zero on both sides, like every other
+  // voided label: the carrier refunded the freight, so there is no cost to
+  // mark up. Billing the markup on a refunded label charges the client for
+  // shipping that did not happen.
+  it('bills a voided cost_plus label at a known zero, not at the markup', () => {
+    const out = buildCharges({
+      ...base,
+      rateCard: [line({ id: 'rc-ship-cp', chargeType: 'shipping', variant: null,
+                        rate: 5.00, rateType: 'cost_plus' })],
+      shipments: [{ id: 's3j', shipmentId: 566, shipDate: '2026-09-02', actualCost: 9.10, voided: true }],
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0].amount).toBeCloseTo(0, 2)
+    expect(out[0].cost).toBeCloseTo(0, 2)
+  })
+
   // The same gap on a VOIDED label is not unknown revenue. The carrier refunded
   // it, so we paid nothing and we bill nothing: both figures are a known zero,
   // and nulling the amount here would invent a mystery where there is none.
