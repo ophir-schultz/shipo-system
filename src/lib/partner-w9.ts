@@ -89,22 +89,33 @@ export function w9Block(partner: W9Candidate): W9Block | null {
  * says why, because "we cannot pay you" with no reason reads as a dispute
  * rather than as paperwork.
  *
- * IT MUST BE TRUE ABOUT THE SCREEN IT IS PRINTED ON. This sentence once
- * ended "nothing else about your account is waiting on it", which was
- * accurate while the W-9 gated PAYMENT alone. It now gates the whole
- * dashboard — src/app/partner/page.tsx returns <W9Gate /> INSTEAD of
- * <Statement />, so the partner reading this has no client roster, no
- * commission window and no figures on the page. A reassurance that the rest
- * of his account is unaffected, printed on the screen withholding all of
- * it, is the one sentence every blocked partner reads and it was false.
+ * IT MUST BE TRUE ABOUT THE SCREEN IT IS PRINTED ON, and it has now been
+ * wrong in both directions, which is why the test file holds a guard for
+ * each.
  *
- * So it names what the form unlocks. Not as a threat — as the connection
- * between the empty screen and the one thing that fills it, which is the
- * only reason he has to prioritise a tax form.
+ * First version ended "nothing else about your account is waiting on it".
+ * That was accurate while the W-9 gated PAYMENT alone, and then the W-9
+ * became a full-page gate — src/app/partner/page.tsx returned <W9Gate />
+ * INSTEAD of <Statement /> — so the partner reading the reassurance was
+ * reading it on the screen withholding everything.
+ *
+ * Second version fixed that by naming what the form unlocked: "your
+ * clients, your commission window and your monthly figures all open up".
+ * The gate then split again, the other way: signing the AGREEMENT opens
+ * the portal, and the W-9 withholds MONEY ONLY. A partner without a W-9
+ * sees his roster, his commission window and his claim form. "Your
+ * clients … open up" is now printed directly beside the table listing
+ * them.
+ *
+ * So this version claims only what is actually held back — the amounts
+ * and the payment — and says the one thing he cannot deduce and most
+ * needs: the delay costs him nothing, because the commission accrues
+ * either way. Without that, the rational reading is that the clock has
+ * not started.
  */
 const PARTNER_REASON: Record<W9Block, string> = {
   not_held:
-    'Before we can pay you, the IRS needs us to hold a completed W-9 for you — it is one short form with your legal name, address and taxpayer ID. Sign it here and your clients, your commission window and your monthly figures all open up, and your commission starts accruing straight away.',
+    'Before we can pay you, the IRS needs us to hold a completed W-9 for you — it is one short form with your legal name, address and taxpayer ID. Your commission is accruing in the meantime and nothing is lost; signing is what lets us show you the amounts and pay them out.',
 }
 
 /** null when the partner may be paid; otherwise a sentence for the partner. */

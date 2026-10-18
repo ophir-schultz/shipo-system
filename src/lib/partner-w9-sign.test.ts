@@ -233,4 +233,25 @@ describe('W9_SIGN_FALLBACK', () => {
     expect(w9SignRefusal({ ...US, accountantEmail: '' })!.message).toBe(W9_SIGN_FALLBACK)
     expect(w9SignRefusal({ ...US, docusignConfigured: false })!.message).toBe(W9_SIGN_FALLBACK)
   })
+
+  it('does not tell him his statement is unaffected, because his figures are', () => {
+    // §1a, and the third time this class has bitten this one feature. The
+    // sentence ended "your statement is not affected", which was true while
+    // the W-9 was a full-page gate: the failure to OPEN the form broke
+    // nothing, and there was no statement on screen to be wrong about.
+    //
+    // The W-9 now withholds money inside the statement, and this sentence
+    // is printed in the prompt standing exactly where the four headline
+    // figures would be. "Your statement is not affected", read there, is a
+    // claim about the amounts — which are the one thing deliberately
+    // withheld. A partner who believes it has no reason to chase the form.
+    expect(W9_SIGN_FALLBACK).not.toMatch(/statement is not affected|not affect your statement/i)
+  })
+
+  it('offers the reassurance that is actually true: the commission accrues', () => {
+    // A refusal with no reassurance at all reads as a dispute about
+    // whether he is owed anything. The true version is that the delay
+    // costs him nothing, which he cannot deduce and most needs to hear.
+    expect(W9_SIGN_FALLBACK).toMatch(/accru|nothing is lost/i)
+  })
 })

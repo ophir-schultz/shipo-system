@@ -71,16 +71,16 @@ describe('portalAccessBlockedReason', () => {
  * The invite is the LAST MOMENT Shipo can prevent a dead end.
  *
  * `referral_partners.tax_status` has no default (supabase/partner_tax_status.sql),
- * so every new partner starts with it unset — and the whole dashboard is
- * behind the W-9 (src/app/partner/page.tsx returns <W9Gate /> instead of
- * <Statement />), while w9SignRefusal refuses to assemble a W-9 for a
- * partner whose tax status nobody recorded. Deliberately vaguely, because
- * our bookkeeping is not his business.
+ * so every new partner starts with it unset — and w9SignRefusal refuses
+ * to assemble a W-9 for a partner whose tax status nobody recorded.
+ * Deliberately vaguely, because our bookkeeping is not his business.
  *
- * So the ordinary path — invite, he signs, he logs in — ends with a
- * partner on an empty screen told to email support, over a dropdown
- * nobody selected. Not an edge case: the DEFAULT for every partner added
- * from today on.
+ * So the ordinary path — invite, he signs, he logs in, he asks for his
+ * money — ends with him told to email support over a dropdown nobody
+ * selected. Not an edge case: the DEFAULT for every partner added from
+ * today on. It was worse when the W-9 was a full-page gate, which made
+ * that refusal the entire dashboard; it now costs him the payment rather
+ * than the portal, and he still cannot fix it himself.
  *
  * This is a precondition for SENDING AN INVITE and deliberately not part
  * of portalAccessBlock, which is also consulted at login. A partner

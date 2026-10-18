@@ -97,12 +97,28 @@ describe('partner/page.tsx gate order', () => {
     // gives us. Reversing these two asks for a TIN from someone who has
     // agreed to nothing — which is the one ordering mistake here with a
     // consequence beyond annoyance.
+    //
+    // NOW HELD TRANSITIVELY, and the rewrite is not a weakening. This
+    // test used to compare `needsAcceptance(` against `holdsW9(` in this
+    // file, because the page returned <W9Gate /> itself. The W-9 is no
+    // longer a full-page gate — it withholds money inside <Statement> —
+    // so the only route to a TIN request is through <Statement>, and the
+    // test above already pins the acceptance gate ahead of every
+    // construction of it.
+    //
+    // What is left for THIS test is the thing that rewrite could hide: a
+    // W-9 screen reappearing in this file as an early return, above or
+    // below the gate. If any W-9 anchor is present at all, it must come
+    // after the acceptance check — and src/lib/partner-w9.test.ts asserts
+    // separately that <W9Gate /> is not rendered here at any position.
     const src = codeOf('src/app/partner/page.tsx')
     const terms = src.indexOf('needsAcceptance(')
-    const w9 = src.indexOf('holdsW9(')
     expect(terms).toBeGreaterThan(-1)
-    expect(w9).toBeGreaterThan(-1)
-    expect(terms).toBeLessThan(w9)
+    for (const anchor of ['holdsW9(', 'W9Gate', 'w9PartnerMessage(']) {
+      const at = src.indexOf(anchor)
+      if (at === -1) continue
+      expect(terms, anchor).toBeLessThan(at)
+    }
   })
 
   it('reads no ledger data before the gate', () => {

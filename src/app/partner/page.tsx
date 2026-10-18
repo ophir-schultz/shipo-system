@@ -6,9 +6,7 @@ import {
   PARTNER_TERMS_SECTIONS,
   PARTNER_TERMS_VERSION,
 } from '@/lib/partner-terms'
-import { holdsW9 } from '@/lib/partner-w9'
 import TermsGate from '@/components/partner/TermsGate'
-import W9Gate from '@/components/partner/W9Gate'
 import Statement from '@/components/partner/Statement'
 
 export const dynamic = 'force-dynamic'
@@ -46,18 +44,34 @@ export default async function PartnerPage() {
     return <TermsGate sections={PARTNER_TERMS_SECTIONS} version={PARTNER_TERMS_VERSION} />
   }
 
-  // SECOND, never first. The W-9 screen leads to a form carrying a legal
-  // name, an address and a taxpayer ID; the disclaimer above is where the
-  // partner is told what we do with what he gives us. Asking for a TIN
-  // before he has read that is what §2.1's ordering prevents.
+  // NO W-9 GATE HERE, AND ITS REMOVAL IS THE POINT.
   //
-  // No new read: w9_received_at rides on the select getPartnerFromSession
-  // already performs. `holdsW9` is the one predicate — the payout check in
-  // /referrals asks the same function, so the dashboard and the money path
-  // cannot come to disagree about what "absent" means.
-  if (!holdsW9(partner)) {
-    return <W9Gate partner={partner} />
-  }
-
+  // This file used to return <W9Gate /> INSTEAD of <Statement /> for a
+  // partner whose W-9 we do not hold. Two gates stood between a new
+  // partner and anything he could use, and only one of them is a
+  // condition of having a partnership at all:
+  //
+  //   the AGREEMENT opens the portal — enforced at login by
+  //   portalAccessBlock, so an unsigned partner never reaches this page;
+  //
+  //   the W-9 opens PAYMENT, and nothing else. It is a tax form, not a
+  //   term of the deal. A partner who has signed and been linked to
+  //   clients can read his roster, see his commission window and file a
+  //   claim before he has ever opened a tax form, and his commission
+  //   accrues while he does.
+  //
+  // Collapsing the two meant the first thing a brand-new partner saw was
+  // a request for his taxpayer ID, with no clients, no figures and
+  // nothing else on the page to tell him the partnership was real.
+  //
+  // THE TIN REQUEST IS STILL BEHIND THE DISCLAIMER (§2.1), transitively:
+  // the W-9 prompt now lives inside <Statement>, which is constructed
+  // only below the acceptance gate above. src/lib/partner-terms.test.ts
+  // asserts that ordering, and src/lib/partner-w9.test.ts asserts that
+  // the W-9 screen has not reappeared here as an early return.
+  //
+  // <Statement> withholds the money surfaces itself, from the same
+  // `holdsW9` predicate /referrals asks, so the dashboard and the payout
+  // path cannot disagree about what "absent" means.
   return <Statement partner={partner} />
 }

@@ -20,7 +20,7 @@ import { BONUS_STATE_TEXT, bonusStateFor, type BonusState } from '@/lib/partner-
 // /referrals and the partner's own panel cannot disagree about whether a
 // form is held.
 import { agreementLabel } from '@/lib/partner-access'
-import { w9Label } from '@/lib/partner-w9'
+import { holdsW9, w9Label } from '@/lib/partner-w9'
 import {
   loadPartnerLedger,
   monthKey,
@@ -30,6 +30,7 @@ import {
 import { CLAIM_PARTNER_TEXT, claimPartnerState } from '@/lib/partner-claims'
 import SignOutButton from '@/components/partner/SignOutButton'
 import ClaimForm from '@/components/partner/ClaimForm'
+import W9Prompt from '@/components/partner/W9Prompt'
 
 // The partner-facing statement. Server component — every figure is
 // computed here and only the rendered numbers reach the browser.
@@ -86,13 +87,44 @@ interface PartnerClaim {
   created_at: string
 }
 
+/** What the roster table may print in its two money columns. */
+type RosterMoney =
+  | {
+      show: true
+      shares: Map<string, { share: number; provisional: boolean }>
+      bonuses: Map<string, BonusState>
+    }
+  | { show: false }
+
+/** The payouts read, in the shape both branches of the W-9 gate return. */
+interface PayoutsRead {
+  data: PayoutRecord[] | null
+  error: unknown
+}
+
 export default async function Statement({ partner }: { partner: StatementPartner }) {
+  // ---- May we show him any money? (the W-9) ----
+  //
+  // THE AGREEMENT OPENS THE PORTAL; THE W-9 OPENS PAYMENT. An unsigned
+  // partner never reaches this component — portalAccessBlock stops him at
+  // login. A partner we have no W-9 for does, and what he is missing is a
+  // tax form, not a partnership: he gets his roster, his commission
+  // window, his claim form and the program terms, and his commission
+  // accrues while the form is outstanding. What he does not get is a
+  // figure, because a figure is a statement about money we cannot yet pay.
+  //
+  // ASKED BEFORE THE READS, NOT BEFORE THE RENDER. That ordering is the
+  // whole guard and src/lib/partner-w9.test.ts pins it: a payout read
+  // performed unconditionally is one `fmt()` away from being rendered, and
+  // the check above it becomes decoration. Derived values are `null` on
+  // the withheld path rather than zero or empty, so every money surface
+  // below has to be written as `s && ...` — a new one added carelessly is
+  // a TypeScript error, not a leak. That is why `s` is nullable.
+  const showMoney = holdsW9(partner)
+
   const [ledger, payoutsRes, claimsRes] = await Promise.all([
     loadPartnerLedger(partner.id),
-    supabaseAdmin
-      .from('referral_payouts')
-      .select('id, dedupe_key, status, amount, approved_at, paid_at')
-      .eq('referral_partner_id', partner.id),
+    showMoney ? readPayouts(partner.id) : Promise.resolve<PayoutsRead>({ data: [], error: null }),
     // §3.5. Columns named, never '*' — see PartnerClaim above. Scoped by
     // referral_partner_id: without the eq() this lists every partner's
     // claims, which is the same leak as a star select reached by
@@ -141,8 +173,11 @@ export default async function Statement({ partner }: { partner: StatementPartner
   // StatementMonth.period is a month LABEL, not the ledger's first-of-month
   // date, so the key has to be built from a slice rather than reusing
   // monthKey() on period_month directly.
+  //
+  // Only built when the monthly sections will be rendered — they are the
+  // only reader, and they do not exist on the withheld path.
   const txByClientMonth = new Map<string, LedgerTransaction[]>()
-  for (const t of ledger.transactions) {
+  for (const t of showMoney ? ledger.transactions : []) {
     const key = monthKey(t.client_id, t.period_month.slice(0, 7))
     const list = txByClientMonth.get(key)
     if (list) list.push(t)
@@ -156,8 +191,13 @@ export default async function Statement({ partner }: { partner: StatementPartner
   // inside this slice handed out places 1..10 among one partner's
   // clients and could print a raised bonus for someone really 40th in
   // line. The offer was withdrawn 2026-10-12 and the option is gone.
-  const lines = computeOwed([partner as ReferralPartner], clients, invoices, payouts)
-  const s = buildStatement(partner.id, clients, lines, invoices)
+  //
+  // NOT COMPUTED AT ALL when the W-9 is outstanding. Computing the
+  // statement and then declining to render it leaves every figure sitting
+  // in scope, one careless `{fmt(s.lifetimeEarned)}` from the screen.
+  // `null` makes the compiler the guard instead of the reviewer.
+  const lines = showMoney ? computeOwed([partner as ReferralPartner], clients, invoices, payouts) : null
+  const s = lines ? buildStatement(partner.id, clients, lines, invoices) : null
 
   // ---- The client roster (§4.1) ----
   //
@@ -177,15 +217,19 @@ export default async function Statement({ partner }: { partner: StatementPartner
   // A client absent from this map has no measured figure for the month.
   // That renders '—', never $0: the unknown-vs-zero discipline this whole
   // file is built on.
-  const thisMonth = s.months.find((m) => m.period === isoDay(asOf).slice(0, 7))
-  const shareThisMonth = new Map(
-    // `provisional` is optional on the line and absent means "final", so
-    // it is coerced here rather than carried as boolean | undefined. It
-    // matters: `share` is 0 on a provisional line, so a falsy flag with a
-    // 0 share would render a confident $0.00 for a month whose charges
-    // are not priced yet.
-    (thisMonth?.clients ?? []).map((c) => [c.clientId, { share: c.share, provisional: !!c.provisional }]),
-  )
+  const thisMonth = s?.months.find((m) => m.period === isoDay(asOf).slice(0, 7))
+  const shareThisMonth = s
+    ? new Map(
+        // `provisional` is optional on the line and absent means "final", so
+        // it is coerced here rather than carried as boolean | undefined. It
+        // matters: `share` is 0 on a provisional line, so a falsy flag with a
+        // 0 share would render a confident $0.00 for a month whose charges
+        // are not priced yet.
+        (thisMonth?.clients ?? []).map(
+          (c) => [c.clientId, { share: c.share, provisional: !!c.provisional }] as const,
+        ),
+      )
+    : null
 
   // ---- Per-client sign-up bonus state (§4.3) ----
   //
@@ -198,9 +242,25 @@ export default async function Statement({ partner }: { partner: StatementPartner
   // There is exactly one signup_bonus line per client, so last-wins is a
   // non-event; written as a Map rather than a find() per row to keep the
   // table O(n).
-  const bonusByClient = new Map<string, BonusState>(
-    lines.filter((l) => l.kind === 'signup_bonus').map((l) => [l.clientId, bonusStateFor(l)]),
-  )
+  //
+  // A MONEY SURFACE, THOUGH IT LOOKS LIKE A STATUS. BONUS_STATE_TEXT
+  // interpolates REFERRAL_TERMS.SIGNUP_BONUS, so every sentence in this
+  // column carries a dollar figure. It is withheld with the rest.
+  const bonusByClient = lines
+    ? new Map<string, BonusState>(
+        lines.filter((l) => l.kind === 'signup_bonus').map((l) => [l.clientId, bonusStateFor(l)]),
+      )
+    : null
+
+  // The roster's two money columns travel as ONE discriminated value, not
+  // as two optional maps. `rosterMoney.shares` does not typecheck until
+  // `show === true` has been narrowed, so a third money column added to
+  // that table cannot reach the withheld branch by accident — the data is
+  // not in scope there to render.
+  const rosterMoney: RosterMoney =
+    shareThisMonth && bonusByClient
+      ? { show: true, shares: shareThisMonth, bonuses: bonusByClient }
+      : { show: false }
 
   // ---- His own claims (§3.5) ----
   //
@@ -222,24 +282,38 @@ export default async function Statement({ partner }: { partner: StatementPartner
           <h1 className="text-2xl font-bold">{partner.name}</h1>
           <p className="text-sm text-gray-400 mt-1">
             {partner.company ? `${partner.company} · ` : ''}
-            {s.activeClients === 1 ? '1 referred client' : `${s.activeClients} referred clients`}
+            {/* roster.length, not s.activeClients, and they are the same
+                number: activeClients counts the distinct clients linked to
+                this partner and rosterRows maps that list one-to-one. One
+                source means the header cannot disagree with the table
+                under it, and it is the only count available on the
+                withheld path. */}
+            {roster.length === 1 ? '1 referred client' : `${roster.length} referred clients`}
           </p>
         </div>
         <SignOutButton />
       </div>
 
-      {/* ---- Headline numbers ---- */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Stat label="Earned to date" value={fmt(s.lifetimeEarned)} sub="Bonuses + commission" tone="blue" />
-        <Stat label="Paid to you" value={fmt(s.paidToDate)} sub="Settled" tone="green" />
-        <Stat label="Awaiting payment" value={fmt(s.awaitingPayment)} sub="Approved or in review" tone="yellow" />
-        <Stat
-          label="Carried forward"
-          value={fmt(s.carryForward)}
-          sub={`Under the ${fmt(REFERRAL_TERMS.MIN_PAYOUT)} minimum`}
-          tone="gray"
-        />
-      </div>
+      {/* ---- Headline numbers, or the reason there are none ----
+
+          The W-9 prompt takes the tiles' place rather than appearing
+          under them: it is the answer to "where are my figures", and it
+          has to be where the figures would have been. */}
+      {s ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Stat label="Earned to date" value={fmt(s.lifetimeEarned)} sub="Bonuses + commission" tone="blue" />
+          <Stat label="Paid to you" value={fmt(s.paidToDate)} sub="Settled" tone="green" />
+          <Stat label="Awaiting payment" value={fmt(s.awaitingPayment)} sub="Approved or in review" tone="yellow" />
+          <Stat
+            label="Carried forward"
+            value={fmt(s.carryForward)}
+            sub={`Under the ${fmt(REFERRAL_TERMS.MIN_PAYOUT)} minimum`}
+            tone="gray"
+          />
+        </div>
+      ) : (
+        <W9Prompt partner={partner} />
+      )}
 
       {/* ---- Clients you referred (§4.1) ----
 
@@ -249,14 +323,17 @@ export default async function Statement({ partner }: { partner: StatementPartner
           his client was never named on the screen at all. */}
       <ClientRoster
         rows={roster}
-        shares={shareThisMonth}
-        bonuses={bonusByClient}
+        money={rosterMoney}
         claims={claims}
         claimsReadFailed={claimsReadFailed}
       />
 
-      {/* ---- Monthly statements ---- */}
-      {s.months.length === 0 ? (
+      {/* ---- Monthly statements ----
+
+          Absent entirely while the W-9 is outstanding; `s` is null there,
+          so this whole block cannot be reached. The W-9 prompt above has
+          already said why, which is why there is no second notice here. */}
+      {s === null ? null : s.months.length === 0 ? (
         <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-8 text-center">
           <p className="text-gray-300 font-medium">No statement yet</p>
           <p className="text-gray-500 text-sm mt-2 max-w-md mx-auto">
@@ -354,7 +431,7 @@ export default async function Statement({ partner }: { partner: StatementPartner
       {/* A statement that quietly dropped its oldest transactions is worse
           than one that says so. The read is capped and ordered newest
           first, so only the oldest can ever be missing. */}
-      {ledger.transactionsTruncated && (
+      {s !== null && ledger.transactionsTruncated && (
         <p className="text-xs text-gray-500">
           Transaction lists show the most recent {fmtInt(TRANSACTION_LIMIT)} orders. Older months may
           list fewer transactions than they contain — the monthly totals above are unaffected. Ask us
@@ -397,6 +474,25 @@ export default async function Statement({ partner }: { partner: StatementPartner
       </section>
     </div>
   )
+}
+
+/**
+ * This partner's payouts — the only read of `referral_payouts` in this
+ * file, and the only one there may be.
+ *
+ * IT LIVES IN A FUNCTION SO IT CAN BE SKIPPED. A read inside the
+ * Promise.all is unconditional by construction; a read behind a name is
+ * called on one branch of the W-9 check and not the other, and
+ * src/lib/partner-w9.test.ts asserts both halves of that — that this
+ * table is named exactly once in the file, and that the name appears
+ * after the `holdsW9(` call rather than before it.
+ */
+async function readPayouts(partnerId: string): Promise<PayoutsRead> {
+  const res = await supabaseAdmin
+    .from('referral_payouts')
+    .select('id, dedupe_key, status, amount, approved_at, paid_at')
+    .eq('referral_partner_id', partnerId)
+  return { data: (res.data ?? null) as PayoutRecord[] | null, error: res.error }
 }
 
 /**
@@ -479,14 +575,12 @@ function AccountState({ partner }: { partner: StatementPartner }) {
  */
 function ClientRoster({
   rows,
-  shares,
-  bonuses,
+  money,
   claims,
   claimsReadFailed,
 }: {
   rows: RosterRow[]
-  shares: Map<string, { share: number; provisional: boolean }>
-  bonuses: Map<string, BonusState>
+  money: RosterMoney
   claims: PartnerClaim[]
   claimsReadFailed: boolean
 }) {
@@ -513,7 +607,7 @@ function ClientRoster({
         // row arrives with its own window already derived, which is the
         // point — a clock passed into a renderer is an invitation to
         // re-derive, and re-deriving is what disagreed with the state.
-        <ClientRosterTable rows={rows} shares={shares} bonuses={bonuses} />
+        <ClientRosterTable rows={rows} money={money} />
       )}
 
       <Claims rows={claims} readFailed={claimsReadFailed} />
@@ -522,15 +616,24 @@ function ClientRoster({
   )
 }
 
-function ClientRosterTable({
-  rows,
-  shares,
-  bonuses,
-}: {
-  rows: RosterRow[]
-  shares: Map<string, { share: number; provisional: boolean }>
-  bonuses: Map<string, BonusState>
-}) {
+/**
+ * THE TWO MONEY COLUMNS ARE DROPPED, NOT BLANKED, when the W-9 is
+ * outstanding, and the distinction is the whole point of the `money`
+ * discriminated union.
+ *
+ * A "This month" column rendering '—' for every row is how this file
+ * reads an UNKNOWN, and §4.1's own comment says why that is not $0: "your
+ * client earned you nothing this month" is a claim about his money. On
+ * the withheld path the figure is neither unknown nor zero — it is known
+ * and deliberately not shown — so printing the column at all would be a
+ * third meaning for the same dash, on the one screen already telling him
+ * his figures are held.
+ *
+ * "Sign-up bonus" goes with it. It looks like a status column and is not:
+ * BONUS_STATE_TEXT interpolates REFERRAL_TERMS.SIGNUP_BONUS, so every
+ * sentence in it carries a dollar amount. It was the non-obvious one.
+ */
+function ClientRosterTable({ rows, money }: { rows: RosterRow[]; money: RosterMoney }) {
   return (
     <>
       <div className="flex items-baseline justify-between border-b border-gray-800 px-5 py-4">
@@ -548,15 +651,23 @@ function ClientRosterTable({
               <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Referred</th>
               <th className="text-left font-medium px-3 py-2 whitespace-nowrap">First paid</th>
               <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Commission window</th>
-              <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Sign-up bonus</th>
-              <th className="text-right font-medium px-5 py-2 whitespace-nowrap">This month</th>
+              {money.show && (
+                <>
+                  <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Sign-up bonus</th>
+                  <th className="text-right font-medium px-5 py-2 whitespace-nowrap">This month</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800">
             {rows.map((r) => {
               const pos = r.window
-              const mine = shares.get(r.clientId)
-              const bonus = bonuses.get(r.clientId)
+              // Narrowed, not optional-chained. `money.shares` does not
+              // exist on the withheld branch of the union, so these two
+              // lines are unreachable there by the type system rather than
+              // by a reviewer noticing.
+              const mine = money.show ? money.shares.get(r.clientId) : undefined
+              const bonus = money.show ? money.bonuses.get(r.clientId) : undefined
               return (
                 <tr key={r.clientId} className="align-top">
                   <td className="px-5 py-3">
@@ -585,6 +696,8 @@ function ClientRosterTable({
                       <span className="text-gray-500">—</span>
                     )}
                   </td>
+                  {money.show && (
+                    <>
                   <td className="px-3 py-3 whitespace-normal">
                     {/* §4.3, re-voiced. undefined means computeOwed
                         produced no signup_bonus line for this client at
@@ -612,6 +725,8 @@ function ClientRosterTable({
                       <span className="text-gray-200">{fmt(mine.share)}</span>
                     )}
                   </td>
+                    </>
+                  )}
                 </tr>
               )
             })}

@@ -26,15 +26,26 @@ import { taxStatusOf } from './partner-tax-status'
 
 /**
  * §2a.9.1. The sentence a partner gets when signing cannot happen —
- * shared, because the route returns it and W9Gate renders it, and the
+ * shared, because the route returns it and W9Prompt renders it, and the
  * version he acts on has to be the version we meant.
  *
  * It does not ask him to email anything back. The whole point of signing
  * inside DocuSign is that the number never touches our mail, our logs or
  * our database, and "email us your W-9" undoes that in one sentence.
+ * "Send it to you" is us mailing him a DocuSign link, not him mailing us
+ * a form, and the wording has to keep pointing that way.
+ *
+ * IT ENDED "your statement is not affected" AND THAT WENT STALE. True
+ * while the W-9 was a full-page gate: the failure to open the form broke
+ * nothing, and there was no statement on screen to be wrong about. The
+ * W-9 now withholds money INSIDE the statement, and this sentence prints
+ * in the prompt standing where the four headline figures would be — so
+ * read in place it was a claim about the amounts, which are the one thing
+ * deliberately withheld. The accrual is the reassurance that survives
+ * both designs, and it is the one he cannot deduce.
  */
 export const W9_SIGN_FALLBACK =
-  'We cannot open the W-9 form right now. Email Support@shipousa.com and we will send it to you directly — your statement is not affected.'
+  'We cannot open the W-9 form right now. Email Support@shipousa.com and we will send it to you directly — your commission keeps accruing in the meantime and nothing is lost.'
 
 export interface W9SignPartner {
   id: string

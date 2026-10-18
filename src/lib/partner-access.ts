@@ -141,12 +141,17 @@ export function portalAccessPartnerMessage(partner: AccessCandidate): string | n
  *
  * WHY THIS IS NOT AN AccessBlock. `referral_partners.tax_status` has no
  * default, so every partner added from today on starts with it unset —
- * and the whole dashboard sits behind the W-9 (src/app/partner/page.tsx
- * returns <W9Gate /> instead of <Statement />), while w9SignRefusal
- * refuses to assemble a W-9 for a partner whose tax status nobody
- * recorded, deliberately vaguely, because our bookkeeping is not his
- * business. The ordinary path therefore ends with a partner on an empty
- * screen told to email support, over a dropdown nobody selected.
+ * and w9SignRefusal refuses to assemble a W-9 for a partner whose tax
+ * status nobody recorded, deliberately vaguely, because our bookkeeping
+ * is not his business. The ordinary path therefore ends with a partner
+ * who cannot complete the one form standing between him and his money,
+ * told to email support, over a dropdown nobody selected.
+ *
+ * This used to be worse and is still worth stopping. While the W-9 was a
+ * full-page gate, an unset tax_status meant an EMPTY SCREEN: the partner
+ * saw nothing but a refusal. The W-9 now withholds money alone, so he at
+ * least has his roster and his claim form — but his commission still
+ * cannot be paid, and he cannot fix it himself.
  *
  * The invite is the last moment we can prevent that, which is why the
  * rule lives here. It is deliberately NOT part of portalAccessBlock,
