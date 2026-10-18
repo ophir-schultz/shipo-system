@@ -60,9 +60,24 @@ if (!result.ok) {
 
 console.log('OK — authenticated and the account read back.\n')
 console.log(`  account   ${result.accountName}`)
-console.log('\nCHECK THAT NAME. A valid token against the WRONG account is the one')
-console.log('failure this script cannot call for you: it means envelopes would be')
-console.log("created somewhere real, just not where your agreement template lives.")
+
+// The name alone cannot answer "which account": the demo and production
+// accounts are BOTH named "Shipo LLC", so "check the name" was advice
+// nobody could act on. The pod in the base URI is what separates them,
+// and it is the field that decides whether an envelope is a rehearsal
+// or a real document arriving in a real person's inbox.
+const baseUri = process.env.DOCUSIGN_ACCOUNT_BASE_URI?.trim() ?? ''
+const world = /(^|\/\/)demo\.docusign\.net(\/|$)/.test(baseUri)
+  ? 'DEMO — envelopes are rehearsals; template bba422c1 does NOT exist here'
+  : /\.docusign\.net(\/|$)/.test(baseUri)
+    ? 'PRODUCTION — envelopes are real documents sent to real people'
+    : 'UNRECOGNISED — not a docusign.net pod; check the value'
+console.log(`  world     ${world}`)
+console.log(`  base uri  ${baseUri || '(unset)'}`)
+
+console.log('\nCHECK THAT WORLD. A valid token against the WRONG account is the one')
+console.log('failure this script cannot call for you — and the account NAME cannot')
+console.log('settle it, because demo and production carry the same name. The pod can.')
 
 const absent = OPTIONAL.filter((n) => !process.env[n]?.trim())
 if (absent.length > 0) {
