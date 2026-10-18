@@ -150,6 +150,30 @@ function signedAssertion(cfg: DocusignConfig, nowSeconds: number): string {
 }
 
 /**
+ * Why a token request failed, as a sentence naming the variable at fault.
+ *
+ * DocuSign answers every setup mistake with one opaque 400, and the three
+ * that actually happen have unrelated remedies: consent_required is fixed
+ * by opening a URL in a browser ONCE, invalid_grant by re-reading Apps and
+ * Keys. Answering both with "token request failed" sends somebody to
+ * regenerate a keypair that was never wrong.
+ *
+ * THE BODY IS NEVER ECHOED. A token response carries `access_token`, and
+ * this sentence goes into logs and onto a terminal — so only DocuSign's
+ * status and our own fixed prose come back out.
+ */
+export function tokenFailureReason(status: number, body: string): string {
+  const base = `DocuSign token request failed (${status})`
+  if (body.includes('consent_required')) {
+    return `${base} — the impersonation consent has not been granted for DOCUSIGN_USER_ID`
+  }
+  if (body.includes('invalid_grant')) {
+    return `${base} — check DOCUSIGN_USER_ID, DOCUSIGN_INTEGRATION_KEY and the key pair`
+  }
+  return base
+}
+
+/**
  * Exchange the assertion for an access token.
  *
  * Not cached. A token lasts an hour and this runs once per partner per
@@ -167,21 +191,68 @@ async function accessToken(cfg: DocusignConfig): Promise<string> {
   })
 
   const text = await res.text()
-  if (!res.ok) {
-    // DocuSign's own error codes, passed through because they are the
-    // only way to tell these three apart, and they are the three that
-    // actually happen. No token and no assertion is echoed.
-    const hint = text.includes('consent_required')
-      ? ' — the impersonation consent has not been granted for DOCUSIGN_USER_ID'
-      : text.includes('invalid_grant')
-        ? ' — check DOCUSIGN_USER_ID, DOCUSIGN_INTEGRATION_KEY and the key pair'
-        : ''
-    throw new DocusignError(`DocuSign token request failed (${res.status})${hint}`, res.status)
-  }
+  if (!res.ok) throw new DocusignError(tokenFailureReason(res.status, text), res.status)
 
   const token = (JSON.parse(text) as { access_token?: string }).access_token
   if (!token) throw new DocusignError('DocuSign returned no access token', res.status)
   return token
+}
+
+export type CredentialCheck =
+  | { ok: true; accountName: string; userName: string }
+  | { ok: false; reason: string }
+
+/**
+ * Prove the configuration can reach DocuSign, WITHOUT sending anything.
+ *
+ * Read-only and side-effect-free: a token exchange and one GET. Nothing is
+ * created, nobody is emailed, and no envelope exists afterwards — which is
+ * what makes it safe to run against the production account rather than
+ * standing up a demo app, a second keypair and a copied template to
+ * rehearse against.
+ *
+ * IT RETURNS A VERDICT, NOT A TOKEN. The caller is a script run on a
+ * terminal by a person pasting credentials; handing it the bearer
+ * credential for the whole account so it could print a tick would be a
+ * worse trade than keeping the token in here and returning a sentence.
+ *
+ * THE ACCOUNT NAME IS THE POINT OF THE SECOND CALL. A token proves the
+ * keypair, the user GUID and the consent. It does NOT prove
+ * DOCUSIGN_ACCOUNT_ID or DOCUSIGN_ACCOUNT_BASE_URI, which are a different
+ * pair of GUIDs and the ones that silently address somebody else's
+ * account — so the check reads the account back and shows whose it is.
+ */
+export async function checkCredentials(cfg: DocusignConfig): Promise<CredentialCheck> {
+  let token: string
+  try {
+    token = await accessToken(cfg)
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : 'Unknown token failure' }
+  }
+
+  const res = await fetch(`${cfg.restBase}/v2.1/accounts/${cfg.accountId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) {
+    // The token worked, so the keypair and consent are fine and the fault
+    // is in the pair of values the token never touched.
+    return {
+      ok: false,
+      reason:
+        `Authenticated, but reading the account failed (${res.status}) — ` +
+        'check DOCUSIGN_ACCOUNT_ID and DOCUSIGN_ACCOUNT_BASE_URI',
+    }
+  }
+
+  const acct = (await res.json().catch(() => ({}))) as {
+    accountName?: string
+    currentPlanId?: string
+  }
+  return {
+    ok: true,
+    accountName: acct.accountName ?? '(account returned no name)',
+    userName: cfg.userId,
+  }
 }
 
 async function api(

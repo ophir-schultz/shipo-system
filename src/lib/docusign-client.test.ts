@@ -5,6 +5,7 @@ import {
   docusignConfigMissing,
   jwtClaims,
   recipientViewRequest,
+  tokenFailureReason,
 } from './docusign-client'
 
 /**
@@ -179,5 +180,70 @@ describe('recipientViewRequest', () => {
     // DocuSign's own docs use for that case. What it must not say is
     // that DocuSign verified an identity, because DocuSign did not.
     expect(view.authenticationMethod).toBe('none')
+  })
+})
+
+/**
+ * The OAuth failure classifier.
+ *
+ * SETTING THESE SEVEN VARIABLES IS THE WHOLE OF THE REMAINING WORK on the
+ * dashboard W-9, and it is done by hand, once, against a live DocuSign
+ * account. Every one of the plausible mistakes — the wrong oauth host, an
+ * email where a user GUID belongs, the consent step skipped — comes back
+ * from DocuSign as one opaque 400. This turns the three that actually
+ * happen into a sentence naming the variable to go and look at.
+ *
+ * It was inline in `accessToken` and therefore untestable: reaching it
+ * needed a socket. Pulled out, the classification is a pure function and
+ * the thing that reads it is a diagnostic rather than a stack trace.
+ */
+describe('tokenFailureReason', () => {
+  it('names the consent step, which is the one nothing else can tell you', () => {
+    // consent_required is NOT a credential problem, and that is the whole
+    // reason it needs its own sentence: the keys are right, the account is
+    // right, and re-pasting them — the obvious response to "token request
+    // failed" — changes nothing. The fix is a URL opened once in a browser.
+    const reason = tokenFailureReason(400, '{"error":"consent_required"}')
+    expect(reason).toMatch(/consent/i)
+    expect(reason).toContain('DOCUSIGN_USER_ID')
+  })
+
+  it('points invalid_grant at the three fields that produce it', () => {
+    // DocuSign says invalid_grant for a bad user GUID, a bad integration
+    // key AND a key-pair mismatch, without distinguishing them. Listing
+    // all three beats guessing one.
+    const reason = tokenFailureReason(400, '{"error":"invalid_grant"}')
+    expect(reason).toContain('DOCUSIGN_USER_ID')
+    expect(reason).toContain('DOCUSIGN_INTEGRATION_KEY')
+    expect(reason).toMatch(/key pair/i)
+  })
+
+  it('does not confuse the two, because the remedies are unrelated', () => {
+    // One is a browser visit, the other is re-reading Apps and Keys. A
+    // classifier that answered both with the same sentence would send
+    // somebody to regenerate a keypair that was never wrong.
+    const consent = tokenFailureReason(400, '{"error":"consent_required"}')
+    const grant = tokenFailureReason(400, '{"error":"invalid_grant"}')
+    expect(consent).not.toBe(grant)
+    expect(consent).not.toMatch(/key pair/i)
+    expect(grant).not.toMatch(/consent/i)
+  })
+
+  it('still answers when DocuSign sends something unrecognised', () => {
+    // A 502 from a proxy, an HTML error page, a new error code. The status
+    // is all we know and it must still come back as a usable sentence
+    // rather than an empty string appended to "failed ()".
+    const reason = tokenFailureReason(502, '<html>Bad Gateway</html>')
+    expect(reason).toMatch(/502/)
+    expect(reason.trim()).not.toBe('')
+  })
+
+  it('never echoes the response body, which is where a token would be', () => {
+    // A SUCCESSFUL token response contains access_token. If this function
+    // is ever reached with one — a 200 misrouted here, a retry that
+    // succeeded — it must not pass it through into a log line.
+    const reason = tokenFailureReason(400, '{"access_token":"ya29.SECRETVALUE"}')
+    expect(reason).not.toContain('ya29.SECRETVALUE')
+    expect(reason).not.toContain('access_token')
   })
 })
