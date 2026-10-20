@@ -320,7 +320,33 @@ export default async function Statement({ partner }: { partner: StatementPartner
             {roster.length === 1 ? '1 referred client' : `${roster.length} referred clients`}
           </p>
         </div>
-        <SignOutButton />
+        <div className="flex items-center gap-3">
+          {/* The download, §5.
+
+              A plain anchor and not a button: the response is a file with
+              a Content-Disposition, so the browser's own download path is
+              the right one and there is no state to manage. No `download`
+              attribute — the server already names the file, and the
+              attribute would override that name with the URL's last
+              segment ("report").
+
+              It sits HERE, after the failure branch has already returned,
+              so a partner looking at "we can't show your statement" is
+              not offered a file built from the same reads that just
+              failed. The route re-checks everything itself — session,
+              read success, W-9 — because a link is not an authorisation.
+
+              --brand-action (#1a73e8), never --brand-accent: the accent is
+              a #e0ee47 lime that is illegible as text on a white surface.
+              Accent is a highlight colour, not a text colour. */}
+          <a
+            href="/api/partner/report"
+            className="text-sm font-medium text-[var(--brand-action)] hover:underline whitespace-nowrap"
+          >
+            Download CSV
+          </a>
+          <SignOutButton />
+        </div>
       </div>
 
       {/* ---- Headline numbers, or the reason there are none ----
