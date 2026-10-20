@@ -3,6 +3,17 @@
 :root {
   --background: #0a0f1a;
   --foreground: #f0f4f8;
+
+  /* Shipo's actual brand, read off https://shipousa.com/ on 2026-10-20.
+     Hit counts from grepping all 415KB of the homepage: ink 35, action 30,
+     accent 15. The --color-shipo* cyan below appears ZERO times there and
+     was never the brand. See src/lib/partner-brand.test.ts. */
+  --brand-ink: #0b3361;
+  --brand-action: #1a73e8;
+  --brand-accent: #e0ee47;
+  --brand-surface: #f4f8fd;
+  --brand-surface-2: #f6f8fb;
+  --brand-page: #ffffff;
 }
 
 @theme inline {
@@ -10,9 +21,35 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* STAFF SCREENS ONLY, and deliberately left wrong. This cyan is not
+     Shipo's colour, but removing it app-wide is a separate job (spec D5,
+     "partner screens only"). Partner surfaces must not reference it. */
   --color-shipo: #00AAFF;
   --color-shipo-dark: #0090DD;
   --color-shipo-light: #33BBFF;
+
+  /* Utility aliases: bg-brand-ink, text-brand-ink, border-brand-surface... */
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-action: var(--brand-action);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-surface: var(--brand-surface);
+  --color-brand-surface-2: var(--brand-surface-2);
+  --color-brand-page: var(--brand-page);
+}
+
+/* The partner portal is a light surface inside a dark app.
+   `body` is #0a0f1a app-wide, so the partner wrapper paints its own
+   background rather than inheriting one: without this, overscroll and any
+   gap below short content show the staff app's dark page through.
+
+   BODY TEXT IS --brand-ink, NOT --brand-action. Measured against white,
+   the navy is 12.65:1 and the blue is 4.51:1 -- the blue clears AA for
+   normal text by 0.01, which is fine for a button label and no margin at
+   all for a paragraph. The test pins both ratios. */
+.partner-theme {
+  background: var(--brand-page);
+  color: var(--brand-ink);
 }
 
 body {

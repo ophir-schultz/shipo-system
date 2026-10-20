@@ -9,20 +9,33 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true },
 }
 
+// WHITE LOGO ON A NAVY BAR IS THE SITE'S OWN TREATMENT, NOT A CHOICE.
+// The only logo shipousa.com serves is `white-transparent-bg.png`, and the
+// site's `header-bar` is #0b3361. public/shipo-logo.svg is likewise
+// fill="white" -- so placing it on the white page body would render it as
+// nothing at all. The navy bar is what makes the asset visible.
 export default function PartnerLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#0a0f1a] text-white">
-      <header className="border-b border-gray-800">
-        <div className="mx-auto max-w-4xl px-6 py-5 flex items-baseline justify-between">
-          <span className="text-lg font-semibold tracking-tight">Shipo LLC</span>
-          <span className="text-xs uppercase tracking-widest text-gray-500">Partner Statement</span>
+    <div className="partner-theme min-h-screen">
+      <header className="bg-[var(--brand-ink)]">
+        <div className="mx-auto max-w-4xl px-6 py-4 flex items-center justify-between gap-4">
+          <a href="https://shipousa.com" className="shrink-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/shipo-logo.svg" alt="Shipo" width={120} height={42} />
+          </a>
+          <span className="text-xs uppercase tracking-widest text-white/80">
+            Partner Portal
+          </span>
         </div>
       </header>
       <main className="mx-auto max-w-4xl px-6 py-8">{children}</main>
-      <footer className="mx-auto max-w-4xl px-6 py-10 text-xs text-gray-600 leading-relaxed">
+      <footer className="mx-auto max-w-4xl px-6 py-10 mt-8 text-xs text-gray-600 leading-relaxed border-t border-[var(--brand-surface)]">
         <p>
           Questions about a figure on this page? Email{' '}
-          <a href="mailto:Support@shipousa.com" className="text-gray-400 underline">
+          <a
+            href="mailto:Support@shipousa.com"
+            className="text-[var(--brand-action)] underline"
+          >
             Support@shipousa.com
           </a>{' '}
           within 30 days of receiving the statement.

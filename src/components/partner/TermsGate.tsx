@@ -64,7 +64,7 @@ export default function TermsGate({
   return (
     <div className="mx-auto max-w-2xl">
       <h1 className="text-2xl font-bold">Before you see your statement</h1>
-      <p className="mt-2 text-sm text-gray-400">
+      <p className="mt-2 text-sm text-gray-600">
         These terms cover what is on the next screen. They do not replace your signed Partner Agreement — if the two
         ever disagree, the agreement governs. Please read them once; we will only ask again if the wording changes.
       </p>
@@ -72,25 +72,25 @@ export default function TermsGate({
       <div className="mt-8 space-y-6">
         {sections.map((section) => (
           <section key={section.heading}>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#00AAFF]">{section.heading}</h2>
-            <p className="mt-2 text-sm leading-relaxed text-gray-300">{section.body}</p>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--brand-action)]">{section.heading}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-gray-700">{section.body}</p>
           </section>
         ))}
       </div>
 
-      <div className="mt-10 border-t border-gray-800 pt-6">
-        {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
+      <div className="mt-10 border-t border-gray-200 pt-6">
+        {error && <p className="mb-4 text-sm text-red-700">{error}</p>}
         <button
           type="button"
           onClick={accept}
           disabled={busy}
-          className="w-full rounded-lg bg-[#00AAFF] px-4 py-3 font-semibold text-[#04121f] disabled:opacity-40 sm:w-auto sm:px-8"
+          className="w-full rounded-lg bg-[var(--brand-action)] px-4 py-3 font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-8"
         >
           {busy ? 'Recording…' : 'I accept these terms'}
         </button>
         <p className="mt-4 text-xs leading-relaxed text-gray-600">
           Version {version}. We record which version you accepted and when. Questions about any of it? Email{' '}
-          <a href="mailto:Support@shipousa.com" className="text-gray-400 underline">
+          <a href="mailto:Support@shipousa.com" className="text-gray-600 underline">
             Support@shipousa.com
           </a>{' '}
           before you accept.

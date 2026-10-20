@@ -76,13 +76,13 @@ export default function PartnerLoginForm() {
 
       {step === 'email' ? (
         <>
-          <p className="text-sm text-gray-400 mt-2 mb-6">
+          <p className="text-sm text-gray-600 mt-2 mb-6">
             Enter the email address Shipo has on file for you. We&apos;ll send you a 6-digit code — there is no password
             to remember.
           </p>
           <form onSubmit={requestCode} className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-xs uppercase tracking-wider text-gray-400 mb-1.5">
+              <label htmlFor="email" className="block text-xs uppercase tracking-wider text-gray-600 mb-1.5">
                 Email address
               </label>
               <input
@@ -94,14 +94,14 @@ export default function PartnerLoginForm() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@company.com"
-                className="w-full rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-2.5 text-white placeholder-gray-600 outline-none focus:border-[#00AAFF]"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-[var(--brand-ink)] placeholder-gray-400 outline-none focus:border-[var(--brand-action)]"
               />
             </div>
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-red-700">{error}</p>}
             <button
               type="submit"
               disabled={busy || !email}
-              className="w-full rounded-lg bg-[#00AAFF] px-4 py-2.5 font-semibold text-[#04121f] disabled:opacity-40"
+              className="w-full rounded-lg bg-[var(--brand-action)] px-4 py-2.5 font-semibold text-white disabled:opacity-40"
             >
               {busy ? 'Sending…' : 'Send me a code'}
             </button>
@@ -109,13 +109,13 @@ export default function PartnerLoginForm() {
         </>
       ) : (
         <>
-          <p className="text-sm text-gray-400 mt-2 mb-6">
-            If <span className="text-gray-200">{email}</span> is on file, a 6-digit code is on its way. It expires in 10
+          <p className="text-sm text-gray-600 mt-2 mb-6">
+            If <span className="text-[var(--brand-ink)]">{email}</span> is on file, a 6-digit code is on its way. It expires in 10
             minutes.
           </p>
           <form onSubmit={verifyCode} className="space-y-4">
             <div>
-              <label htmlFor="code" className="block text-xs uppercase tracking-wider text-gray-400 mb-1.5">
+              <label htmlFor="code" className="block text-xs uppercase tracking-wider text-gray-600 mb-1.5">
                 6-digit code
               </label>
               <input
@@ -129,14 +129,14 @@ export default function PartnerLoginForm() {
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="000000"
-                className="w-full rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-2.5 text-center font-mono text-2xl tracking-[0.5em] text-white placeholder-gray-700 outline-none focus:border-[#00AAFF]"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-center font-mono text-2xl tracking-[0.5em] text-[var(--brand-ink)] placeholder-gray-400 outline-none focus:border-[var(--brand-action)]"
               />
             </div>
-            {error && <p className="text-sm text-red-400">{error}</p>}
+            {error && <p className="text-sm text-red-700">{error}</p>}
             <button
               type="submit"
               disabled={busy || code.length !== 6}
-              className="w-full rounded-lg bg-[#00AAFF] px-4 py-2.5 font-semibold text-[#04121f] disabled:opacity-40"
+              className="w-full rounded-lg bg-[var(--brand-action)] px-4 py-2.5 font-semibold text-white disabled:opacity-40"
             >
               {busy ? 'Checking…' : 'Sign in'}
             </button>
@@ -148,11 +148,11 @@ export default function PartnerLoginForm() {
                   setError(null)
                   setCode('')
                 }}
-                className="text-gray-400 underline"
+                className="text-gray-600 underline"
               >
                 Use a different email
               </button>
-              <button type="button" onClick={() => requestCode()} disabled={busy} className="text-gray-400 underline">
+              <button type="button" onClick={() => requestCode()} disabled={busy} className="text-gray-600 underline">
                 Send a new code
               </button>
             </div>
@@ -162,7 +162,7 @@ export default function PartnerLoginForm() {
 
       <p className="mt-8 text-xs text-gray-600 leading-relaxed">
         Trouble signing in? Email{' '}
-        <a href="mailto:Support@shipousa.com" className="text-gray-400 underline">
+        <a href="mailto:Support@shipousa.com" className="text-gray-600 underline">
           Support@shipousa.com
         </a>{' '}
         and we&apos;ll sort it out.

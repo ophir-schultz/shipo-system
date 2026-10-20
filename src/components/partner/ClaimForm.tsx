@@ -96,14 +96,17 @@ export default function ClaimForm() {
 
   if (!open) {
     return (
-      <div className="border-t border-gray-800 p-4">
-        {done && <p className="text-sm text-green-400 mb-3">{done}</p>}
+      <div className="border-t border-gray-200 p-4">
+        {done && <p className="text-sm text-green-700 mb-3">{done}</p>}
         <button
           onClick={() => {
             setOpen(true)
             setDone(null)
           }}
-          className="text-sm text-[#00AAFF] hover:underline"
+          // Navy + underline, not the action blue. This button renders
+          // inside the roster card, whose background is --brand-surface,
+          // and the blue is only 4.22:1 there. See partner-brand.test.ts.
+          className="text-sm text-[var(--brand-ink)] underline"
         >
           + Add a client you referred
         </button>
@@ -116,9 +119,9 @@ export default function ClaimForm() {
   }
 
   return (
-    <form onSubmit={submit} className="border-t border-gray-800 p-4 space-y-4">
+    <form onSubmit={submit} className="border-t border-gray-200 p-4 space-y-4">
       <div>
-        <p className="text-sm font-medium text-gray-200">Add a client you referred</p>
+        <p className="text-sm font-medium text-[var(--brand-ink)]">Add a client you referred</p>
         <p className="text-xs text-gray-500 mt-1">
           A person reviews this. Only the company name is required — anything else you can tell us
           makes it quicker to confirm.
@@ -135,7 +138,7 @@ export default function ClaimForm() {
             // No autocomplete and no list: see the header. The browser's
             // own suggestions are the partner's history, not ours.
             autoComplete="off"
-            className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm"
+            className="w-full bg-[var(--brand-surface-2)] border border-gray-300 rounded px-3 py-2 text-sm"
           />
         </Field>
         <Field label="Website">
@@ -144,7 +147,7 @@ export default function ClaimForm() {
             onChange={(e) => setWebsite(e.target.value)}
             maxLength={CLAIM_FIELD_MAX}
             autoComplete="off"
-            className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm"
+            className="w-full bg-[var(--brand-surface-2)] border border-gray-300 rounded px-3 py-2 text-sm"
           />
         </Field>
         <Field label="Who you dealt with">
@@ -153,7 +156,7 @@ export default function ClaimForm() {
             onChange={(e) => setContactName(e.target.value)}
             maxLength={CLAIM_FIELD_MAX}
             autoComplete="off"
-            className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm"
+            className="w-full bg-[var(--brand-surface-2)] border border-gray-300 rounded px-3 py-2 text-sm"
           />
         </Field>
         <Field label="Their email">
@@ -165,7 +168,7 @@ export default function ClaimForm() {
             onChange={(e) => setContactEmail(e.target.value)}
             maxLength={CLAIM_FIELD_MAX}
             autoComplete="off"
-            className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm"
+            className="w-full bg-[var(--brand-surface-2)] border border-gray-300 rounded px-3 py-2 text-sm"
           />
         </Field>
       </div>
@@ -176,17 +179,17 @@ export default function ClaimForm() {
           onChange={(e) => setNote(e.target.value)}
           maxLength={CLAIM_NOTE_MAX}
           rows={3}
-          className="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm"
+          className="w-full bg-[var(--brand-surface-2)] border border-gray-300 rounded px-3 py-2 text-sm"
         />
       </Field>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-red-700">{error}</p>}
 
       <div className="flex items-center gap-3">
         <button
           type="submit"
           disabled={busy || company.trim().length === 0}
-          className="px-4 py-2 rounded bg-[#00AAFF] text-black text-sm font-medium disabled:opacity-50"
+          className="px-4 py-2 rounded bg-[var(--brand-action)] text-white text-sm font-medium disabled:opacity-50"
         >
           {busy ? 'Sending…' : 'Send'}
         </button>
@@ -196,7 +199,7 @@ export default function ClaimForm() {
             setOpen(false)
             setError(null)
           }}
-          className="text-sm text-gray-400 hover:text-gray-200"
+          className="text-sm text-gray-600 hover:text-[var(--brand-ink)]"
         >
           Cancel
         </button>
@@ -216,9 +219,9 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="block text-xs text-gray-400 mb-1">
+      <span className="block text-xs text-gray-600 mb-1">
         {label}
-        {required && <span className="text-red-400"> *</span>}
+        {required && <span className="text-red-700"> *</span>}
       </span>
       {children}
     </label>

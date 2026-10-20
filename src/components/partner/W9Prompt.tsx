@@ -71,30 +71,30 @@ export default function W9Prompt({ partner }: { partner: W9Candidate }) {
   }
 
   return (
-    <div className="rounded-xl border border-yellow-800/50 bg-yellow-950/30 p-5">
+    <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-5">
       {/* Amber, not red, and the heading answers the question the missing
           tiles put in his head rather than announcing a fault. Nothing is
           broken: a form is outstanding and his commission is accruing
           behind it. */}
-      <h2 className="text-base font-semibold text-white">Your figures are waiting on one form</h2>
+      <h2 className="text-base font-semibold text-[var(--brand-ink)]">Your figures are waiting on one form</h2>
 
-      <p className="mt-3 text-sm leading-relaxed text-gray-300">{message}</p>
+      <p className="mt-3 text-sm leading-relaxed text-gray-700">{message}</p>
 
-      {error && <p className="mt-4 text-sm leading-relaxed text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-sm leading-relaxed text-red-700">{error}</p>}
 
       <button
         type="button"
         onClick={sign}
         disabled={busy}
-        className="mt-5 w-full rounded-lg bg-[#00AAFF] px-4 py-3 font-semibold text-[#04121f] disabled:opacity-40 sm:w-auto sm:px-8"
+        className="mt-5 w-full rounded-lg bg-[var(--brand-action)] px-4 py-3 font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-8"
       >
         {busy ? 'Opening DocuSign…' : 'Sign your W-9'}
       </button>
 
-      <p className="mt-4 text-sm leading-relaxed text-gray-400">
+      <p className="mt-4 text-sm leading-relaxed text-gray-600">
         The form opens in DocuSign. You can come straight back here when it is signed — and if anything goes wrong,
         email{' '}
-        <a href="mailto:Support@shipousa.com" className="text-gray-300 underline">
+        <a href="mailto:Support@shipousa.com" className="text-gray-700 underline">
           Support@shipousa.com
         </a>{' '}
         and we will send it to you directly.

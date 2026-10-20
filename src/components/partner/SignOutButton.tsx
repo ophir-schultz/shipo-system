@@ -22,7 +22,7 @@ export default function SignOutButton() {
     <button
       onClick={signOut}
       disabled={busy}
-      className="shrink-0 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-300 hover:border-gray-500 disabled:opacity-40"
+      className="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:border-gray-400 disabled:opacity-40"
     >
       {busy ? 'Signing out…' : 'Sign out'}
     </button>

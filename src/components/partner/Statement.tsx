@@ -153,13 +153,13 @@ export default async function Statement({ partner }: { partner: StatementPartner
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">{partner.name}</h1>
-            {partner.company && <p className="text-sm text-gray-400 mt-1">{partner.company}</p>}
+            {partner.company && <p className="text-sm text-gray-600 mt-1">{partner.company}</p>}
           </div>
           <SignOutButton />
         </div>
-        <div className="rounded-xl border border-yellow-800/50 bg-yellow-950/30 p-8 text-center">
-          <p className="text-gray-100 font-medium">We can&apos;t show your statement right now</p>
-          <p className="text-gray-400 text-sm mt-2 max-w-md mx-auto">
+        <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-8 text-center">
+          <p className="text-[var(--brand-ink)] font-medium">We can&apos;t show your statement right now</p>
+          <p className="text-gray-600 text-sm mt-2 max-w-md mx-auto">
             This is a problem on our side, not a statement showing nothing owed. Your earnings are
             unaffected and nothing has been lost. Please try again shortly — if it persists, contact
             us and we will send your statement directly.
@@ -280,7 +280,7 @@ export default async function Statement({ partner }: { partner: StatementPartner
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">{partner.name}</h1>
-          <p className="text-sm text-gray-400 mt-1">
+          <p className="text-sm text-gray-600 mt-1">
             {partner.company ? `${partner.company} · ` : ''}
             {/* roster.length, not s.activeClients, and they are the same
                 number: activeClients counts the distinct clients linked to
@@ -334,8 +334,8 @@ export default async function Statement({ partner }: { partner: StatementPartner
           so this whole block cannot be reached. The W-9 prompt above has
           already said why, which is why there is no second notice here. */}
       {s === null ? null : s.months.length === 0 ? (
-        <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-8 text-center">
-          <p className="text-gray-300 font-medium">No statement yet</p>
+        <div className="rounded-xl border border-gray-200 bg-[var(--brand-surface)] p-8 text-center">
+          <p className="text-gray-700 font-medium">No statement yet</p>
           <p className="text-gray-500 text-sm mt-2 max-w-md mx-auto">
             Your first statement appears once a client you referred has paid their first invoice. Nothing is missing —
             there is simply nothing to report yet.
@@ -343,21 +343,21 @@ export default async function Statement({ partner }: { partner: StatementPartner
         </div>
       ) : (
         s.months.map((m) => (
-          <section key={m.period} className="rounded-xl border border-gray-800 bg-gray-900/40 overflow-hidden">
-            <div className="flex items-baseline justify-between border-b border-gray-800 px-5 py-4">
+          <section key={m.period} className="rounded-xl border border-gray-200 bg-[var(--brand-surface)] overflow-hidden">
+            <div className="flex items-baseline justify-between border-b border-gray-200 px-5 py-4">
               <h2 className="font-semibold">{prettyMonth(m.period)}</h2>
-              <span className="text-sm text-gray-400">
-                Earned this month <span className="text-white font-semibold ml-1">{fmt(m.earned)}</span>
+              <span className="text-sm text-gray-600">
+                Earned this month <span className="text-[var(--brand-ink)] font-semibold ml-1">{fmt(m.earned)}</span>
               </span>
             </div>
 
-            <div className="divide-y divide-gray-800">
+            <div className="divide-y divide-gray-200">
               {m.clients.map((c) => (
                 <div key={c.dedupeKey} className="px-5 py-4">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="font-medium text-gray-100">{c.clientName}</span>
+                    <span className="font-medium text-[var(--brand-ink)]">{c.clientName}</span>
                     {c.provisional ? (
-                      <span className="px-1.5 py-0.5 rounded text-[11px] bg-gray-800 text-gray-400">
+                      <span className="px-1.5 py-0.5 rounded text-[11px] bg-[var(--brand-surface)] text-gray-600">
                         not final
                       </span>
                     ) : (
@@ -397,13 +397,13 @@ export default async function Statement({ partner }: { partner: StatementPartner
                 <div key={b.dedupeKey} className="px-5 py-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="font-medium text-gray-100">{b.clientName}</span>
+                      <span className="font-medium text-[var(--brand-ink)]">{b.clientName}</span>
                       <span className="block text-xs text-gray-500 mt-0.5">
                         One-time referral bonus — first invoice paid
                       </span>
                     </div>
                     <div className="text-right">
-                      <span className="font-semibold text-gray-100">{fmt(b.amount)}</span>
+                      <span className="font-semibold text-[var(--brand-ink)]">{fmt(b.amount)}</span>
                       <span className="block mt-1"><Badge status={b.status} /></span>
                     </div>
                   </div>
@@ -412,7 +412,7 @@ export default async function Statement({ partner }: { partner: StatementPartner
             </div>
 
             {(m.carriedIn > 0 || m.carriedOut > 0) && (
-              <div className="border-t border-gray-800 bg-gray-900/60 px-5 py-3 text-xs text-gray-400 space-y-1">
+              <div className="border-t border-gray-200 bg-white px-5 py-3 text-xs text-gray-600 space-y-1">
                 {m.carriedIn > 0 && <p>Carried in from the previous month: {fmt(m.carriedIn)}</p>}
                 {m.carriedOut > 0 ? (
                   <p>
@@ -443,21 +443,21 @@ export default async function Statement({ partner }: { partner: StatementPartner
       <AccountState partner={partner} />
 
       {/* ---- How this is calculated ---- */}
-      <section className="rounded-xl border border-gray-800 bg-gray-900/20 p-5 text-sm text-gray-400 leading-relaxed space-y-3">
-        <h2 className="font-semibold text-gray-200">How this is calculated</h2>
+      <section className="rounded-xl border border-gray-200 bg-[var(--brand-surface)] p-5 text-sm text-gray-600 leading-relaxed space-y-3">
+        <h2 className="font-semibold text-[var(--brand-ink)]">How this is calculated</h2>
         <p>
-          You earn <span className="text-gray-200">${REFERRAL_TERMS.SIGNUP_BONUS}</span> once per referred client, after
+          You earn <span className="text-[var(--brand-ink)]">${REFERRAL_TERMS.SIGNUP_BONUS}</span> once per referred client, after
           that client has been active 60 days, has billed $500 or more in a single calendar month, and has paid its first
           invoice.
         </p>
         <p>
           On top of that you earn{' '}
-          <span className="text-gray-200">{(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}% of net profit</span>{' '}
+          <span className="text-[var(--brand-ink)]">{(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}% of net profit</span>{' '}
           on that client&apos;s account, every month for {REFERRAL_TERMS.COMMISSION_MONTHS} months from their first paid
           invoice.
         </p>
         <p>
-          <span className="text-gray-200">Net profit</span> means the amount invoiced to the client for the month, less
+          <span className="text-[var(--brand-ink)]">Net profit</span> means the amount invoiced to the client for the month, less
           the direct costs of serving that account — freight and carrier charges, packaging and prep materials, storage,
           and payment-processing fees. Charges billed at cost, such as freight, duties and Amazon fees, generate no
           profit and are excluded entirely.
@@ -520,14 +520,14 @@ function AccountState({ partner }: { partner: StatementPartner }) {
   const w9 = w9Label(partner)
 
   const tones: Record<'good' | 'bad' | 'wait', string> = {
-    good: 'text-green-400',
-    bad: 'text-red-400',
-    wait: 'text-yellow-400',
+    good: 'text-green-700',
+    bad: 'text-red-700',
+    wait: 'text-yellow-700',
   }
 
   return (
-    <section className="rounded-xl border border-gray-800 bg-gray-900/40 p-5 space-y-4">
-      <h2 className="font-semibold text-gray-200">Your account</h2>
+    <section className="rounded-xl border border-gray-200 bg-[var(--brand-surface)] p-5 space-y-4">
+      <h2 className="font-semibold text-[var(--brand-ink)]">Your account</h2>
 
       <dl className="grid sm:grid-cols-3 gap-4 text-sm">
         <div>
@@ -546,10 +546,10 @@ function AccountState({ partner }: { partner: StatementPartner }) {
 
         <div>
           <dt className="text-gray-500">Payout method</dt>
-          <dd className="mt-1 font-medium text-yellow-400">not on file</dd>
+          <dd className="mt-1 font-medium text-yellow-700">not on file</dd>
           <dd className="text-xs text-gray-500 mt-0.5">
             We do not hold payment details for you. Email{' '}
-            <a className="underline hover:text-gray-300" href="mailto:Support@shipousa.com">
+            <a className="underline hover:text-gray-700" href="mailto:Support@shipousa.com">
               Support@shipousa.com
             </a>{' '}
             to tell us where to send your commission.
@@ -590,13 +590,13 @@ function ClientRoster({
   // — he is the one who wrote "i dont see the option to add more of my
   // clients". An early `return` for the empty case is what hid it.
   return (
-    <section className="rounded-xl border border-gray-800 bg-gray-900/40 overflow-hidden">
+    <section className="rounded-xl border border-gray-200 bg-[var(--brand-surface)] overflow-hidden">
       {rows.length === 0 ? (
         // Genuinely no clients — distinct from "clients with no earnings
         // yet", which is the case this whole section exists to render.
         // The sentence has to say which one it is.
         <div className="p-8 text-center">
-          <p className="text-gray-300 font-medium">No clients linked to you yet</p>
+          <p className="text-gray-700 font-medium">No clients linked to you yet</p>
           <p className="text-gray-500 text-sm mt-2 max-w-md mx-auto">
             Clients you refer appear here as soon as we have linked them to your account — before
             they have paid anything, so you can see where each one stands.
@@ -636,9 +636,9 @@ function ClientRoster({
 function ClientRosterTable({ rows, money }: { rows: RosterRow[]; money: RosterMoney }) {
   return (
     <>
-      <div className="flex items-baseline justify-between border-b border-gray-800 px-5 py-4">
+      <div className="flex items-baseline justify-between border-b border-gray-200 px-5 py-4">
         <h2 className="font-semibold">Clients you referred</h2>
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-600">
           {rows.length === 1 ? '1 client' : `${rows.length} clients`}
         </span>
       </div>
@@ -646,7 +646,7 @@ function ClientRosterTable({ rows, money }: { rows: RosterRow[]; money: RosterMo
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gray-900/60 text-gray-500">
+            <tr className="bg-white text-gray-500">
               <th className="text-left font-medium px-5 py-2">Client</th>
               <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Referred</th>
               <th className="text-left font-medium px-3 py-2 whitespace-nowrap">First paid</th>
@@ -659,7 +659,7 @@ function ClientRosterTable({ rows, money }: { rows: RosterRow[]; money: RosterMo
               )}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-800">
+          <tbody className="divide-y divide-gray-200">
             {rows.map((r) => {
               const pos = r.window
               // Narrowed, not optional-chained. `money.shares` does not
@@ -671,14 +671,14 @@ function ClientRosterTable({ rows, money }: { rows: RosterRow[]; money: RosterMo
               return (
                 <tr key={r.clientId} className="align-top">
                   <td className="px-5 py-3">
-                    <span className="font-medium text-gray-100">{r.clientName}</span>
+                    <span className="font-medium text-[var(--brand-ink)]">{r.clientName}</span>
                     <span className="block text-xs text-gray-500 mt-0.5 max-w-sm">
                       {ROSTER_STATE_TEXT[r.state]}
                     </span>
                   </td>
-                  <td className="px-3 py-3 text-gray-400 whitespace-nowrap">{prettyDay(r.referred)}</td>
-                  <td className="px-3 py-3 text-gray-400 whitespace-nowrap">{prettyDay(r.firstPaid)}</td>
-                  <td className="px-3 py-3 text-gray-300 whitespace-nowrap">
+                  <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{prettyDay(r.referred)}</td>
+                  <td className="px-3 py-3 text-gray-600 whitespace-nowrap">{prettyDay(r.firstPaid)}</td>
+                  <td className="px-3 py-3 text-gray-700 whitespace-nowrap">
                     {/* §4.2: month N of 12 AND the month it closes —
                         "the single biggest determinant of his future
                         income". Nothing at all for a client with no first
@@ -707,7 +707,7 @@ function ClientRosterTable({ rows, money }: { rows: RosterRow[]; money: RosterMo
                     {bonus === undefined ? (
                       <span className="text-gray-500">—</span>
                     ) : (
-                      <span className="text-xs text-gray-400 block max-w-[16rem]">
+                      <span className="text-xs text-gray-600 block max-w-[16rem]">
                         {BONUS_STATE_TEXT[bonus]}
                       </span>
                     )}
@@ -722,7 +722,7 @@ function ClientRosterTable({ rows, money }: { rows: RosterRow[]; money: RosterMo
                     ) : mine.provisional ? (
                       <span className="text-gray-500 text-xs">not final</span>
                     ) : (
-                      <span className="text-gray-200">{fmt(mine.share)}</span>
+                      <span className="text-[var(--brand-ink)]">{fmt(mine.share)}</span>
                     )}
                   </td>
                     </>
@@ -734,7 +734,7 @@ function ClientRosterTable({ rows, money }: { rows: RosterRow[]; money: RosterMo
         </table>
       </div>
 
-      <p className="border-t border-gray-800 bg-gray-900/60 px-5 py-3 text-xs text-gray-500">
+      <p className="border-t border-gray-200 bg-white px-5 py-3 text-xs text-gray-500">
         Commission runs from a client&apos;s first paid invoice, not from the day they are linked.
       </p>
     </>
@@ -756,9 +756,9 @@ function ClientRosterTable({ rows, money }: { rows: RosterRow[]; money: RosterMo
 function Claims({ rows, readFailed }: { rows: PartnerClaim[]; readFailed: boolean }) {
   if (readFailed) {
     return (
-      <div className="border-t border-gray-800 px-5 py-4">
-        <p className="text-sm text-yellow-400">We can&apos;t show your submitted claims right now</p>
-        <p className="text-xs text-gray-400 mt-1 max-w-lg">
+      <div className="border-t border-gray-200 px-5 py-4">
+        <p className="text-sm text-yellow-700">We can&apos;t show your submitted claims right now</p>
+        <p className="text-xs text-gray-600 mt-1 max-w-lg">
           This is a problem on our side, not a sign that anything you sent was lost. Nothing you
           have submitted has been discarded. Please don&apos;t re-send — contact us if it persists.
         </p>
@@ -769,18 +769,18 @@ function Claims({ rows, readFailed }: { rows: PartnerClaim[]; readFailed: boolea
   if (rows.length === 0) return null
 
   return (
-    <div className="border-t border-gray-800">
+    <div className="border-t border-gray-200">
       <div className="px-5 py-3">
-        <h3 className="text-sm font-semibold text-gray-200">Clients you&apos;ve told us about</h3>
+        <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Clients you&apos;ve told us about</h3>
       </div>
-      <ul className="divide-y divide-gray-800">
+      <ul className="divide-y divide-gray-200">
         {rows.map((c) => {
           const state = claimPartnerState(c.status)
           return (
             <li key={c.id} className="px-5 py-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="font-medium text-gray-100">{c.company_name}</span>
+              <span className="font-medium text-[var(--brand-ink)]">{c.company_name}</span>
               <span className="text-xs text-gray-500">{prettyDay(c.created_at)}</span>
-              <span className="block w-full text-xs text-gray-400">
+              <span className="block w-full text-xs text-gray-600">
                 {CLAIM_PARTNER_TEXT[state]}
               </span>
             </li>
@@ -806,23 +806,26 @@ function Transactions({ rows }: { rows?: LedgerTransaction[] }) {
 
   return (
     <details className="mt-3 group">
-      <summary className="text-xs text-[#00AAFF] cursor-pointer select-none hover:underline">
+      {/* Navy + a permanent underline, not the action blue: this sits on a
+          --brand-surface card, where the blue is 4.22:1 at 11px. The
+          underline carries the affordance the colour used to. */}
+      <summary className="text-xs text-[var(--brand-ink)] underline cursor-pointer select-none">
         {ordered.length === 1 ? '1 transaction' : `${ordered.length} transactions`}
       </summary>
-      <div className="mt-2 rounded-lg border border-gray-800 overflow-hidden">
+      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden">
         <table className="w-full text-xs">
           <thead>
-            <tr className="bg-gray-900/60 text-gray-500">
+            <tr className="bg-white text-gray-500">
               <th className="text-left font-medium px-3 py-1.5">Date</th>
               <th className="text-left font-medium px-3 py-1.5">Order</th>
               <th className="text-right font-medium px-3 py-1.5">Billed</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-800">
+          <tbody className="divide-y divide-gray-200">
             {ordered.map((t) => (
               <tr key={t.order_id ?? `account:${t.period_month}`}>
-                <td className="px-3 py-1.5 text-gray-400 tabular-nums">{t.first_charge_date}</td>
-                <td className="px-3 py-1.5 text-gray-300">
+                <td className="px-3 py-1.5 text-gray-600 tabular-nums">{t.first_charge_date}</td>
+                <td className="px-3 py-1.5 text-gray-700">
                   {/* order_id is nullable in order_charges: storage and
                       other account-level charges have a client and a month
                       but no order. Label them rather than print a blank. */}
@@ -830,7 +833,7 @@ function Transactions({ rows }: { rows?: LedgerTransaction[] }) {
                     <span className="text-gray-500">Storage and account charges</span>
                   )}
                 </td>
-                <td className="px-3 py-1.5 text-right text-gray-300 tabular-nums">
+                <td className="px-3 py-1.5 text-right text-gray-700 tabular-nums">
                   {/* amount_billed reads LOW when a line is unpriced — sum()
                       skips nulls — so a partial total is not shown as fact. */}
                   {t.amount_unknown_charges > 0 ? (
@@ -865,27 +868,27 @@ function Row({
     <div
       className={[
         'flex items-baseline justify-between py-1',
-        rule ? 'border-t border-gray-800 mt-1 pt-2' : '',
-        emphasis ? 'text-white font-semibold' : '',
+        rule ? 'border-t border-gray-200 mt-1 pt-2' : '',
+        emphasis ? 'text-[var(--brand-ink)] font-semibold' : '',
       ].join(' ')}
     >
-      <dt className={indent ? 'pl-4 text-gray-500' : 'text-gray-400'} dangerouslySetInnerHTML={{ __html: label }} />
-      <dd className={emphasis ? '' : indent ? 'text-gray-500 tabular-nums' : 'text-gray-200 tabular-nums'}>{value}</dd>
+      <dt className={indent ? 'pl-4 text-gray-500' : 'text-gray-600'} dangerouslySetInnerHTML={{ __html: label }} />
+      <dd className={emphasis ? '' : indent ? 'text-gray-500 tabular-nums' : 'text-[var(--brand-ink)] tabular-nums'}>{value}</dd>
     </div>
   )
 }
 
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub: string; tone: string }) {
   const tones: Record<string, string> = {
-    blue: 'border-[#00AAFF]/20 bg-[#00AAFF]/5',
-    green: 'border-green-800/50 bg-green-950/40',
-    yellow: 'border-yellow-800/50 bg-yellow-950/30',
-    gray: 'border-gray-800 bg-gray-900/40',
+    blue: 'border-[var(--brand-action)]/30 bg-[var(--brand-surface)]',
+    green: 'border-green-300 bg-green-50',
+    yellow: 'border-yellow-300 bg-yellow-50',
+    gray: 'border-gray-200 bg-[var(--brand-surface)]',
   }
   return (
     <div className={`rounded-xl border p-4 ${tones[tone] ?? tones.gray}`}>
-      <p className="text-[11px] uppercase tracking-wider text-gray-400">{label}</p>
-      <p className="text-xl font-bold text-white mt-1.5">{value}</p>
+      <p className="text-[11px] uppercase tracking-wider text-gray-600">{label}</p>
+      <p className="text-xl font-bold text-[var(--brand-ink)] mt-1.5">{value}</p>
       <p className="text-[11px] text-gray-500 mt-1">{sub}</p>
     </div>
   )
@@ -895,10 +898,13 @@ function Badge({ status }: { status: PayoutStatus }) {
   // 'computed' means Shipo has not reviewed the line yet. A partner
   // should not see internal ledger jargon, so it reads "in review".
   const map: Record<string, { text: string; cls: string }> = {
-    paid: { text: 'paid', cls: 'bg-green-900/50 text-green-400' },
-    approved: { text: 'approved for payment', cls: 'bg-[#00AAFF]/15 text-[#00AAFF]' },
-    pending: { text: 'in review', cls: 'bg-yellow-900/40 text-yellow-400' },
-    computed: { text: 'in review', cls: 'bg-yellow-900/40 text-yellow-400' },
+    paid: { text: 'paid', cls: 'bg-green-100 text-green-800' },
+    // Navy, not the action blue: #1a73e8 on #f4f8fd is 4.22:1 and this is
+    // 11px. The pale blue fill is what distinguishes the state; the text
+    // does not have to be blue to say so. See partner-brand.test.ts.
+    approved: { text: 'approved for payment', cls: 'bg-[var(--brand-surface)] text-[var(--brand-ink)]' },
+    pending: { text: 'in review', cls: 'bg-yellow-100 text-yellow-800' },
+    computed: { text: 'in review', cls: 'bg-yellow-100 text-yellow-800' },
   }
   const v = map[status] ?? map.computed
   return <span className={`px-1.5 py-0.5 rounded text-[11px] ${v.cls}`}>{v.text}</span>
