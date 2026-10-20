@@ -40,6 +40,8 @@ interface ClaimRow {
   decision_note: string | null
   /** Arrived past the partner's daily allowance; kept and marked, not dropped. */
   over_cap: boolean | null
+  /** The pasted list it arrived in (§3.5), or null if filed one at a time. */
+  batch_id: string | null
   created_at: string | null
 }
 interface QueueClientRow {
@@ -93,7 +95,11 @@ async function getData() {
         // allowance. Kept rather than discarded (see
         // src/app/api/partner/claims/route.ts) precisely so a human sees
         // it, which cannot happen if the page does not read it.
-        'id, referral_partner_id, company_name, website, contact_name, contact_email, note, status, client_id, decided_by, decided_at, decision_note, over_cap, created_at',
+        // `batch_id` is what lets this queue put a pasted list under one
+        // heading (§3.5) instead of showing a hundred unrelated rows filed
+        // in the same second. Null for a claim filed one at a time, which
+        // is most of them.
+        'id, referral_partner_id, company_name, website, contact_name, contact_email, note, status, client_id, decided_by, decided_at, decision_note, over_cap, batch_id, created_at',
       )
       .order('created_at', { ascending: false }),
   ])

@@ -28,6 +28,7 @@ const PARTNER_SURFACES = [
   'src/app/partner/layout.tsx',
   'src/app/partner/login/page.tsx',
   'src/app/partner/page.tsx',
+  'src/components/partner/BatchClaimForm.tsx',
   'src/components/partner/ClaimForm.tsx',
   'src/components/partner/LoginForm.tsx',
   'src/components/partner/SignOutButton.tsx',

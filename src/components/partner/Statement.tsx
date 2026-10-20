@@ -30,6 +30,7 @@ import {
 import { CLAIM_PARTNER_TEXT, claimPartnerState } from '@/lib/partner-claims'
 import SignOutButton from '@/components/partner/SignOutButton'
 import ClaimForm from '@/components/partner/ClaimForm'
+import BatchClaimForm from '@/components/partner/BatchClaimForm'
 import W9Prompt from '@/components/partner/W9Prompt'
 
 // The partner-facing statement. Server component — every figure is
@@ -612,6 +613,11 @@ function ClientRoster({
 
       <Claims rows={claims} readFailed={claimsReadFailed} />
       <ClaimForm />
+      {/* The answer to "i have close to 100 clients". Below the
+          single-claim form on purpose: one client is the common case and
+          stays the first thing he meets, and the batch box is the way out
+          of filling that form a hundred times. */}
+      <BatchClaimForm />
     </section>
   )
 }

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
 import { CLAIM_NOTE_MAX, clientMatches } from '@/lib/partner-claims'
+import { groupOpenClaims } from '@/lib/partner-batch'
 
 // ============================================================
 // The staff claims queue. Spec §3.4.
@@ -55,6 +56,12 @@ interface Claim {
    * false and is rendered as neither.
    */
   over_cap: boolean | null
+  /**
+   * The pasted list this claim arrived in (§3.5), or null for one filed
+   * one at a time through the single form. Grouping only — it carries no
+   * decision and no money, and approving is still per client.
+   */
+  batch_id: string | null
   created_at: string | null
 }
 
@@ -211,6 +218,200 @@ export default function ClaimsQueue({
   const open = claims.filter((c) => (c.status ?? 'submitted') === 'submitted')
   const decided = claims.filter((c) => (c.status ?? 'submitted') !== 'submitted')
 
+  // §3.5. Singles stay singles; the claims of one paste collapse under
+  // one heading, in the order the rows were read. See groupOpenClaims
+  // for why the group carries no shape a bulk approve could use.
+  const groups = groupOpenClaims(claims)
+
+  // ONE waiting claim: its own client picker, its own note, its own
+  // Approve. Rendered identically whether it arrived alone or inside a
+  // list of a hundred — the grouping is a heading, never a decision.
+  const openCard = (claim: Claim) => {
+    const hits = clientMatches(claim.company_name ?? '', clients)
+    const site = said(claim.website)
+    const who = said(claim.contact_name)
+    const mail = said(claim.contact_email)
+    const note = said(claim.note)
+    const working = busy === claim.id
+
+    return (
+      <div key={claim.id} className="rounded-xl border border-gray-700 bg-gray-900/50 p-4 space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <p className="text-white font-medium">{claim.company_name ?? '(no name given)'}</p>
+            <p className="text-gray-400 text-xs">
+              claimed by {partnerLabel(claim.referral_partner_id)} · {prettyDay(claim.created_at)}
+            </p>
+          </div>
+          {/*
+              NOT A WARNING ABOUT THE CLAIM — a note about how it arrived.
+              The partner was told "Received." like everyone else and
+              knows nothing about a cap, so this is a prompt to look
+              rather than a reason to refuse: six real clients in a day is
+              unusual and legitimate, and a script is unusual and is not.
+              Only `=== true` renders it; a null from a row written before
+              the column existed says nothing either way.
+          */}
+          {claim.over_cap === true && (
+            <span
+              className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300"
+              title="This arrived after the partner's daily claim allowance was used up. It was kept rather than dropped — worth a look at his other claims from the same day before deciding."
+            >
+              over daily allowance
+            </span>
+          )}
+        </div>
+
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
+          {[
+            ['Website', site],
+            ['Contact', who],
+            ['Contact email', mail],
+          ].map(([label, v]) => {
+            const val = v as { text: string; given: boolean }
+            return (
+              <div key={label as string} className="flex gap-2">
+                <dt className="text-gray-500 shrink-0">{label as string}</dt>
+                <dd className={val.given ? 'text-gray-300 break-all' : 'text-gray-600 italic'}>
+                  {val.text}
+                </dd>
+              </div>
+            )
+          })}
+        </dl>
+
+        <div className="text-xs">
+          <p className="text-gray-500">What he did for this referral</p>
+          <p className={note.given ? 'text-gray-300 whitespace-pre-wrap' : 'text-gray-600 italic'}>
+            {note.text}
+          </p>
+        </div>
+
+        {/* The §3.4 hint. Staff-only, and advisory — the dropdown below
+            still opens on "Choose a client". */}
+        <div className="text-xs rounded-lg border border-gray-700/70 bg-gray-950/40 p-2">
+          <p className={clientsUnreadable ? 'text-yellow-400' : 'text-gray-500'}>
+            {clientsUnreadable
+              ? 'Could not read the client list, so there is nothing to compare this name against. Do not read this as "we have no such client".'
+              : hits.length === 0
+                ? 'No client of ours has a name like that.'
+                : 'Clients with a name like that:'}
+          </p>
+          {hits.length > 0 && (
+            <ul className="mt-1 space-y-0.5">
+              {hits.map((h) => (
+                <li key={h.id} className="flex flex-wrap gap-2">
+                  <span className="text-gray-200">{h.name}</span>
+                  <span className="text-gray-600">{h.exact ? 'same name' : 'similar'}</span>
+                  {h.referral_partner_id ? (
+                    h.referral_partner_id === claim.referral_partner_id ? (
+                      <span className="text-green-400">
+                        already attributed to this same partner
+                      </span>
+                    ) : (
+                      <span className="text-yellow-400">
+                        already attributed to {partnerLabel(h.referral_partner_id)} — approving
+                        would move that commission
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-gray-500">not attributed to anyone</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {stuck[claim.id] && (
+          <p className="rounded-lg border border-red-700/60 bg-red-950/40 text-red-300 text-xs p-2">
+            {stuck[claim.id]}
+          </p>
+        )}
+
+        <div className="space-y-2">
+          <label className="block">
+            <span className="text-gray-500 text-xs">Which client is this?</span>
+            <select
+              value={picked[claim.id] ?? ''}
+              onChange={(e) => setPicked((p) => ({ ...p, [claim.id]: e.target.value }))}
+              disabled={working}
+              className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white"
+            >
+              <option value="">Choose a client…</option>
+              {hits.length > 0 && (
+                <optgroup label="Name looks like this one">
+                  {hits.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name}
+                      {h.referral_partner_id ? ' (already attributed)' : ''}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Every client">
+                {clients
+                  .filter((c) => typeof c.name === 'string' && c.name.length > 0)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {c.referral_partner_id ? ' (already attributed)' : ''}
+                    </option>
+                  ))}
+              </optgroup>
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-gray-500 text-xs">
+              Why (staff only — the partner never sees this)
+            </span>
+            <textarea
+              value={notes[claim.id] ?? ''}
+              onChange={(e) => setNotes((n) => ({ ...n, [claim.id]: e.target.value }))}
+              maxLength={CLAIM_NOTE_MAX}
+              rows={2}
+              disabled={working}
+              className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white"
+            />
+          </label>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => decide(claim, 'approve')}
+              disabled={working}
+              className="px-3 py-1.5 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-medium"
+            >
+              {working ? 'Working…' : 'Approve'}
+            </button>
+            <button
+              type="button"
+              onClick={() => decide(claim, 'reject')}
+              disabled={working}
+              className="px-3 py-1.5 rounded-lg border border-gray-600 hover:bg-gray-800 disabled:opacity-50 text-gray-200 text-sm"
+            >
+              Not approved
+            </button>
+            <button
+              type="button"
+              onClick={() => decide(claim, 'duplicate')}
+              disabled={working}
+              className="px-3 py-1.5 rounded-lg border border-gray-600 hover:bg-gray-800 disabled:opacity-50 text-gray-200 text-sm"
+            >
+              Duplicate
+            </button>
+          </div>
+          <p className="text-gray-600 text-xs">
+            &quot;Not approved&quot; and &quot;Duplicate&quot; are kept apart here because you need
+            the difference. The partner is told the same thing either way — naming
+            &quot;duplicate&quot; to him would tell him the company is already somebody&apos;s.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <section className="space-y-3">
       <div>
@@ -233,197 +434,39 @@ export default function ClaimsQueue({
         <p className="text-gray-500 text-sm">No partner has claimed a client yet.</p>
       )}
 
-      {open.map((claim) => {
-        const hits = clientMatches(claim.company_name ?? '', clients)
-        const site = said(claim.website)
-        const who = said(claim.contact_name)
-        const mail = said(claim.contact_email)
-        const note = said(claim.note)
-        const working = busy === claim.id
+      {groups.map((group) => {
+        if (group.kind === 'single') return openCard(group.claim)
 
         return (
-          <div
-            key={claim.id}
-            className="rounded-xl border border-gray-700 bg-gray-900/50 p-4 space-y-3"
+          <details
+            key={group.batchId}
+            // OPEN BY DEFAULT. A collapsed heading over claims waiting on
+            // a human is claims waiting unseen, which is the failure this
+            // queue exists to prevent. It collapses so a long list can be
+            // got out of the way, not so it can start that way.
+            open
+            className="rounded-xl border border-gray-700 bg-gray-950/40 p-3"
           >
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <div>
-                <p className="text-white font-medium">{claim.company_name ?? '(no name given)'}</p>
-                <p className="text-gray-400 text-xs">
-                  claimed by {partnerLabel(claim.referral_partner_id)} ·{' '}
-                  {prettyDay(claim.created_at)}
-                </p>
-              </div>
-              {/*
-                NOT A WARNING ABOUT THE CLAIM — a note about how it
-                arrived. The partner was told "Received." like everyone
-                else and knows nothing about a cap, so this is a prompt to
-                look rather than a reason to refuse: six real clients in a
-                day is unusual and legitimate, and a script is unusual and
-                is not. Only `=== true` renders it; a null from a row
-                written before the column existed says nothing either way.
-              */}
-              {claim.over_cap === true && (
-                <span
-                  className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300"
-                  title="This arrived after the partner's daily claim allowance was used up. It was kept rather than dropped — worth a look at his other claims from the same day before deciding."
-                >
-                  over daily allowance
-                </span>
-              )}
-            </div>
-
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
-              {[
-                ['Website', site],
-                ['Contact', who],
-                ['Contact email', mail],
-              ].map(([label, v]) => {
-                const val = v as { text: string; given: boolean }
-                return (
-                  <div key={label as string} className="flex gap-2">
-                    <dt className="text-gray-500 shrink-0">{label as string}</dt>
-                    <dd className={val.given ? 'text-gray-300 break-all' : 'text-gray-600 italic'}>
-                      {val.text}
-                    </dd>
-                  </div>
-                )
-              })}
-            </dl>
-
-            <div className="text-xs">
-              <p className="text-gray-500">What he did for this referral</p>
-              <p
-                className={
-                  note.given ? 'text-gray-300 whitespace-pre-wrap' : 'text-gray-600 italic'
-                }
-              >
-                {note.text}
-              </p>
-            </div>
-
-            {/* The §3.4 hint. Staff-only, and advisory — the dropdown
-                below still opens on "Choose a client". */}
-            <div className="text-xs rounded-lg border border-gray-700/70 bg-gray-950/40 p-2">
-              <p className={clientsUnreadable ? 'text-yellow-400' : 'text-gray-500'}>
-                {clientsUnreadable
-                  ? 'Could not read the client list, so there is nothing to compare this name against. Do not read this as "we have no such client".'
-                  : hits.length === 0
-                    ? 'No client of ours has a name like that.'
-                    : 'Clients with a name like that:'}
-              </p>
-              {hits.length > 0 && (
-                <ul className="mt-1 space-y-0.5">
-                  {hits.map((h) => (
-                    <li key={h.id} className="flex flex-wrap gap-2">
-                      <span className="text-gray-200">{h.name}</span>
-                      <span className="text-gray-600">{h.exact ? 'same name' : 'similar'}</span>
-                      {h.referral_partner_id ? (
-                        h.referral_partner_id === claim.referral_partner_id ? (
-                          <span className="text-green-400">
-                            already attributed to this same partner
-                          </span>
-                        ) : (
-                          <span className="text-yellow-400">
-                            already attributed to {partnerLabel(h.referral_partner_id)} — approving
-                            would move that commission
-                          </span>
-                        )
-                      ) : (
-                        <span className="text-gray-500">not attributed to anyone</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {stuck[claim.id] && (
-              <p className="rounded-lg border border-red-700/60 bg-red-950/40 text-red-300 text-xs p-2">
-                {stuck[claim.id]}
-              </p>
-            )}
-
-            <div className="space-y-2">
-              <label className="block">
-                <span className="text-gray-500 text-xs">Which client is this?</span>
-                <select
-                  value={picked[claim.id] ?? ''}
-                  onChange={(e) => setPicked((p) => ({ ...p, [claim.id]: e.target.value }))}
-                  disabled={working}
-                  className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white"
-                >
-                  <option value="">Choose a client…</option>
-                  {hits.length > 0 && (
-                    <optgroup label="Name looks like this one">
-                      {hits.map((h) => (
-                        <option key={h.id} value={h.id}>
-                          {h.name}
-                          {h.referral_partner_id ? ' (already attributed)' : ''}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  <optgroup label="Every client">
-                    {clients
-                      .filter((c) => typeof c.name === 'string' && c.name.length > 0)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                          {c.referral_partner_id ? ' (already attributed)' : ''}
-                        </option>
-                      ))}
-                  </optgroup>
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-gray-500 text-xs">
-                  Why (staff only — the partner never sees this)
-                </span>
-                <textarea
-                  value={notes[claim.id] ?? ''}
-                  onChange={(e) => setNotes((n) => ({ ...n, [claim.id]: e.target.value }))}
-                  maxLength={CLAIM_NOTE_MAX}
-                  rows={2}
-                  disabled={working}
-                  className="mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white"
-                />
-              </label>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => decide(claim, 'approve')}
-                  disabled={working}
-                  className="px-3 py-1.5 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-medium"
-                >
-                  {working ? 'Working…' : 'Approve'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => decide(claim, 'reject')}
-                  disabled={working}
-                  className="px-3 py-1.5 rounded-lg border border-gray-600 hover:bg-gray-800 disabled:opacity-50 text-gray-200 text-sm"
-                >
-                  Not approved
-                </button>
-                <button
-                  type="button"
-                  onClick={() => decide(claim, 'duplicate')}
-                  disabled={working}
-                  className="px-3 py-1.5 rounded-lg border border-gray-600 hover:bg-gray-800 disabled:opacity-50 text-gray-200 text-sm"
-                >
-                  Duplicate
-                </button>
-              </div>
-              <p className="text-gray-600 text-xs">
-                &quot;Not approved&quot; and &quot;Duplicate&quot; are kept apart here because you
-                need the difference. The partner is told the same thing either way — naming
-                &quot;duplicate&quot; to him would tell him the company is already somebody&apos;s.
-              </p>
-            </div>
-          </div>
+            <summary className="cursor-pointer text-sm text-gray-200">
+              <span className="font-medium">
+                {group.claims.length === 1 ? '1 company' : `${group.claims.length} companies`} in
+                one list
+              </span>
+              <span className="text-gray-500">
+                {' '}
+                from{' '}
+                {group.partnerMismatch
+                  ? 'more than one partner — do not trust this grouping, check each claim'
+                  : partnerLabel(group.partnerId)}{' '}
+                · {prettyDay(group.submittedAt)}
+                {group.decidedCount > 0 && ` · ${group.decidedCount} of this list already decided`}
+              </span>
+            </summary>
+            {/* Each row keeps its own picker and its own Approve. There is
+                no button here: approving is the write that creates money
+                and §3.5 keeps it one considered decision per client. */}
+            <div className="mt-3 space-y-3">{group.claims.map((c) => openCard(c))}</div>
+          </details>
         )
       })}
 
