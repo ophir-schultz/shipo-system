@@ -111,6 +111,17 @@ try {
 // ---------------------------------------------------------------------
 // 3. The payload.
 // ---------------------------------------------------------------------
+// Where DocuSign POSTs envelope events. The webhook that promotes the
+// partner on completion lives there and nowhere else — if this env var
+// is unset the script refuses, because sending without it ships an
+// envelope that completes without ever notifying the app.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+if (!siteUrl) {
+  console.error('NEXT_PUBLIC_SITE_URL is required (e.g. https://shipousa.com).')
+  process.exit(1)
+}
+const webhookUrl = `${siteUrl.replace(/\/+$/, '')}/api/partner/agreement-webhook`
+
 const envelope = buildPartnerAgreementEnvelope({
   partner: {
     id: partner.id,
@@ -120,6 +131,7 @@ const envelope = buildPartnerAgreementEnvelope({
   },
   shipo: { name: 'Ophir Schultz', email: 'ophir@shipousa.com' },
   w9DocumentBase64,
+  webhookUrl,
 })
 
 // A last assertion rather than a comment. The builder sets this, the

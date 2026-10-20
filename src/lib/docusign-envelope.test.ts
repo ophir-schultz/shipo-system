@@ -28,8 +28,15 @@ const partner = {
 }
 const shipo = { name: 'Ophir Schultz', email: 'ophir@shipousa.com' }
 
+const WEBHOOK_URL = 'https://shipousa.com/api/partner/agreement-webhook'
+
 function build() {
-  return buildPartnerAgreementEnvelope({ partner, shipo, w9DocumentBase64: 'JVBERi0xLjQK' })
+  return buildPartnerAgreementEnvelope({
+    partner,
+    shipo,
+    w9DocumentBase64: 'JVBERi0xLjQK',
+    webhookUrl: WEBHOOK_URL,
+  })
 }
 
 // Narrow helpers, so a change in the payload's shape fails here rather
@@ -317,6 +324,7 @@ describe('refusals', () => {
         partner: { ...partner, id: '' },
         shipo,
         w9DocumentBase64: 'x',
+        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/partner.id/)
   })
@@ -327,6 +335,7 @@ describe('refusals', () => {
         partner: { ...partner, email: '' },
         shipo,
         w9DocumentBase64: 'x',
+        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/email/)
   })
@@ -335,8 +344,73 @@ describe('refusals', () => {
     // An envelope that claims w9: included and carries no W-9 would
     // stamp w9_received_at off nothing at all.
     expect(() =>
-      buildPartnerAgreementEnvelope({ partner, shipo, w9DocumentBase64: '' }),
+      buildPartnerAgreementEnvelope({
+        partner,
+        shipo,
+        w9DocumentBase64: '',
+        webhookUrl: WEBHOOK_URL,
+      }),
     ).toThrow(/w9DocumentBase64/)
+  })
+
+  it('will not build an envelope with no webhookUrl', () => {
+    // Without eventNotification, the envelope completes without
+    // notifying the app — the partner stays 'pending' forever. We refuse
+    // rather than silently ship a dead-end envelope.
+    expect(() =>
+      buildPartnerAgreementEnvelope({
+        partner,
+        shipo,
+        w9DocumentBase64: 'x',
+        webhookUrl: '',
+      }),
+    ).toThrow(/webhookUrl/)
+  })
+
+  it('refuses a plain-http webhookUrl', () => {
+    // DocuSign silently will not deliver to http://; it discards the
+    // event. Catch that at build time rather than at the first signed
+    // envelope none of us watch.
+    expect(() =>
+      buildPartnerAgreementEnvelope({
+        partner,
+        shipo,
+        w9DocumentBase64: 'x',
+        webhookUrl: 'http://shipousa.com/api/partner/agreement-webhook',
+      }),
+    ).toThrow(/https/)
+  })
+})
+
+describe('eventNotification — the webhook that promotes the partner', () => {
+  it('ships the configured webhook URL on every envelope', () => {
+    const env = build() as { eventNotification: { url: string } }
+    // Not a literal — the whole point of threading webhookUrl through
+    // the input is that a test envelope cannot accidentally fire against
+    // production. If this ever hard-codes shipousa.com, the next time
+    // someone runs the script against localhost the webhook will post
+    // to the live site.
+    expect(env.eventNotification.url).toBe(WEBHOOK_URL)
+  })
+
+  it('subscribes to completed, declined, voided — the three the route handles', () => {
+    const env = build() as {
+      eventNotification: { envelopeEvents: Array<{ envelopeEventStatusCode: string }> }
+    }
+    const codes = env.eventNotification.envelopeEvents.map((e) => e.envelopeEventStatusCode)
+    // These are the three branches of the webhook's switch. Add a code
+    // here without a branch there and DocuSign fires events the route
+    // discards — add a branch there without a code here and the route
+    // never hears about the state change.
+    expect(codes).toEqual(expect.arrayContaining(['completed', 'declined', 'voided']))
+  })
+
+  it('requires acknowledgment so a transient 5xx retries', () => {
+    const env = build() as { eventNotification: { requireAcknowledgment: string } }
+    // Without this, one bad deploy during the exact minute a partner
+    // signs quietly loses the promotion. DocuSign keeps the event for
+    // 24h of retries when acknowledgment is required.
+    expect(env.eventNotification.requireAcknowledgment).toBe('true')
   })
 })
 

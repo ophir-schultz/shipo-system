@@ -123,6 +123,20 @@ export interface BuildEnvelopeInput {
   shipo: EnvelopeSigner
   /** Page 1 of the IRS W-9, base64. See w9Page1Base64 in the send script. */
   w9DocumentBase64: string
+  /**
+   * Absolute HTTPS URL DocuSign POSTs envelope events to. Required —
+   * if omitted, the envelope ships without an `eventNotification` and
+   * the partner-promotion webhook (`/api/partner/agreement-webhook`)
+   * never fires on completion, which looks healthy from the sender's
+   * side and silently never promotes anyone. Pattern:
+   * `${NEXT_PUBLIC_SITE_URL}/api/partner/agreement-webhook`. HMAC-signed
+   * by DocuSign using the account-level HMAC key (one key is enough;
+   * configured once at Admin → Connect → Connect Keys, verified in the
+   * route against DOCUSIGN_CONNECT_SECRET). There is no per-envelope
+   * HMAC key — this field only names WHERE events go, not how they are
+   * signed.
+   */
+  webhookUrl: string
 }
 
 /**
@@ -350,12 +364,21 @@ function w9PartnerTabs() {
  * as the same two people rather than four.
  */
 export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
-  const { partner, shipo, w9DocumentBase64 } = input
+  const { partner, shipo, w9DocumentBase64, webhookUrl } = input
 
   if (!partner.id) throw new Error('buildPartnerAgreementEnvelope: partner.id is required')
   if (!partner.name?.trim()) throw new Error('buildPartnerAgreementEnvelope: partner.name is required')
   if (!partner.email?.trim()) throw new Error('buildPartnerAgreementEnvelope: partner.email is required')
   if (!w9DocumentBase64) throw new Error('buildPartnerAgreementEnvelope: w9DocumentBase64 is required')
+  // webhookUrl is required at the type level and asserted at runtime
+  // because a quietly-missing eventNotification would ship — the
+  // envelope sends, DocuSign silently has nowhere to deliver completion
+  // events, and the partner would stay 'pending' forever. HTTPS is
+  // enforced because DocuSign refuses to deliver to plain HTTP.
+  if (!webhookUrl?.trim()) throw new Error('buildPartnerAgreementEnvelope: webhookUrl is required')
+  if (!/^https:\/\//.test(webhookUrl)) {
+    throw new Error('buildPartnerAgreementEnvelope: webhookUrl must be https://')
+  }
 
   const shipoSigner = {
     recipientId: SHIPO_RECIPIENT_ID,
@@ -386,6 +409,28 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
 
     // A draft. Always. Reviewed before it reaches anybody.
     status: 'created',
+
+    // The webhook that promotes the partner on completion. Travels on
+    // the envelope rather than relying on an account-level Connect
+    // listener because (1) the account listener was the single config
+    // step most likely to be forgotten and (2) a per-envelope config
+    // means a test envelope cannot accidentally fire against the
+    // production endpoint — the webhook URL is whatever this build
+    // was handed. Events match the webhook route's switch: completed,
+    // declined, voided. `loggingEnabled: 'true'` keeps the delivery
+    // visible under Connect → Logs when debugging a stuck envelope.
+    // `requireAcknowledgment: 'true'` makes DocuSign retry on a 5xx —
+    // without it, a transient outage silently loses the completion.
+    eventNotification: {
+      url: webhookUrl,
+      loggingEnabled: 'true',
+      requireAcknowledgment: 'true',
+      envelopeEvents: [
+        { envelopeEventStatusCode: 'completed' },
+        { envelopeEventStatusCode: 'declined' },
+        { envelopeEventStatusCode: 'voided' },
+      ],
+    },
 
     customFields: {
       textCustomFields: [
