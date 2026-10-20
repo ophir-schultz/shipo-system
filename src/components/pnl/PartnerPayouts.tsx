@@ -54,10 +54,11 @@ interface ChargeRow {
 /**
  * Every charge behind these clients, for the internal drilldown.
  *
- * Read from order_charges directly rather than from partner_order_transactions,
- * because that view has no cost column — by design, since it is what the
- * partner's page reads. Internally we want the charge type and the cost, so
- * this goes to the base table.
+ * Read from order_charges directly rather than from any partner-facing view,
+ * because those have no cost column — by design, since they are what the
+ * partner's page reads. The partner path now reads partner_order_units, which
+ * has no money column at all. Internally we want the charge type and the cost,
+ * so this goes to the base table.
  *
  * Ordered newest-first so the cap can only ever hide the oldest charges, and
  * the caller says so when it bites.
@@ -261,11 +262,11 @@ function PartnerSection({ block }: { block: PartnerBlock }) {
           Older months list fewer charges than they contain; monthly totals are unaffected.
         </p>
       )}
-      {ledger.transactionsTruncated && (
+      {ledger.orderUnitsTruncated && (
         <p className="border-t border-gray-700 px-4 py-2 text-xs text-gray-500">
-          This partner has more than {ledger.transactions.length.toLocaleString('en-US')}{' '}
-          transactions, so the order count shown for older months falls back to the hand-recorded
-          figure or nothing at all, never to a count of the rows that survived the cap.
+          This partner has more than {ledger.orderUnits.length.toLocaleString('en-US')} orders, so
+          the order count shown for older months falls back to the hand-recorded figure or nothing
+          at all, never to a count of the rows that survived the cap.
         </p>
       )}
     </section>

@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import type { FbaInvoice, ReferredClient } from '@/lib/referrals'
+import { ORDER_UNITS_LIMIT, type OrderUnitsRow } from '@/lib/partner-activity'
 
 // Partner statement inputs, read from the ledger.
 //
@@ -44,46 +45,27 @@ export interface LedgerMonth {
   has_estimates: boolean
 }
 
-/** A row of public.partner_order_transactions. One order, one month. */
-export interface LedgerTransaction {
-  period_month: string
-  client_id: string
-  referral_partner_id: string | null
-
-  /** Null for account-level charges — storage and the like have no order. */
-  order_id: string | null
-  order_number: string | null
-
-  first_charge_date: string
-  last_charge_date: string
-
-  /**
-   * Reads LOW when amount_unknown_charges is non-zero: `sum` skips nulls, so
-   * an order with one unreported at-cost freight line totals only the lines we
-   * know. Never render this without checking the counter.
-   */
-  amount_billed: number | null
-  amount_unknown_charges: number
-  charge_rows: number
-}
-
-/**
- * Newest-first cap on the transaction read.
- *
- * PostgREST will happily return a thousand rows and silently stop, and a
- * statement that quietly omits its oldest transactions is worse than one that
- * says so. Ordering newest-first means truncation only ever hides the oldest,
- * and `transactionsTruncated` makes the screen admit it.
- */
-export const TRANSACTION_LIMIT = 1000
-
 export interface PartnerLedger {
   /** This partner's clients, from the clients table — the authoritative list. */
   clients: ReferredClient[]
 
   months: LedgerMonth[]
-  transactions: LedgerTransaction[]
-  transactionsTruncated: boolean
+
+  /**
+   * Per-order ACTIVITY — units, never money. See supabase/partner_order_units.sql.
+   *
+   * This replaced a read of partner_order_transactions, which carries
+   * amount_billed per order. `amount / quantity` on one order IS the rate card,
+   * and several referral partners are agencies who also resell fulfilment, so
+   * the shipped statement handed a competitor our pricing one order at a time.
+   *
+   * The amount is gone from the LOADER and not merely from the render, which is
+   * the only version of that fix that holds: a component cannot leak a figure
+   * this function never fetched. /pnl lost nothing — it reads order_charges
+   * directly for its own drilldown and only ever used this array's length.
+   */
+  orderUnits: OrderUnitsRow[]
+  orderUnitsTruncated: boolean
 
   /**
    * Ready for computeOwed() / buildStatement(). The ledger is authoritative
@@ -185,8 +167,8 @@ export async function loadPartnerLedger(partnerId: string): Promise<PartnerLedge
     return {
       clients,
       months: [],
-      transactions: [],
-      transactionsTruncated: false,
+      orderUnits: [],
+      orderUnitsTruncated: false,
       invoices: [],
       manualInvoices: [],
       provisionalKeys: new Set(),
@@ -194,19 +176,23 @@ export async function loadPartnerLedger(partnerId: string): Promise<PartnerLedge
     }
   }
 
-  const [monthsRes, txRes, invoicesRes] = await Promise.all([
+  const [monthsRes, unitsRes, invoicesRes] = await Promise.all([
     supabaseAdmin
       .from('partner_client_monthly')
       .select('*')
       .eq('referral_partner_id', partnerId)
       .order('period_month', { ascending: false }),
+    // Newest-first so that the cap below can only ever hide the OLDEST orders,
+    // which is the only truncation a reader can reason about. nullsFirst: false
+    // keeps undated orders off the top of the list — order_date is nullable and
+    // Postgres sorts nulls first on a descending sort by default.
     supabaseAdmin
-      .from('partner_order_transactions')
+      .from('partner_order_units')
       .select('*')
       .eq('referral_partner_id', partnerId)
       .order('period_month', { ascending: false })
-      .order('last_charge_date', { ascending: false })
-      .limit(TRANSACTION_LIMIT),
+      .order('order_date', { ascending: false, nullsFirst: false })
+      .limit(ORDER_UNITS_LIMIT),
     // fba_invoices carries no partner column, so this one filters by client.
     supabaseAdmin
       .from('fba_invoices')
@@ -223,7 +209,7 @@ export async function loadPartnerLedger(partnerId: string): Promise<PartnerLedge
   const failures = [
     clientsRes.error && `clients: ${clientsRes.error.message}`,
     monthsRes.error && `partner_client_monthly: ${monthsRes.error.message}`,
-    txRes.error && `partner_order_transactions: ${txRes.error.message}`,
+    unitsRes.error && `partner_order_units: ${unitsRes.error.message}`,
     invoicesRes.error && `fba_invoices: ${invoicesRes.error.message}`,
   ].filter(Boolean) as string[]
 
@@ -231,10 +217,10 @@ export async function loadPartnerLedger(partnerId: string): Promise<PartnerLedge
   if (readFailed) console.error('[partner-ledger] read failed:', readFailed)
 
   const months = (monthsRes.data ?? []) as LedgerMonth[]
-  const transactions = (txRes.data ?? []) as LedgerTransaction[]
+  const orderUnits = (unitsRes.data ?? []) as OrderUnitsRow[]
   const allInvoices = (invoicesRes.data ?? []) as FbaInvoice[]
 
-  const transactionsTruncated = transactions.length >= TRANSACTION_LIMIT
+  const orderUnitsTruncated = orderUnits.length >= ORDER_UNITS_LIMIT
 
   const provisionalKeys = new Set<string>()
   for (const m of months) if (!m.payable) provisionalKeys.add(monthKey(m.client_id, m.period_month))
@@ -253,13 +239,21 @@ export async function loadPartnerLedger(partnerId: string): Promise<PartnerLedge
     invoiceByKey.set(monthKey(inv.client_id, inv.period), inv)
   }
 
-  // Orders per (client, month) from the ledger. Rows with a null order_id are
-  // account-level charges — storage and the like — not orders, and counting
-  // them would inflate a figure the partner reads as "orders shipped".
+  // Orders per (client, month). One row of partner_order_units IS one order —
+  // the view groups by orders.id, not by order_number, precisely so that a
+  // number two integrations both used cannot collapse two orders into one.
+  //
+  // MONTH BASIS: these months come from order_date, while the money months
+  // below come from charge_date. An order placed on the 30th and charged on the
+  // 1st therefore lands in different months in the two sources. That matters
+  // only for the fallback on the next line — a volume figure used where no
+  // staff member ever recorded one — and the alternative was deleting the
+  // figure from every month that has no hand-typed count. The previous source
+  // for it was partner_order_transactions, which carries the per-order amount
+  // this loader must not fetch.
   const ledgerOrderCount = new Map<string, number>()
-  for (const t of transactions) {
-    if (t.order_id === null) continue
-    const key = monthKey(t.client_id, t.period_month)
+  for (const r of orderUnits) {
+    const key = monthKey(r.client_id, r.period_month)
     ledgerOrderCount.set(key, (ledgerOrderCount.get(key) ?? 0) + 1)
   }
 
@@ -275,11 +269,11 @@ export async function loadPartnerLedger(partnerId: string): Promise<PartnerLedge
     // already been shown invites a dispute we would lose. Fall back to the
     // ledger's count only where no figure was ever recorded.
     //
-    // Both are wrong if the transaction read was truncated — the count would
-    // be of the rows that survived the cap, not of the month. A month short of
-    // its orders is still better than a wrong count presented as fact, so the
+    // Both are wrong if the order read was truncated — the count would be of
+    // the rows that survived the cap, not of the month. A month short of its
+    // orders is still better than a wrong count presented as fact, so the
     // fallback is suppressed entirely in that case.
-    const ledgerOrders = transactionsTruncated ? 0 : (ledgerOrderCount.get(key) ?? 0)
+    const ledgerOrders = orderUnitsTruncated ? 0 : (ledgerOrderCount.get(key) ?? 0)
 
     invoices.push({
       id: manual?.id ?? ledgerInvoiceId(m.client_id, m.period_month),
@@ -321,8 +315,8 @@ export async function loadPartnerLedger(partnerId: string): Promise<PartnerLedge
   return {
     clients,
     months,
-    transactions,
-    transactionsTruncated,
+    orderUnits,
+    orderUnitsTruncated,
     invoices,
     manualInvoices: allInvoices,
     provisionalKeys,

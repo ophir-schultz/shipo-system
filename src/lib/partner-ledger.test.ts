@@ -9,13 +9,16 @@ vi.mock('@/lib/supabase', () => ({
   get supabaseAdmin() { return h.db.client },
 }))
 
+// A static import: partner-activity is pure and touches no supabase client, so
+// it does not need the hoisted mock the loader below does.
+import { ORDER_UNITS_LIMIT } from './partner-activity'
+
 const {
   loadPartnerLedger,
   reconcile,
   monthKey,
   ledgerInvoiceId,
   isLedgerInvoiceId,
-  TRANSACTION_LIMIT,
 } = await import('./partner-ledger')
 
 // This module decides what a partner is PAID. It is almost entirely database
@@ -26,7 +29,7 @@ const {
 //
 // The hazards these tests exist for, in order of how much they would cost:
 //
-//  1. A figure derived from a TRUNCATED read presented as fact. The transaction
+//  1. A figure derived from a TRUNCATED read presented as fact. The order-units
 //     query is capped, so an order count taken from it is a count of the rows
 //     that survived the cap. 0 is not the risk; a plausible wrong number is.
 //  2. A month whose costs are not fully priced being paid on. Unpriced costs
@@ -74,19 +77,26 @@ function monthRow(clientId: string, period: string, over: FakeRow = {}): FakeRow
   }
 }
 
-/** A partner_order_transactions row. `order_id: null` = an account-level charge. */
-function txRow(clientId: string, period: string, over: FakeRow = {}): FakeRow {
+/**
+ * A partner_order_units row — ONE ORDER, and no money in it anywhere.
+ *
+ * The default `order_number` is deliberately the same string on every row. The
+ * view groups by orders.id, not by order_number, because order_number is `not
+ * null` but NOT unique — it is whatever the source system called the order, and
+ * two integrations can hand us the same one. So a fixture of identical numbers
+ * is the realistic shape, and anything in the loader that counted DISTINCT
+ * numbers instead of rows would under-count the month here.
+ */
+function unitRow(clientId: string, period: string, over: FakeRow = {}): FakeRow {
   return {
     period_month: period,
     client_id: clientId,
+    client_name: `Client ${clientId}`,
     referral_partner_id: PARTNER,
-    order_id: `o-${Math.random().toString(36).slice(2)}`,
+    order_date: `${period.slice(0, 7)}-04`,
     order_number: 'SO-1001',
-    first_charge_date: `${period.slice(0, 7)}-03`,
-    last_charge_date: `${period.slice(0, 7)}-04`,
-    amount_billed: 120,
-    amount_unknown_charges: 0,
-    charge_rows: 3,
+    units: 12,
+    units_estimated: false,
     ...over,
   }
 }
@@ -112,7 +122,7 @@ function seed(tables: Record<string, FakeRow[]> = {}) {
   h.db = createFakeSupabase({
     clients: [],
     partner_client_monthly: [],
-    partner_order_transactions: [],
+    partner_order_units: [],
     fba_invoices: [],
     ...tables,
   })
@@ -179,12 +189,12 @@ describe('a failed read is never presented as an empty one', () => {
     // unreadable" are different jobs. Stopping at the first hides the second
     // until the first is fixed.
     seed({ clients: [clientRow('c-1')] })
-    fail(['partner_client_monthly', 'partner_order_transactions', 'fba_invoices'])
+    fail(['partner_client_monthly', 'partner_order_units', 'fba_invoices'])
 
     const led = await loadPartnerLedger(PARTNER)
 
     expect(led.readFailed).toContain('partner_client_monthly')
-    expect(led.readFailed).toContain('partner_order_transactions')
+    expect(led.readFailed).toContain('partner_order_units')
     expect(led.readFailed).toContain('fba_invoices')
   })
 
@@ -233,7 +243,7 @@ describe('every read is scoped to the partner', () => {
 
     await loadPartnerLedger(PARTNER)
 
-    for (const view of ['partner_client_monthly', 'partner_order_transactions']) {
+    for (const view of ['partner_client_monthly', 'partner_order_units']) {
       expect(callTo(view).filters, view).toEqual([
         { op: 'eq', column: 'referral_partner_id', value: PARTNER },
       ])
@@ -264,8 +274,8 @@ describe('every read is scoped to the partner', () => {
     expect(led.clients).toEqual([])
     expect(led.invoices).toEqual([])
     expect(led.months).toEqual([])
-    expect(led.transactions).toEqual([])
-    expect(led.transactionsTruncated).toBe(false)
+    expect(led.orderUnits).toEqual([])
+    expect(led.orderUnitsTruncated).toBe(false)
     expect(led.provisionalKeys.size).toBe(0)
 
     // One query total. An `.in('client_id', [])` matches nothing but still
@@ -284,37 +294,37 @@ describe('the reads are ordered and capped', () => {
     expect(callTo('partner_client_monthly').sort).toEqual([
       { column: 'period_month', ascending: false },
     ])
-    expect(callTo('partner_order_transactions').sort).toEqual([
+    expect(callTo('partner_order_units').sort).toEqual([
       { column: 'period_month', ascending: false },
-      { column: 'last_charge_date', ascending: false },
+      { column: 'order_date', ascending: false },
     ])
   })
 
-  it('caps the transaction read and says when it hit the cap', async () => {
+  it('caps the order-units read and says when it hit the cap', async () => {
     seed({
       clients: [clientRow('c-1')],
-      partner_order_transactions: Array.from({ length: TRANSACTION_LIMIT + 5 }, () =>
-        txRow('c-1', '2026-03-01'),
+      partner_order_units: Array.from({ length: ORDER_UNITS_LIMIT + 5 }, () =>
+        unitRow('c-1', '2026-03-01'),
       ),
     })
 
     const led = await loadPartnerLedger(PARTNER)
 
-    expect(callTo('partner_order_transactions').limit).toBe(TRANSACTION_LIMIT)
-    expect(led.transactions).toHaveLength(TRANSACTION_LIMIT)
-    expect(led.transactionsTruncated).toBe(true)
+    expect(callTo('partner_order_units').limit).toBe(ORDER_UNITS_LIMIT)
+    expect(led.orderUnits).toHaveLength(ORDER_UNITS_LIMIT)
+    expect(led.orderUnitsTruncated).toBe(true)
   })
 
   it('does not claim truncation one row short of the cap', async () => {
     seed({
       clients: [clientRow('c-1')],
-      partner_order_transactions: Array.from({ length: TRANSACTION_LIMIT - 1 }, () =>
-        txRow('c-1', '2026-03-01'),
+      partner_order_units: Array.from({ length: ORDER_UNITS_LIMIT - 1 }, () =>
+        unitRow('c-1', '2026-03-01'),
       ),
     })
 
     const led = await loadPartnerLedger(PARTNER)
-    expect(led.transactionsTruncated).toBe(false)
+    expect(led.orderUnitsTruncated).toBe(false)
   })
 })
 
@@ -326,7 +336,7 @@ describe('the merge: which source wins which field', () => {
       clients: [clientRow('c-1')],
       partner_client_monthly: [monthRow('c-1', PERIOD)],
       fba_invoices: [invoiceRow('c-1', PERIOD)],
-      partner_order_transactions: [],
+      partner_order_units: [],
     })
   })
 
@@ -373,7 +383,7 @@ describe('the merge: which source wins which field', () => {
     seed({
       clients: [clientRow('c-1')],
       partner_client_monthly: [monthRow('c-1', PERIOD)],
-      partner_order_transactions: [txRow('c-1', PERIOD), txRow('c-1', PERIOD)],
+      partner_order_units: [unitRow('c-1', PERIOD), unitRow('c-1', PERIOD)],
     })
 
     const led = await loadPartnerLedger(PARTNER)
@@ -411,7 +421,7 @@ describe('the order count', () => {
       clients: [clientRow('c-1')],
       partner_client_monthly: [monthRow('c-1', PERIOD)],
       fba_invoices: [invoiceRow('c-1', PERIOD, { orders_shipped: 40 })],
-      partner_order_transactions: [txRow('c-1', PERIOD), txRow('c-1', PERIOD)],
+      partner_order_units: [unitRow('c-1', PERIOD), unitRow('c-1', PERIOD)],
     })
 
     const led = await loadPartnerLedger(PARTNER)
@@ -422,39 +432,65 @@ describe('the order count', () => {
     seed({
       clients: [clientRow('c-1')],
       partner_client_monthly: [monthRow('c-1', PERIOD)],
-      partner_order_transactions: [txRow('c-1', PERIOD), txRow('c-1', PERIOD)],
+      partner_order_units: [unitRow('c-1', PERIOD), unitRow('c-1', PERIOD)],
     })
 
     const led = await loadPartnerLedger(PARTNER)
     expect(led.invoices[0].orders_shipped).toBe(2)
   })
 
-  it('does not count account-level charges as orders', async () => {
-    // Storage and the like have no order. Counting them inflates a figure the
-    // partner reads as "orders shipped" — and on the Founding Client offer an
-    // order count is a QUALIFICATION bar, so inflating it can mint a bonus.
+  it('counts two orders that share an order number as two orders', async () => {
+    // The replacement hazard for this source. partner_order_transactions had
+    // account-level rows with no order at all, and the risk there was counting
+    // them and OVER-stating the figure. partner_order_units has no such rows —
+    // every row is one order, because the view groups by orders.id.
+    //
+    // What it does have is repeated order NUMBERS: the column is `not null` and
+    // not unique, and two integrations can supply the same string. So the risk
+    // reverses. A count of distinct numbers would report two real orders as one,
+    // under-stating a figure the partner reads as "orders shipped" — and an
+    // order count is a QUALIFICATION bar on the Founding Client offer, so
+    // under-stating it can withhold a bonus that was earned.
     seed({
       clients: [clientRow('c-1')],
       partner_client_monthly: [monthRow('c-1', PERIOD)],
-      partner_order_transactions: [
-        txRow('c-1', PERIOD),
-        txRow('c-1', PERIOD, { order_id: null, order_number: null }),
-        txRow('c-1', PERIOD, { order_id: null, order_number: null }),
+      partner_order_units: [
+        unitRow('c-1', PERIOD, { order_number: 'SO-777' }),
+        unitRow('c-1', PERIOD, { order_number: 'SO-777' }),
+        unitRow('c-1', PERIOD, { order_number: 'SO-778' }),
       ],
     })
 
     const led = await loadPartnerLedger(PARTNER)
-    expect(led.invoices[0].orders_shipped).toBe(1)
+    expect(led.invoices[0].orders_shipped).toBe(3)
+  })
+
+  it('counts an order whose unit count is unknown', async () => {
+    // `units` is null when every line on the order is unquantified, and `sum`
+    // skips nulls so that reads low rather than erroring. The ORDER still
+    // happened. A count that skipped it would under-state the month for a
+    // reason that has nothing to do with whether the client shipped.
+    seed({
+      clients: [clientRow('c-1')],
+      partner_client_monthly: [monthRow('c-1', PERIOD)],
+      partner_order_units: [
+        unitRow('c-1', PERIOD),
+        unitRow('c-1', PERIOD, { units: null }),
+      ],
+    })
+
+    const led = await loadPartnerLedger(PARTNER)
+    expect(led.invoices[0].orders_shipped).toBe(2)
   })
 
   it('counts each month separately', async () => {
     seed({
       clients: [clientRow('c-1')],
       partner_client_monthly: [monthRow('c-1', '2026-03-01'), monthRow('c-1', '2026-04-01')],
-      partner_order_transactions: [
-        txRow('c-1', '2026-03-01'),
-        txRow('c-1', '2026-04-01'),
-        txRow('c-1', '2026-04-01'),
+      partner_order_units: [
+        unitRow('c-1', '2026-03-01'),
+        unitRow('c-1', '2026-04-01'),
+        unitRow('c-1', '2026-04-01'),
       ],
     })
 
@@ -468,11 +504,11 @@ describe('the order count', () => {
     seed({
       clients: [clientRow('c-1'), clientRow('c-2')],
       partner_client_monthly: [monthRow('c-1', PERIOD), monthRow('c-2', PERIOD)],
-      partner_order_transactions: [
-        txRow('c-1', PERIOD),
-        txRow('c-2', PERIOD),
-        txRow('c-2', PERIOD),
-        txRow('c-2', PERIOD),
+      partner_order_units: [
+        unitRow('c-1', PERIOD),
+        unitRow('c-2', PERIOD),
+        unitRow('c-2', PERIOD),
+        unitRow('c-2', PERIOD),
       ],
     })
 
@@ -487,16 +523,16 @@ describe('the order count', () => {
     // count of what fit under the cap — a plausible wrong number, which is
     // worse than an absent one. A recorded figure is still honoured, because
     // it does not come from the truncated read.
-    const many = Array.from({ length: TRANSACTION_LIMIT }, () => txRow('c-1', PERIOD))
+    const many = Array.from({ length: ORDER_UNITS_LIMIT }, () => unitRow('c-1', PERIOD))
     seed({
       clients: [clientRow('c-1'), clientRow('c-2')],
       partner_client_monthly: [monthRow('c-1', PERIOD), monthRow('c-2', PERIOD)],
       fba_invoices: [invoiceRow('c-2', PERIOD, { orders_shipped: 40 })],
-      partner_order_transactions: [...many, txRow('c-2', PERIOD)],
+      partner_order_units: [...many, unitRow('c-2', PERIOD)],
     })
 
     const led = await loadPartnerLedger(PARTNER)
-    expect(led.transactionsTruncated).toBe(true)
+    expect(led.orderUnitsTruncated).toBe(true)
 
     const by = new Map(led.invoices.map((i) => [i.client_id, i.orders_shipped]))
     expect(by.get('c-1')).toBeNull()
@@ -507,7 +543,7 @@ describe('the order count', () => {
     seed({
       clients: [clientRow('c-1')],
       partner_client_monthly: [monthRow('c-1', PERIOD)],
-      partner_order_transactions: [],
+      partner_order_units: [],
     })
 
     const led = await loadPartnerLedger(PARTNER)
@@ -675,8 +711,8 @@ describe('the loader survives a failed read', () => {
 
     expect(led.clients.map((c) => c.id)).toEqual(['c-1'])
     expect(led.months).toEqual([])
-    expect(led.transactions).toEqual([])
-    expect(led.transactionsTruncated).toBe(false)
+    expect(led.orderUnits).toEqual([])
+    expect(led.orderUnitsTruncated).toBe(false)
   })
 
   it('still shows the already-paid record when only the ledger views fail', async () => {
@@ -714,15 +750,15 @@ describe('the loader survives a failed read', () => {
 // the interface, and assert they are the same set.
 // ---------------------------------------------------------------------------
 describe('the ledger views match the interfaces that read them', () => {
-  const sql = readFileSync(join(process.cwd(), 'supabase', 'partner_ledger.sql'), 'utf8')
-  const ts = readFileSync(join(process.cwd(), 'src', 'lib', 'partner-ledger.ts'), 'utf8')
+  const read = (...parts: string[]) => readFileSync(join(process.cwd(), ...parts), 'utf8')
 
   /** Output column names of `create view public.<name>`, from its final select. */
-  function viewColumns(view: string): string[] {
+  function viewColumns(sqlFile: string, view: string): string[] {
+    const sql = read('supabase', sqlFile)
     const m = sql.match(
       new RegExp(`create view public\\.${view}\\s+as([\\s\\S]*?)(?=\\ndrop view|\\nrevoke|\\ncreate view)`),
     )
-    expect(m, `cannot find "create view public.${view}" in supabase/partner_ledger.sql`).not.toBeNull()
+    expect(m, `cannot find "create view public.${view}" in supabase/${sqlFile}`).not.toBeNull()
     const selects = [...m![1].matchAll(/select\s+([\s\S]*?)\n\s*from\s/g)]
     expect(selects.length, `${view}: no select found in the view body`).toBeGreaterThan(0)
 
@@ -737,22 +773,28 @@ describe('the ledger views match the interfaces that read them', () => {
   }
 
   /** Field names declared on `export interface <name>`. */
-  function interfaceFields(name: string): string[] {
+  function interfaceFields(tsFile: string, name: string): string[] {
+    const ts = read('src', 'lib', tsFile)
     const m = ts.match(new RegExp(`export interface ${name} \\{([\\s\\S]*?)\\n\\}`))
-    expect(m, `cannot find "export interface ${name}" in src/lib/partner-ledger.ts`).not.toBeNull()
+    expect(m, `cannot find "export interface ${name}" in src/lib/${tsFile}`).not.toBeNull()
     const body = m![1]
       .replace(/\/\*\*[\s\S]*?\*\//g, '') // doc comments, which contain prose
       .replace(/\/\/.*$/gm, '')
     return [...body.matchAll(/^\s{2}([a-z_][a-z0-9_]*)\??\s*:/gim)].map((x) => x[1])
   }
 
-  for (const [view, iface] of [
-    ['partner_client_monthly', 'LedgerMonth'],
-    ['partner_order_transactions', 'LedgerTransaction'],
+  // Each pair carries its own two files. The second pair spans two modules
+  // because the view and the interface that reads it were added together in a
+  // later change and live beside the rest of that change — but the contract is
+  // the same contract, and the whole value of this block is that it is the one
+  // check neither file can satisfy alone.
+  for (const [sqlFile, view, tsFile, iface] of [
+    ['partner_ledger.sql', 'partner_client_monthly', 'partner-ledger.ts', 'LedgerMonth'],
+    ['partner_order_units.sql', 'partner_order_units', 'partner-activity.ts', 'OrderUnitsRow'],
   ] as const) {
     it(`${view} and ${iface} declare the same columns`, () => {
-      const cols = viewColumns(view)
-      const fields = interfaceFields(iface)
+      const cols = viewColumns(sqlFile, view)
+      const fields = interfaceFields(tsFile, iface)
 
       // Guard on the guard. Either parser returning nothing makes the set
       // comparison below vacuously true, which is the one way this check can

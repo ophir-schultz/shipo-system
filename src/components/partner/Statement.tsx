@@ -21,12 +21,15 @@ import { BONUS_STATE_TEXT, bonusStateFor, type BonusState } from '@/lib/partner-
 // form is held.
 import { agreementLabel } from '@/lib/partner-access'
 import { holdsW9, w9Label } from '@/lib/partner-w9'
+import { loadPartnerLedger } from '@/lib/partner-ledger'
 import {
-  loadPartnerLedger,
-  monthKey,
-  TRANSACTION_LIMIT,
-  type LedgerTransaction,
-} from '@/lib/partner-ledger'
+  ORDER_UNITS_LIMIT,
+  fbaActivity,
+  fbaUnitsLabel,
+  groupOrderUnits,
+  type ActivityClientMonth,
+  type FbaActivityRow,
+} from '@/lib/partner-activity'
 import { CLAIM_PARTNER_TEXT, claimPartnerState } from '@/lib/partner-claims'
 import SignOutButton from '@/components/partner/SignOutButton'
 import ClaimForm from '@/components/partner/ClaimForm'
@@ -37,14 +40,19 @@ import W9Prompt from '@/components/partner/W9Prompt'
 // computed here and only the rendered numbers reach the browser.
 //
 // What a partner may see is fixed by Decision 1 of
-// docs/superpowers/specs/2026-10-11-partner-ledger-statements-design.md:
-// summary totals, the four cost CATEGORIES at month level, and a
-// transaction list carrying only date, order number and amount billed.
+// docs/superpowers/specs/2026-10-11-partner-ledger-statements-design.md --
+// summary totals and the four cost CATEGORIES at month level -- as
+// AMENDED by finding 2 of the 2026-10-20 dashboard-v2 spec (§4.1), which
+// took the per-order AMOUNT off this screen entirely.
 //
 // Never a rate card, never per-unit prices, never per-order cost.
-// `amount / quantity` on a line item IS the rate card, and a partner who
-// is also an agency can read it straight off. The transaction view has
-// no cost column at all, so that is enforced in SQL rather than here.
+// `amount / quantity` on a single line item IS the rate card, and a
+// partner who is also an agency reads it straight off. So the per-order
+// list now carries a UNIT COUNT and no money: the figure is not in the
+// view the partner path reads (public.partner_order_units has no amount
+// column) and not in what loadPartnerLedger fetches, which means no
+// future edit to this component can leak it back. Month-level money is
+// unaffected and still renders below.
 //
 // This used to cite "§4.6 of the partner agreement". There is no such
 // section and no executed agreement — do not re-cite one until there is.
@@ -170,20 +178,40 @@ export default async function Statement({ partner }: { partner: StatementPartner
     )
   }
 
-  // Transactions keyed the way the statement is: 'clientId:YYYY-MM'.
-  // StatementMonth.period is a month LABEL, not the ledger's first-of-month
-  // date, so the key has to be built from a slice rather than reusing
-  // monthKey() on period_month directly.
+  // ---- Activity (§4.1, §4.2) ----
   //
-  // Only built when the monthly sections will be rendered — they are the
-  // only reader, and they do not exist on the withheld path.
-  const txByClientMonth = new Map<string, LedgerTransaction[]>()
-  for (const t of showMoney ? ledger.transactions : []) {
-    const key = monthKey(t.client_id, t.period_month.slice(0, 7))
-    const list = txByClientMonth.get(key)
-    if (list) list.push(t)
-    else txByClientMonth.set(key, [t])
-  }
+  // NOT gated on showMoney, and that is deliberate. Units are not money. The
+  // W-9 gate withholds what we would PAY him; it has never withheld the
+  // roster, which renders on the withheld path with its money columns
+  // suppressed. A partner waiting on a tax form can still see that his clients
+  // are shipping, which is the strongest reason to go and file it.
+  //
+  // These are their own sections rather than a drilldown inside the money
+  // months, because the two cannot share a month. partner_client_monthly groups
+  // by charge_date and partner_order_units groups by order date, so an order
+  // placed on the 30th and charged on the 1st belongs to different months in
+  // each — nesting would file it under the wrong one. §4.2 also calls for the
+  // FBA list to be "its own labelled section", and a client with orders but no
+  // charges yet has no money month to nest under at all.
+  const activity = groupOrderUnits(ledger.orderUnits)
+
+  // manualInvoices, NOT invoices. The merge sets `units_shipped: manual?.
+  // units_shipped ?? null` on every ledger month, so reading the merged array
+  // would manufacture a "not recorded yet" FBA row for every month of every
+  // purely DTC client. Only a hand-typed row means FBA prep happened.
+  // `?? null`, never `?? 0`. FbaInvoice.units_shipped is optional, so the field
+  // arrives as `undefined` when the column is absent and as `null` when it is
+  // present and nobody typed a figure. Both mean "not recorded yet", which is
+  // what fbaUnitsLabel renders. A 0 would tell the partner, on his own screen,
+  // that his client shipped nothing that month.
+  const fba = fbaActivity(
+    ledger.manualInvoices.map((i) => ({
+      client_id: i.client_id,
+      period: i.period,
+      units_shipped: i.units_shipped ?? null,
+    })),
+    clients,
+  )
 
   // `clients` here is ONE partner's clients, and that is now safe to
   // pass: every figure computeOwed derives is per-client, so a slice
@@ -390,7 +418,6 @@ export default async function Statement({ partner }: { partner: StatementPartner
                       emphasis
                     />
                   </dl>
-                  <Transactions rows={txByClientMonth.get(monthKey(c.clientId, m.period))} />
                 </div>
               ))}
 
@@ -429,16 +456,11 @@ export default async function Statement({ partner }: { partner: StatementPartner
         ))
       )}
 
-      {/* A statement that quietly dropped its oldest transactions is worse
-          than one that says so. The read is capped and ordered newest
-          first, so only the oldest can ever be missing. */}
-      {s !== null && ledger.transactionsTruncated && (
-        <p className="text-xs text-gray-500">
-          Transaction lists show the most recent {fmtInt(TRANSACTION_LIMIT)} orders. Older months may
-          list fewer transactions than they contain — the monthly totals above are unaffected. Ask us
-          and we will send the full history.
-        </p>
-      )}
+      {/* ---- Order activity (§4.1) ---- */}
+      <OrderActivity groups={activity} truncated={ledger.orderUnitsTruncated} />
+
+      {/* ---- FBA prep activity (§4.2) ---- */}
+      <FbaPrepActivity rows={fba} />
 
       {/* ---- Your account (§4.4) ---- */}
       <AccountState partner={partner} />
@@ -798,54 +820,155 @@ function Claims({ rows, readFailed }: { rows: PartnerClaim[]; readFailed: boolea
 }
 
 /**
- * The per-order list behind one client-month.
+ * What his clients shipped, per order, in UNITS.
  *
- * Date, order number, amount billed. Nothing else, ever — see Decision 1
- * of the design doc. `amount / quantity` on a line item IS the rate card,
- * and the view this reads from has no cost column at all, so there is no
- * per-order cost here to leak even by accident.
+ * This replaced a per-order table whose third column was the amount billed.
+ * `amount / quantity` on a single order IS the rate card, and several referral
+ * partners are agencies who also resell fulfilment — the shipped screen handed
+ * a competitor our pricing one order at a time. §4.1 removes it, and removes it
+ * from the view rather than from this table, so there is no money column here
+ * to restore by accident.
+ *
+ * Nothing in this component is a money surface, which is why it renders on the
+ * W-9-withheld path too.
  */
-function Transactions({ rows }: { rows?: LedgerTransaction[] }) {
-  if (!rows || rows.length === 0) return null
-
-  const ordered = rows.slice().sort((a, b) => b.first_charge_date.localeCompare(a.first_charge_date))
+function OrderActivity({
+  groups,
+  truncated,
+}: {
+  groups: ActivityClientMonth[]
+  truncated: boolean
+}) {
+  if (groups.length === 0) return null
 
   return (
-    <details className="mt-3 group">
-      {/* Navy + a permanent underline, not the action blue: this sits on a
-          --brand-surface card, where the blue is 4.22:1 at 11px. The
-          underline carries the affordance the colour used to. */}
-      <summary className="text-xs text-[var(--brand-ink)] underline cursor-pointer select-none">
-        {ordered.length === 1 ? '1 transaction' : `${ordered.length} transactions`}
-      </summary>
-      <div className="mt-2 rounded-lg border border-gray-200 overflow-hidden">
-        <table className="w-full text-xs">
+    <section className="space-y-3">
+      <div>
+        <h2 className="font-semibold text-[var(--brand-ink)]">Order activity</h2>
+        <p className="text-sm text-gray-600 mt-1">
+          Orders your clients shipped, by the month the order was placed. Volume only — this section
+          carries no billing figures, and the months here are order months, so they will not always
+          line up with the billing months above.
+        </p>
+      </div>
+
+      {groups.map((g) => (
+        <details key={`${g.clientId}:${g.periodMonth}`} className="rounded-xl border border-gray-200 bg-[var(--brand-surface)]">
+          <summary className="cursor-pointer select-none px-5 py-3 text-sm flex items-center justify-between gap-4">
+            <span className="font-medium text-[var(--brand-ink)]">
+              {g.clientName}
+              <span className="text-gray-500 font-normal"> · {prettyMonth(g.periodMonth)}</span>
+            </span>
+            <span className="text-gray-600 tabular-nums">
+              {g.orders.length === 1 ? '1 order' : `${fmtInt(g.orders.length)} orders`}
+              {' · '}
+              {/* NEVER the total without the counter beside it. `sum` skips
+                  nulls, so a month with an unquantified order reads LOW, and a
+                  low number presented as a total is worse than no number. */}
+              {fbaUnitsLabel(g.totalUnits)} {g.totalUnits === 1 ? 'unit' : 'units'}
+              {g.unitsEstimated && <span className="text-gray-500"> (some not yet picked)</span>}
+            </span>
+          </summary>
+
+          {g.unitsUnknownOrders > 0 && (
+            <p className="px-5 pb-2 text-xs text-gray-500">
+              {g.unitsUnknownOrders === 1
+                ? '1 order in this month has no unit count recorded, so it is not in the total above.'
+                : `${fmtInt(g.unitsUnknownOrders)} orders in this month have no unit count recorded, so they are not in the total above.`}
+            </p>
+          )}
+
+          <div className="mx-5 mb-4 rounded-lg border border-gray-200 overflow-hidden">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-white text-gray-500">
+                  <th className="text-left font-medium px-3 py-1.5">Date</th>
+                  <th className="text-left font-medium px-3 py-1.5">Order</th>
+                  <th className="text-right font-medium px-3 py-1.5">Units</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {g.orders.map((o, i) => (
+                  <tr key={`${o.order_number ?? 'order'}:${o.order_date ?? 'undated'}:${i}`}>
+                    <td className="px-3 py-1.5 text-gray-600 tabular-nums">
+                      {o.order_date ? (
+                        prettyDay(o.order_date)
+                      ) : (
+                        <span className="text-gray-500">no date recorded</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-gray-700">{o.order_number ?? '—'}</td>
+                    <td className="px-3 py-1.5 text-right text-gray-700 tabular-nums">
+                      {/* fbaUnitsLabel, not `?? 0`: null here means nobody can
+                          say, and a 0 would tell him the order shipped empty. */}
+                      {fbaUnitsLabel(o.units)}
+                      {o.units_estimated === true && (
+                        <span className="text-gray-500"> ordered</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ))}
+
+      {/* A list that quietly dropped its oldest orders is worse than one that
+          says so. The read is capped and ordered newest first, so only the
+          oldest can ever be missing. */}
+      {truncated && (
+        <p className="text-xs text-gray-500">
+          This list shows the most recent {fmtInt(ORDER_UNITS_LIMIT)} orders. Older months may list
+          fewer orders than they contain — the monthly billing figures above are unaffected. Ask us
+          and we will send the full history.
+        </p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * FBA prep months.
+ *
+ * §4.2: per-unit, not order-shaped, and hand-typed on /referrals — so a null
+ * is "nobody has recorded it yet" and must never render as a 0. FbaInvoice
+ * keeps the two apart on purpose and this is the screen where collapsing them
+ * would tell a partner his month was empty.
+ */
+function FbaPrepActivity({ rows }: { rows: FbaActivityRow[] }) {
+  if (rows.length === 0) return null
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="font-semibold text-[var(--brand-ink)]">FBA prep activity</h2>
+        <p className="text-sm text-gray-600 mt-1">
+          FBA prep is billed per unit rather than per order, so there is nothing order-by-order to
+          show here — just the units prepped in each month. These figures are recorded by our team,
+          so a recent month may not be filled in yet.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
           <thead>
-            <tr className="bg-white text-gray-500">
-              <th className="text-left font-medium px-3 py-1.5">Date</th>
-              <th className="text-left font-medium px-3 py-1.5">Order</th>
-              <th className="text-right font-medium px-3 py-1.5">Billed</th>
+            <tr className="bg-[var(--brand-surface)] text-gray-500">
+              <th className="text-left font-medium px-5 py-2">Month</th>
+              <th className="text-left font-medium px-5 py-2">Client</th>
+              <th className="text-right font-medium px-5 py-2">Units prepped</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
-            {ordered.map((t) => (
-              <tr key={t.order_id ?? `account:${t.period_month}`}>
-                <td className="px-3 py-1.5 text-gray-600 tabular-nums">{t.first_charge_date}</td>
-                <td className="px-3 py-1.5 text-gray-700">
-                  {/* order_id is nullable in order_charges: storage and
-                      other account-level charges have a client and a month
-                      but no order. Label them rather than print a blank. */}
-                  {t.order_number ?? (
-                    <span className="text-gray-500">Storage and account charges</span>
-                  )}
-                </td>
-                <td className="px-3 py-1.5 text-right text-gray-700 tabular-nums">
-                  {/* amount_billed reads LOW when a line is unpriced — sum()
-                      skips nulls — so a partial total is not shown as fact. */}
-                  {t.amount_unknown_charges > 0 ? (
-                    <span className="text-gray-500">not priced yet</span>
+          <tbody className="divide-y divide-gray-200 bg-white">
+            {rows.map((r) => (
+              <tr key={`${r.clientId}:${r.period}`}>
+                <td className="px-5 py-2 text-gray-600 tabular-nums">{prettyMonth(r.period)}</td>
+                <td className="px-5 py-2 text-[var(--brand-ink)]">{r.clientName}</td>
+                <td className="px-5 py-2 text-right tabular-nums">
+                  {r.unitsShipped === null ? (
+                    <span className="text-gray-500">not recorded yet</span>
                   ) : (
-                    fmt(Number(t.amount_billed ?? 0))
+                    <span className="text-gray-700">{fbaUnitsLabel(r.unitsShipped)}</span>
                   )}
                 </td>
               </tr>
@@ -853,7 +976,7 @@ function Transactions({ rows }: { rows?: LedgerTransaction[] }) {
           </tbody>
         </table>
       </div>
-    </details>
+    </section>
   )
 }
 
