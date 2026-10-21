@@ -3,6 +3,13 @@ import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import AdjustmentsClient from '@/components/adjustments/AdjustmentsClient'
 
+// Read at REQUEST time, never at build time. Without this the App Router
+// prerenders this page during `next build`, which on this page is the worst
+// of the three: unrecovered carrier charges baked at deploy time means the
+// "pending" figure stops moving, and a frozen "Pending 0" reads as an
+// all-clear. See src/app/dynamic-rendering.test.ts.
+export const dynamic = 'force-dynamic'
+
 // Adjustments are carrier charges that landed AFTER the shipment was billed --
 // reweighs, DIM corrections, address corrections -- so this page is the only
 // record of money the business is owed and has not yet asked for. "Pending 0 ·

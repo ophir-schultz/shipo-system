@@ -6,6 +6,13 @@ import { billedOz, weightBracket } from '@/lib/billing/weight-bracket'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 
+// Read at REQUEST time, never at build time. Without this the App Router
+// prerenders this page during `next build`. The 2026-10-21 preview build
+// never reached this page — it exited at /clients — so this one was a
+// landmine behind the two that were reported.
+// See src/app/dynamic-rendering.test.ts.
+export const dynamic = 'force-dynamic'
+
 // This page answers "which shipments are we losing money on". An unpriced
 // shipment is NOT on it and must not be: `is_loss` is false when profit is
 // UNKNOWN, deliberately, because a shipment of unknown profit is not evidence

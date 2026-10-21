@@ -4,6 +4,13 @@ import { read, loaded } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { nameInitial } from '@/lib/display/initial'
 
+// Read at REQUEST time, never at build time. Without this the App Router
+// prerenders this page during `next build`: the client roster is baked into
+// the deploy and then served frozen until the next one, and on a preview
+// deployment (no Supabase env scoped) the build fails outright.
+// See src/app/dynamic-rendering.test.ts.
+export const dynamic = 'force-dynamic'
+
 // The empty state on this page does not merely fail to inform you, it gives you
 // an instruction:
 //
