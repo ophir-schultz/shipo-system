@@ -85,6 +85,17 @@ type Attributed = { client_id: string | null }
 type ClientRef = Embed<{ name: string | null }>
 
 type ReportLossShipment = Attributed & {
+  // The row's React key, and that is the whole reason it is selected.
+  // `order_number` is NOT unique -- supabase/ledger_03_charges.sql:8 states it
+  // outright: multi-package orders, reships and return labels share one. Both
+  // tables below were keyed by it, so React reconciled two distinct shipments
+  // as one row and a re-render could paint the second one's money into the
+  // first one's cells.
+  //
+  // Optional, because `id` being absent means a `.select()` that was not
+  // updated rather than a row with no primary key, and the `??` at both render
+  // sites keeps the table rendering instead of crashing on an undefined key.
+  id?: string | null
   order_number: string
   clients: ClientRef
   ship_date: string | null
@@ -987,22 +998,38 @@ function StatementNotes({ notes }: { notes: string[] }) {
 function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShipment>) {
   const period = filterRows(rows, clientId, dateFrom, dateTo, 'ship_date')
   const filtered = period.rows
-  const paidSum = sumPriced(filtered, 'actual_cost')
-  const chargedSum = sumPriced(filtered, 'client_rate')
-  const plSum = sumPriced(filtered, 'profit_loss')
-  const totalPaid = paidSum.total
-  const totalCharged = chargedSum.total
-  const totalPL = plSum.total
+  // THE SAME DEFECT THE DASHBOARD AND /losses HAD, in a third place. This was
+  // three independent sums -- sumPriced(actual_cost), sumPriced(client_rate),
+  // sumPriced(profit_loss) -- rendered side by side as Paid / Charged / Net
+  // P/L. Each withheld its own unreadable rows, so the three figures described
+  // three different sets of shipments and Charged minus Paid was not Net P/L;
+  // worse, Net P/L came off the STORED column, so this panel could print a
+  // different profit for the same period than the dashboard did for it.
+  //
+  // One `reconcile` over one row set, with the margin derived by subtraction,
+  // is the same call the dashboard and /losses make. The three figures now
+  // agree with each other to the cent and with every other screen.
+  const margin = reconcile(filtered)
+  const known = reconciledOrUnknown(margin)
+  const fig = (n: number | null) => (n === null ? UNPRICED_DASH : `$${n.toFixed(2)}`)
 
-  // Each stat carries the count its own total left out, rather than one note
-  // for the panel: "We Paid" and "Charged" can be short by different rows, and
-  // a single number would not say which figure to distrust.
+  // One note across the three money figures, because there is now one row set
+  // behind all three -- the previous per-figure notes existed precisely because
+  // each sum withheld a different set, which is the thing that was wrong.
+  // `exclusionNote` names the urgent bucket first.
+  const note = exclusionNote(margin)
   const stats: Array<[string, string | number, string]> = [
     ['Shipments', filtered.length, omissionNote(period)],
-    ['We Paid', `$${totalPaid.toFixed(2)}`, unpricedNote(paidSum.unpriced)],
-    ['Charged', `$${totalCharged.toFixed(2)}`, unpricedNote(chargedSum.unpriced)],
-    ['Net P/L', `${totalPL >= 0 ? '+' : ''}$${totalPL.toFixed(2)}`, unpricedNote(plSum.unpriced)],
+    ['We Paid', fig(known.cost), note],
+    ['Charged', fig(known.revenue), note],
+    ['Net P/L', known.profit === null
+      ? UNPRICED_DASH
+      : `${known.profit >= 0 ? '+' : ''}$${known.profit.toFixed(2)}`, note],
   ]
+  // Hoisted out of the render below, which coloured on `totalPL >= 0` -- and
+  // `null >= 0` is TRUE in JavaScript, so an unmeasurable period would have
+  // been painted green.
+  const plPositive = known.profit !== null && known.profit >= 0
 
   return (
     <>
@@ -1010,7 +1037,7 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
         {stats.map(([l, v, note]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-gray-400">{l}</p>
-            <p className={`font-bold text-lg ${l === 'Net P/L' ? (totalPL >= 0 ? 'text-green-400' : 'text-red-400') : 'text-white'}`}>{v}</p>
+            <p className={`font-bold text-lg ${l === 'Net P/L' ? (known.profit === null ? 'text-gray-400' : plPositive ? 'text-green-400' : 'text-red-400') : 'text-white'}`}>{v}</p>
             {note && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {note}</p>}
           </div>
         ))}
@@ -1031,7 +1058,7 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
           </thead>
           <tbody>
             {filtered.length === 0 ? <tr><td colSpan={8}><Empty msg="No shipments in this range" /></td></tr> : filtered.map(s => (
-              <tr key={s.order_number} className={`border-b border-gray-700/40 hover:bg-gray-700/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
+              <tr key={s.id ?? s.order_number} className={`border-b border-gray-700/40 hover:bg-gray-700/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
                 <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? <span className="text-gray-500">—</span>}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
@@ -1098,7 +1125,7 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
           </thead>
           <tbody>
             {filtered.length === 0 ? <tr><td colSpan={7}><Empty msg="✓ No loss shipments in this range" /></td></tr> : filtered.map(s => (
-              <tr key={s.order_number} className="border-b border-gray-700/40 hover:bg-red-950/20">
+              <tr key={s.id ?? s.order_number} className="border-b border-gray-700/40 hover:bg-red-950/20">
                 <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>

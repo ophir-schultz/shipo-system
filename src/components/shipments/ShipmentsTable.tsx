@@ -2,8 +2,9 @@
 
 import { useState, useMemo } from 'react'
 import {
-  formatPrice, formatSignedPrice, isPriced, sumPriced, unpricedNote,
+  formatPrice, formatSignedPrice, isPriced, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
+import { exclusionNote, reconcile, reconciledOrUnknown } from '@/lib/billing/profit-rollup'
 
 // The rate and profit columns are nullable: recalculate.ts writes null when
 // the rate card does not cover a shipment. `?? 0` printed those as "$0.00",
@@ -86,12 +87,32 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
     })
   }, [shipments, dateFrom, dateTo, clientId, carrier, lossOnly, search])
 
-  const paidSum = sumPriced(filtered, 'actual_cost')
-  const chargedSum = sumPriced(filtered, 'client_rate')
-  const plSum = sumPriced(filtered, 'profit_loss')
-  const totalPaid = paidSum.total
-  const totalCharged = chargedSum.total
-  const totalPL = plSum.total
+  // THE SAME DEFECT THE DASHBOARD, /losses AND THE REPORTS TAB HAD. These were
+  // three independent sums -- sumPriced(actual_cost), sumPriced(client_rate),
+  // sumPriced(profit_loss) -- shown as three cards in a row and again as three
+  // cells in one footer. Each withheld its own unreadable rows, so the three
+  // figures described three different sets of shipments and Charged minus Paid
+  // was not Net P/L. Net P/L also came off the STORED profit_loss column, so
+  // this screen could print a different profit for a period than the dashboard
+  // printed for the same one.
+  //
+  // One `reconcile` over one row set, margin derived by subtraction -- the same
+  // call every other money screen now makes. `null` where nothing could be
+  // reconciled, because a period whose margin is entirely unmeasured is not
+  // +$0.00 in green.
+  const margin = reconcile(filtered)
+  const known = reconciledOrUnknown(margin)
+  const fig = (n: number | null) => (n === null ? UNPRICED_DASH : `$${n.toFixed(2)}`)
+  // `known.profit >= 0` would be TRUE for null -- `null >= 0` is true in
+  // JavaScript -- which would paint an unmeasurable period green.
+  const plPositive = known.profit !== null && known.profit >= 0
+  const plFigure = known.profit === null
+    ? UNPRICED_DASH
+    : `${plPositive ? '+' : ''}$${known.profit.toFixed(2)}`
+  // One note for all three figures now that one row set is behind all three.
+  // The per-figure notes existed because each sum withheld a different set,
+  // which was the defect, not the remedy.
+  const marginNote = exclusionNote(margin)
   const lossCount = filtered.filter(s => s.is_loss).length
 
   return (
@@ -168,19 +189,28 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
         </div>
         <div className="bg-gray-800 rounded-xl px-4 py-3">
           <p className="text-xs text-gray-400">We Paid (Carrier)</p>
-          <p className="text-xl font-bold text-white">${totalPaid.toFixed(2)}</p>
+          <p className="text-xl font-bold text-white">{fig(known.cost)}</p>
         </div>
         <div className="bg-gray-800 rounded-xl px-4 py-3">
           <p className="text-xs text-gray-400">Charged Clients</p>
-          <p className="text-xl font-bold text-white">${totalCharged.toFixed(2)}</p>
+          <p className="text-xl font-bold text-white">{fig(known.revenue)}</p>
         </div>
-        <div className={`rounded-xl px-4 py-3 ${totalPL >= 0 ? 'bg-gray-800' : 'bg-red-950/40 border border-red-800/40'}`}>
+        <div className={`rounded-xl px-4 py-3 ${known.profit !== null && !plPositive ? 'bg-red-950/40 border border-red-800/40' : 'bg-gray-800'}`}>
           <p className="text-xs text-gray-400">Net P / L {lossCount > 0 && <span className="text-red-400 ml-1">· {lossCount} losses</span>}</p>
-          <p className={`text-xl font-bold ${totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {totalPL >= 0 ? '+' : ''}${totalPL.toFixed(2)}
+          <p className={`text-xl font-bold ${known.profit === null ? 'text-gray-400' : plPositive ? 'text-green-400' : 'text-red-400'}`}>
+            {plFigure}
           </p>
         </div>
       </div>
+
+      {/* One line under the cards naming the rows all three figures leave out,
+          and why. The three cards are a subtraction now, which is only honest
+          if what the subtraction excludes is visible beside it. '' when it
+          excludes nothing -- a permanent all-clear is how a real warning stops
+          being read. */}
+      {marginNote && (
+        <p className="text-xs text-amber-400 px-1">⚠ {marginNote}</p>
+      )}
 
       {/* Table */}
       <div className="bg-gray-800 rounded-xl overflow-hidden">
@@ -242,31 +272,20 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
             {filtered.length > 0 && (
               <tfoot>
                 <tr className="border-t border-gray-600 font-semibold bg-gray-900/50">
+                  {/* One note on the label cell, not three different ones on
+                      three cells. The three totals come off one reconciliation
+                      now, so they are short by exactly the same rows and
+                      `exclusionNote` says which rows and why. */}
                   <td colSpan={9} className="px-5 py-3 text-gray-400 text-sm">
-                    Total ({filtered.length} shipments)
-                    {chargedSum.unpriced > 0 && (
-                      <span className="ml-2 text-amber-400 font-normal">
-                        ⚠ {unpricedNote(chargedSum.unpriced)} in Charged
-                      </span>
+                    Total ({margin.reconciled} of {filtered.length} shipments)
+                    {marginNote && (
+                      <span className="ml-2 text-amber-400 font-normal">⚠ {marginNote}</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    ${totalPaid.toFixed(2)}
-                    {paidSum.unpriced > 0 && (
-                      <div className="text-xs text-amber-400 font-normal">{unpricedNote(paidSum.unpriced)}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    ${totalCharged.toFixed(2)}
-                    {chargedSum.unpriced > 0 && (
-                      <div className="text-xs text-amber-400 font-normal">{unpricedNote(chargedSum.unpriced)}</div>
-                    )}
-                  </td>
-                  <td className={`px-4 py-3 text-right ${totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {totalPL >= 0 ? '+' : ''}${totalPL.toFixed(2)}
-                    {plSum.unpriced > 0 && (
-                      <div className="text-xs text-amber-400 font-normal">{unpricedNote(plSum.unpriced)}</div>
-                    )}
+                  <td className="px-4 py-3 text-right">{fig(known.cost)}</td>
+                  <td className="px-4 py-3 text-right">{fig(known.revenue)}</td>
+                  <td className={`px-4 py-3 text-right ${known.profit === null ? 'text-gray-400' : plPositive ? 'text-green-400' : 'text-red-400'}`}>
+                    {plFigure}
                   </td>
                 </tr>
               </tfoot>

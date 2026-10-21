@@ -1,7 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import {
-  formatPrice, priceOf, sumPriced, sumAbsPriced, totalOrUnknown, UNPRICED_DASH,
+  formatPrice, priceOf, sumPriced, sumAbsPriced, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
+import { reconcile, reconciledOrUnknown, marginPct } from '@/lib/billing/profit-rollup'
 import { billedOz, weightBracket } from '@/lib/billing/weight-bracket'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
@@ -24,6 +25,18 @@ export const dynamic = 'force-dynamic'
 // worse than it is, on the one screen where a bad margin is the thing being
 // investigated. They are now excluded from the figures and counted beside
 // them instead.
+//
+// AND THEY NOW AGREE WITH THE DASHBOARD. The three figures at the top of this
+// page used to be three independent sums -- SUM(client_rate), SUM(actual_cost),
+// SUM(profit_loss) -- over three DIFFERENT row subsets, with profit read from a
+// stored column rather than subtracted. The dashboard was fixed to derive
+// profit as revenue minus cost over one reconciled row set
+// (lib/billing/profit-rollup.ts); this page was not, so the same period showed
+// two different profits on two screens. Whichever figure was right, the pair of
+// them was worse than either: two screens disagreeing about profit is how a
+// team stops believing any number in the system. Both now come off `reconcile`,
+// so `Revenue - Cost = Profit` holds to the cent here by construction, and the
+// excluded rows are named beneath rather than silently absorbed.
 //
 // A failed read used to arrive here as `[]` and produce something stranger than
 // an empty screen: "Loss Shipments 0 · 0.0% of all shipments · Total Loss
@@ -64,16 +77,18 @@ async function getLossData() {
     const all = allRead.rows
 
     const totalShipments = all.length
-    // Three sums over three different columns, which withhold three different
-    // sets of rows -- and only the first one's count was kept. A shipment with
-    // an agreed rate but an unreadable carrier cost is IN totalRevenue, out of
-    // totalCost and out of totalProfit, while `unpricedShipments` stayed 0 and
-    // the screen said everything was priced. Each figure now carries the count
-    // that belongs to it, and the cards below quote the matching one.
-    const revenueSum = sumPriced(all, 'client_rate')
-    const costSum = sumPriced(all, 'actual_cost')
-    const profitSum = sumPriced(all, 'profit_loss')
-    const unpricedShipments = revenueSum.unpriced
+    // ONE reconciliation, not three sums. The previous version summed
+    // client_rate, actual_cost and profit_loss independently, so each figure
+    // was built from a different set of rows: a shipment with an agreed rate
+    // and no carrier invoice yet was IN revenue, out of cost and out of profit,
+    // and the column of three read as a subtraction that had not been
+    // performed. `reconcile` keeps only the rows where BOTH sides are known,
+    // sums both over that one set, and DERIVES profit by subtracting in cents
+    // -- the same call the dashboard makes, which is what makes the two screens
+    // agree. The price of that is a narrower revenue figure, and the four
+    // exclusion buckets it hands back are rendered below rather than dropped.
+    const margin = reconcile(all)
+    const triple = reconciledOrUnknown(margin)
     const lossSum = sumAbsPriced(losses, 'profit_loss')
 
     // Five breakdowns that each carried their own
@@ -115,15 +130,25 @@ async function getLossData() {
     return {
       losses,
       totalShipments,
-      // totalOrUnknown, not `.total`: a column of nothing but nulls sums to 0,
-      // and 0 rendered in green beside a ✓ is the most reassuring thing this
-      // page can print on the strength of having read nothing at all.
-      totalRevenue: totalOrUnknown(revenueSum),
-      totalCost: totalOrUnknown(costSum),
-      totalProfit: totalOrUnknown(profitSum),
-      unpricedShipments,
-      uncostedShipments: costSum.unpriced,
-      unknownProfits: profitSum.unpriced,
+      // reconciledOrUnknown, not the raw triple: when every row was withheld
+      // the sum over the empty set is 0, and 0 rendered in green beside a ✓ is
+      // the most reassuring thing this page can print on the strength of having
+      // reconciled nothing at all. A period with no shipments at all is a real
+      // $0 and is NOT dashed -- see the function.
+      totalRevenue: triple.revenue,
+      totalCost: triple.cost,
+      totalProfit: triple.profit,
+      marginPct: marginPct(margin),
+      reconciledShipments: margin.reconciled,
+      unpricedShipments: margin.unrated,
+      uncostedShipments: margin.uncosted,
+      unmeasuredShipments: margin.unmeasured,
+      // Of the rows the figures ARE built from, how many have a stored
+      // profit_loss that disagrees with client_rate - actual_cost. Nothing
+      // above is derived from that column any more, but the loss TABLE below
+      // still reads it per row, so a non-zero count here means the table and
+      // the cards are describing the same shipments differently.
+      staleProfits: margin.stale,
       totalLossAmt: lossSum.total,
       // Should always be 0 -- see the banner that renders it. Carried rather
       // than asserted: the sum knows what it withheld, and dropping the number
@@ -192,10 +217,11 @@ export default async function LossesPage() {
             ⚠ {d.unpricedShipments} shipment{d.unpricedShipments === 1 ? '' : 's'} have no agreed rate
           </p>
           <p className="text-amber-200/70 text-xs mt-1">
-            They are excluded from the revenue, profit and margin figures below, and they
-            are not in the loss table — a shipment whose price is unknown cannot be shown
-            to be a loss. They are not $0. Fix the client&rsquo;s rate card, then re-run the
-            sync to price them.
+            They are excluded from the revenue, cost, profit and margin figures below, and
+            they are not in the loss table — a shipment whose price is unknown cannot be
+            shown to be a loss. They are not $0, and this is the urgent bucket: we paid a
+            carrier and nobody agreed a price, so the work went out the door unbilled. Fix
+            the client&rsquo;s rate card, then re-run the sync to price them.
           </p>
         </div>
       )}
@@ -211,9 +237,52 @@ export default async function LossesPage() {
             ⚠ {d.uncostedShipments} shipment{d.uncostedShipments === 1 ? '' : 's'} have no carrier cost
           </p>
           <p className="text-amber-200/70 text-xs mt-1">
-            They are excluded from the cost and profit figures below, so both understate by
-            an unknown amount. They are not $0 — a shipment the carrier has not invoiced yet
-            still cost us something. Import the carrier invoice to fill them in.
+            They are excluded from the revenue, cost and profit figures below — all three,
+            because those figures are now summed over one set of rows so that they subtract.
+            A shipment whose cost is unknown has no knowable margin, so its revenue is held
+            back with it rather than widening the gap on its own. They are not $0 — a
+            shipment the carrier has not invoiced yet still cost us something, and its rate
+            is still owed. Import the carrier invoice to fill them in.
+          </p>
+        </div>
+      )}
+
+      {/* The third exclusion bucket, which used to appear in no count at all.
+          A row with neither a rate nor a cost was absent from all three sums
+          and from both banners above, so it was invisible -- and "neither side
+          known" is usually a sync that half-landed, which is a different job
+          again from writing a rate card or chasing a carrier invoice. */}
+      {d.unmeasuredShipments > 0 && (
+        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-3">
+          <p className="text-amber-300 text-sm font-semibold">
+            ⚠ {d.unmeasuredShipments} shipment{d.unmeasuredShipments === 1 ? '' : 's'} have neither a rate nor a cost
+          </p>
+          <p className="text-amber-200/70 text-xs mt-1">
+            Nothing is known about the money on these, so they are in none of the figures
+            below. That is usually a sync that half-landed rather than a pricing gap — run
+            the sync again, and if they persist they are worth reporting.
+          </p>
+        </div>
+      )}
+
+      {/* Not a money figure, a disagreement between two things on this page.
+          The cards above no longer read the stored profit_loss column at all --
+          they subtract cost from revenue -- but the loss TABLE at the bottom
+          still prints that column per row, and `is_loss` is set from it. So a
+          stale value does not corrupt the totals any more; it makes the table
+          describe a shipment differently from the cards. Recalculate rewrites
+          the column from the current rate card, which is the fix. */}
+      {d.staleProfits > 0 && (
+        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-3">
+          <p className="text-amber-300 text-sm font-semibold">
+            ⚠ {d.staleProfits} shipment{d.staleProfits === 1 ? '' : 's'} have a stored profit that no longer matches
+          </p>
+          <p className="text-amber-200/70 text-xs mt-1">
+            Their saved profit figure disagrees with charged minus paid by a cent or more,
+            so the rate or the cost changed after it was written. The totals above are
+            unaffected — they subtract rather than read that column — but the Loss column in
+            the table below comes from it, and so does whether a shipment appears here at
+            all. Dashboard → Recalculate Weights rewrites them.
           </p>
         </div>
       )}
@@ -241,23 +310,33 @@ export default async function LossesPage() {
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Loss Shipments" value={d.lossCount.toString()} sub={`${d.lossRate.toFixed(1)}% of all shipments`} color="red" />
         <StatCard label="Total Loss Amount" value={`-${fmt(d.totalLossAmt)}`} sub="Money we lost on those shipments" color="red" />
-        {/* Each of the three cards below quotes the count belonging to ITS OWN
-            column. They were all quoting the rate count, which describes only
-            the revenue figure. Colour follows the same rule: an UNKNOWN profit
-            is not green, because the neutral card is the one that does not
-            answer a question it cannot answer. */}
-        <StatCard label="Net Profit (all)"
+        {/* Both cards below are built from the SAME reconciled rows, so the
+            figures in them subtract: Revenue minus Carrier cost is exactly Net
+            Profit, to the cent. They used to come from three separate sums over
+            three different row sets, which is why this page and the dashboard
+            could print two different profits for one period.
+
+            The label says "reconciled", not "all", because it is not all --
+            and the count beneath says how many of how many. Colour follows the
+            same rule as before: an UNKNOWN profit is not green, because the
+            neutral card is the one that does not answer a question it cannot
+            answer. */}
+        <StatCard label="Net Profit (reconciled)"
           value={d.totalProfit === null ? UNPRICED_DASH : `${d.totalProfit >= 0 ? '+' : '-'}${fmt(d.totalProfit)}`}
-          sub={d.unknownProfits > 0
-            ? `${d.totalShipments - d.unknownProfits} of ${d.totalShipments} shipments have a readable profit`
-            : `${d.totalShipments} assigned shipments`}
+          sub={[
+            d.reconciledShipments === d.totalShipments
+              ? `All ${d.totalShipments} assigned shipments`
+              : `${d.reconciledShipments} of ${d.totalShipments} shipments — both sides known`,
+            d.marginPct !== null ? `${d.marginPct.toFixed(1)}% margin` : '',
+          ].filter(Boolean).join(' · ')}
           color={d.totalProfit === null ? 'unknown' : d.totalProfit >= 0 ? 'green' : 'red'} />
         <StatCard label="Revenue vs Cost"
           value={`${fmtOrDash(d.totalRevenue)} / ${fmtOrDash(d.totalCost)}`}
           sub={[
-            'Revenue / Carrier cost',
+            'Revenue / Carrier cost — these subtract to Net Profit',
             d.unpricedShipments > 0 ? `${d.unpricedShipments} with no agreed rate` : '',
-            d.uncostedShipments > 0 ? `${d.uncostedShipments} with no carrier cost` : '',
+            d.uncostedShipments > 0 ? `${d.uncostedShipments} awaiting carrier cost` : '',
+            d.unmeasuredShipments > 0 ? `${d.unmeasuredShipments} with neither` : '',
           ].filter(Boolean).join(' — ')}
           color={d.totalRevenue === null && d.totalCost === null ? 'unknown' : 'blue'} />
       </div>
