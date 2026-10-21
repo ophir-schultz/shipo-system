@@ -32,6 +32,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   AGREEMENT_TEMPLATE_ID,
   buildPartnerAgreementEnvelope,
+  partnerWebhookUrl,
   partyName,
 } from '../src/lib/docusign-envelope'
 
@@ -125,7 +126,11 @@ if (!siteUrl) {
   console.error('NEXT_PUBLIC_SITE_URL is required (e.g. https://shipo-system.vercel.app).')
   process.exit(1)
 }
-const webhookUrl = `${siteUrl.replace(/\/+$/, '')}/api/partner/agreement-webhook`
+// Composed rather than spelled out here. The W-9 sign route needs the same
+// URL, and a path written in two places is a path that can be renamed in
+// one of them — leaving the other building envelopes that report completion
+// to a 404, which is indistinguishable from reporting nowhere at all.
+const webhookUrl = partnerWebhookUrl(siteUrl)
 
 // The builder throws on a non-US person rather than returning a flag, so
 // catch it here: a stack trace tells whoever ran this nothing about what

@@ -22,6 +22,7 @@ import {
   SHIPO_RECIPIENT_ID,
   buildPartnerAgreementEnvelope,
   buildW9Envelope,
+  partnerWebhookUrl,
   partyName,
   type BuildW9EnvelopeInput,
 } from './docusign-envelope'
@@ -44,6 +45,13 @@ const shipo = { name: 'Ophir Schultz', email: 'ophir@shipousa.com' }
 
 const WEBHOOK_URL = 'https://shipousa.com/api/partner/agreement-webhook'
 
+// Deliberately the SAME endpoint the agreement posts to, and not a second
+// route. completedEnvelopeStamp discriminates the two by ENVELOPE_KIND_FIELD
+// on the payload itself, so one route, one HMAC verifier and one set of
+// signature headers serve both. A second route would be a second place to
+// forget the verifier.
+const W9_WEBHOOK_URL = WEBHOOK_URL
+
 function build() {
   return buildPartnerAgreementEnvelope({ partner, shipo, webhookUrl: WEBHOOK_URL })
 }
@@ -58,6 +66,7 @@ const w9Input: BuildW9EnvelopeInput = {
   accountantEmail: 'accountant@example.com',
   accountantName: 'Test Accountant',
   clientUserId: 'p1',
+  webhookUrl: W9_WEBHOOK_URL,
 }
 
 // Narrow helpers, so a change in the payload's shape fails here rather
@@ -785,9 +794,143 @@ describe('who clause 1 calls "Partner"', () => {
 // ============================================================
 
 
+describe('partnerWebhookUrl', () => {
+  // ONE PLACE THAT KNOWS THE PATH. Two callers need this URL — the
+  // agreement prep script and the W-9 sign route — and each was about to
+  // write `${siteUrl}/api/partner/agreement-webhook` for itself.
+  //
+  // A path written twice is a path that can be renamed once. The half that
+  // got missed would keep building envelopes whose completions POST to a
+  // 404, which is the SAME invisible failure as having no eventNotification
+  // at all: the envelope sends, the partner signs, nothing is ever stamped.
+  // So the literal lives here and the callers compose it.
+
+  it('hangs the webhook off the site origin', () => {
+    expect(partnerWebhookUrl('https://shipo-system.vercel.app')).toBe(
+      'https://shipo-system.vercel.app/api/partner/agreement-webhook',
+    )
+  })
+
+  it('tolerates a trailing slash rather than producing a double one', () => {
+    // NEXT_PUBLIC_SITE_URL is typed into a Vercel form by a human, and
+    // '...app/' is what a browser's address bar hands you when you copy it.
+    // A '//' path is not a cosmetic difference — it is a different route,
+    // and Next answers 404 on it.
+    expect(partnerWebhookUrl('https://shipo-system.vercel.app/')).toBe(
+      'https://shipo-system.vercel.app/api/partner/agreement-webhook',
+    )
+    expect(partnerWebhookUrl('https://shipo-system.vercel.app///')).toBe(
+      'https://shipo-system.vercel.app/api/partner/agreement-webhook',
+    )
+  })
+
+  it('is the only place the path is written', () => {
+    // THE GUARD THAT MAKES THE DRY CLAIM TRUE RATHER THAN ASPIRATIONAL.
+    // Extracting the helper does not stop the next caller from writing the
+    // literal again; this does. A second copy is a path that can be
+    // renamed once, leaving the other caller's envelopes reporting
+    // completion to a 404 — the same silent nothing as shipping no
+    // eventNotification at all.
+    //
+    // The route file and the script are read as source rather than
+    // imported: one is a Next route handler that reaches Supabase on every
+    // path, the other is a CLI that exits.
+    for (const path of [
+      join(HERE, '../app/api/partner/w9-sign/route.ts'),
+      join(HERE, '../../scripts/prep-agreement-envelope.mts'),
+    ]) {
+      const src = readFileSync(path, 'utf8')
+      // Only in a comment, if at all — never in a template literal or a
+      // string that becomes the URL. Strip comments, then look.
+      const code = src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+      expect(code).not.toContain('/api/partner/agreement-webhook')
+    }
+  })
+
+  it('refuses an empty origin instead of returning a relative path', () => {
+    // '/api/partner/agreement-webhook' with no host is a string DocuSign
+    // accepts at build time and can never deliver to.
+    expect(() => partnerWebhookUrl('')).toThrow(/origin/i)
+    expect(() => partnerWebhookUrl('   ')).toThrow(/origin/i)
+  })
+})
+
 describe('buildW9Envelope', () => {
   it('is a draft', () => {
     expect(buildW9Envelope(w9Input).status).toBe('created')
+  })
+
+  // =========================================================================
+  // THE WEBHOOK, AND THE REASON THESE TESTS LOOK REDUNDANT WITH THE
+  // AGREEMENT'S
+  //
+  // On 2026-10-20 the agreement envelope was found shipping with no
+  // eventNotification at all. The route existed, the HMAC verifier existed,
+  // the three-signature-header loop existed — and DocuSign had nowhere to
+  // POST, so a partner who signed stayed `pending` forever. Thirty-eight
+  // green envelope tests sat over it because not one asserted the PRESENCE
+  // of a webhook field.
+  //
+  // This envelope is the second instance of exactly that shape, and the
+  // failure is quieter. An unstamped w9_received_at does not look broken: the
+  // partner signed, the accountant got his copy, the envelope says
+  // Completed in DocuSign. Only /referrals disagrees, reading "no W-9 on
+  // file" about a W-9 that exists — and the remedy a human reaches for is to
+  // ask the partner to sign it again.
+  //
+  // So the completion event is what makes the stamp possible, and the stamp
+  // is the only thing that distinguishes a filed W-9 from a missing one.
+  // =========================================================================
+
+  it('ships an eventNotification, or no completion is ever stamped', () => {
+    const env = buildW9Envelope(w9Input) as { eventNotification?: { url: string } }
+    expect(env.eventNotification).toBeDefined()
+    // Threaded through the input, not a literal. A hardcoded production URL
+    // means the next person who runs a script against localhost fires the
+    // live webhook — and this envelope's webhook WRITES to a partner row.
+    expect(env.eventNotification!.url).toBe(W9_WEBHOOK_URL)
+  })
+
+  it('subscribes to completed — the event w9_received_at hangs off', () => {
+    const env = buildW9Envelope(w9Input) as {
+      eventNotification: { envelopeEvents: Array<{ envelopeEventStatusCode: string }> }
+    }
+    const codes = env.eventNotification.envelopeEvents.map((e) => e.envelopeEventStatusCode)
+    expect(codes).toContain('completed')
+    // Declined and voided too: a partner who declines his W-9 must not read
+    // as one still thinking about it. The route already branches on all
+    // three, so leaving one out subscribes to less than the code handles.
+    expect(codes).toEqual(expect.arrayContaining(['completed', 'declined', 'voided']))
+  })
+
+  it('requires acknowledgment so a transient 5xx retries', () => {
+    const env = buildW9Envelope(w9Input) as {
+      eventNotification: { requireAcknowledgment: string }
+    }
+    // One bad deploy during the minute a partner signs would otherwise lose
+    // the stamp silently and permanently — DocuSign does not re-send an
+    // unacknowledged event unless asked to.
+    expect(env.eventNotification.requireAcknowledgment).toBe('true')
+  })
+
+  it('will not build without a webhookUrl', () => {
+    // REFUSES rather than omitting. An envelope with no eventNotification is
+    // valid, sends cleanly and completes — the defect is invisible until
+    // someone asks why a signed W-9 reads as missing. The agreement builder
+    // was made to refuse for this reason; so is this one.
+    expect(() => buildW9Envelope({ ...w9Input, webhookUrl: '' })).toThrow(/webhookUrl/)
+    expect(() =>
+      buildW9Envelope({ ...w9Input, webhookUrl: undefined as unknown as string }),
+    ).toThrow(/webhookUrl/)
+  })
+
+  it('refuses a plain-http webhookUrl', () => {
+    // The POST body carries the envelope's custom fields and its signer
+    // list. Over http that is a partner's name and email in the clear, and
+    // an HMAC verified against a body anyone on the path could have rewritten.
+    expect(() =>
+      buildW9Envelope({ ...w9Input, webhookUrl: 'http://shipousa.com/api/partner/agreement-webhook' }),
+    ).toThrow(/https/)
   })
 
   it('sets the w9 custom field from the shared constants, by name', () => {

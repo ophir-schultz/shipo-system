@@ -63,6 +63,17 @@ export interface W9SignContext {
   accountantName: string | null | undefined
   /** Whether the app holds credentials that can reach the DocuSign API. */
   docusignConfigured: boolean
+  /**
+   * NEXT_PUBLIC_SITE_URL — the origin the envelope's eventNotification
+   * hangs off (partnerWebhookUrl composes the rest).
+   *
+   * Configuration like the two above, and in the ladder for the same
+   * reason: without it the envelope would ship with nowhere to report
+   * completion to, so the partner hands over a taxpayer number and
+   * w9_received_at is never stamped. The screen then goes on telling him
+   * his W-9 is missing, and the obvious remedy is to ask him for it twice.
+   */
+  siteOrigin: string | null | undefined
 }
 
 export interface W9SignRefusalResult {
@@ -120,7 +131,7 @@ function wrongFormMessage(taxStatus: string | null | undefined): string | null {
  * variable that has nothing to do with him.
  */
 export function w9SignRefusal(ctx: W9SignContext): W9SignRefusalResult | null {
-  const { partner, accountantEmail, accountantName, docusignConfigured } = ctx
+  const { partner, accountantEmail, accountantName, docusignConfigured, siteOrigin } = ctx
 
   if (!partner) {
     return {
@@ -173,6 +184,10 @@ export function w9SignRefusal(ctx: W9SignContext): W9SignRefusalResult | null {
   if (!present(accountantEmail)) missing.push('ACCOUNTANT_W9_EMAIL')
   if (!present(accountantName)) missing.push('ACCOUNTANT_W9_NAME')
   if (!docusignConfigured) missing.push('DOCUSIGN_* API credentials')
+  // The envelope's eventNotification URL is built from this. Missing, the
+  // envelope would send with nowhere to report completion — see the field's
+  // doc on W9SignContext for why that is the worst outcome on this screen.
+  if (!present(siteOrigin)) missing.push('NEXT_PUBLIC_SITE_URL')
 
   if (missing.length > 0) {
     return {

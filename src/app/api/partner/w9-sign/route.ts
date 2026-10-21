@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getPartnerFromSession } from '@/lib/partner-auth'
-import { buildW9Envelope } from '@/lib/docusign-envelope'
+import { buildW9Envelope, partnerWebhookUrl } from '@/lib/docusign-envelope'
 import { W9_PAGE1_BASE64 } from '@/lib/w9-page1-base64'
 import { W9_SIGN_FALLBACK, w9SignRefusal } from '@/lib/partner-w9-sign'
 import {
@@ -45,6 +45,11 @@ export async function POST(req: Request) {
 
   const accountantEmail = process.env.ACCOUNTANT_W9_EMAIL
   const accountantName = process.env.ACCOUNTANT_W9_NAME
+  // Where DocuSign reports this envelope's completion. Read here with the
+  // rest of the configuration and refused by the same ladder, because an
+  // envelope that cannot report completion collects a taxpayer number and
+  // leaves the W-9 reading as missing.
+  const siteOrigin = process.env.NEXT_PUBLIC_SITE_URL
   // THE ONLY PLACE THESE ARE READ. Passed down as arguments from here so
   // that no builder, and no test, can quietly pick up an environment.
   const cfg = docusignConfig()
@@ -54,6 +59,7 @@ export async function POST(req: Request) {
     accountantEmail,
     accountantName,
     docusignConfigured: cfg !== null,
+    siteOrigin,
   })
 
   if (refusal) {
@@ -61,11 +67,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: refusal.message }, { status: refusal.status })
   }
 
-  // All three are established past the ladder; TypeScript cannot see that
+  // All four are established past the ladder; TypeScript cannot see that
   // through a function boundary, and the alternative — inlining the checks
   // so it can — is what the ladder exists to avoid. So this is a narrowing
   // guard, not a second opinion: if it ever fires, the ladder is wrong.
-  if (!partner || !partner.email || !cfg) {
+  if (!partner || !partner.email || !cfg || !siteOrigin) {
     console.error('[w9-sign] reached the send with no partner or no config — ladder bug')
     return NextResponse.json({ error: W9_SIGN_FALLBACK }, { status: 503 })
   }
@@ -89,6 +95,10 @@ export async function POST(req: Request) {
       // id, so the same value identifies him in the envelope's custom
       // fields, in the recipient, and in the view request below.
       clientUserId: partner.id,
+      // Composed, never written out here: the path literal lives in
+      // partnerWebhookUrl so it cannot be renamed in one of its two
+      // callers. Non-null past the ladder above.
+      webhookUrl: partnerWebhookUrl(siteOrigin!),
     })
   } catch (e) {
     // The builder throws for a partner the IRS wants a different form

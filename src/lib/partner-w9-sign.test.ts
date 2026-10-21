@@ -19,6 +19,7 @@ const US: W9SignContext = {
   accountantEmail: 'cpa@firm.com',
   accountantName: 'Dana Reyes',
   docusignConfigured: true,
+  siteOrigin: 'https://shipo-system.vercel.app',
 }
 
 describe('w9SignRefusal', () => {
@@ -133,6 +134,30 @@ describe('w9SignRefusal', () => {
     const r = w9SignRefusal({ ...US, docusignConfigured: false })!
     expect(r.status).toBe(503)
     expect(r.log).toMatch(/DOCUSIGN/)
+  })
+
+  it('refuses with 503 when there is no site origin for the webhook', () => {
+    // WHY THIS IS A REFUSAL AND NOT A SHRUG. Without an origin there is no
+    // URL to put in the envelope's eventNotification, and an envelope with
+    // no eventNotification is the worst of the failure modes here: it
+    // sends, the partner fills in his taxpayer number, the accountant gets
+    // his copy, DocuSign reports Completed — and w9_received_at is never
+    // stamped, so the dashboard goes on telling him his W-9 is missing and
+    // his statement stays shut. He would have handed over a TIN for
+    // nothing, and the obvious remedy is to ask him to do it again.
+    //
+    // Sending nothing is recoverable in a way that is not. So this joins
+    // the configuration ladder rather than letting the builder throw four
+    // frames later, where the answer would be a 409 about a conflict that
+    // does not exist.
+    for (const siteOrigin of [null, undefined, '', '   ']) {
+      const r = w9SignRefusal({ ...US, siteOrigin })!
+      expect(r.status).toBe(503)
+      expect(r.log).toMatch(/NEXT_PUBLIC_SITE_URL/)
+      // Staff half names the variable; partner half never does.
+      expect(r.message).not.toMatch(/NEXT_PUBLIC|SITE_URL/)
+      expect(r.message).toContain('Support@shipousa.com')
+    }
   })
 
   it('never puts the accountant address or a variable name in the partner-facing message', () => {
