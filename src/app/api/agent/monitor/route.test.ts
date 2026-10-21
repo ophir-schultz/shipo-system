@@ -111,6 +111,15 @@ beforeEach(() => {
   h.persistStorageCharges.mockReset()
   h.syncClientAssignments.mockReset()
   h.sendEmail.mockReset().mockResolvedValue({ sent: true, provider: 'resend' })
+
+  // The email is OFF by default in production as of 2026-10-15. Almost every
+  // test in this file is about what the report SAYS or about the delivery
+  // failure path, neither of which exists when nothing is sent -- so the
+  // default here is 'always' and the suppression is given its own describe at
+  // the bottom. Stated rather than assumed: without this line the four
+  // delivery tests would pass vacuously, asserting nothing about a send that
+  // never happened.
+  vi.stubEnv('MONITOR_EMAIL', 'always')
 })
 
 describe('GET /api/agent/monitor: per-item sync failures reach has_issues', () => {
@@ -773,5 +782,135 @@ describe('GET /api/agent/monitor: the alert could not be delivered', () => {
 
     expect(body.errors.some((e) => e.includes('no rate match'))).toBe(true)
     expect(body.errors.some((e) => e.includes('No email provider configured'))).toBe(true)
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SWITCHED OFF IS NOT BROKEN.
+//
+// The monitor ran six times a day and mailed every run, "All clear" included,
+// mostly restating the same known backlog. Ophir asked for it to stop
+// (2026-10-15, "stop sending those now"), so MONITOR_EMAIL now defaults to off.
+//
+// The hazard is directly above: the describe that precedes this one asserts
+// that an unsent report answers 500 with ok:false and pushes "THIS REPORT WAS
+// NOT DELIVERED" into errors[]. A suppressed report is ALSO unsent. Implemented
+// carelessly, switching the email off would therefore mark all six daily cron
+// runs failed for ever and invent a delivery problem on every one of them --
+// which is both noise of exactly the kind this change set out to remove, and a
+// red wall that would hide a genuine mail outage.
+//
+// So these tests pin the distinction, not the feature. The route must keep its
+// 500 for a channel that broke while never using it for a channel nobody asked
+// to open.
+describe('GET /api/agent/monitor: the report is switched off', () => {
+  const runRaw = async (clientResult: Record<string, unknown>) => {
+    h.syncClientAssignments.mockResolvedValue(clientResult)
+    const res = await GET(new Request('https://shipo.test/api/agent/monitor'))
+    return { res, body: (await res.json()) as MonitorBody }
+  }
+
+  it('sends nothing when MONITOR_EMAIL is unset', async () => {
+    // Unset, not 'off'. Production has no such variable today, so this is the
+    // state the next deploy actually lands in.
+    vi.stubEnv('MONITOR_EMAIL', '')
+
+    await runRaw(cleanClientResult)
+
+    expect(h.sendEmail).not.toHaveBeenCalled()
+  })
+
+  it('still answers 200/ok, because nothing failed', async () => {
+    vi.stubEnv('MONITOR_EMAIL', '')
+
+    const { res, body } = await runRaw(cleanClientResult)
+
+    expect(res.status).toBe(200)
+    expect(body.ok).toBe(true)
+  })
+
+  it('does not invent a delivery failure for a send nobody attempted', async () => {
+    // The specific regression: errors[] must stay clean. If this line ever
+    // appears on a suppressed run, every cron invocation reports a mail
+    // outage that does not exist.
+    vi.stubEnv('MONITOR_EMAIL', '')
+
+    const { body } = await runRaw(cleanClientResult)
+
+    expect(body.errors.some((e) => e.includes('NOT DELIVERED'))).toBe(false)
+    expect(body.errors).toEqual([])
+  })
+
+  it('still finds and reports the issues — only the email is silenced', async () => {
+    // The thing that must NOT change. Turning off the notification must not
+    // turn off the monitoring: the findings still have to reach the JSON the
+    // dashboard's AutoSync widget reads.
+    vi.stubEnv('MONITOR_EMAIL', '')
+    h.recalculateShipments.mockResolvedValue({
+      updated: 0, zone_matched: 0, legacy_matched: 0, unmatched: 7,
+      skipped: 0, failed: 0, reasons: [],
+    })
+
+    const { res, body } = await runRaw(cleanClientResult)
+
+    expect(body.errors.some((e) => e.includes('no rate match'))).toBe(true)
+    expect(body.has_issues).toBe(true)
+    // Issues found, but the alerting channel is fine, so the cron is not failed.
+    // has_issues and ok answer different questions and this pins them apart.
+    expect(body.ok).toBe(true)
+    expect(res.status).toBe(200)
+    expect(h.sendEmail).not.toHaveBeenCalled()
+  })
+
+  it('says in the run log that it was suppressed, and how to undo it', async () => {
+    vi.stubEnv('MONITOR_EMAIL', '')
+
+    const { body } = await runRaw(cleanClientResult)
+
+    const line = body.log.find((l) => l.includes('suppressed'))
+    expect(line).toBeDefined()
+    // Naming the switch is the point — this line is read by the person who
+    // wants the emails back.
+    expect(line).toContain('MONITOR_EMAIL')
+  })
+
+  it('MONITOR_EMAIL=problems stays quiet on a clean run', async () => {
+    vi.stubEnv('MONITOR_EMAIL', 'problems')
+
+    const { res, body } = await runRaw(cleanClientResult)
+
+    expect(h.sendEmail).not.toHaveBeenCalled()
+    expect(res.status).toBe(200)
+    expect(body.ok).toBe(true)
+  })
+
+  it('MONITOR_EMAIL=problems still mails a run that found something', async () => {
+    // The middle setting, and the one worth reaching for if six a day was the
+    // complaint rather than the alerting itself.
+    vi.stubEnv('MONITOR_EMAIL', 'problems')
+    h.recalculateShipments.mockResolvedValue({
+      updated: 0, zone_matched: 0, legacy_matched: 0, unmatched: 7,
+      skipped: 0, failed: 0, reasons: [],
+    })
+
+    await runRaw(cleanClientResult)
+
+    expect(h.sendEmail).toHaveBeenCalledTimes(1)
+    expect(h.sendEmail.mock.calls[0][0].subject).toMatch(/^🚨/)
+  })
+
+  it('a dead provider is STILL a 500 when a send was attempted (the control)', async () => {
+    // Guard-the-guard. Without this, hardcoding 200 would pass every test
+    // above and silently delete the alerting-outage signal.
+    vi.stubEnv('MONITOR_EMAIL', 'always')
+    h.sendEmail.mockResolvedValue({
+      sent: false, provider: 'none', error: 'No email provider configured',
+    })
+
+    const { res, body } = await runRaw(cleanClientResult)
+
+    expect(res.status).toBe(500)
+    expect(body.ok).toBe(false)
+    expect(body.errors.some((e) => e.includes('NOT DELIVERED'))).toBe(true)
   })
 })

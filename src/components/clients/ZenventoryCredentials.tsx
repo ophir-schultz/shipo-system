@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
+import { testBanner, missingKeyNotice, type TestBanner } from '@/lib/clients/zenventory-test-result'
 
 export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, secureKey }: {
   clientId: string
@@ -16,7 +17,11 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
   const [secret, setSecret] = useState(apiSecret ?? '')
   const [sk, setSk] = useState(secureKey ?? '')
   const [loading, setLoading] = useState(false)
-  const [tested, setTested] = useState<boolean | null>(null)
+  // The whole banner, not a boolean. A boolean could only ever select between
+  // two hardcoded sentences, and the failing one was a diagnosis ("check API
+  // Key and Secret") that is wrong for a 403, a 5xx, a timeout, and for a
+  // client with no credentials at all. See lib/clients/zenventory-test-result.
+  const [tested, setTested] = useState<TestBanner | null>(null)
 
   async function handleSave() {
     setLoading(true)
@@ -41,10 +46,17 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
     setLoading(true)
     setTested(null)
     const res = await fetch(`/api/clients/${clientId}/test-zenventory`, { method: 'POST' })
-    const data = await res.json()
-    setTested(data.success)
-    if (!data.success) showError('Connection failed', data.error ?? 'Check your Zenventory credentials')
-    else showSuccess('Connection successful', 'Zenventory API 2.0 credentials are working')
+    // `.json()` on a 503 with an HTML body throws, and the throw used to leave
+    // `loading` stuck on "Testing..." for ever with no banner. A test that
+    // cannot report its own failure is worse than one that fails.
+    const data = await res.json().catch(() => ({
+      success: false,
+      error: `The test endpoint answered HTTP ${res.status} with no JSON body`,
+    }))
+    const banner = testBanner(data)
+    setTested(banner)
+    if (banner.ok) showSuccess('Connection successful', 'Zenventory API 2.0 credentials are working')
+    else showError(banner.title, banner.detail || 'No further detail was returned')
     setLoading(false)
   }
 
@@ -68,8 +80,14 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
       </div>
 
       {tested !== null && (
-        <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${tested ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
-          {tested ? '✓ API 2.0 connection successful' : '✗ API 2.0 connection failed — check API Key and Secret'}
+        <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${tested.ok ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
+          <p>{tested.ok ? '✓' : '✗'} {tested.title}</p>
+          {/* The server's own words, kept in the banner rather than a toast
+              that vanishes. `break-all` because the body is JSON from
+              Zenventory and can be one long unbroken string. */}
+          {tested.detail && (
+            <p className="mt-1 font-mono text-xs opacity-80 break-all">{tested.detail}</p>
+          )}
         </div>
       )}
 
@@ -87,7 +105,14 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
               </div>
             </div>
           ) : (
-            <p className="text-gray-500 text-sm">No API 2.0 credentials — add them to enable order syncing.</p>
+            // Not one sentence for both. `null` is "not configured"; `''` is
+            // "configured as empty and failing every scheduled run". See
+            // missingKeyNotice.
+            <p className={missingKeyNotice(apiKey)?.tone === 'warn'
+              ? 'text-yellow-500 text-sm'
+              : 'text-gray-500 text-sm'}>
+              {missingKeyNotice(apiKey)?.text}
+            </p>
           )}
           {secureKey ? (
             <div className="flex justify-between text-sm">

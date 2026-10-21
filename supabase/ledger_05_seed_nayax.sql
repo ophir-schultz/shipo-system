@@ -152,16 +152,23 @@ begin
     (cid, 'outbound', 'Carrier freight',                    null, 'at_cost',
      'shipping',  null,                 '2026-01-01', null),
 
-    -- IMPORTANT — peak surcharge: NOT IN EFFECT. Both dates are the same.
-    -- This is deliberate, not a typo. The range '[2026-01-01, 2026-01-01)' is
-    -- empty: the condition effective_from <= d AND d < effective_to is false for
-    -- every date d, so this rate is on record but raises zero charges.
+    -- IMPORTANT — peak surcharge: IN EFFECT 2026-10-15 .. 2027-01-15 inclusive.
     --
-    -- The peak window from the Nayax quote is not yet known. To activate this
-    -- line, edit the two date literals in THIS FILE's peak tuple below — set
-    -- effective_from to the real start of the peak window and effective_to to
-    -- its real end — and re-run the file. Do NOT edit the row in the table:
-    -- this file overwrites it on the next run, so the change reverts silently.
+    -- This line used to be parked in an empty range ('2026-01-01','2026-01-01')
+    -- because the peak window from the Nayax quote was not known. It is now:
+    -- the quote reads "Peak surcharge (Oct 15 – Jan 15) · Capped at 8%".
+    -- Confirmed by Ophir 2026-10-15: "the peak is from 15 of oct till 15 of Jan".
+    --
+    -- effective_to is '2027-01-16', NOT '2027-01-15'. The range is half-open —
+    -- daterange(effective_from, effective_to, '[)') in the exclusion constraint,
+    -- and effective_from <= d AND d < effective_to at every lookup — so the last
+    -- surcharged day is the day BEFORE effective_to. '2027-01-15' would quietly
+    -- drop Jan 15 itself, which the quote includes. Do not "fix" this to match
+    -- the quote's end date literally.
+    --
+    -- To change the window, edit the two date literals in THIS FILE and re-run.
+    -- Do NOT edit the row in the table: this file overwrites it on the next run,
+    -- so the change reverts silently.
     --
     -- Those instructions used to arm a duplicate when followed exactly. The
     -- delete above was keyed on effective_from = '2026-01-01', so the moment
@@ -185,7 +192,7 @@ begin
     --
     -- percentage: 8.00 means 8 percent, not 800 percent and not 0.08.
     (cid, 'outbound', 'Peak season surcharge',              8.00, 'percentage',
-     'surcharge', 'peak',               '2026-01-01', '2026-01-01'),
+     'surcharge', 'peak',               '2026-10-15', '2027-01-16'),
 
     -- ---- returns -----------------------------------------------------------
     -- return x3: not yet billable. No returns-received feed exists. A return
@@ -295,13 +302,17 @@ end $$;
 -- Which of the eighteen are billable today, and why fourteen are not
 -- =============================================================================
 --
--- Billable today (3 of 18):
+-- Billable today (4 of 18):
 --   pick/device      — calculator:117 picks the rate when isComponent = false
 --   pick/component   — calculator:117 picks the rate when isComponent = true
 --   shipping         — calculator:190 uses rateFor('shipping', null, shipDate)
---
--- Becomes billable once the peak window is known (1 more):
---   surcharge/peak   — see the comment above; disabled by the empty date range
+--   surcharge/peak   — LIVE from 2026-10-15 to 2027-01-15 inclusive. 8% of the
+--                      pick and pack subtotal only (calculate-charges.ts:402),
+--                      not of at-cost freight and not of itself. Outside that
+--                      window it raises nothing: calculate-charges.ts:413-416
+--                      sees hasPeakLine, so the DATED lookup is authoritative
+--                      in both directions and "none in effect today" correctly
+--                      means zero rather than falling back to the undated 8%.
 --
 -- Not yet billable (14 of 18) — this is deliberate, not an oversight.
 -- Seeding an unbillable line puts the agreed price on record and makes the gap

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   validateLegacyRates, LEGACY_UNITS, WAREHOUSE_SERVICE_TYPES,
   WAREHOUSE_SERVICE_GROUPS, composeServiceNotes, overlapWarning, rateCellLabel,
+  toEditableRates, ratesToSubmit, droppedServices, nextUnusedService,
 } from './warehouse-rate-card'
 
 // The function under test is the only thing standing between a request body
@@ -514,5 +515,191 @@ describe('rateCellLabel', () => {
   it('reads a null rate with no rate type as At cost', () => {
     expect(rateCellLabel({ rate: null, rate_type: null, markup: null }).text)
       .toBe('At cost')
+  })
+})
+
+// The edit form seeds itself from the stored card, because the endpoint it
+// posts to REPLACES that card. These three functions are what make "what is on
+// screen" and "what the client ends up with" the same set.
+describe('toEditableRates', () => {
+  it('returns the stored legacy card as form rows', () => {
+    expect(toEditableRates([
+      { service_type: 'storage', rate: 25, unit: 'per_pallet' },
+    ])).toEqual([{ service_type: 'storage', rate: '25', unit: 'per_pallet' }])
+  })
+
+  it('drops structured charge_type rows', () => {
+    /**
+     * The seed files own charge_type lines and validateLegacyRates rejects a
+     * body carrying the column. Seeding one into the form would therefore
+     * either fail the whole save, or -- if the field were stripped on the way
+     * out -- re-insert a seed line as a legacy duplicate, which is exactly the
+     * ambiguity warehouse-log-rate.ts then refuses to price.
+     */
+    expect(toEditableRates([
+      { service_type: 'storage', rate: 25, unit: 'per_pallet' },
+      { service_type: null, rate: 20, unit: 'per_pallet', charge_type: 'receiving' },
+    ])).toEqual([{ service_type: 'storage', rate: '25', unit: 'per_pallet' }])
+  })
+
+  it('drops a structured row that ALSO carries a service_type', () => {
+    /**
+     * The row shape the charge_type filter actually exists for, and the one
+     * the test above does NOT reach: with service_type null, the
+     * "service_type is a non-blank string" filter already drops the row, so
+     * deleting the charge_type filter entirely leaves that test green. A
+     * mutation check caught exactly that.
+     *
+     * Both columns set is reachable. `service_type` was `not null` with four
+     * permitted values before ledger_03 dropped the constraint
+     * (supabase/ledger_03_charges.sql:486-501), nothing added a CHECK tying
+     * the two columns together, and the exclusion constraint keyed
+     * `charge_type with =` does not care what service_type holds.
+     *
+     * If such a row round-tripped: validateLegacyRates' ALLOWED set has no
+     * charge_type, so the field is stripped on the way out and the row is
+     * re-inserted as a LEGACY line -- while the route's delete, keyed
+     * `.is('charge_type', null)`, cannot reach the structured original. The
+     * result is two live rows naming one service, which is precisely what
+     * priceServiceLine refuses to price. One silent edit turns a priced
+     * service into an unbillable one.
+     */
+    expect(toEditableRates([
+      { service_type: 'receiving', rate: 20, unit: 'per_pallet', charge_type: 'receiving' },
+    ])).toEqual([])
+  })
+
+  it('preloads a NULL rate as blank, never as 0', () => {
+    // null is UNKNOWN, 0 is a price. Seeding '0' would turn "nobody has
+    // priced this" into "this service is free" for anyone who saved without
+    // reading the row.
+    expect(toEditableRates([
+      { service_type: 'returns', rate: null, unit: 'per_unit' },
+    ])[0].rate).toBe('')
+  })
+
+  it('reads a numeric rate that arrives as a string', () => {
+    // numeric(10,2) comes back over PostgREST as either.
+    expect(toEditableRates([
+      { service_type: 'storage', rate: '25.00', unit: 'per_pallet' },
+    ])[0].rate).toBe('25.00')
+  })
+
+  it('defaults a missing unit to per_unit', () => {
+    expect(toEditableRates([{ service_type: 'returns', rate: 1 }])[0].unit)
+      .toBe('per_unit')
+  })
+
+  it('drops a row with no service_type', () => {
+    expect(toEditableRates([{ service_type: '  ', rate: 1 }])).toEqual([])
+  })
+
+  it('orders by service_type so the form is stable between opens', () => {
+    expect(toEditableRates([
+      { service_type: 'storage', rate: 1 },
+      { service_type: 'fba_prep', rate: 2 },
+    ]).map((r) => r.service_type)).toEqual(['fba_prep', 'storage'])
+  })
+})
+
+describe('ratesToSubmit', () => {
+  it('keeps a filled row', () => {
+    expect(ratesToSubmit([{ service_type: 'storage', rate: '25', unit: 'per_pallet' }]))
+      .toHaveLength(1)
+  })
+
+  it('drops a blank row', () => {
+    expect(ratesToSubmit([{ service_type: 'storage', rate: '', unit: 'per_pallet' }]))
+      .toEqual([])
+  })
+
+  it('drops a row typed as 0', () => {
+    // Pins PRE-EXISTING behaviour rather than endorsing it: a deliberate "this
+    // service is free" cannot be saved from this form. Asserted so that
+    // changing it is a deliberate act with a failing test attached, and so
+    // droppedServices and the submit agree about it in the meantime.
+    expect(ratesToSubmit([{ service_type: 'storage', rate: '0', unit: 'per_pallet' }]))
+      .toEqual([])
+  })
+})
+
+describe('droppedServices', () => {
+  it('names every service the save would delete -- the bug this prevents', () => {
+    /**
+     * The exact shape of the defect. The form used to open on one blank row
+     * no matter what the client already had, so an operator adding ONE new
+     * service was submitting a one-line card -- and the endpoint replaces.
+     * Storage, receiving and labour were deleted, silently, by a button
+     * labelled "Add".
+     */
+    const stored = [
+      { service_type: 'storage', rate: 25, unit: 'per_pallet' },
+      { service_type: 'receiving', rate: 14, unit: 'per_pallet' },
+      { service_type: 'labor_hours', rate: 45, unit: 'per_hour' },
+    ]
+    const edited = [{ service_type: 'fba_prep', rate: '1.25', unit: 'per_unit' }]
+    expect(droppedServices(stored, edited))
+      .toEqual(['labor_hours', 'receiving', 'storage'])
+  })
+
+  it('names a service left on screen but blank', () => {
+    // Still on the form, so it LOOKS kept -- but the submit filter skips it,
+    // which is precisely the case a reader of the form would miss.
+    expect(droppedServices(
+      [{ service_type: 'storage', rate: 25, unit: 'per_pallet' }],
+      [{ service_type: 'storage', rate: '', unit: 'per_pallet' }],
+    )).toEqual(['storage'])
+  })
+
+  it('is silent when every stored service is kept', () => {
+    expect(droppedServices(
+      [{ service_type: 'storage', rate: 25, unit: 'per_pallet' }],
+      [
+        { service_type: 'storage', rate: '25', unit: 'per_pallet' },
+        { service_type: 'fba_prep', rate: '1.25', unit: 'per_unit' },
+      ],
+    )).toEqual([])
+  })
+
+  it('does not report a newly added service as a drop', () => {
+    expect(droppedServices([], [
+      { service_type: 'fba_prep', rate: '1.25', unit: 'per_unit' },
+    ])).toEqual([])
+  })
+
+  it('never warns about structured rows, which this endpoint cannot touch', () => {
+    /**
+     * The route's delete is scoped `is('charge_type', null)`, so a seed line
+     * is not at risk and naming it would be a false alarm. A warning that
+     * cries wolf is worse than none: it trains the operator to click past the
+     * one that is real.
+     */
+    expect(droppedServices(
+      [{ service_type: null, rate: 20, unit: 'per_pallet', charge_type: 'receiving' }],
+      [{ service_type: 'fba_prep', rate: '1.25', unit: 'per_unit' }],
+    )).toEqual([])
+  })
+
+  it('picks the first service not already on the form', () => {
+    expect(nextUnusedService([])).toBe(WAREHOUSE_SERVICE_TYPES[0].value)
+    expect(nextUnusedService([WAREHOUSE_SERVICE_TYPES[0].value]))
+      .toBe(WAREHOUSE_SERVICE_TYPES[1].value)
+  })
+
+  it('falls back to the first service when the card is complete', () => {
+    // Every service taken. A duplicate is returned deliberately -- the
+    // duplicate check then names it, which beats an empty or unloggable value.
+    expect(nextUnusedService(WAREHOUSE_SERVICE_TYPES.map((s) => s.value)))
+      .toBe(WAREHOUSE_SERVICE_TYPES[0].value)
+  })
+
+  it('names a dropped service once even if stored twice', () => {
+    expect(droppedServices(
+      [
+        { service_type: 'storage', rate: 25, unit: 'per_pallet' },
+        { service_type: 'storage', rate: 30, unit: 'per_pallet' },
+      ],
+      [],
+    )).toEqual(['storage'])
   })
 })

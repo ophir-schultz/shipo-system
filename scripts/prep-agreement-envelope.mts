@@ -112,6 +112,21 @@ if (partner.agreement_envelope_id) {
 // ---------------------------------------------------------------------
 // 2. The payload.
 // ---------------------------------------------------------------------
+// Where DocuSign POSTs envelope events. The webhook that promotes the
+// partner on completion lives there and nowhere else — if this env var
+// is unset the script refuses, because sending without it ships an
+// envelope that completes without ever notifying the app.
+//
+// Measured, not inferred: shipousa.com is the WordPress site and answers
+// 404 for /api/partner/agreement-webhook. The app is served from
+// shipo-system.vercel.app, which answers 405 there (exists, rejects GET).
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+if (!siteUrl) {
+  console.error('NEXT_PUBLIC_SITE_URL is required (e.g. https://shipo-system.vercel.app).')
+  process.exit(1)
+}
+const webhookUrl = `${siteUrl.replace(/\/+$/, '')}/api/partner/agreement-webhook`
+
 // The builder throws on a non-US person rather than returning a flag, so
 // catch it here: a stack trace tells whoever ran this nothing about what
 // to do next, and the refusal text says exactly what to do.
@@ -127,6 +142,7 @@ try {
       address: noticeAddress,
     },
     shipo: { name: 'Ophir Schultz', email: 'ophir@shipousa.com' },
+    webhookUrl,
   })
 } catch (e) {
   console.error((e as Error).message)

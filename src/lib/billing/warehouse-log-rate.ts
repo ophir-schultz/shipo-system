@@ -42,6 +42,17 @@ export interface WarehouseRateRow {
   effective_from?: string | null
   effective_to?: string | null
   /**
+   * What the rate is charged per -- per_pallet, per_unit, per_hour. Optional
+   * because priceServiceLine does not read it: a unit does not change what a
+   * line costs, and a row with a rate but no unit is still a priced row.
+   *
+   * It is on the type so the log screen can SHOW the operator what they are
+   * agreeing to ("7.00 per_pallet") next to the quantity box. Displaying a
+   * bare 7.00 beside a quantity is how a per-pallet rate gets entered as
+   * though it were per-carton.
+   */
+  unit?: string | null
+  /**
    * Set only by the structured seed files. Its presence is how this function
    * tells "no price was ever agreed" from "a price was agreed in a shape this
    * screen does not read" -- two findings that send someone to different

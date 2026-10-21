@@ -143,6 +143,130 @@ export function overlapWarning(
   return null
 }
 
+// ============================================================
+// Editing an existing legacy card.
+//
+// POST /api/clients/[id]/warehouse-rates REPLACES the legacy card with
+// exactly the rows it is sent -- it does not merge. The edit form therefore
+// has one hard requirement: what is on screen must equal what the client's
+// card becomes. It used to open on a single blank row regardless of what the
+// client already had, so entering one new service and saving deleted every
+// other rate that client had. The button said "Add Manually" and the endpoint
+// replaced; nothing in between reconciled the two.
+//
+// These helpers are here rather than in the .tsx because vitest.config.ts
+// includes only `src/**/*.test.ts` -- logic inside a component cannot be given
+// a test, and this is the logic that decides which rates survive a save.
+// ============================================================
+
+/** A rate as the edit form holds it: strings, because they come from inputs. */
+export interface EditableRate {
+  service_type: string
+  rate: string
+  unit: string
+}
+
+/**
+ * The parts of a stored rate row these helpers read.
+ *
+ * `rate` admits string because `numeric(10,2)` arrives over PostgREST as
+ * either, and `charge_type` is how a structured seed row is told from a legacy
+ * one -- see ALLOWED below for why the two writers must not touch each other.
+ */
+export interface StoredRate {
+  service_type?: string | null
+  rate?: number | string | null
+  unit?: string | null
+  charge_type?: string | null
+}
+
+/**
+ * The stored card as editable form rows.
+ *
+ * Structured rows are dropped: this endpoint cannot author charge_type, so
+ * round-tripping one through the form would either be rejected outright by
+ * validateLegacyRates or re-inserted as a legacy duplicate of a seed line.
+ *
+ * A row whose rate is NULL preloads BLANK rather than as '0'. Null is
+ * UNKNOWN and 0 is a price, and seeding the input with a zero would turn
+ * "nobody priced this" into "this service is free" the moment someone pressed
+ * save without reading the row.
+ */
+export function toEditableRates(rows: readonly StoredRate[]): EditableRate[] {
+  return rows
+    .filter((r) => r.charge_type == null)
+    .filter((r): r is StoredRate & { service_type: string } =>
+      typeof r.service_type === 'string' && r.service_type.trim() !== '')
+    .map((r) => ({
+      service_type: r.service_type.trim(),
+      rate: r.rate === null || r.rate === undefined ? '' : String(r.rate),
+      unit: typeof r.unit === 'string' && r.unit ? r.unit : 'per_unit',
+    }))
+    .sort((a, b) => a.service_type.localeCompare(b.service_type))
+}
+
+/**
+ * The rows a save will actually send.
+ *
+ * Shared with droppedServices below, and that sharing is the point: the
+ * warning has to name exactly the rows the submit will leave behind. Two
+ * filters that agree today drift apart the first time one is edited, and the
+ * failure is silent -- the form promises to keep a rate it then deletes.
+ *
+ * NOTE the `> 0`: a rate typed as 0 is NOT submitted, so a deliberate "this
+ * service is free" cannot currently be saved from this form. That is
+ * pre-existing behaviour, preserved here rather than quietly changed, because
+ * fixing it alters what gets written on a billing path and deserves its own
+ * change. droppedServices reports such a row as dropped, so it is at least
+ * visible instead of silent.
+ */
+export function ratesToSubmit(rows: readonly EditableRate[]): EditableRate[] {
+  return rows.filter((r) => r.rate.trim() !== '' && parseFloat(r.rate) > 0)
+}
+
+/**
+ * Services on the stored card that this save would REMOVE.
+ *
+ * The form cannot prevent a replace from dropping a rate -- replacing is what
+ * the endpoint does -- so the remaining job is to make the loss visible before
+ * it happens rather than after. Covers both ways a row goes missing: deleted
+ * from the form, and present but blank/zero so the submit filter skips it.
+ */
+export function droppedServices(
+  existing: readonly StoredRate[],
+  edited: readonly EditableRate[],
+): string[] {
+  const kept = new Set(ratesToSubmit(edited).map((r) => r.service_type))
+  const out: string[] = []
+  for (const e of toEditableRates(existing)) {
+    if (!kept.has(e.service_type) && !out.includes(e.service_type)) {
+      out.push(e.service_type)
+    }
+  }
+  return out
+}
+
+/**
+ * The service a newly added form row should default to: the first loggable
+ * one not already on the form.
+ *
+ * A consequence of preloading. The form used to open on a single row, so a
+ * fixed default of 'storage' rarely collided; now that it opens on the whole
+ * card, 'storage' is usually already there -- and validateLegacyRates rejects
+ * a duplicate service outright, so pressing "add row" and saving would error
+ * on a form the operator had not yet touched.
+ *
+ * Falls back to the first service when every one is already on the card. That
+ * row IS a duplicate, and it is meant to be: the alternative is returning
+ * something unloggable or empty, and the duplicate check gives a message that
+ * names the problem.
+ */
+export function nextUnusedService(used: readonly string[]): string {
+  const taken = new Set(used)
+  const free = WAREHOUSE_SERVICE_TYPES.find((s) => !taken.has(s.value))
+  return free ? free.value : WAREHOUSE_SERVICE_TYPES[0].value
+}
+
 /**
  * The only columns this endpoint may author.
  *

@@ -29,7 +29,10 @@
  *        - New losses (is_loss = true)
  *        - Pending carrier adjustments
  *        - Shipments with no client assigned
- *   4. Email a summary report to ALERT_EMAIL if anything needs attention
+ *   4. Email a summary report to ALERT_EMAIL — OFF by default since
+ *      2026-10-15. Set MONITOR_EMAIL=problems or =always to re-enable; the
+ *      scans in step 3 run either way and their findings are always in this
+ *      route's JSON response. See lib/monitor/email-policy.
  */
 
 import { NextResponse } from 'next/server'
@@ -50,6 +53,10 @@ import {
 } from '@/lib/ledger/persist-charges'
 import { loadChargeInputs } from '@/lib/ledger/load-charge-inputs'
 import { persistStorageCharges, type StorageResult } from '@/lib/ledger/persist-storage-charges'
+// Whether to send at all, and -- separately -- whether NOT sending is a
+// failure. Conflating those two would 500 this cron six times a day as soon as
+// the email is switched off. See lib/monitor/email-policy.
+import { monitorEmailDecision, deliveryFailed } from '@/lib/monitor/email-policy'
 
 const ALERT_TO = process.env.ALERT_EMAIL || 'ophir@shipousa.com'
 
@@ -743,8 +750,33 @@ export async function GET(req: Request) {
     </div>
   `
 
-  const emailResult = await sendEmail({ to: ALERT_TO, subject, html, text: log.join('\n') })
-  log.push(`📧 Email → ${ALERT_TO}: ${emailResult.sent ? `sent via ${emailResult.provider}` : `FAILED (${emailResult.error})`}`)
+  // Off by default since 2026-10-15, at Ophir's request: six runs a day each
+  // mailed, "All clear" included, and the issue list barely changed between
+  // them. Set MONITOR_EMAIL=problems (mail only a bad run) or =always (the old
+  // behaviour) to bring it back.
+  //
+  // NOTHING ABOVE THIS LINE IS CONDITIONAL. Every scan still runs and every
+  // finding is still in errors[] and in the JSON below, which is what the
+  // dashboard's AutoSync widget reads. This silences the notification, not the
+  // monitoring.
+  const emailPolicy = monitorEmailDecision(process.env.MONITOR_EMAIL, hasErrors)
+
+  const emailResult = emailPolicy.send
+    ? await sendEmail({ to: ALERT_TO, subject, html, text: log.join('\n') })
+    // `provider: 'suppressed'` rather than 'none'. 'none' is lib/email.ts's
+    // word for "no provider configured", which is a misconfiguration; this is a
+    // choice, and the two must not read alike in the logs.
+    : { sent: false, provider: 'suppressed', error: emailPolicy.reason }
+
+  log.push(emailPolicy.send
+    ? `📧 Email → ${ALERT_TO}: ${emailResult.sent ? `sent via ${emailResult.provider}` : `FAILED (${emailResult.error})`}`
+    : `🔕 Email suppressed: ${emailPolicy.reason}`)
+
+  // Did the channel BREAK, as opposed to being switched off? `!emailResult.sent`
+  // cannot answer that -- a suppressed report and a dead provider both leave it
+  // false -- and reading it directly would 500 this cron six times a day and
+  // push a not-delivered warning about a delivery nobody attempted.
+  const undelivered = deliveryFailed(emailPolicy, emailResult.sent)
 
   // THE ALERT DID NOT LEAVE THE BUILDING, AND THAT CANNOT BE A 200.
   //
@@ -770,7 +802,7 @@ export async function GET(req: Request) {
   // from errors[] above, so this entry cannot appear in the email it is
   // reporting the failure of -- and must not, or a later successful run would
   // carry a line about a delivery that did in fact succeed.
-  if (!emailResult.sent) {
+  if (undelivered) {
     errors.push(`✗ THIS REPORT WAS NOT DELIVERED to ${ALERT_TO} (provider `
       + `'${emailResult.provider}': ${emailResult.error ?? 'unknown error'}). `
       + `Every finding above was computed and then discarded. Configure a mail `
@@ -780,11 +812,13 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json({
-    // false exactly when the report could not be delivered. A caller that only
-    // checks `ok` is checking the thing that actually matters: whether anyone
-    // was told.
-    ok: emailResult.sent,
-    has_issues: hasErrors || !emailResult.sent,
+    // false exactly when the report could not be delivered -- not merely when
+    // it was not sent. A caller that only checks `ok` is checking the thing
+    // that actually matters: whether the alerting channel is broken. With
+    // MONITOR_EMAIL off there is no channel to break, so this stays true and
+    // the cron stays green.
+    ok: !undelivered,
+    has_issues: hasErrors || undelivered,
     errors,
     log,
     stats: {
@@ -802,16 +836,21 @@ export async function GET(req: Request) {
       zero_rated: zeroRes.error ? null : zeroRes.count,
       undated_picked_lines: undatedPickError ? null : undatedPickCount,
     },
-    email: emailResult,
+    email: { ...emailResult, mode: emailPolicy.mode, suppressed: !emailPolicy.send },
   }, {
     // 500, not 200, when the report could not be delivered. Vercel records the
     // status of every cron invocation, so this is what turns a silent alerting
     // outage into a visible failed run.
     //
+    // Keyed on `undelivered`, NOT on `emailResult.sent`. A suppressed report is
+    // also unsent, and 500ing on it would mark all six daily cron runs failed
+    // for as long as the email is switched off -- burying a real outage in a
+    // wall of red that everyone has learned to ignore.
+    //
     // Vercel cron invocations are not retried on failure, so this does not
     // re-enter recalculate (which writes client_rate). If that ever changes,
     // this needs revisiting -- the write path must not be driven by a mail
     // misconfiguration.
-    status: emailResult.sent ? 200 : 500,
+    status: undelivered ? 500 : 200,
   })
 }

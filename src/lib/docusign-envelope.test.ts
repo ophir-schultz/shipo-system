@@ -42,8 +42,10 @@ const partner = {
 }
 const shipo = { name: 'Ophir Schultz', email: 'ophir@shipousa.com' }
 
+const WEBHOOK_URL = 'https://shipousa.com/api/partner/agreement-webhook'
+
 function build() {
-  return buildPartnerAgreementEnvelope({ partner, shipo })
+  return buildPartnerAgreementEnvelope({ partner, shipo, webhookUrl: WEBHOOK_URL })
 }
 
 // The W-9-only envelope (spec §2a). The partner signs this one from his
@@ -428,20 +430,54 @@ describe('refusals', () => {
     // falls back to the signer's email — which a forwarded envelope can
     // change, attaching the signature to the wrong partner row.
     expect(() =>
-      buildPartnerAgreementEnvelope({ partner: { ...partner, id: '' }, shipo }),
+      buildPartnerAgreementEnvelope({
+        partner: { ...partner, id: '' },
+        shipo,
+        webhookUrl: WEBHOOK_URL,
+      }),
     ).toThrow(/partner.id/)
   })
 
   it('will not build an envelope with no email to send it to', () => {
     expect(() =>
-      buildPartnerAgreementEnvelope({ partner: { ...partner, email: '' }, shipo }),
+      buildPartnerAgreementEnvelope({
+        partner: { ...partner, email: '' },
+        shipo,
+        webhookUrl: WEBHOOK_URL,
+      }),
     ).toThrow(/email/)
   })
 
   it('will not build an envelope with no name on it', () => {
     expect(() =>
-      buildPartnerAgreementEnvelope({ partner: { ...partner, name: '  ' }, shipo }),
+      buildPartnerAgreementEnvelope({
+        partner: { ...partner, name: '  ' },
+        shipo,
+        webhookUrl: WEBHOOK_URL,
+      }),
     ).toThrow(/name/)
+  })
+
+  it('will not build an envelope with no webhookUrl', () => {
+    // Without eventNotification, the envelope completes without
+    // notifying the app — the partner stays 'pending' forever. We refuse
+    // rather than silently ship a dead-end envelope.
+    expect(() =>
+      buildPartnerAgreementEnvelope({ partner, shipo, webhookUrl: '' }),
+    ).toThrow(/webhookUrl/)
+  })
+
+  it('refuses a plain-http webhookUrl', () => {
+    // DocuSign silently will not deliver to http://; it discards the
+    // event. Catch that at build time rather than at the first signed
+    // envelope none of us watch.
+    expect(() =>
+      buildPartnerAgreementEnvelope({
+        partner,
+        shipo,
+        webhookUrl: 'http://shipousa.com/api/partner/agreement-webhook',
+      }),
+    ).toThrow(/https/)
   })
 })
 
@@ -459,6 +495,7 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: 'foreign_individual' },
         shipo,
+        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/W-8BEN/)
   })
@@ -468,6 +505,7 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: 'foreign_entity' },
         shipo,
+        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/W-8BEN-E/)
   })
@@ -479,6 +517,7 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: null },
         shipo,
+        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/tax status/i)
   })
@@ -491,6 +530,7 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: 'US_PERSON' },
         shipo,
+        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/tax status/i)
   })
@@ -503,6 +543,7 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: null },
         shipo,
+        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow()
   })
@@ -514,8 +555,41 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: 'us_person' },
         shipo,
+        webhookUrl: WEBHOOK_URL,
       }),
     ).not.toThrow()
+  })
+})
+
+describe('eventNotification — the webhook that promotes the partner', () => {
+  it('ships the configured webhook URL on every envelope', () => {
+    const env = build() as { eventNotification: { url: string } }
+    // Not a literal — the whole point of threading webhookUrl through
+    // the input is that a test envelope cannot accidentally fire against
+    // production. If this ever hard-codes shipousa.com, the next time
+    // someone runs the script against localhost the webhook will post
+    // to the live site.
+    expect(env.eventNotification.url).toBe(WEBHOOK_URL)
+  })
+
+  it('subscribes to completed, declined, voided — the three the route handles', () => {
+    const env = build() as {
+      eventNotification: { envelopeEvents: Array<{ envelopeEventStatusCode: string }> }
+    }
+    const codes = env.eventNotification.envelopeEvents.map((e) => e.envelopeEventStatusCode)
+    // These are the three branches of the webhook's switch. Add a code
+    // here without a branch there and DocuSign fires events the route
+    // discards — add a branch there without a code here and the route
+    // never hears about the state change.
+    expect(codes).toEqual(expect.arrayContaining(['completed', 'declined', 'voided']))
+  })
+
+  it('requires acknowledgment so a transient 5xx retries', () => {
+    const env = build() as { eventNotification: { requireAcknowledgment: string } }
+    // Without this, one bad deploy during the exact minute a partner
+    // signs quietly loses the promotion. DocuSign keeps the event for
+    // 24h of retries when acknowledgment is required.
+    expect(env.eventNotification.requireAcknowledgment).toBe('true')
   })
 })
 
@@ -644,6 +718,7 @@ describe('the contract prose has no blanks left in it', () => {
     const env = buildPartnerAgreementEnvelope({
       partner: { ...partner, address: '4291 Express Ln, Ste 4995-901, Sarasota, FL 34249, USA' },
       shipo,
+      webhookUrl: WEBHOOK_URL,
     })
     const tab = byAnchor(AGREEMENT_ANCHORS.partnerAddressPrefill, env)
     expect(tab.value).toBe('4291 Express Ln, Ste 4995-901, Sarasota, FL 34249, USA')
@@ -659,6 +734,7 @@ describe('the contract prose has no blanks left in it', () => {
     const env = buildPartnerAgreementEnvelope({
       partner: { ...partner, address: '   ' },
       shipo,
+      webhookUrl: WEBHOOK_URL,
     })
     const tab = byAnchor(AGREEMENT_ANCHORS.partnerAddressPrefill, env)
     expect(tab.value).toBeUndefined()
