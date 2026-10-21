@@ -55,8 +55,12 @@ async function getBillingData() {
 
   const [clientsRes, shipmentsRes, warehouseRes, adjustmentsRes, billsRes] = await Promise.all([
     supabaseAdmin.from('clients').select('id, name').eq('active', true).order('name'),
+    // `id` is selected to be a React key and nothing else. `order_number` is
+    // NOT unique -- ledger_03_charges.sql:8 says so in as many words:
+    // multi-package orders, reships and return labels share one. Keying the
+    // shipments table by it made React treat two real shipments as one row.
     readAllPages((from, to) => supabaseAdmin.from('shipments')
-      .select('client_id, order_number, ship_date, carrier, service, actual_cost, client_rate, profit_loss, is_loss')
+      .select('id, client_id, order_number, ship_date, carrier, service, actual_cost, client_rate, profit_loss, is_loss')
       .order('ship_date', { ascending: false }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
       .select('client_id, log_date, service_type, quantity, rate, total, notes')

@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { downloadBillingExcel, downloadBillingPDF } from '@/lib/billing/download'
 import {
   combinePriced, formatPrice, formatSignedPrice, isPriced, sumPriced,
-  totalOrUnknown, unpricedNote, type Money,
+  totalOrUnknown, unpricedNote, UNPRICED_DASH, type Money,
 } from '@/lib/billing/unpriced'
+import { exclusionNote, reconcile, reconciledOrUnknown } from '@/lib/billing/profit-rollup'
 import { filterByDate, undatedNote } from '@/lib/billing/date-range'
 
 // `client_rate` and `warehouse_daily_log.total` are nullable: recalculate.ts
@@ -44,6 +45,15 @@ import { filterByDate, undatedNote } from '@/lib/billing/date-range'
 type ClientOption = { id: string; name: string | null }
 
 type BillingShipment = {
+  // The row's React key, and that is the whole reason it is selected.
+  // `order_number` is NOT unique -- supabase/ledger_03_charges.sql:8 states it
+  // outright: multi-package orders, reships and return labels share one. Keying
+  // by it made React reconcile two distinct shipments as one row.
+  //
+  // Optional, because `id` being absent is a `.select()` that was not updated
+  // rather than a row with no primary key, and the fallback below keeps the
+  // table rendering instead of crashing on a key of `undefined`.
+  id?: string | null
   client_id: string | null
   order_number: string
   ship_date: string | null
@@ -201,6 +211,30 @@ export default function BillingView({ data }: { data: BillingData }) {
   const unbillableNote = unpricedNote(billTotal.unpriced, 'line')
   const lossCount = shipments.filter(s => s.is_loss).length
 
+  // A SECOND, NARROWER set of figures, for the margin and only the margin.
+  //
+  // `shippingRevenue` above is the WIDE one and has to stay wide: a shipment
+  // with an agreed rate is owed whether or not the carrier has invoiced us yet,
+  // and it feeds `billable`, `grandTotal` and the download. But the Net Profit
+  // stat used to be `shippingRevenue - shippingCost`, and those two sums skip
+  // DIFFERENT rows -- a shipment with a rate and no carrier cost was in the
+  // first and not the second, so it added its full rate to "profit" as though
+  // it had cost nothing. The subtraction was real; the two operands were not
+  // measured over the same shipments.
+  //
+  // So the three stats below come off one `reconcile` instead, which keeps only
+  // the rows where both sides are known. That is the same call the dashboard,
+  // /losses, /shipments and the reports tab make, which is what makes all five
+  // agree. The two figures are different on purpose and are labelled
+  // differently: "Total to Bill" is what to invoice, this is what we kept.
+  const margin = reconcile(shipments)
+  const known = reconciledOrUnknown(margin)
+  const marginNote = exclusionNote(margin)
+  const fig = (n: number | null) => (n === null ? UNPRICED_DASH : `$${n.toFixed(2)}`)
+  // `known.profit >= 0` would be TRUE for null -- `null >= 0` is true in
+  // JavaScript -- and would paint an unmeasurable margin green.
+  const profitPositive = known.profit !== null && known.profit >= 0
+
   const [dlLoading, setDlLoading] = useState<'excel' | 'pdf' | null>(null)
 
   const dlArgs = {
@@ -325,12 +359,25 @@ export default function BillingView({ data }: { data: BillingData }) {
       <div className="bg-gray-800 rounded-xl overflow-hidden">
         {activeTab === 'shipments' && (
           <>
+            {/* All three money stats come off one reconciliation, so Charged
+                minus We Paid is exactly Net Profit. "Charged" here is therefore
+                NARROWER than "Total to Bill" above -- it holds back shipments
+                whose carrier cost has not landed, because those have no
+                knowable margin. Two questions, two figures, two labels; the
+                note underneath says which rows are held back and why. */}
             <div className="grid grid-cols-4 divide-x divide-gray-700 border-b border-gray-700">
               <Stat label="Shipments" value={shipments.length} />
-              <Stat label="We Paid (Carrier)" value={`$${shippingCost.toFixed(2)}`} />
-              <Stat label="Charged Client" value={`$${shippingRevenue.toFixed(2)}`} />
-              <Stat label="Net Profit" value={`${(shippingRevenue - shippingCost) >= 0 ? '+' : ''}$${(shippingRevenue - shippingCost).toFixed(2)}`} color={(shippingRevenue - shippingCost) >= 0 ? 'green' : 'red'} />
+              <Stat label="We Paid (Carrier)" value={fig(known.cost)} />
+              <Stat label="Charged Client" value={fig(known.revenue)} />
+              <Stat label="Net Profit"
+                value={known.profit === null
+                  ? UNPRICED_DASH
+                  : `${profitPositive ? '+' : ''}$${known.profit.toFixed(2)}`}
+                color={known.profit === null ? 'gray' : profitPositive ? 'green' : 'red'} />
             </div>
+            {marginNote && (
+              <p className="px-5 py-2 text-xs text-amber-400 border-b border-gray-700">⚠ {marginNote}</p>
+            )}
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-gray-900">
@@ -347,7 +394,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                   {shipments.length === 0
                     ? <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-500">No shipments in this period</td></tr>
                     : shipments.map(s => (
-                      <tr key={s.order_number} className={`border-b border-gray-700/40 hover:bg-gray-700/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
+                      <tr key={s.id ?? s.order_number} className={`border-b border-gray-700/40 hover:bg-gray-700/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
                         <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{s.order_number}</td>
                         <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
                         <td className="px-4 py-2.5 text-gray-300 text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
@@ -530,7 +577,11 @@ function Stat({ label, value, note, color }: { label: string; value: string | nu
   return (
     <div className="px-5 py-3">
       <p className="text-xs text-gray-400">{label}</p>
-      <p className={`font-bold text-lg ${color === 'green' ? 'text-green-400' : color === 'red' ? 'text-red-400' : color === 'orange' ? 'text-orange-400' : 'text-white'}`}>{value}</p>
+      {/* 'gray' is deliberately not white: a figure nobody could compute
+          should not be styled like one that was measured, and it must not
+          borrow green or red either. Same rule as the 'unknown' StatCard on
+          /losses. */}
+      <p className={`font-bold text-lg ${color === 'green' ? 'text-green-400' : color === 'red' ? 'text-red-400' : color === 'orange' ? 'text-orange-400' : color === 'gray' ? 'text-gray-400' : 'text-white'}`}>{value}</p>
       {note && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {note}</p>}
     </div>
   )

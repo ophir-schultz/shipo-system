@@ -91,11 +91,17 @@ async function getReportData() {
 
   const [clientsRes, shipmentsRes, lossRes, adjustmentsRes, billsRes, warehouseRes] = await Promise.all([
     supabaseAdmin.from('clients').select('id, name').eq('active', true).order('name'),
+    // `id` is selected to be a React key and nothing else. `order_number` is
+    // NOT unique -- ledger_03_charges.sql:8 says so in as many words:
+    // multi-package orders, reships and return labels share one. Keying table
+    // rows by it made React treat two real shipments as one row, so on a
+    // re-render the second one's figures could land in the first one's DOM
+    // node. A money table is the worst place for that.
     readAllPages((from, to) => supabaseAdmin.from('shipments')
-      .select('client_id, order_number, clients(name), ship_date, carrier, service, tracking_number, actual_cost, client_rate, profit_loss, is_loss')
+      .select('id, client_id, order_number, clients(name), ship_date, carrier, service, tracking_number, actual_cost, client_rate, profit_loss, is_loss')
       .order('ship_date', { ascending: false }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('shipments')
-      .select('client_id, order_number, clients(name), ship_date, carrier, service, actual_cost, client_rate, profit_loss')
+      .select('id, client_id, order_number, clients(name), ship_date, carrier, service, actual_cost, client_rate, profit_loss')
       .eq('is_loss', true)
       .order('profit_loss', { ascending: true }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
