@@ -6,7 +6,7 @@ import {
   MAX_CODES_PER_WINDOW,
   RATE_WINDOW_MINUTES,
 } from '@/lib/partner-auth'
-import { sendSignInEmail } from '@/lib/partner-signin-email'
+import { sendSignInEmail, SIGN_IN_EMAIL_COLUMNS } from '@/lib/partner-signin-email'
 
 // Step 1 of partner login: email in, 6-digit code out by email.
 //
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
 
   const { data: partner } = await supabaseAdmin
     .from('referral_partners')
-    .select('id, name, email, status, agreement_status')
+    .select(SIGN_IN_EMAIL_COLUMNS)
     .ilike('email', email)
     .maybeSingle()
 

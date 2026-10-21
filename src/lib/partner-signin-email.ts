@@ -8,6 +8,7 @@ import {
 } from '@/lib/partner-access'
 import { generateLinkToken, signInLinkUrl, linkExpiresAt } from '@/lib/partner-login-link'
 import { isMissingLinkColumn, loginLinkLines, signInLinkOrigin } from '@/lib/partner-login-issue'
+import { w9NextStep, type W9StepCandidate } from '@/lib/partner-signin-w9-step'
 
 // THE ONE EMAIL THAT CARRIES A PARTNER INTO THE PORTAL. Spec §2.1, §2.2.
 //
@@ -48,11 +49,31 @@ import { isMissingLinkColumn, loginLinkLines, signInLinkOrigin } from '@/lib/par
  * while an attacker-supplied IP string can only make a forensic record
  * wrong. One redirects a credential; the other mislabels a log line.
  */
-export interface SignInEmailPartner extends AccessCandidate {
+export interface SignInEmailPartner extends AccessCandidate, W9StepCandidate {
   id: string
   name?: string | null
   request_ip?: string | null
 }
+
+/**
+ * The columns a caller must read for this email to be CORRECT, as one
+ * string every caller selects.
+ *
+ * NOT TIDINESS. An unselected column arrives from PostgREST as undefined,
+ * and undefined w9_received_at reads as "no W-9 on file" — so a caller
+ * who left it out of its select list would tell a partner who has already
+ * handed over his taxpayer number that we need one, and the rational
+ * response to that is to hand it over a second time. Forgetting
+ * tax_status fails the other way and more quietly: every partner reads as
+ * "not recorded", the W-9 prompt silently never fires, and the only
+ * symptom is a log line nobody is looking for.
+ *
+ * Three routes send this email and each had written its own list. A
+ * shared constant means a column this function starts reading cannot be
+ * missing from two of them.
+ */
+export const SIGN_IN_EMAIL_COLUMNS =
+  'id, name, email, status, agreement_status, tax_status, w9_received_at'
 
 /**
  * Discriminated, and never a bare boolean.
@@ -179,6 +200,15 @@ export async function sendSignInEmail(partner: SignInEmailPartner): Promise<Sign
   const linkLines = loginLinkLines(linkIssued ? linkUrl : null)
   const firstName = (partner.name ?? '').split(' ')[0] || 'there'
 
+  // Spec §2.3's automatic W-9, which is a PROMPT and not an envelope —
+  // see partner-signin-w9-step.ts for why a webhook cannot send the
+  // embedded one. Silent for three partners in four, and the silence
+  // that matters is the partner whose tax_status nobody recorded: the
+  // dashboard form refuses him, so promising it here would point him at
+  // a locked door. He gets the ordinary email; staff get the line.
+  const { lines: w9Lines, log: w9Log } = w9NextStep(partner)
+  if (w9Log) console.error('[partner-signin]', w9Log)
+
   // WHAT THIS EMAIL DELIBERATELY DOES NOT SAY. No commission figure, no
   // client name, no money of any kind. It is delivered the moment the
   // agreement is signed — before the partner has ever opened the portal —
@@ -197,6 +227,7 @@ export async function sendSignInEmail(partner: SignInEmailPartner): Promise<Sign
       `Your Shipo partner portal code is ${code}\n\n` +
       `It expires in ${CODE_TTL_MINUTES} minutes and can be used once.\n\n` +
       linkLines.text +
+      w9Lines.text +
       `If you didn't ask for this, you can ignore this email — nobody can get in without the code.\n\n` +
       `Shipo LLC · 310 Cornell Dr, Suite B4, Wilmington, DE 19801 · Support@shipousa.com`,
     html:
@@ -206,6 +237,7 @@ export async function sendSignInEmail(partner: SignInEmailPartner): Promise<Sign
       `<p style="font-size:34px;font-weight:700;letter-spacing:8px;margin:16px 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${code}</p>` +
       `<p style="margin:0 0 16px;color:#555">It expires in ${CODE_TTL_MINUTES} minutes and can be used once.</p>` +
       linkLines.html +
+      w9Lines.html +
       `<p style="margin:0 0 24px;color:#555">If you didn&rsquo;t ask for this, you can ignore this email &mdash; nobody can get in without the code.</p>` +
       `<hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">` +
       `<p style="margin:0;font-size:12px;color:#888">Shipo LLC &middot; 310 Cornell Dr, Suite B4, Wilmington, DE 19801 &middot; Support@shipousa.com</p>` +

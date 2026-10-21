@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { createClient } from '@/lib/supabase-server'
-import { sendSignInEmail } from '@/lib/partner-signin-email'
+import { sendSignInEmail, SIGN_IN_EMAIL_COLUMNS } from '@/lib/partner-signin-email'
 import { invitePreconditionReason, portalAccessBlockedReason } from '@/lib/partner-access'
 
 // Staff-side control of a partner's portal access.
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     // tax_status is read for invitePreconditionReason below. Asking about
     // a column this select omitted would answer "unrecorded" for
     // everybody — the gate would be total rather than conditional.
-    .select('id, name, email, status, agreement_status, tax_status')
+    .select(SIGN_IN_EMAIL_COLUMNS)
     .eq('id', partner_id)
     .maybeSingle()
 

@@ -14,7 +14,7 @@ vi.mock('@/lib/email', () => ({
   get sendEmail() { return sendEmail },
 }))
 
-const { sendSignInEmail } = await import('./partner-signin-email')
+const { sendSignInEmail, SIGN_IN_EMAIL_COLUMNS } = await import('./partner-signin-email')
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
@@ -350,6 +350,110 @@ describe('the email carries both ways in', () => {
     const { text, html } = bodies()
     for (const body of [text, html]) {
       expect(body).not.toMatch(/commission|\$|per order|per unit|rate/i)
+    }
+  })
+})
+
+// ===========================================================================
+// THE W-9 THAT FOLLOWS THE AGREEMENT. Spec §2.3.
+//
+// This email is sent the instant the agreement is signed, so it is the only
+// moment anything reaches the partner automatically. §2.3 reads as though the
+// webhook should send him a W-9 envelope; it cannot — that envelope is
+// EMBEDDED, reachable only through a recipient-view URL minted for somebody
+// with a browser open, and with no w9_envelope_id column anywhere a
+// webhook-fired one would be invisible to the dashboard, which would go on
+// offering its own button. Two live envelopes is two taxpayer numbers
+// collected from one man.
+//
+// So what fires automatically is the PROMPT. The decision of what to say, and
+// when to say nothing, is tested in partner-signin-w9-step.test.ts; what is
+// tested here is that the email actually carries it, and that the silent
+// cases leave the message exactly as it was.
+// ===========================================================================
+
+describe('the email names the W-9 as the next step', () => {
+  it('tells a signed US partner what is waiting inside', async () => {
+    await sendSignInEmail(ok({ tax_status: 'us_person', w9_received_at: null }))
+    const { text, html } = bodies()
+
+    for (const body of [text, html]) {
+      expect(body).toMatch(/W-9/)
+      expect(body).toMatch(/dashboard/i)
+    }
+  })
+
+  it('says nothing about a W-9 we already hold', async () => {
+    // He gave us the number. Being asked again on his next login reads as
+    // "the first one was lost", and the rational response is to do it twice.
+    await sendSignInEmail(ok({ tax_status: 'us_person', w9_received_at: '2026-10-20T00:00:00Z' }))
+    const { text, html } = bodies()
+
+    for (const body of [text, html]) expect(body).not.toMatch(/W-9/)
+  })
+
+  it('stays silent about the W-9 when staff have not recorded a tax status', async () => {
+    // The dashboard form refuses that partner, so a promise here points him
+    // at a locked door. The email goes out unchanged and the condition goes
+    // to staff instead — it is theirs to fix and it is invisible otherwise.
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await sendSignInEmail(ok({ tax_status: null, w9_received_at: null }))
+      const { text, html } = bodies()
+
+      for (const body of [text, html]) expect(body).not.toMatch(/W-9/)
+      expect(log.mock.calls.flat().join(' ')).toMatch(/tax_status/)
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it('still says nothing about commission, clients or money with the W-9 step in it', async () => {
+    // The money guard above runs on a fixture with no tax status, so it
+    // never sees this paragraph. The W-9 is the one subject in this email
+    // that invites a figure, so the guard is repeated over the variant that
+    // actually prints it.
+    await sendSignInEmail(ok({ tax_status: 'us_person', w9_received_at: null }))
+    const { text, html } = bodies()
+
+    for (const body of [text, html]) {
+      expect(body).not.toMatch(/commission|\$|per order|per unit/i)
+    }
+  })
+
+  it('keeps the code and the link in the message that mentions the W-9', async () => {
+    // The W-9 paragraph is an aside in an email whose job is access. If it
+    // ever displaced either way in, a partner would be reading about tax
+    // paperwork on a message he cannot act on.
+    await sendSignInEmail(ok({ tax_status: 'us_person', w9_received_at: null }))
+    const { subject, text } = bodies()
+
+    const code = /\b(\d{6})\b/.exec(text)![1]
+    expect(subject).toContain(code)
+    expect(text).toContain('https://shipo-system.vercel.app/partner/signin?t=')
+  })
+
+  it('every caller reads the columns this decision needs', async () => {
+    // AN UNSELECTED COLUMN ARRIVES AS undefined, AND undefined READS AS
+    // "NO W-9 ON FILE". A caller that forgot w9_received_at would nag a
+    // partner who has already handed over his taxpayer number into handing
+    // it over again — which is the failure this whole step exists to
+    // prevent, reintroduced by an omission in a SELECT list.
+    //
+    // Forgetting tax_status fails the other way and more quietly: every
+    // partner reads as "not recorded", so the prompt silently never fires
+    // and the only symptom is a log line nobody is looking for.
+    //
+    // So the list is a shared constant and this is the guard that keeps it
+    // shared. A hand-written select naming agreement_status is a partner row
+    // being read with its own list, and is refused outright.
+    expect(SIGN_IN_EMAIL_COLUMNS).toContain('w9_received_at')
+    expect(SIGN_IN_EMAIL_COLUMNS).toContain('tax_status')
+
+    for (const path of [WEBHOOK, PORTAL_ACCESS, REQUEST_CODE]) {
+      const src = bodyOf(path)
+      expect(src).toContain('.select(SIGN_IN_EMAIL_COLUMNS)')
+      expect(src).not.toMatch(/\.select\('[^']*agreement_status/)
     }
   })
 })

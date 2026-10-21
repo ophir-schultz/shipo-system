@@ -9,6 +9,49 @@ import {
   portalAccessBlockedReason,
   portalAccessPartnerMessage,
 } from './partner-access'
+import { SIGN_IN_EMAIL_COLUMNS } from './partner-signin-email'
+
+/**
+ * Does this route actually READ `column` off referral_partners?
+ *
+ * WHY THIS IS NOT A PLAIN REGEX ANY MORE. The guards below used to match
+ * `/select\([^)]*tax_status/` against the route source, which worked only
+ * while every route spelled its column list out inline. Three routes mail
+ * the sign-in email and each had written its own list, so the list became
+ * one shared constant (SIGN_IN_EMAIL_COLUMNS) — and the literal the guards
+ * were reading moved out of the route.
+ *
+ * The property being protected did not change: a route that decides on a
+ * column it never selected is asking about undefined, and undefined reads
+ * as "unrecorded" for every partner. So the guard follows the indirection
+ * rather than losing the property — resolve the constant, then match.
+ *
+ * Importing partner-signin-email is safe here: src/lib/supabase.ts builds
+ * its clients lazily, so nothing connects at module load.
+ */
+function selectsColumn(src: string, column: string): boolean {
+  const resolved = src.replace(/SIGN_IN_EMAIL_COLUMNS/g, `'${SIGN_IN_EMAIL_COLUMNS}'`)
+  return new RegExp(`select\\([^)]*${column}`).test(resolved)
+}
+
+describe('selectsColumn sees through the shared column list', () => {
+  it('resolves the constant', () => {
+    expect(selectsColumn('.select(SIGN_IN_EMAIL_COLUMNS)', 'w9_received_at')).toBe(true)
+    expect(selectsColumn('.select(SIGN_IN_EMAIL_COLUMNS)', 'tax_status')).toBe(true)
+  })
+
+  it('still reads an inline list', () => {
+    expect(selectsColumn(".select('id, tax_status')", 'tax_status')).toBe(true)
+  })
+
+  // THE CONTROL. Without it the helper could answer true for anything and
+  // every caller below would pass vacuously — which is the failure mode of
+  // a guard that reads a constant instead of the code.
+  it('says no to a column nobody selects', () => {
+    expect(selectsColumn('.select(SIGN_IN_EMAIL_COLUMNS)', 'cost_labour_not_deducted')).toBe(false)
+    expect(selectsColumn(".select('id, name')", 'tax_status')).toBe(false)
+  })
+})
 
 const signed = {
   name: 'Dana Katz',
@@ -162,7 +205,7 @@ describe('the invite precondition is wired to both call sites', () => {
     expect(route).toContain('invitePreconditionReason(')
     // And it must read the column, or it is asking about a field it never
     // selected — which answers "unrecorded" for everybody.
-    expect(route).toMatch(/select\([^)]*tax_status/)
+    expect(selectsColumn(route, 'tax_status')).toBe(true)
   })
 
   it('the screen reads the column too, so the button reflects the same rule', () => {
@@ -315,7 +358,7 @@ describe('the gate is actually wired to something', () => {
     // And it must select the column, or the rule reads undefined for every
     // partner and fails closed on all of them — a gate that is always shut
     // looks like a working gate right up until the first real signature.
-    expect(src).toMatch(/select\([^)]*agreement_status/)
+    expect(selectsColumn(src, 'agreement_status')).toBe(true)
   })
 
   it('no code is mailed to a partner who has not signed', () => {

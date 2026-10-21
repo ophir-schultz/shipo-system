@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { sendSignInEmail } from '@/lib/partner-signin-email'
+import { sendSignInEmail, SIGN_IN_EMAIL_COLUMNS } from '@/lib/partner-signin-email'
 import { redactForStorage } from '@/lib/docusign-redact'
 import { W9_CUSTOM_FIELD } from '@/lib/partner-w9'
 import { ENVELOPE_KIND_FIELD, completedEnvelopeStamp } from '@/lib/partner-envelope-stamp'
@@ -99,7 +99,7 @@ async function resolvePartner(payload: ConnectPayload, envelopeId: string) {
   if (partnerId) {
     const { data } = await supabaseAdmin
       .from('referral_partners')
-      .select('id, name, email, status, agreement_status')
+      .select(SIGN_IN_EMAIL_COLUMNS)
       .eq('id', partnerId)
       .maybeSingle()
     if (data) return data
@@ -107,7 +107,7 @@ async function resolvePartner(payload: ConnectPayload, envelopeId: string) {
 
   const { data: byEnvelope } = await supabaseAdmin
     .from('referral_partners')
-    .select('id, name, email, status, agreement_status')
+    .select(SIGN_IN_EMAIL_COLUMNS)
     .eq('agreement_envelope_id', envelopeId)
     .maybeSingle()
   if (byEnvelope) return byEnvelope
@@ -116,7 +116,7 @@ async function resolvePartner(payload: ConnectPayload, envelopeId: string) {
   if (signerEmail) {
     const { data: byEmail } = await supabaseAdmin
       .from('referral_partners')
-      .select('id, name, email, status, agreement_status')
+      .select(SIGN_IN_EMAIL_COLUMNS)
       .ilike('email', signerEmail.trim())
       .maybeSingle()
     if (byEmail) return byEmail
