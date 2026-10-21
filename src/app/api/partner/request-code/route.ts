@@ -11,6 +11,8 @@ import {
   RATE_WINDOW_MINUTES,
 } from '@/lib/partner-auth'
 import { portalAccessBlockedReason } from '@/lib/partner-access'
+import { generateLinkToken, signInLinkUrl, linkExpiresAt } from '@/lib/partner-login-link'
+import { isMissingLinkColumn, loginLinkLines, signInLinkOrigin } from '@/lib/partner-login-issue'
 
 // Step 1 of partner login: email in, 6-digit code out by email.
 //
@@ -101,15 +103,34 @@ export async function POST(req: Request) {
   const codeHash = await sha256Hex(code)
   const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60_000).toISOString()
 
+  // The one-click link, issued on the SAME ROW as the code. Spec §2.1.
+  //
+  // One row with two ways to redeem it, sharing one consumed_at, is the
+  // design and not an economy: signing in by link must retire the code
+  // that travelled in the same email, and vice versa. Two rows, or two
+  // consumed flags, would leave a live credential sitting in a mailbox
+  // after its owner was already inside.
+  //
+  // signInLinkUrl returns null over http or a missing origin, and the
+  // email simply omits the link in that case — the code in the same
+  // message is a working way in, so a missing link degrades the email
+  // while a leaking one breaks it.
+  const linkToken = generateLinkToken()
+  const linkTokenHash = await sha256Hex(linkToken)
+  const linkUrl = signInLinkUrl(signInLinkOrigin(), linkToken)
+
   // Any code still outstanding for this partner is retired first, so
-  // asking for a new one always invalidates the old.
+  // asking for a new one always invalidates the old. This now retires
+  // an outstanding LINK too, through the shared consumed_at — which is
+  // correct: a partner asking for a fresh code is telling us the email
+  // he already has is no use to him.
   await supabaseAdmin
     .from('partner_login_codes')
     .update({ consumed_at: new Date().toISOString() })
     .eq('referral_partner_id', partner.id)
     .is('consumed_at', null)
 
-  const { error: insertError } = await supabaseAdmin.from('partner_login_codes').insert({
+  const row = {
     referral_partner_id: partner.id,
     email,
     code_hash: codeHash,
@@ -119,11 +140,48 @@ export async function POST(req: Request) {
       req.headers.get('x-forwarded-for')?.split(',')[0].trim() ??
       req.headers.get('x-real-ip') ??
       null,
+  }
+
+  let { error: insertError } = await supabaseAdmin.from('partner_login_codes').insert({
+    ...row,
+    link_token_hash: linkTokenHash,
+    link_expires_at: linkExpiresAt().toISOString(),
   })
+
+  // DEGRADE, DO NOT FAIL. supabase/partner_login_link.sql is applied by
+  // hand in the Supabase SQL editor and nothing sequences it against a
+  // deploy, so this code can reach production before the two columns
+  // do. PostgREST answers that with 42703 — and this route is the live
+  // front door for every partner. Treating it as fatal would turn "the
+  // migration is a day late" into "nobody can log in", which is far
+  // worse than "no link in the email today".
+  //
+  // So on a missing-column error only, retry code-only. The partner
+  // gets exactly today's behaviour: a 6-digit code that works. The log
+  // line names the file to apply, because this failure is otherwise
+  // invisible — every email looks fine, and the links in them are the
+  // thing that silently does not exist.
+  //
+  // Narrow by isMissingLinkColumn, never a blanket retry: a unique
+  // violation or a dead connection must still surface as a 500.
+  let linkIssued = linkUrl !== null
+  if (insertError && isMissingLinkColumn(insertError)) {
+    console.error(
+      '[partner-login] link columns missing — apply supabase/partner_login_link.sql. ' +
+        'Sending a code-only email:',
+      insertError.message,
+    )
+    linkIssued = false
+    ;({ error: insertError } = await supabaseAdmin.from('partner_login_codes').insert(row))
+  }
 
   if (insertError) {
     return NextResponse.json({ error: 'Could not start a login right now. Try again shortly.' }, { status: 500 })
   }
+
+  // Only after the row is written. An email offering a link whose hash
+  // never landed is an email whose link is guaranteed to be refused.
+  const linkLines = loginLinkLines(linkIssued ? linkUrl : null)
 
   const firstName = (partner.name ?? '').split(' ')[0] || 'there'
   const result = await sendEmail({
@@ -140,6 +198,7 @@ export async function POST(req: Request) {
       `Hi ${firstName},\n\n` +
       `Your Shipo partner portal code is ${code}\n\n` +
       `It expires in ${CODE_TTL_MINUTES} minutes and can be used once.\n\n` +
+      linkLines.text +
       `If you didn't ask for this, you can ignore this email — nobody can get in without the code.\n\n` +
       `Shipo LLC · 310 Cornell Dr, Suite B4, Wilmington, DE 19801 · Support@shipousa.com`,
     html:
@@ -148,6 +207,7 @@ export async function POST(req: Request) {
       `<p style="margin:0 0 8px">Your Shipo partner portal code is:</p>` +
       `<p style="font-size:34px;font-weight:700;letter-spacing:8px;margin:16px 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">${code}</p>` +
       `<p style="margin:0 0 16px;color:#555">It expires in ${CODE_TTL_MINUTES} minutes and can be used once.</p>` +
+      linkLines.html +
       `<p style="margin:0 0 24px;color:#555">If you didn&rsquo;t ask for this, you can ignore this email &mdash; nobody can get in without the code.</p>` +
       `<hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0">` +
       `<p style="margin:0;font-size:12px;color:#888">Shipo LLC &middot; 310 Cornell Dr, Suite B4, Wilmington, DE 19801 &middot; Support@shipousa.com</p>` +
