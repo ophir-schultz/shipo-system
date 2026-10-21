@@ -47,11 +47,11 @@ export function isMissingLinkColumn(error: unknown): boolean {
  *
  * TAKES NO ARGUMENT, AND THAT IS THE SECURITY PROPERTY.
  *
- * src/lib/partner-invite.ts resolves its base as
+ * The retired src/lib/partner-invite.ts resolved its base as
  * `NEXT_PUBLIC_SITE_URL ?? origin ?? VERCEL_PROJECT_PRODUCTION_URL`,
- * where `origin` is a request header. That is correct there, because the
- * invite email "carries the portal address and nothing else" — a forged
- * origin yields a useless link to a stranger's site.
+ * where `origin` is a request header. That was correct there, because
+ * the invite email carried the portal address and nothing else — a
+ * forged origin yielded a useless link to a stranger's site.
  *
  * This email carries a CREDENTIAL. A request arriving with
  * `Origin: https://evil.example` would otherwise make Shipo email the
@@ -61,8 +61,8 @@ export function isMissingLinkColumn(error: unknown): boolean {
  * enforcement — there is no parameter to pass a header into.
  *
  * VERCEL_PROJECT_PRODUCTION_URL is injected by the platform (host only,
- * no scheme) and is kept as a fallback for the reason partner-invite
- * records: with no env var set, the link would be silently ABSENT from
+ * no scheme) and is kept as a fallback for the reason that module
+ * recorded: with no env var set, the link would be silently ABSENT from
  * every login email, and a degradation nobody can see is worse than one
  * that announces itself.
  *

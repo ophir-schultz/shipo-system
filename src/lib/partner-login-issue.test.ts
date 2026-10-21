@@ -81,31 +81,52 @@ describe('signInLinkOrigin', () => {
 
   it("falls back to Vercel's injected production host", () => {
     // The platform injects this into every deployment, host only, no
-    // scheme. src/lib/partner-invite.ts learned this the hard way: the
-    // DocuSign webhook is a server-to-server POST with no origin, and
-    // with no env var set every freshly-signed partner was emailed a
-    // dead link. Without this branch the sign-in link would simply be
-    // ABSENT from every email on a deploy where the var is unset — a
-    // silent degradation, which is worse than a loud one.
+    // scheme. The retired src/lib/partner-invite.ts learned this the
+    // hard way: the DocuSign webhook is a server-to-server POST with no
+    // origin, and with no env var set every freshly-signed partner was
+    // emailed a dead link. Without this branch the sign-in link would
+    // simply be ABSENT from every email on a deploy where the var is
+    // unset — a silent degradation, which is worse than a loud one.
     delete process.env.NEXT_PUBLIC_SITE_URL
     process.env.VERCEL_PROJECT_PRODUCTION_URL = 'shipo-system.vercel.app'
     expect(signInLinkOrigin()).toBe('https://shipo-system.vercel.app')
   })
 
   it('returns null rather than a guess when neither is set', () => {
+    // THIS IS THE GUARD THAT REPLACED A HOSTNAME PROHIBITION, and it is
+    // worth knowing why, because the thing it inherited is now deleted.
+    //
+    // partnerPortalUrl's last resort used to be the literal
+    // 'https://shipousa.com'. Every unit of that function worked; the
+    // string was simply wrong about the world — shipousa.com is the
+    // WordPress site and 404s on the portal paths, while
+    // shipo-system.vercel.app answers 200. And it was not the rare
+    // branch: with NEXT_PUBLIC_SITE_URL unset it was the ONLY branch the
+    // DocuSign webhook could take, so a partner's first experience of
+    // the portal was a dead link. partner-invite.test.ts guarded that by
+    // forbidding one hostname by name.
+    //
+    // Null is the stronger form of the same rule. Forbidding a hostname
+    // only catches the host somebody already got wrong; refusing to
+    // invent ANY host catches the next one too. Add a `?? 'https://...'`
+    // of any kind to signInLinkOrigin and this line fails.
+    //
+    // Sending no link is a problem Shipo finds out about — linkIssued
+    // comes back false and the log says so. Sending a confident link to
+    // a 404 is a problem only the partner finds out about.
     delete process.env.NEXT_PUBLIC_SITE_URL
     delete process.env.VERCEL_PROJECT_PRODUCTION_URL
     expect(signInLinkOrigin()).toBeNull()
   })
 
   it('takes no argument — there is nowhere to pass a request origin in', () => {
-    // THE SECURITY PROPERTY, and the reason this is not just a call to
+    // THE SECURITY PROPERTY, and the reason this is not the retired
     // partnerPortalUrl().
     //
-    // partnerPortalUrl resolves NEXT_PUBLIC_SITE_URL ?? origin ??
-    // VERCEL_..., and `origin` is a REQUEST HEADER. That is fine there:
-    // the invite email "carries the portal address and nothing else",
-    // so a forged origin produces a useless link to a stranger's site.
+    // That function resolved NEXT_PUBLIC_SITE_URL ?? origin ??
+    // VERCEL_..., and `origin` is a REQUEST HEADER. That was fine there:
+    // the invite email carried the portal address and nothing else, so a
+    // forged origin produced a useless link to a stranger's site.
     //
     // This email carries a CREDENTIAL. A request with
     // `Origin: https://evil.example` would otherwise cause Shipo to
@@ -174,8 +195,22 @@ describe('loginLinkLines', () => {
 // which a unit test of a pure function can see: the insert must try
 // the link columns first, and a missing-column failure must not reach
 // the partner as a 500.
+//
+// THE CALLER MOVED. Issuance used to live in request-code/route.ts and
+// now lives in src/lib/partner-signin-email.ts, because three paths mail
+// a partner his way in — the login screen, the DocuSign webhook on
+// signature, and the staff invite button — and three copies of "hash
+// before you store" is three places to get it wrong.
+//
+// These guards follow the code rather than the filename. A guard left
+// pointing at the route would still pass, since a route that handles no
+// credential trivially satisfies every absence below, and that is the
+// shape of a test that has quietly stopped checking anything. The route
+// keeps one guard of its own, at the end: that it delegates and holds no
+// credential code itself.
 // ============================================================
 
+const ISSUER = 'src/lib/partner-signin-email.ts'
 const REQUEST_CODE = 'src/app/api/partner/request-code/route.ts'
 
 const codeOf = (file: string) =>
@@ -189,22 +224,22 @@ const codeOf = (file: string) =>
 // replaced by `if (false)`. Found by reversion, not by reading.
 const bodyOf = (file: string) => codeOf(file).replace(/^import[\s\S]*?from\s+'[^']+'\s*$/gm, '')
 
-describe('request-code', () => {
-  it('reads the route and finds real code (control for the absences below)', () => {
-    const src = codeOf(REQUEST_CODE)
+describe('the issuer', () => {
+  it('reads the issuer and finds real code (control for the absences below)', () => {
+    const src = codeOf(ISSUER)
     expect(src.length).toBeGreaterThan(500)
-    expect(src).toContain('export async function POST')
+    expect(src).toContain('export async function sendSignInEmail')
   })
 
   it('issues a link alongside the code', () => {
-    const src = codeOf(REQUEST_CODE)
+    const src = codeOf(ISSUER)
     expect(src).toContain('generateLinkToken')
     expect(src).toContain('link_token_hash')
     expect(src).toContain('link_expires_at')
   })
 
   it('stores the hash of the link token, never the token', () => {
-    const src = codeOf(REQUEST_CODE)
+    const src = codeOf(ISSUER)
     expect(src).not.toMatch(/link_token_hash:\s*linkToken\b/)
     expect(src).toMatch(/link_token_hash:\s*linkTokenHash\b/)
   })
@@ -220,11 +255,18 @@ describe('request-code', () => {
     // import. Replacing the whole condition with `if (false)` left it
     // green. It is asserted here on the CALL, in the body, with the
     // argument, and the reversion now reports it.
-    const src = bodyOf(REQUEST_CODE)
+    const src = bodyOf(ISSUER)
     const guard = src.indexOf('isMissingLinkColumn(insertError)')
     const retry = src.indexOf('.insert(row)')
-    const refusal = src.indexOf('Could not start a login right now')
+    // The RETURN, not the type union. `reason: 'insert-failed'` also
+    // appears in SignInEmailResult at the top of the file, which is
+    // BEFORE the guard — matching that would invert the ordering
+    // assertion and make this test fail on correct code. The comma
+    // after the key only occurs in the object literal; the union
+    // declares it with a semicolon.
+    const refusal = src.indexOf("reason: 'insert-failed', error")
     expect(guard).toBeGreaterThan(-1)
+    expect(refusal).toBeGreaterThan(-1)
     // The retry is the code-only insert, and it comes after the guard —
     // a blanket retry would be a different and worse thing, hiding a
     // unique violation or a dead connection behind a working login.
@@ -236,14 +278,14 @@ describe('request-code', () => {
     // The credential is IN the url. A forged `Origin:` header that
     // reached signInLinkUrl would have Shipo email the real partner a
     // real token pointed at an attacker's host.
-    const src = bodyOf(REQUEST_CODE)
+    const src = bodyOf(ISSUER)
     expect(src).toContain('signInLinkOrigin()')
     expect(src).not.toMatch(/signInLinkUrl\([^)]*headers\.get/)
     expect(src).not.toMatch(/signInLinkUrl\([^)]*origin/)
   })
 
   it('never puts the raw link token in a log line', () => {
-    const src = codeOf(REQUEST_CODE)
+    const src = codeOf(ISSUER)
     expect(src).not.toMatch(/console\.(log|error|warn)\([^)]*\blinkToken\b/)
   })
 
@@ -260,10 +302,42 @@ describe('request-code', () => {
     // evidence, and user-facing copy is prose. Matching a property KEY
     // (`code:`) cannot be satisfied by a sentence about a code.
     //
-    // File-wide and not scoped to the response, because the route can
+    // File-wide and not scoped to the response, because a caller can
     // only serialise what it first assigns: code_hash, link_token_hash
     // and linkTokenHash are all fine, a bare `code:` is not.
-    const src = codeOf(REQUEST_CODE)
+    const src = codeOf(ISSUER)
     expect(src).not.toMatch(/^\s*(code|link|token|linkToken)\s*:/m)
+  })
+
+  // ----------------------------------------------------------------
+  // And the route that used to do all of the above.
+  // ----------------------------------------------------------------
+
+  it('request-code delegates instead of issuing a credential itself', () => {
+    // Positive first. Every absence below is satisfied by an empty file,
+    // and an empty file is one deletion away.
+    const src = bodyOf(REQUEST_CODE)
+    expect(src).toContain('sendSignInEmail(')
+
+    // Nothing credential-shaped is left behind. A second issuance path is
+    // a second place for "hash before you store" to be got wrong, and the
+    // dangerous version of that is not a crash — it is a route that still
+    // works while storing something it should not.
+    for (const needle of [
+      'generateCode',
+      'generateLinkToken',
+      'sha256Hex',
+      'code_hash',
+      'link_token_hash',
+    ]) {
+      expect(src).not.toContain(needle)
+    }
+  })
+
+  it('request-code passes no request origin into the issuer', () => {
+    // The credential is in the URL. This route has `req` in scope and the
+    // old invite it replaced DID take `req.headers.get('origin')`.
+    const src = bodyOf(REQUEST_CODE)
+    expect(src).not.toMatch(/sendSignInEmail\([^)]*origin/)
   })
 })

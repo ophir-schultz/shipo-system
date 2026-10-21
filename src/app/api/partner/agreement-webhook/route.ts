@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { sendPortalInvite } from '@/lib/partner-invite'
+import { sendSignInEmail } from '@/lib/partner-signin-email'
 import { redactForStorage } from '@/lib/docusign-redact'
 import { W9_CUSTOM_FIELD } from '@/lib/partner-w9'
 import { ENVELOPE_KIND_FIELD, completedEnvelopeStamp } from '@/lib/partner-envelope-stamp'
@@ -242,18 +242,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Could not update partner.' }, { status: 500 })
     }
 
-    // The invite goes out when the AGREEMENT completes, never when the
+    // The email goes out when the AGREEMENT completes, never when the
     // W-9 does. A W-9 completion arrives from a partner who is already
-    // logged in — they signed it inside their own dashboard — so an
-    // invite there is at best confusing and at worst a working login
-    // link mailed to a partner we deliberately cut off.
+    // logged in — they signed it inside their own dashboard — so a
+    // sign-in email there is at best confusing and at worst a working
+    // credential mailed to a partner we deliberately cut off.
     //
-    // Best-effort either way: if mail is down the partner is still
-    // active and can reach /partner/login unaided, so a send failure
-    // must not turn into a retry that re-activates them.
+    // THIS IS THE MOMENT OF ENTITLEMENT, so it is the moment the one-click
+    // link is worth most: spec §2.2. The partner has just put his name on
+    // the agreement in DocuSign and the next thing he sees is a working way
+    // into his statement, not an address to type an email into and wait.
+    //
+    // No origin is passed. sendSignInEmail takes one argument by design —
+    // this email carries a credential, and a forged `Origin:` header on a
+    // webhook POST (which arrives from DocuSign, not from the partner)
+    // must not be able to aim that credential at someone else's host.
+    //
+    // Best-effort either way: if mail is down the partner is still active
+    // and can reach /partner/login unaided, so a send failure must not
+    // turn into a retry that re-activates them.
     let invited = false
     if (decision.invites) {
-      const invite = await sendPortalInvite(partner, req.headers.get('origin'))
+      const invite = await sendSignInEmail(partner)
       invited = invite.sent
       if (invite.sent) {
         await supabaseAdmin
@@ -261,7 +271,11 @@ export async function POST(req: Request) {
           .update({ portal_invited_at: now })
           .eq('id', partner.id)
       } else {
-        console.error('[agreement-webhook] portal invite failed:', invite.provider, invite.error)
+        // The REASON, not a bare failure. 'blocked' here would mean the
+        // webhook stamped a partner as signed and the access gate then
+        // refused him — contradictory, and the only record of it is this
+        // line. sendSignInEmail logs the detail; this names the path.
+        console.error('[agreement-webhook] sign-in email not sent:', invite.reason)
       }
     }
 

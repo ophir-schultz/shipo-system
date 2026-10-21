@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { createClient } from '@/lib/supabase-server'
-import { sendPortalInvite } from '@/lib/partner-invite'
+import { sendSignInEmail } from '@/lib/partner-signin-email'
 import { invitePreconditionReason, portalAccessBlockedReason } from '@/lib/partner-access'
 
 // Staff-side control of a partner's portal access.
@@ -93,20 +93,37 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: precondition }, { status: 400 })
   }
 
-  // The email itself lives in src/lib/partner-invite.ts and is NOT rebuilt
-  // here. This route and the DocuSign webhook both invite partners, and the
-  // two messages have to be indistinguishable: a partner who gets a
-  // different-looking email depending on which path fired cannot tell the
-  // automated one from a phishing attempt. This file used to hold a second
-  // copy, which had already drifted — it carried the old
-  // `https://shipousa.com` fallback that resolves to a 404.
-  const result = await sendPortalInvite(partner, req.headers.get('origin'))
+  // The email itself lives in src/lib/partner-signin-email.ts and is NOT
+  // rebuilt here. This route, the DocuSign webhook and the login screen all
+  // mail a partner his way in, and the three messages have to be
+  // indistinguishable: a partner who gets a different-looking email
+  // depending on which path fired cannot tell the automated one from a
+  // phishing attempt. This file used to hold a second copy, which had
+  // already drifted — it carried the old `https://shipousa.com` fallback
+  // that resolves to a 404.
+  //
+  // No origin is passed, and there is no parameter to pass one into. The
+  // old invite took `req.headers.get('origin')`, which was safe while the
+  // email's whole payload was the portal's ADDRESS; this one carries a
+  // single-use credential, so the destination comes from server config.
+  const result = await sendSignInEmail(partner)
 
   if (!result.sent) {
-    return NextResponse.json(
-      { error: `Could not send the invite (${result.provider}). ${result.error ?? ''}`.trim() },
-      { status: 502 },
-    )
+    // The staff member pressed a button and is owed a reason. Each of these
+    // wants a different action from them: 'blocked' means the gate above and
+    // this one disagree (a bug worth reporting), 'no-email' means add an
+    // address, 'insert-failed' means the database refused and trying again
+    // may work, and 'send-failed' names the mail provider that refused.
+    const detail =
+      result.reason === 'blocked'
+        ? result.blocked
+        : result.reason === 'no-email'
+          ? 'This partner has no email address on file.'
+          : result.reason === 'insert-failed'
+            ? `Could not store the login credential. ${result.error}`
+            : `Could not send the email (${result.provider}). ${result.error ?? ''}`.trim()
+
+    return NextResponse.json({ error: detail }, { status: 502 })
   }
 
   // Stamped only after a confirmed send, and deliberately not awaited into the

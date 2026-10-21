@@ -318,15 +318,44 @@ describe('the gate is actually wired to something', () => {
     expect(src).toMatch(/select\([^)]*agreement_status/)
   })
 
-  it('request-code will not mail a code to a partner who has not signed', () => {
+  it('no code is mailed to a partner who has not signed', () => {
+    // THE GATE MOVED, AND THIS GUARD FOLLOWED THE CODE RATHER THAN THE
+    // FILENAME. It used to read request-code/route.ts, where the gate stood
+    // beside the credential it protected. Issuance now lives in
+    // sendSignInEmail, which the login route, the staff invite button and
+    // the DocuSign webhook all call — so the gate moved INSIDE that
+    // function, where no caller can forget it.
+    //
+    // Left pointing at the route, every assertion below would have passed
+    // vacuously forever: a route that mints no credential trivially has no
+    // ungated minting in it. That is the shape of a test that has quietly
+    // stopped checking anything.
+    const src = body(readFileSync('src/lib/partner-signin-email.ts', 'utf8'))
+    expect(src).toContain('portalAccessBlock(')
+    // Calling it is not enough; the answer has to stop the send. And it has
+    // to stop it BEFORE a code exists — a row written but not mailed is a
+    // live credential sitting in the database with nobody expecting it.
+    expect(src).toMatch(/if\s*\(\s*block\s*\)/)
+    const gate = src.indexOf('portalAccessBlock(')
+    const mint = src.indexOf('generateCode(')
+    expect(mint).toBeGreaterThan(-1)
+    expect(gate).toBeLessThan(mint)
+  })
+
+  it('the login route answers a refusal exactly as it answers a stranger', () => {
+    // The route half of the rule above, and the half that cannot move into
+    // the shared function: sendSignInEmail returns a reason, and the login
+    // endpoint decides what a browser is told. The refusal must stay
+    // indistinguishable from "that address is not a partner", or the login
+    // form becomes a lookup for who has signed with Shipo.
     const src = body(readFileSync('src/app/api/partner/request-code/route.ts', 'utf8'))
-    expect(src).toContain('portalAccessBlockedReason(')
-    expect(src).toMatch(/if\s*\(\s*blocked\s*\)/)
-    expect(src).toMatch(/select\([^)]*agreement_status/)
-    // The refusal must stay indistinguishable from "that address is not a
-    // partner", or the login form becomes a lookup for who has signed.
-    // Asserted as the OK constant being what the blocked branch returns.
-    expect(src).toMatch(/if\s*\(\s*blocked\s*\)\s*\{[^}]*NextResponse\.json\(OK\)/)
+    // Asserted as the OK constant being what the blocked branch returns —
+    // the same constant the no-partner path above it returns.
+    expect(src).toMatch(/case 'blocked':[\s\S]{0,240}?NextResponse\.json\(OK\)/)
+    // And no honest sentence on that branch. The one place it is safe to
+    // say "your agreement isn't signed" is verify-code, where the caller
+    // has already proved they hold a mailed code.
+    expect(src).not.toMatch(/case 'blocked':[\s\S]{0,240}?status:\s*4\d\d/)
   })
 
   it('verify-code will not issue a session to a partner who has not signed', () => {
