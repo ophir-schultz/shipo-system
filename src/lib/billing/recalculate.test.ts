@@ -395,3 +395,107 @@ describe('recalculateShipments: why a shipment came out unpriced', () => {
     expect(stats.reasons.map((r) => r.reason).join(' | ')).not.toContain('matrix')
   })
 })
+
+describe('recalculateShipments: reading the whole book, not the first page of it', () => {
+  // Production, 2026-10-23. The read was a bare `.select(...)` with no range.
+  // PostgREST caps every select at `db-max-rows` and says nothing about it --
+  // a 200, `error: null`, and a full-looking page -- so this function could
+  // not tell the book from the first thousand rows of it.
+  //
+  // It fit in one page until that morning, when attributing 833 orphaned
+  // shipments took the table from 867 rows with a client to 1700. Seven
+  // hundred went unpriced, and every count this function returns was computed
+  // over the truncated set, so the run reported clean totals and a short gap
+  // list while $8,536 of carrier cost sat unbilled. It was found from the
+  // database side, because nothing in this process could see the rows it had
+  // not read.
+  //
+  // These tests use a cap of 2 against 3 shipments. The size is irrelevant --
+  // crossing the cap is the whole experiment -- and readAllPages advances by
+  // the rows it GOT rather than the rows it asked for precisely so a cap
+  // smaller than PAGE_SIZE still terminates.
+
+  function threeOnOneCard() {
+    seed({
+      shipments: [
+        shipment({ id: 's1', order_number: 'ORD-1', client_rate: null }),
+        shipment({ id: 's2', order_number: 'ORD-2', client_rate: null }),
+        shipment({ id: 's3', order_number: 'ORD-3', client_rate: null }),
+      ],
+      zone_chart: [{ origin_prefix: '191', dest_prefix: '902', zone: 3 }],
+      client_zone_rates: [zoneCell()],
+      client_shipping_rates: [],
+    })
+  }
+
+  it('prices the shipments past the server cap, not just the ones on the first page', async () => {
+    threeOnOneCard()
+    h.db.maxRows = 2
+
+    const stats = await recalculateShipments()
+
+    // The assertion that fails against an unpaged read: it would report 2.
+    expect(stats.updated).toBe(3)
+    expect(stats.zone_matched).toBe(3)
+    for (const id of ['s1', 's2', 's3']) {
+      expect(stored(id).client_rate).toBe(7)
+    }
+  })
+
+  it('leaves no shipment on its old rate because it fell past the cap', async () => {
+    // The same truncation told as the operator experiences it. s3 keeps a
+    // stale price rather than showing up as unpriced, so nothing on any screen
+    // marks it as a row the run never considered -- it reads as priced, and
+    // the figure is from whenever it was last seen.
+    seed({
+      shipments: [
+        shipment({ id: 's1', order_number: 'ORD-1', client_rate: null }),
+        shipment({ id: 's2', order_number: 'ORD-2', client_rate: null }),
+        shipment({ id: 's3', order_number: 'ORD-3', client_rate: 999 }),
+      ],
+      zone_chart: [{ origin_prefix: '191', dest_prefix: '902', zone: 3 }],
+      client_zone_rates: [zoneCell()],
+      client_shipping_rates: [],
+    })
+    h.db.maxRows = 2
+
+    await recalculateShipments()
+
+    expect(stored('s3').client_rate).toBe(7)
+  })
+
+  it('counts a skip past the cap, so the stats describe the book and not the page', async () => {
+    // `skipped` is the count the dashboard panel reads to decide whether to
+    // warn. A row the run never fetched is invisible to every one of these
+    // counters, which is what made the truncation look like a clean run.
+    threeOnOneCard()
+    h.db.maxRows = 2
+    h.db.failOn = (c) => c.table === 'client_zone_rates'
+      ? { message: 'connection reset' } : null
+
+    const stats = await recalculateShipments()
+
+    expect(stats.skipped).toBe(3)
+    expect(stats.updated).toBe(0)
+  })
+
+  it('orders the paged read by a unique column', async () => {
+    // Required by readAllPages' contract, and not cosmetic: Postgres promises
+    // nothing about row order across two OFFSET queries, so an unordered page
+    // loop can hand back the same shipment twice and skip another. Here that
+    // is one parcel repriced twice and one left stale, with the run's totals
+    // still adding up. Deleting the .order('id') leaves every other test in
+    // this file green, which is why this one asserts on the call itself.
+    threeOnOneCard()
+    h.db.maxRows = 2
+
+    await recalculateShipments()
+
+    const reads = h.db.calls.filter((c) => c.table === 'shipments' && c.verb === 'select')
+    expect(reads.length).toBeGreaterThan(1)
+    for (const r of reads) {
+      expect(r.sort.at(-1)?.column).toBe('id')
+      expect(r.range).toBeDefined()
+    }
+  })
+})
