@@ -1,6 +1,34 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+/**
+ * The portal's session cookie, spelled here because middleware must not
+ * import partner-auth.ts — that module reaches for supabaseAdmin and the
+ * service-role key, which has no business in the edge runtime.
+ * src/lib/partner-landing.test.ts compares the two spellings.
+ */
+export const PARTNER_SESSION_COOKIE = 'shipo_partner_session'
+
+/**
+ * Where to send someone who is carrying a partner session, or null to
+ * leave the staff guard to it.
+ *
+ * `/` used to fall through to the staff guard and redirect to /login —
+ * the operations system's sign-in — even for a browser holding a valid
+ * partner session. A partner who trimmed the URL or used a root bookmark
+ * landed on Shipo's internal login screen. Nothing was exposed (every
+ * staff route refuses a partner cookie, verified against production), but
+ * the wrong door looks exactly like an open one.
+ *
+ * ONLY the root. A partner who asks for /clients still meets the staff
+ * login: redirecting him to his statement would imply that URL means
+ * something for him, and it does not.
+ */
+export function partnerLandingFor(pathname: string, hasPartnerCookie: boolean): string | null {
+  if (!hasPartnerCookie) return null
+  return pathname === '/' ? '/partner' : null
+}
+
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -28,6 +56,11 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (!user && pathname !== '/login') {
+    // A partner at the front door goes to his own front door, not Shipo's.
+    // Checked before the staff redirect, and only for the root.
+    const partnerTarget = partnerLandingFor(pathname, request.cookies.has(PARTNER_SESSION_COOKIE))
+    if (partnerTarget) return NextResponse.redirect(new URL(partnerTarget, request.url))
+
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
