@@ -51,6 +51,7 @@ import {
   CHARGE_CRON_HOURS_UTC,
   type RecalculateResult,
 } from '@/lib/ledger/persist-charges'
+import { readAllPages } from '@/lib/db/page'
 import { loadChargeInputs } from '@/lib/ledger/load-charge-inputs'
 import { persistStorageCharges, type StorageResult } from '@/lib/ledger/persist-storage-charges'
 // Whether to send at all, and -- separately -- whether NOT sending is a
@@ -607,10 +608,18 @@ export async function GET(req: Request) {
     .select('*', { count: 'exact', head: true })
     .eq('is_loss', true)
 
-  const { data: lossSum, error: lossSumError } = await supabaseAdmin
-    .from('shipments')
-    .select('profit_loss')
-    .eq('is_loss', true)
+  // PAGED, unlike the count above it. `count: 'exact', head: true` returns a
+  // number the server computes and is unaffected by `db-max-rows`; this read
+  // returns ROWS and is summed here, so unpaged it would total the first 1000
+  // losses and report that as the loss figure -- beside an exact count that
+  // included all of them. The two disagreeing is the case the comment below
+  // already worried about, and the cap is how it happens in practice.
+  const { data: lossSum, error: lossSumError } = await readAllPages<{ profit_loss: number | null }>(
+    (from, to) => supabaseAdmin
+      .from('shipments')
+      .select('profit_loss')
+      .eq('is_loss', true)
+      .order('id').range(from, to))
 
   const totalLoss = (lossSum ?? []).reduce((s, r) => s + Math.abs(r.profit_loss ?? 0), 0)
 

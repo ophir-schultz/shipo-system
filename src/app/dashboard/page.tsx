@@ -10,7 +10,24 @@ import {
   excludedCount, invoiceableRevenue, otherIncome,
 } from '@/lib/billing/profit-rollup'
 import { read, readErrors, type Read } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
+
+// The three shapes the paged shipment reads return. Needed explicitly because
+// readAllPages is generic and cannot infer a row shape from the query the way
+// a bare `.select()` could.
+interface PeriodRow {
+  actual_cost: number | null
+  client_rate: number | null
+  profit_loss: number | null
+}
+interface ShipmentTotalsRow extends PeriodRow {
+  is_loss: boolean | null
+}
+interface ClientMonthRow extends ShipmentTotalsRow {
+  client_id: string | null
+  clients: { name: string } | { name: string }[] | null
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // This page makes fifteen reads and used to check the error on NONE of them.
@@ -173,13 +190,37 @@ async function getDashboardData() {
     clientShipmentsRes, clientWarehouseRes, clientAdjRes,
   ] = await Promise.all([
     supabaseAdmin.from('clients').select('id, name, active').eq('active', true),
-    supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, is_loss'),
+    // PAGED, all four of the period reads below, and the reason is measured
+    // rather than precautionary. PostgREST caps a select at `db-max-rows`
+    // (1000) and reports the cap NOWHERE -- a 200, `error: null`, and a
+    // full-looking page. On 2026-10-23 the year read returned 1000 of 1823
+    // shipments, so this screen showed $18,256.87 of revenue against an
+    // actual $35,155.66 and a margin of $7,497.91 against $14,849.33. Half
+    // the business, in the headline figures, with nothing on screen saying
+    // so. The `of 1000` in exclusionNote's own caption was the only clue.
+    //
+    // The week and month reads were under the cap on that date and so were
+    // correct -- which is exactly how this arrives: it is not a defect until
+    // the window crosses 1000 rows, and then it appears with nothing in the
+    // code having changed. See the header of src/lib/db/page.ts.
+    readAllPages<ShipmentTotalsRow>((from, to) =>
+      supabaseAdmin.from('shipments')
+        .select('actual_cost, client_rate, profit_loss, is_loss')
+        .order('id').range(from, to)),
+    // NOT paged, deliberately: this is the worst-50 list, and `.limit(50)` is
+    // the answer rather than a truncation of it.
     supabaseAdmin.from('shipments')
       .select('order_number, client_id, actual_cost, client_rate, profit_loss, clients(name), ship_date, carrier, service, tracking_number')
       .eq('is_loss', true).order('profit_loss', { ascending: true }).limit(50),
-    supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss').gte('ship_date', weekStart.toISOString()),
-    supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss').gte('ship_date', monthStart.toISOString()),
-    supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss').gte('ship_date', yearStart.toISOString()),
+    readAllPages<PeriodRow>((from, to) =>
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
+        .gte('ship_date', weekStart.toISOString()).order('id').range(from, to)),
+    readAllPages<PeriodRow>((from, to) =>
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
+        .gte('ship_date', monthStart.toISOString()).order('id').range(from, to)),
+    readAllPages<PeriodRow>((from, to) =>
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
+        .gte('ship_date', yearStart.toISOString()).order('id').range(from, to)),
     supabaseAdmin.from('rate_adjustments')
       .select('id, order_number, adjustment_amount, reason, adjustment_date, client_id, clients(name)')
       .eq('status', 'pending').order('adjustment_amount', { ascending: false }),
@@ -188,7 +229,12 @@ async function getDashboardData() {
     supabaseAdmin.from('manual_charges').select('amount').eq('approved', true).gte('charge_date', weekStart.toISOString().split('T')[0]),
     supabaseAdmin.from('manual_charges').select('amount').eq('approved', true).gte('charge_date', monthStart.toISOString().split('T')[0]),
     supabaseAdmin.from('bills').select('grand_total, status, week_start, week_end, client_id, clients(name)').order('week_start', { ascending: false }).limit(10),
-    supabaseAdmin.from('shipments').select('client_id, actual_cost, client_rate, profit_loss, is_loss, clients(name)').gte('ship_date', monthStart.toISOString()),
+    // The per-client table. 617 rows this month, so under the cap today --
+    // and that is precisely why it is paged now rather than when it breaks.
+    readAllPages<ClientMonthRow>((from, to) =>
+      supabaseAdmin.from('shipments')
+        .select('client_id, actual_cost, client_rate, profit_loss, is_loss, clients(name)')
+        .gte('ship_date', monthStart.toISOString()).order('id').range(from, to)),
     supabaseAdmin.from('warehouse_daily_log').select('client_id, total').gte('log_date', monthStart.toISOString().split('T')[0]),
     supabaseAdmin.from('rate_adjustments').select('client_id, adjustment_amount').eq('status', 'pending'),
   ])
