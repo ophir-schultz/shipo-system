@@ -31,7 +31,16 @@ export const metadata: Metadata = {
 export default function PartnerLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="partner-theme min-h-screen">
-      <header className="bg-[var(--brand-ink)]">
+      {/* The lime rule is the site's own header treatment, not decoration:
+          shipousa.com sets border-bottom 5px solid #e0ee47 on
+          .ast-primary-header-bar, and --brand-accent already holds that
+          hex. The width is read off that stylesheet rather than chosen —
+          4px or 6px would each look right in isolation, which is exactly
+          how a brand detail drifts. The site gates the rule at >=922px;
+          the portal shows it at every width, because the stripe is the
+          part a partner recognises and the layout is one narrow column
+          on a phone either way. */}
+      <header className="bg-[var(--brand-ink)] border-b-[5px] border-[var(--brand-accent)]">
         <div className="mx-auto max-w-4xl px-6 py-4 flex items-center justify-between gap-4">
           <a href="https://shipousa.com" className="shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}

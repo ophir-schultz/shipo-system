@@ -278,4 +278,16 @@ describe('partner brand: the logo is the one the website serves', () => {
   it('the logo links to the marketing site', () => {
     expect(codeOf('src/app/partner/layout.tsx')).toContain('https://shipousa.com')
   })
+
+  it('the navy bar carries the site’s 5px lime rule beneath it', () => {
+    // shipousa.com sets it on .ast-primary-header-bar:
+    //   border-bottom-width: 5px
+    //   border-bottom-color: #e0ee47
+    // Read off the live stylesheet, not chosen. --brand-accent already
+    // holds that hex; the width is the half that would otherwise drift,
+    // since any value looks plausible on its own.
+    const src = codeOf('src/app/partner/layout.tsx')
+    expect(src).toMatch(/border-b-\[5px\]/)
+    expect(src).toContain('--brand-accent')
+  })
 })
