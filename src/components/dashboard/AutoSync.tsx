@@ -7,8 +7,13 @@ import {
   classifyMonitorAttempt, describeSync, type MonitorAttempt, type SyncStatus,
 } from '@/lib/monitor/sync-status'
 import { createSingleFlight } from '@/lib/monitor/single-flight'
+import {
+  summariseMonitorIssues, type MonitorIssueSummary,
+} from '@/lib/monitor/issue-list'
 
 const SYNC_INTERVAL_MS = 5 * 60 * 1000 // every 5 minutes
+
+const NO_ISSUES: MonitorIssueSummary = { items: [], count: 0, label: '' }
 
 export default function AutoSync() {
   const router = useRouter()
@@ -16,6 +21,8 @@ export default function AutoSync() {
   const [syncing, setSyncing] = useState(false)
   const [elapsed, setElapsed] = useState('')
   const [status, setStatus] = useState<SyncStatus | null>(null)
+  const [issues, setIssues] = useState<MonitorIssueSummary>(NO_ISSUES)
+  const [open, setOpen] = useState(false)
 
   // The re-entry guard has to live in a ref rather than in `syncing`. The mount
   // effect below keeps an empty dep array, so setInterval holds ONE runSync
@@ -65,7 +72,15 @@ export default function AutoSync() {
       // time on a 401 turned "not synced since 09:00" into "Synced 3s ago".
       if (next.advancesTimestamp) setLastSynced(new Date())
       if (next.toast) showError(next.toast.title, next.toast.message)
-      for (const issue of next.issues) showError('Monitor alert', issue)
+      // Held in state, NOT fanned out as one toast per finding.
+      //
+      // This line used to be `for (const issue of next.issues)
+      // showError('Monitor alert', issue)`. On 2026-10-23 the monitor
+      // reported eleven findings, so the dashboard was covered by eleven
+      // stacked red toasts -- re-raised every five minutes, and gone eight
+      // seconds later, which is the wrong way round for a list of shipments
+      // nobody has agreed a price for. See src/lib/monitor/issue-list.ts.
+      setIssues(summariseMonitorIssues(next.issues))
 
       // Not refreshed on an unknown pass: the server components would re-render
       // from whatever the last successful run left behind, which is the stale
@@ -117,11 +132,57 @@ export default function AutoSync() {
   })
 
   return (
-    <div className="flex items-center gap-2 text-xs">
+    // `relative` so the panel can hang below the widget. The header is a tight
+    // flex row, so the list cannot sit inline without pushing the buttons off.
+    <div className="relative flex items-center gap-2 text-xs">
       <span className={`w-2 h-2 rounded-full transition-colors ${dot}`} />
       <span className={status?.outcome === 'unknown' ? 'text-red-400' : 'text-gray-400'}>
         {label}
       </span>
+
+      {/* The count stays on screen for as long as the findings are true. That
+          is the whole point of the change: a toast said this loudly and then
+          took it away, so whether the dashboard had outstanding issues
+          depended on whether you happened to be looking eight seconds ago. */}
+      {issues.count > 0 && (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="text-amber-300 hover:text-amber-200 underline underline-offset-2"
+          title="What the last monitor pass found"
+        >
+          {issues.label}
+        </button>
+      )}
+
+      {open && issues.count > 0 && (
+        <div className="absolute right-0 top-6 z-50 w-[32rem] max-h-96 overflow-auto rounded-lg border border-amber-700/60 bg-gray-900 p-4 shadow-xl">
+          <div className="flex items-start justify-between gap-4">
+            <p className="font-semibold text-amber-200">
+              What the last monitor pass found
+            </p>
+            <button
+              onClick={() => setOpen(false)}
+              className="shrink-0 text-amber-300/70 hover:text-amber-200"
+            >
+              Close
+            </button>
+          </div>
+          <ul className="mt-3 space-y-2">
+            {issues.items.map((issue) => (
+              <li key={issue} className="text-gray-200 leading-snug">
+                {issue}
+              </li>
+            ))}
+          </ul>
+          {/* Said plainly, because the list reads like a fault report and is
+              not one. A shipment with no agreed price is a price nobody has
+              agreed -- the fix is a rate, not a repair. */}
+          <p className="mt-3 text-amber-300/60">
+            Each line is a shipment the rate card has no price for. Add the band or
+            cell it names to the client&apos;s rate card, then run Recalculate Weights.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
