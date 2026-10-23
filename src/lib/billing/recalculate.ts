@@ -1,6 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { readAllPages } from '@/lib/db/page'
-import { resolveZone, resolveZoneRate } from '@/lib/billing/zones'
+import {
+  zoneFromChartRow, zoneFromSources, zoneRateFromMatrix,
+  type ZoneChartRow, type ZoneLookup, type ZoneMatrixCell,
+} from '@/lib/billing/zones'
 import { calcDimWeightOz, calcBilledWeightOz } from '@/lib/billing/dim-weight'
 import {
   matchLegacyRate, shipmentProfit, billedWeightOf, type ShippingRateRow,
@@ -62,7 +65,13 @@ export interface RecalculateStats {
 }
 
 type ClientData =
-  | { ok: true; originZip: string | null; rates: ShippingRateRow[] }
+  | {
+      ok: true
+      originZip: string | null
+      rates: ShippingRateRow[]
+      /** The client's whole zone matrix, read once per run. */
+      matrix: ZoneMatrixCell[]
+    }
   | { ok: false; error: string }
 
 /**
@@ -124,15 +133,65 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
 
   if (error) throw new Error(error.message)
 
-  // Cache: client_id → origin zip + rate card  (avoid N+1 per client)
+  // The ZIP-prefix chart, read ONCE for the whole run.
+  //
+  // It used to be one read per shipment, inside resolveZone. Together with the
+  // matrix read below and the write, that made three sequential round trips
+  // per row -- about 5,100 of them across 1,700 shipments, every one of them
+  // awaited before the next began. That is minutes of pure latency, and this
+  // route had no maxDuration, so the function was killed partway and the run
+  // reported totals for the rows it managed rather than for the book. The
+  // numbers improved a little on each attempt, which is what a job that cannot
+  // finish looks like from the outside.
+  //
+  // The chart is small -- one origin prefix is a few hundred rows -- and it
+  // does not change during a run, so it is held in memory. Paged, because
+  // the thing this file was just fixed for applies here too.
+  let chart: { ok: true; lanes: Map<string, number> } | { ok: false; error: string } | null = null
+
+  async function getChart() {
+    if (chart) return chart
+    const { data, error } = await readAllPages<ZoneChartRow>((from, to) =>
+      supabaseAdmin
+        .from('zone_chart')
+        .select('origin_prefix, dest_prefix, zone')
+        .order('id')
+        .range(from, to))
+    if (error) {
+      // Fatal for every row that needs a chart lookup, exactly as a per-row
+      // read failure was. A chart that could not be read is not a chart with
+      // no row for this lane, and the two must not share an outcome: the
+      // second falls through to the legacy card at a different agreed price.
+      chart = { ok: false, error: `could not read the zone chart: ${error.message}` }
+      return chart
+    }
+    const lanes = new Map<string, number>()
+    for (const row of data ?? []) {
+      lanes.set(`${row.origin_prefix}>${row.dest_prefix}`, row.zone)
+    }
+    chart = { ok: true, lanes }
+    return chart
+  }
+
+  // Cache: client_id → origin zip + rate card + the whole zone matrix
   const clientCache: Record<string, ClientData> = {}
 
   async function getClientData(clientId: string): Promise<ClientData> {
     if (clientCache[clientId]) return clientCache[clientId]
-    const [clientRes, ratesRes] = await Promise.all([
+    const [clientRes, ratesRes, matrixRes] = await Promise.all([
       supabaseAdmin.from('clients').select('origin_zip').eq('id', clientId).maybeSingle(),
       supabaseAdmin.from('client_shipping_rates')
         .select('rate, weight_min, weight_max, carrier, service').eq('client_id', clientId),
+      // The client's ENTIRE matrix, once, instead of one lane per shipment.
+      // Paged without exception: Orcam's matrix is 1600 cells and an unpaged
+      // read would return 1000 of them and say nothing, which would price
+      // every parcel over 62 LB off the legacy card instead.
+      readAllPages<ZoneMatrixCell>((from, to) =>
+        supabaseAdmin.from('client_zone_rates')
+          .select('rate, carrier, service, weight_lb, zone')
+          .eq('client_id', clientId)
+          .order('id')
+          .range(from, to)),
     ])
     // The rate card's read error is fatal for this client, and the origin
     // zip's is not: a missing zip only costs the zone lookup, which already
@@ -146,10 +205,22 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
       }
       return clientCache[clientId]
     }
+    // Equally fatal, and it used to be caught per shipment inside
+    // resolveZoneRate. Hoisting the read hoists its failure with it: one
+    // unreadable matrix now withholds every one of that client's shipments
+    // rather than one, which is the same rule applied at the new granularity.
+    if (matrixRes.error) {
+      clientCache[clientId] = {
+        ok: false,
+        error: `could not read the zone matrix: ${matrixRes.error.message}`,
+      }
+      return clientCache[clientId]
+    }
     clientCache[clientId] = {
       ok: true,
       originZip: clientRes.data?.origin_zip ?? null,
       rates: (ratesRes.data ?? []) as ShippingRateRow[],
+      matrix: matrixRes.data ?? [],
     }
     return clientCache[clientId]
   }
@@ -222,10 +293,30 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
     // the WRONG price and write it -- not "no price", which would have been
     // visible. Skipping leaves whatever the last good run stored and names the
     // reason in `reasons`, which the monitor emails.
-    const zone = await resolveZone(
+    //
+    // resolveZone is not used here, though it is still what every other caller
+    // uses. It performs one chart read per call, which is the right shape when
+    // you are pricing a single shipment and the wrong one across the whole
+    // book. This drives the same two pure functions it does -- zoneFromSources
+    // then zoneFromChartRow -- against the chart already in memory, so the
+    // rules are shared rather than restated.
+    const source = zoneFromSources(
       { recipient_zip: s.recipient_zip, raw_data: s.raw_data, zone: s.zone },
       client.originZip
     )
+    let zone: ZoneLookup
+    if (source.kind === 'resolved') {
+      zone = { zone: source.zone, error: null }
+    } else if (source.kind === 'none') {
+      zone = { zone: null, error: null }
+    } else {
+      const c = await getChart()
+      zone = c.ok
+        ? zoneFromChartRow(
+            c.lanes.get(`${source.originPrefix}>${source.destPrefix}`),
+            source.originPrefix, source.destPrefix)
+        : { zone: null, error: c.error }
+    }
     if (zone.error) {
       skipped++
       note(zone.error, label)
@@ -234,8 +325,10 @@ export async function recalculateShipments(): Promise<RecalculateStats> {
 
     if (zone.zone != null) {
       resolvedZone = zone.zone
-      const zoneRate = await resolveZoneRate(
-        s.client_id, s.carrier ?? '', s.service ?? '', billedWeightOz, zone.zone)
+      // From the cached matrix, not a read. The read's failure is handled once,
+      // at getClientData, and arrives here as `!client.ok` above.
+      const zoneRate = zoneRateFromMatrix(
+        client.matrix, s.carrier ?? '', s.service ?? '', billedWeightOz, zone.zone)
       if (zoneRate.error) {
         skipped++
         note(zoneRate.error, label)

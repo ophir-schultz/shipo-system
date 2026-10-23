@@ -128,10 +128,20 @@ describe('recalculateShipments: a zone read that failed', () => {
     expect(h.db.calls.some((c) => c.verb === 'update')).toBe(false)
   })
 
-  it('skips only the shipment that failed, not the whole run', async () => {
-    // One unreadable lane must not stop the other shipments being repriced.
-    // The failure is scoped to the ZIP pair, so only the first row's chart read
-    // is made to fail.
+  it('withholds every row that needed the chart when the chart cannot be read', async () => {
+    // REWRITTEN 2026-10-23, because the property it asserted no longer exists.
+    //
+    // It used to say that ONE unreadable lane skipped one shipment while the
+    // rest repriced, with the failure injected on `dest_prefix = '902'`. The
+    // chart is now read once for the whole run rather than once per shipment,
+    // so there is no such thing as a single unreadable lane -- only a chart
+    // that answered or did not.
+    //
+    // The change withholds MORE rows, which is the safe direction and the one
+    // this whole file is about: not one of them is priced off the legacy card
+    // on the strength of a read that did not answer. The old test would now
+    // pass vacuously, because its filter matches no call any more -- which is
+    // why it was rewritten rather than deleted.
     seed({
       shipments: [
         shipment({ id: 's1', order_number: 'ORD-1', recipient_zip: '90210' }),
@@ -139,17 +149,117 @@ describe('recalculateShipments: a zone read that failed', () => {
       ],
       client_shipping_rates: [legacyCard({ rate: 20 })],
     })
-    h.db.failOn = (c) =>
-      c.table === 'zone_chart'
-        && c.filters.some((f) => f.column === 'dest_prefix' && f.value === '902')
-        ? { message: 'timeout' } : null
+    h.db.failOn = (c) => c.table === 'zone_chart' ? { message: 'timeout' } : null
+
+    const stats = await recalculateShipments()
+
+    expect(stats.skipped).toBe(2)
+    expect(stats.updated).toBe(0)
+    // 20 is the legacy card. Neither row may carry it: the chart did not say
+    // these lanes have no zone, it said nothing at all.
+    expect(stored('s1').client_rate).toBe(3)
+    expect(stored('s2').client_rate).toBe(3)
+    expect(stats.reasons[0].reason).toContain('could not read the zone chart')
+  })
+
+  it('still reprices the rows that never needed the chart', async () => {
+    // What survives of the old test's intent. A chart failure must not stop a
+    // shipment whose zone was already resolved -- that row reaches no chart,
+    // so there is nothing unreadable about it, and withholding it would be a
+    // refusal with no finding behind it.
+    seed({
+      shipments: [
+        shipment({ id: 's1', order_number: 'ORD-1', zone: 3, client_rate: null }),
+        shipment({ id: 's2', order_number: 'ORD-2', recipient_zip: '10001', client_rate: null }),
+      ],
+      client_zone_rates: [zoneCell({ rate: 11 })],
+      client_shipping_rates: [legacyCard({ rate: 20 })],
+    })
+    h.db.failOn = (c) => c.table === 'zone_chart' ? { message: 'timeout' } : null
 
     const stats = await recalculateShipments()
 
     expect(stats.skipped).toBe(1)
     expect(stats.updated).toBe(1)
-    expect(stored('s1').client_rate).toBe(3)
-    expect(stored('s2').client_rate).toBe(20)
+    expect(stored('s1').client_rate).toBe(11)
+    expect(stored('s2').client_rate).toBeNull()
+  })
+
+  it('prices from the cell for THIS weight and zone, not from the whole matrix', async () => {
+    // The cached matrix holds every cell the client has, so the lane filter in
+    // zoneRateFromMatrix is the ONLY thing selecting the right one. When
+    // resolveZoneRate did the reading, the query's own .eq() did that job and
+    // nothing here depended on it.
+    //
+    // Written after a mutation run: deleting that filter left all 24 tests in
+    // this file green, because every fixture happened to use cells that agreed
+    // with each other. These deliberately disagree, so the wrong lane cannot
+    // produce the right number.
+    seed({
+      shipments: [shipment({ zone: 3, client_rate: null })],
+      client_zone_rates: [
+        zoneCell({ weight_lb: 1, zone: 2, rate: 5 }),
+        zoneCell({ weight_lb: 1, zone: 3, rate: 9 }),
+        zoneCell({ weight_lb: 1, zone: 4, rate: 13 }),
+      ],
+      client_shipping_rates: [],
+    })
+
+    const stats = await recalculateShipments()
+
+    expect(stats.zone_matched).toBe(1)
+    expect(stored().client_rate).toBe(9)
+  })
+
+  it('does not reach across weight rows for a cell', async () => {
+    // The other half of the lane key. A 10 oz parcel is weightToLb 1, so the
+    // 2 LB row must not be in play -- picking it would bill a real agreed rate
+    // from the wrong row of the client's own matrix, which is the hardest kind
+    // of wrong number to spot afterwards.
+    seed({
+      shipments: [shipment({ zone: 3, weight: 10, client_rate: null })],
+      client_zone_rates: [
+        zoneCell({ weight_lb: 1, zone: 3, rate: 9 }),
+        zoneCell({ weight_lb: 2, zone: 3, rate: 31 }),
+      ],
+      client_shipping_rates: [],
+    })
+
+    const stats = await recalculateShipments()
+
+    expect(stats.zone_matched).toBe(1)
+    expect(stored().client_rate).toBe(9)
+  })
+
+  it('reads the zone chart once for the whole run, not once per shipment', async () => {
+    // The performance property, asserted because it is the reason the route
+    // can finish at all. Three shipments on three different ZIP prefixes used
+    // to be three chart reads; across 1700 shipments that was minutes of
+    // serial latency and the function was killed before it finished.
+    seed({
+      shipments: [
+        shipment({ id: 's1', order_number: 'ORD-1', recipient_zip: '90210', client_rate: null }),
+        shipment({ id: 's2', order_number: 'ORD-2', recipient_zip: '10001', client_rate: null }),
+        shipment({ id: 's3', order_number: 'ORD-3', recipient_zip: '60601', client_rate: null }),
+      ],
+      zone_chart: [
+        { origin_prefix: '191', dest_prefix: '902', zone: 3 },
+        { origin_prefix: '191', dest_prefix: '100', zone: 2 },
+        { origin_prefix: '191', dest_prefix: '606', zone: 4 },
+      ],
+      client_zone_rates: [zoneCell({ zone: 3 }), zoneCell({ zone: 2 }), zoneCell({ zone: 4 })],
+      client_shipping_rates: [],
+    })
+
+    const stats = await recalculateShipments()
+
+    expect(stats.zone_matched).toBe(3)
+    // One paged read, plus the page that comes back empty to prove the end.
+    const chartReads = h.db.calls.filter((c) => c.table === 'zone_chart')
+    expect(chartReads.length).toBeLessThanOrEqual(2)
+    // And the client's matrix, likewise, rather than one lane per shipment.
+    const matrixReads = h.db.calls.filter((c) => c.table === 'client_zone_rates')
+    expect(matrixReads.length).toBeLessThanOrEqual(2)
   })
 })
 
