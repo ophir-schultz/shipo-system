@@ -143,22 +143,42 @@ function destinationCountry(raw: unknown): string | null {
   return trimmed === '' ? null : trimmed
 }
 
+/** A row of the ZIP-prefix chart, as the lookup needs to see it. */
+export interface ZoneChartRow {
+  origin_prefix: string
+  dest_prefix: string
+  zone: number
+}
+
 /**
- * Resolve the delivery zone (1..8) for a shipment, trying every available source:
- *   1. A zone already present in the ShipStation raw payload (raw_data.zone / shipTo.zone)
- *   2. A ZIP-prefix lookup in the zone_chart table (origin prefix -> dest prefix)
+ * What the zone sources could answer WITHOUT reading the chart.
  *
- * `{ zone: null, error: null }` means no source could name one, which is a
- * finding: rate matching is then skipped or flagged. A non-null `error` means
- * the chart was not read, which is not a finding about anything.
+ * `chart` is not an answer -- it is the lane to go and look up, handed back so
+ * the caller can satisfy it however it likes: one read per shipment
+ * (resolveZone, below) or one read for the whole book held in memory
+ * (recalculate.ts). Both then finish through zoneFromChartRow, so the rules
+ * live in one place and cannot drift between the two.
  */
-export async function resolveZone(
+export type ZoneSource =
+  | { kind: 'resolved'; zone: number }
+  | { kind: 'none' }
+  | { kind: 'chart'; originPrefix: string; destPrefix: string }
+
+/**
+ * Every zone source that needs no database, as a pure function.
+ *
+ * Split out for the same reason pickZoneCell is: the DECISION is the part
+ * worth testing, and there is no test database here. Order is unchanged --
+ * a zone already on the row, then one the carrier put in the payload, then
+ * the chart.
+ */
+export function zoneFromSources(
   shipment: { recipient_zip?: string | null; raw_data?: unknown; zone?: number | null },
-  originZip?: string | null
-): Promise<ZoneLookup> {
+  originZip?: string | null,
+): ZoneSource {
   // 0. Already resolved
   if (shipment.zone && shipment.zone >= MIN_ZONE && shipment.zone <= MAX_ZONE) {
-    return { zone: shipment.zone, error: null }
+    return { kind: 'resolved', zone: shipment.zone }
   }
 
   // 1. From ShipStation raw payload, if the carrier returned one.
@@ -176,7 +196,7 @@ export async function resolveZone(
     for (const c of candidates) {
       const n = Number(c)
       if (Number.isFinite(n) && n >= MIN_ZONE && n <= MAX_ZONE) {
-        return { zone: n, error: null }
+        return { kind: 'resolved', zone: n }
       }
     }
   }
@@ -207,50 +227,91 @@ export async function resolveZone(
   // inference is the only part that is unsound abroad.
   const destCountry = destinationCountry(shipment.raw_data)
   if (destCountry !== null && destCountry !== 'US' && destCountry !== 'USA') {
-    return { zone: null, error: null }
+    return { kind: 'none' }
   }
 
   if (originZip && shipment.recipient_zip) {
     const originPrefix = String(originZip).replace(/\D/g, '').slice(0, 3)
     const destPrefix = String(shipment.recipient_zip).replace(/\D/g, '').slice(0, 3)
     if (originPrefix.length === 3 && destPrefix.length === 3) {
-      const { data, error } = await supabaseAdmin
-        .from('zone_chart')
-        .select('zone')
-        .eq('origin_prefix', originPrefix)
-        .eq('dest_prefix', destPrefix)
-        .maybeSingle()
-
-      // Reported, where it used to be dropped. The lane is named because the
-      // caller loops over every shipment in the table, and "could not read the
-      // zone chart" for one lane is a different operational problem from the
-      // same message for all of them.
-      if (error) {
-        return {
-          zone: null,
-          error: `could not read the zone chart for ${originPrefix}->${destPrefix}: `
-            + error.message,
-        }
-      }
-
-      if (data?.zone != null) {
-        // A chart row exists but names something outside 1..8. The old code let
-        // this fall through to `return null`, i.e. reported it as "this lane has
-        // no zone" -- so a corrupt chart row silently became the legacy rate
-        // card. A row we cannot use is not the absence of a row.
-        if (data.zone < MIN_ZONE || data.zone > MAX_ZONE) {
-          return {
-            zone: null,
-            error: `the zone chart gives zone ${data.zone} for `
-              + `${originPrefix}->${destPrefix}, outside ${MIN_ZONE}..${MAX_ZONE}`,
-          }
-        }
-        return { zone: data.zone, error: null }
-      }
+      return { kind: 'chart', originPrefix, destPrefix }
     }
   }
 
-  return { zone: null, error: null }
+  return { kind: 'none' }
+}
+
+/**
+ * Turn the chart's answer for a lane into a ZoneLookup.
+ *
+ * `zone` is the value the chart holds, or null/undefined for "no such row",
+ * which is a finding and not a failure. A read that FAILED must not reach
+ * here -- the caller reports that as an `error`, because the difference
+ * decides whether the shipment is skipped or falls through to the legacy card.
+ */
+export function zoneFromChartRow(
+  zone: number | null | undefined,
+  originPrefix: string,
+  destPrefix: string,
+): ZoneLookup {
+  if (zone == null) return { zone: null, error: null }
+
+  // A chart row exists but names something outside 1..8. The old code let this
+  // fall through to `return null`, i.e. reported it as "this lane has no zone"
+  // -- so a corrupt chart row silently became the legacy rate card. A row we
+  // cannot use is not the absence of a row.
+  if (zone < MIN_ZONE || zone > MAX_ZONE) {
+    return {
+      zone: null,
+      error: `the zone chart gives zone ${zone} for `
+        + `${originPrefix}->${destPrefix}, outside ${MIN_ZONE}..${MAX_ZONE}`,
+    }
+  }
+  return { zone, error: null }
+}
+
+/**
+ * Resolve the delivery zone (1..8) for a shipment, trying every available source:
+ *   1. A zone already present in the ShipStation raw payload (raw_data.zone / shipTo.zone)
+ *   2. A ZIP-prefix lookup in the zone_chart table (origin prefix -> dest prefix)
+ *
+ * `{ zone: null, error: null }` means no source could name one, which is a
+ * finding: rate matching is then skipped or flagged. A non-null `error` means
+ * the chart was not read, which is not a finding about anything.
+ *
+ * One chart read per shipment. recalculate.ts does not use this -- it reads
+ * the chart once for the whole run and drives zoneFromSources/zoneFromChartRow
+ * directly -- but every other caller prices one shipment at a time, where a
+ * single targeted read is the cheaper shape.
+ */
+export async function resolveZone(
+  shipment: { recipient_zip?: string | null; raw_data?: unknown; zone?: number | null },
+  originZip?: string | null
+): Promise<ZoneLookup> {
+  const source = zoneFromSources(shipment, originZip)
+  if (source.kind === 'resolved') return { zone: source.zone, error: null }
+  if (source.kind === 'none') return { zone: null, error: null }
+
+  const { data, error } = await supabaseAdmin
+    .from('zone_chart')
+    .select('zone')
+    .eq('origin_prefix', source.originPrefix)
+    .eq('dest_prefix', source.destPrefix)
+    .maybeSingle()
+
+  // Reported, where it used to be dropped. The lane is named because the
+  // caller loops over every shipment in the table, and "could not read the
+  // zone chart" for one lane is a different operational problem from the
+  // same message for all of them.
+  if (error) {
+    return {
+      zone: null,
+      error: `could not read the zone chart for ${source.originPrefix}->`
+        + `${source.destPrefix}: ${error.message}`,
+    }
+  }
+
+  return zoneFromChartRow(data?.zone, source.originPrefix, source.destPrefix)
 }
 
 /** One row of the zone matrix, as the lookup needs to see it. */
@@ -408,7 +469,10 @@ export async function resolveZoneRate(
   // there is no such state: either the lane was read or it was not.
   const { data, error } = await supabaseAdmin
     .from('client_zone_rates')
-    .select('rate, carrier, service')
+    // weight_lb and zone are selected although the query already filters on
+    // them: zoneRateFromMatrix re-applies the lane filter, and a row without
+    // those columns compares as NaN and drops out, emptying the lane.
+    .select('rate, carrier, service, weight_lb, zone')
     .eq('client_id', clientId)
     .eq('weight_lb', weightLb)
     .eq('zone', zone)
@@ -420,5 +484,45 @@ export async function resolveZoneRate(
     }
   }
 
-  return pickZoneCell((data ?? []) as ZoneRateCell[], carrier, service, where)
+  return zoneRateFromMatrix(
+    (data ?? []) as ZoneMatrixCell[], carrier, service, weightOz, zone)
+}
+
+/** A matrix cell with the two keys that place it in the grid. */
+export interface ZoneMatrixCell extends ZoneRateCell {
+  weight_lb?: number | string | null
+  zone?: number | string | null
+}
+
+/**
+ * The matrix rate for a lane, chosen from cells ALREADY IN MEMORY.
+ *
+ * resolveZoneRate above reads one lane and hands the rows straight here, so
+ * there is one implementation of the choice and not two. recalculate.ts reads
+ * a client's whole matrix once per run and calls this per shipment, which is
+ * why the lane filter lives here rather than only in the query: for that
+ * caller the filter is the only thing selecting the lane at all.
+ *
+ * Numbers are compared with Number() on both sides because numeric and integer
+ * columns arrive from PostgREST quoted -- '3' and 3 are the same cell, and
+ * treating them as different would silently empty the lane.
+ */
+export function zoneRateFromMatrix(
+  cells: ZoneMatrixCell[],
+  carrier: string,
+  service: string,
+  weightOz: number,
+  zone: number,
+): ZoneRateLookup {
+  // Same refusal as resolveZoneRate's, and for the same reason: a weight no
+  // row can be named from is a MISS, not an error, so the shipment falls
+  // through to the legacy card and is written UNPRICED with the weight named,
+  // rather than skipped and left on a stale price for ever.
+  const weightLb = weightToLb(weightOz)
+  if (weightLb === null) return { rate: null, error: null }
+
+  const lane = cells.filter((c) =>
+    Number(c.weight_lb) === weightLb && Number(c.zone) === zone)
+
+  return pickZoneCell(lane, carrier, service, `${weightLb} LB / zone ${zone}`)
 }
