@@ -90,6 +90,26 @@ export interface FakeDb {
   calls: FakeCall[]
   /** Return an error to make a statement fail; return null/undefined to let it run. */
   failOn?: (call: FakeCall) => FakeError | null | undefined
+  /**
+   * The server's `db-max-rows`, emulated. Unset means no cap.
+   *
+   * PostgREST truncates every select at this many rows and SAYS NOTHING: the
+   * response is a 200 with `error: null` and a full-looking page in it. That
+   * silence is the whole danger, and until this field existed the double did
+   * not reproduce it -- an unpaginated read of a huge table came back whole
+   * here and short in production, so a suite could be green over the one
+   * defect src/lib/db/page.ts exists to prevent. recalculateShipments shipped
+   * exactly that way and was found on 2026-10-23, the day the shipments table
+   * first crossed 1000 attributed rows.
+   *
+   * Set it to a SMALL number (2 or 3). The point is to cross the cap, not to
+   * build a 1000-row fixture, and readAllPages advances by the rows it got
+   * rather than by the rows it asked for precisely so a cap below PAGE_SIZE
+   * still terminates.
+   *
+   * Applied after `range`, which is the order the server applies it in.
+   */
+  maxRows?: number
   client: FakeClient
 }
 
@@ -337,6 +357,9 @@ class Builder implements PromiseLike<FakeResult> {
         }
         affected = affected.slice(from, to + 1)
         if (this.call.limit !== undefined) affected = affected.slice(0, this.call.limit)
+        // The server's own cap, last and silently -- no error, no flag, just
+        // fewer rows than were asked for. See FakeDb.maxRows.
+        if (this.db.maxRows !== undefined) affected = affected.slice(0, this.db.maxRows)
         break
       }
       case 'insert': {

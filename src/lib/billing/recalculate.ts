@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { readAllPages } from '@/lib/db/page'
 import { resolveZone, resolveZoneRate } from '@/lib/billing/zones'
 import { calcDimWeightOz, calcBilledWeightOz } from '@/lib/billing/dim-weight'
 import {
@@ -64,11 +65,62 @@ type ClientData =
   | { ok: true; originZip: string | null; rates: ShippingRateRow[] }
   | { ok: false; error: string }
 
+/**
+ * The columns this function reads -- it mirrors the select below and nothing
+ * more. Needed explicitly now the read goes through readAllPages, which is
+ * generic and cannot infer the row shape from the query the way a bare
+ * `.select()` did.
+ */
+interface ShipmentRow {
+  id: string
+  order_number: string | null
+  /** Never null here: the read filters on `client_id is not null`. */
+  client_id: string
+  actual_cost: number | null
+  weight: number | null
+  length: number | null
+  width: number | null
+  height: number | null
+  carrier: string | null
+  service: string | null
+  recipient_zip: string | null
+  zone: number | null
+  raw_data: unknown
+}
+
 export async function recalculateShipments(): Promise<RecalculateStats> {
-  const { data: shipments, error } = await supabaseAdmin
-    .from('shipments')
-    .select('id, order_number, client_id, actual_cost, weight, length, width, height, carrier, service, recipient_zip, zone, raw_data')
-    .not('client_id', 'is', null)
+  // PAGED, and the page.ts header says why in full. The short version is that
+  // this read used to be a bare `.select(...)`, which PostgREST silently caps
+  // at `db-max-rows` -- 1000 by default -- and reports as a 200 with
+  // `error: null`. Nothing here could tell a complete answer from the first
+  // thousand rows of one.
+  //
+  // That made this function's own statistics lie in the one direction nobody
+  // checks. `updated`, `unmatched` and `skipped` were all counted over the
+  // truncated set, so a run that never looked at 700 shipments reported clean
+  // totals and a short gap list. Every count it returns is a count OF WHAT IT
+  // READ, which is only the same as the book while the book fits in one page.
+  //
+  // It fit until 2026-10-23. Attributing 833 orphaned shipments that morning
+  // took the table from 867 rows with a client to 1700, and 700 of them went
+  // unpriced with nothing anywhere saying so -- found from the database side,
+  // not from this process, because this process could not see them. page.ts
+  // predicted the shape exactly: "the defect does not exist at all until the
+  // table crosses the cap, and then it appears without anything changing in
+  // the code."
+  //
+  // `.order('id')` is REQUIRED, not tidiness. Postgres makes no promise about
+  // row order across two OFFSET queries, so paging an unordered read can hand
+  // the same shipment back twice and skip another -- here that is one parcel
+  // repriced twice and one left on a stale rate, with the totals still adding
+  // up. `id` is unique on every table in schema.sql.
+  const { data: shipments, error } = await readAllPages<ShipmentRow>((from, to) =>
+    supabaseAdmin
+      .from('shipments')
+      .select('id, order_number, client_id, actual_cost, weight, length, width, height, carrier, service, recipient_zip, zone, raw_data')
+      .not('client_id', 'is', null)
+      .order('id')
+      .range(from, to))
 
   if (error) throw new Error(error.message)
 
