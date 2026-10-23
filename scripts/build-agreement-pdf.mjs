@@ -64,6 +64,30 @@ const BANNER = 'NOT FOR USE OR SIGNATURE'
 // Add an anchor to the document, add it here, or it ships visible.
 const ANCHOR = /\\(s[12]|n[12]|d[12]|pname|paddr|pemail)\\/g
 
+// How much horizontal room each FILL anchor reserves, in points, matching
+// the tab width src/lib/docusign-envelope.ts asks DocuSign to draw.
+//
+// THESE TWO NUMBERS ARE A CONTRACT AND THIS IS HALF OF IT. A DocuSign tab
+// is an OVERLAY: it is painted at the anchor over whatever is underneath
+// and reflows nothing. Reserve less room than the tab is wide and the
+// value runs over the words that follow it.
+//
+// That shipped. The gap used to be the literal width of `\pname\` — about
+// seven characters — against a 170pt tab, so the template was only ever
+// safe for values no longer than the anchor itself. "MileMogul" fitted.
+// "Jimi P Maciel dba MileMogul", which is what a sole trader is actually
+// called, printed across "with its address at", and the partner's email
+// printed across "Notices to Shipo may be given at". The envelope's own
+// anchor report was clean: every tab had resolved to a real coordinate,
+// because a coordinate is where a box starts and says nothing about what
+// it lands on.
+//
+// src/lib/agreement-anchor-fit.test.ts compares this map against the tab
+// widths and fails if either side moves. The signer anchors are absent on
+// purpose: a signature, name or date tab is placed on its own ruled line
+// with nothing after it to collide with.
+const FILL_WIDTH_PT = { pname: 170, paddr: 260, pemail: 220 }
+
 const argv = process.argv.slice(2)
 const full = argv.includes('--full')
 // Writes the intermediate HTML beside the PDF instead of into a temp dir
@@ -131,7 +155,14 @@ function inline(s) {
   // "DocuSign anchor tags (\s1\ \n1\ \d1\ signer 1 = Shipo; ...)" — which
   // white-on-white renders as a sentence with holes in it.
   if (full) return out
-  return out.replace(ANCHOR, '<span class="anchor">\\$1\\</span>')
+  // A fill anchor also carries its reserved width, so the gap in the
+  // prose is as wide as the box DocuSign will paint into it. Signer
+  // anchors keep the bare class: they sit on their own ruled line.
+  return out.replace(ANCHOR, (_m, name) => {
+    const pt = FILL_WIDTH_PT[name]
+    const cls = pt ? `anchor anchor-fill anchor-${name}` : 'anchor'
+    return `<span class="${cls}">\\${name}\\</span>`
+  })
 }
 
 const blocks = body.split(/\n{2,}/)
@@ -333,6 +364,34 @@ const doc = `<!doctype html>
 
   /* In the text layer, off the page. See the header comment. */
   .anchor { color: #fff; }
+
+  /* The reserved gap. inline-block is load-bearing: width on a plain
+     inline span is ignored, so the gap would collapse back to the width
+     of the anchor text and the overlap would return silently.
+     vertical-align keeps the empty box from lifting the line it sits on.
+     See FILL_WIDTH_PT above and agreement-anchor-fit.test.ts. */
+  .anchor-fill {
+    display: inline-block;
+    vertical-align: baseline;
+    overflow: hidden;
+    white-space: nowrap;
+    /* A ruled blank, so the reserved gap reads as a form field rather
+       than as a hole in the sentence. DocuSign paints the value on top
+       and the rule sits under it, which is how a filled contract blank
+       is conventionally set. Unfilled — the address when the partner
+       types it himself — it shows him where to write. */
+    border-bottom: .5pt solid #444;
+  }
+
+  /* Justification + a wide inline-block is what turned clause 1 into
+     "with    its    address    at" with ("Partner") stranded on its own
+     line: the browser stretches the few remaining words across whatever
+     the gap left over. Only the lines carrying a fill anchor opt out, so
+     the rest of the contract keeps its justified measure. */
+  p:has(.anchor-fill), li:has(.anchor-fill) { text-align: left; }
+${Object.entries(FILL_WIDTH_PT)
+  .map(([name, pt]) => `  .anchor-${name} { width: ${pt}pt; }`)
+  .join('\n')}
 
   /* The whole signature section on one fresh page, never split. */
   .signatures { break-before: page; break-inside: avoid; page-break-before: always; page-break-inside: avoid; }
