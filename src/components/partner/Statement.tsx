@@ -492,31 +492,91 @@ export default async function Statement({ partner }: { partner: StatementPartner
       <AccountState partner={partner} />
 
       {/* ---- How this is calculated ---- */}
-      <section className="rounded-xl border border-gray-200 bg-[var(--brand-surface)] p-5 text-sm text-gray-600 leading-relaxed space-y-3">
+      {/* THE TWO GATES ARE GONE, AND THAT IS A CONTRACT CHANGE, NOT A
+          WORDING ONE. This read "after that client has been active 60
+          days, has billed $500 or more in a single calendar month". Both
+          clauses were removed from the Agreement on 2026-10-12 — Section
+          3.1's revenue threshold and 3.2's 60-day wait — leaving 3.9's
+          offset-only clawback as the only protection. The screen went on
+          stating both for eleven days, so a partner reading his own
+          statement was told he had to clear bars his signed agreement did
+          not impose. referral-agreement-terms.test.ts pinned the
+          AGREEMENT against their return and nothing pinned this file;
+          partner-bonus-copy.test.ts now does.
+
+          It is laid out rather than written out because this is the
+          section partners actually read: two earning streams, then the
+          one definition the money turns on. */}
+      <section className="rounded-xl border border-gray-200 bg-[var(--brand-surface)] p-5 space-y-4">
         <h2 className="font-semibold text-[var(--brand-ink)]">How this is calculated</h2>
-        <p>
-          You earn <span className="text-[var(--brand-ink)]">${REFERRAL_TERMS.SIGNUP_BONUS}</span> once per referred client, after
-          that client has been active 60 days, has billed $500 or more in a single calendar month, and has paid its first
-          invoice.
-        </p>
-        <p>
-          On top of that you earn{' '}
-          <span className="text-[var(--brand-ink)]">{(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}% of net profit</span>{' '}
-          on that client&apos;s account, every month for {REFERRAL_TERMS.COMMISSION_MONTHS} months from their first paid
-          invoice.
-        </p>
-        <p>
-          <span className="text-[var(--brand-ink)]">Net profit</span> means the amount invoiced to the client for the month, less
-          the direct costs of serving that account — freight and carrier charges, packaging and prep materials, storage,
-          and payment-processing fees. Charges billed at cost, such as freight, duties and Amazon fees, generate no
-          profit and are excluded entirely.
-        </p>
-        <p>
-          Payment is made within 30 days of the end of the month shown. A balance under{' '}
-          {fmt(REFERRAL_TERMS.MIN_PAYOUT)} rolls into the following month and is paid once it clears{' '}
-          {fmt(REFERRAL_TERMS.MIN_PAYOUT)}. We can only pay once we hold your completed W-9 or W-8 form.
-        </p>
-        <p className="text-gray-500">
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">One-time</p>
+            <p className="mt-1 text-3xl font-bold text-[var(--brand-ink)]">${REFERRAL_TERMS.SIGNUP_BONUS}</p>
+            <p className="mt-1 text-sm leading-relaxed text-gray-600">
+              per referred client, once they have paid their first invoice
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Every month</p>
+            <p className="mt-1 text-3xl font-bold text-[var(--brand-ink)]">
+              {(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%
+              <span className="ml-2 align-middle text-base font-semibold">of net profit</span>
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-gray-600">
+              for {REFERRAL_TERMS.COMMISSION_MONTHS} months from that client&apos;s first paid invoice
+            </p>
+          </div>
+        </div>
+
+        {/* The definition the whole second stream turns on, set as the
+            subtraction it actually is. A partner checking a figure is
+            doing this arithmetic; prose made him assemble it himself. */}
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">What net profit means</p>
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
+            <span className="rounded-md bg-[var(--brand-surface)] px-2 py-1 font-semibold text-[var(--brand-ink)]">
+              Invoiced to the client
+            </span>
+            {['Freight & carrier', 'Packaging & prep', 'Storage', 'Payment processing'].map((cost) => (
+              <span key={cost} className="flex items-center gap-2">
+                <span aria-hidden="true" className="text-gray-500">
+                  −
+                </span>
+                <span className="rounded-md border border-gray-200 px-2 py-1 text-gray-600">{cost}</span>
+              </span>
+            ))}
+            <span aria-hidden="true" className="text-gray-500">
+              =
+            </span>
+            <span className="rounded-md bg-[var(--brand-ink)] px-2 py-1 font-semibold text-white">Net profit</span>
+          </div>
+          <p className="mt-3 text-sm leading-relaxed text-gray-600">
+            Charges billed at cost — freight, duties and Amazon fees — generate no profit and are excluded entirely.
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          {[
+            { k: 'When you are paid', v: 'Within 30 days', d: 'of the end of the month shown' },
+            {
+              k: 'Minimum payout',
+              v: fmt(REFERRAL_TERMS.MIN_PAYOUT),
+              d: `a smaller balance rolls over until it clears ${fmt(REFERRAL_TERMS.MIN_PAYOUT)}`,
+            },
+            { k: 'Before we can pay', v: 'W-9 or W-8', d: 'we need your completed form on file' },
+          ].map((item) => (
+            <div key={item.k} className="rounded-lg border border-gray-200 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{item.k}</p>
+              <p className="mt-1 font-semibold text-[var(--brand-ink)]">{item.v}</p>
+              <p className="mt-1 text-sm leading-relaxed text-gray-600">{item.d}</p>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-sm leading-relaxed text-gray-500">
           Figures are calculated in good faith from Shipo&apos;s books. If you disagree with a statement, tell us in
           writing within 30 days of receiving it.
         </p>
