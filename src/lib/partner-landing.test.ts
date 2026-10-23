@@ -28,6 +28,37 @@ describe('the front door', () => {
     expect(partnerLandingFor('/', true)).toBe('/partner')
   })
 
+  // THE PARTNER HOSTNAME IS ITSELF THE SIGNAL. partners.shipousa.com
+  // exists so a partner never meets an ops URL; serving him Shipo's
+  // internal login at its root defeats the entire point of the domain,
+  // and on a host called "partners" it reads worse than the shared
+  // hostname did. No cookie is required: anyone arriving there is a
+  // partner by construction, and a signed-out one belongs at
+  // /partner/login, which /partner already redirects to.
+  it('sends everyone at the partner host to the portal, cookie or not', () => {
+    expect(partnerLandingFor('/', false, 'partners.shipousa.com')).toBe('/partner')
+    expect(partnerLandingFor('/', true, 'partners.shipousa.com')).toBe('/partner')
+  })
+
+  it('ignores the port when matching the host', () => {
+    // Vercel passes host with no port, but a local build and a preview
+    // both can carry one, and a host check that misses is a redirect
+    // that silently stops happening.
+    expect(partnerLandingFor('/', false, 'partners.shipousa.com:3000')).toBe('/partner')
+  })
+
+  it('is not fooled by a lookalike host', () => {
+    // endsWith on the bare name would match
+    // partners.shipousa.com.evil.example.
+    expect(partnerLandingFor('/', false, 'partners.shipousa.com.evil.example')).toBeNull()
+    expect(partnerLandingFor('/', false, 'notpartners.shipousa.com')).toBeNull()
+  })
+
+  it('still leaves staff screens alone on the partner host', () => {
+    // The host decides the ROOT only. A staff URL is still a staff URL.
+    expect(partnerLandingFor('/clients', false, 'partners.shipousa.com')).toBeNull()
+  })
+
   it('leaves the root alone when there is no partner cookie', () => {
     // A staff member, or a stranger. The staff guard handles both.
     expect(partnerLandingFor('/', false)).toBeNull()

@@ -24,9 +24,35 @@ export const PARTNER_SESSION_COOKIE = 'shipo_partner_session'
  * login: redirecting him to his statement would imply that URL means
  * something for him, and it does not.
  */
-export function partnerLandingFor(pathname: string, hasPartnerCookie: boolean): string | null {
-  if (!hasPartnerCookie) return null
-  return pathname === '/' ? '/partner' : null
+export const PARTNER_HOST = 'partners.shipousa.com'
+
+/**
+ * True when this request arrived on the partner hostname.
+ *
+ * Compared against the host with any port stripped, and as a WHOLE name
+ * rather than a suffix: `endsWith(PARTNER_HOST)` would also match
+ * partners.shipousa.com.evil.example, which is a domain an attacker can
+ * register. The port matters because a local build and a preview both
+ * carry one, and a host check that quietly stops matching is a redirect
+ * that quietly stops happening.
+ */
+function isPartnerHost(host: string | null | undefined): boolean {
+  if (!host) return false
+  return host.split(':')[0].toLowerCase() === PARTNER_HOST
+}
+
+export function partnerLandingFor(
+  pathname: string,
+  hasPartnerCookie: boolean,
+  host?: string | null
+): string | null {
+  if (pathname !== '/') return null
+  // The hostname is itself the signal: partners.shipousa.com exists so a
+  // partner never meets an ops URL, and serving Shipo's internal login at
+  // its root defeats the whole point of the domain. No cookie needed —
+  // anyone arriving there is a partner by construction, and a signed-out
+  // one lands at /partner, which redirects him to /partner/login.
+  return isPartnerHost(host) || hasPartnerCookie ? '/partner' : null
 }
 
 export async function proxy(request: NextRequest) {
@@ -58,7 +84,11 @@ export async function proxy(request: NextRequest) {
   if (!user && pathname !== '/login') {
     // A partner at the front door goes to his own front door, not Shipo's.
     // Checked before the staff redirect, and only for the root.
-    const partnerTarget = partnerLandingFor(pathname, request.cookies.has(PARTNER_SESSION_COOKIE))
+    const partnerTarget = partnerLandingFor(
+      pathname,
+      request.cookies.has(PARTNER_SESSION_COOKIE),
+      request.headers.get('host')
+    )
     if (partnerTarget) return NextResponse.redirect(new URL(partnerTarget, request.url))
 
     return NextResponse.redirect(new URL('/login', request.url))
