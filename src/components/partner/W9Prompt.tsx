@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { w9PartnerMessage, type W9Candidate } from '@/lib/partner-w9'
+import { abandonSigningWindow, settleSigningWindow, type SigningWindowHandle } from '@/lib/partner-signing-window'
 
 // The W-9 prompt, printed INSIDE the statement where the figures would be.
 //
@@ -40,6 +41,28 @@ export default function W9Prompt({ partner }: { partner: W9Candidate }) {
   async function sign() {
     setError(null)
     setBusy(true)
+
+    // OPENED HERE, BEFORE THE AWAIT, AND THAT IS THE WHOLE TRICK. A
+    // window.open() called after an await is not attributable to the
+    // click, so Safari and hardened Chrome return null and the button
+    // appears to do nothing. Opened synchronously it survives, and
+    // partner-signing-window.ts settles it once the URL lands — including
+    // the case where this returns null anyway, which falls back to
+    // navigating this tab exactly as the screen used to.
+    //
+    // THE FEATURES ARGUMENT IS DELIBERATELY ABSENT. Per the HTML spec,
+    // window.open returns NULL whenever the window is opened with
+    // noopener — so passing the flag that a reviewer would reflexively
+    // ask for here destroys the handle, every open reads as "blocked",
+    // and the popup path silently never runs. The handle IS the feature.
+    // src/components/partner/w9-popup-wiring.test.ts holds this.
+    //
+    // What that costs: the DocuSign tab keeps a window.opener reference to
+    // the portal. Cross-origin, that is write-only — it can set our
+    // location, not read it — and the destination is DocuSign, reached by
+    // an https-checked URL. A redirect-away is the exposure, not a read.
+    const popup = window.open('about:blank', '_blank') as SigningWindowHandle | null
+
     try {
       const res = await fetch('/api/partner/w9-sign', { method: 'POST' })
       const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string }
@@ -49,6 +72,10 @@ export default function W9Prompt({ partner }: { partner: W9Candidate }) {
       // and set window.location to undefined, which looks to the partner
       // like the button doing nothing at all.
       if (!res.ok || !json.url) {
+        // Close the blank window first. An error message beside an empty
+        // popup reads as "it opened, and the page is broken" — the popup
+        // is the half he believes.
+        abandonSigningWindow(popup)
         // The route's own sentence, which is written for the partner and
         // already names the way out. Preferred over anything invented
         // here so there is one version of each refusal.
@@ -56,11 +83,24 @@ export default function W9Prompt({ partner }: { partner: W9Candidate }) {
         return
       }
 
-      // Leaving the app entirely. Not router.push: this is a DocuSign URL,
-      // and the partner comes back to /partner by DocuSign's returnUrl
-      // once he has signed or abandoned it.
-      window.location.href = json.url
+      // He keeps the statement. The signing session goes to the popup when
+      // there is one, and to this tab when it was blocked — the DocuSign
+      // returnUrl still brings him back to /partner in that case.
+      const delivery = settleSigningWindow(popup, json.url, {
+        navigateSelf: (url) => {
+          window.location.href = url
+        },
+      })
+
+      // 'refused' means the route handed back something that was not an
+      // https URL. Nothing was opened and nothing navigated, so without a
+      // message here the button would be the silent no-op this change
+      // exists to remove.
+      if (delivery === 'refused') {
+        setError('We could not open the form. Email Support@shipousa.com and we will send it to you.')
+      }
     } catch {
+      abandonSigningWindow(popup)
       setError('We could not reach the server. Check your connection and try again.')
     } finally {
       // Re-enabled even on the success path. The navigation above is not
