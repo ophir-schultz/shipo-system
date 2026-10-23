@@ -157,7 +157,11 @@ console.log('\n--- partner_order_units (supabase/partner_order_units.sql) ---')
 const units = await relation('partner_order_units')
 if (!units.exists) {
   fail(`partner_order_units is ABSENT (HTTP ${units.status}) ${units.detail}`)
-  fail('  -> /partner/activity and the CSV report answer 503 until PART C is applied.')
+  // NAMED EXACTLY, because the previous wording said "/partner/activity"
+  // and there is no such route — the activity list renders inside the
+  // statement at /partner. A diagnostic that names a path which 404s sends
+  // the reader hunting for a missing page instead of a missing view.
+  fail('  -> the activity section of /partner, and GET /api/partner/report, answer 503 until PART C is applied.')
 } else {
   pass(`partner_order_units exists — ${units.count} row(s)`)
   // The view joins orders to clients to partners. An open grant on it is
