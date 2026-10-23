@@ -101,6 +101,15 @@ export async function proxy(request: NextRequest) {
 // outside this segment so it can never inherit the exclusion.
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|shipo-logo.jpg|chat.js|api/|partner$|partner/|rate-sheets/).*)',
+    // shipo-logo.png is the PARTNER header's asset and must be excluded
+    // for the same reason /partner is: a partner has no staff session, so
+    // a guarded asset answers 307 to /login and the browser renders a
+    // broken image. That is what shipped — /shipo-logo.svg was guarded
+    // and every partner saw a broken logo, because the brand tests asked
+    // whether the layout referenced the file, never whether anyone could
+    // fetch it. src/lib/partner-public-assets.test.ts now compares this
+    // list against the assets the partner layout actually requests.
+    // shipo-logo.jpg stays: it is the staff login and sidebar mark.
+    '/((?!_next/static|_next/image|favicon.ico|shipo-logo.jpg|shipo-logo.png|chat.js|api/|partner$|partner/|rate-sheets/).*)',
   ],
 }

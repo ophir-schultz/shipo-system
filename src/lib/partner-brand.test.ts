@@ -219,8 +219,50 @@ describe('partner brand: the invented cyan is gone from partner screens', () => 
 })
 
 describe('partner brand: the logo is the one the website serves', () => {
-  it('the partner header renders the logo', () => {
-    expect(codeOf('src/app/partner/layout.tsx')).toContain('shipo-logo.svg')
+  // THE HEADER USED TO CARRY A DRAWING OF THE LOGO, NOT THE LOGO.
+  // public/shipo-logo.svg was 594 bytes of hand-written SVG: the word
+  // "Shipo" set in Arial Black italic with two straight rules under it,
+  // approximating a wordmark whose letterforms are custom and whose
+  // underline is angled. It passed every test here, because the tests
+  // asked whether a file was referenced and whether it was white — never
+  // whether it was Shipo's.
+  //
+  // public/shipo-logo.png is the asset shipousa.com actually serves
+  // (wp-content/uploads/2021/07/white-transparent-bg.png), trimmed of its
+  // transparent padding: 514x500 of which only 322x122 is ink, so used
+  // untrimmed it would render as a postage stamp in a header box.
+  it('the partner header renders the logo the site serves', () => {
+    const src = codeOf('src/app/partner/layout.tsx')
+    expect(src).toContain('shipo-logo.png')
+    // The imitation must not come back under its old name.
+    expect(src).not.toContain('shipo-logo.svg')
+  })
+
+  it('the logo file exists and is the real asset, not a drawing of one', () => {
+    // Repo-relative, the same way codeOf reads source above.
+    const png = readFileSync('public/shipo-logo.png')
+    // PNG magic. An SVG renamed to .png would still satisfy a filename
+    // check, which is the whole failure being guarded against here.
+    expect(png.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+
+    // Dimensions live at a fixed offset in the IHDR chunk.
+    const width = png.readUInt32BE(16)
+    const height = png.readUInt32BE(20)
+    expect(width).toBe(322)
+    expect(height).toBe(122)
+  })
+
+  it('renders it at the asset’s own aspect ratio', () => {
+    // The old box was 120x42 (2.857) for a mark that is 2.639 wide. Close
+    // enough to look fine and wrong enough to stretch it; a logo is the
+    // one image on the page nobody may quietly reshape.
+    const src = codeOf('src/app/partner/layout.tsx')
+    const w = Number(src.match(/width=\{(\d+)\}/)?.[1])
+    const h = Number(src.match(/height=\{(\d+)\}/)?.[1])
+
+    expect(w, 'no width on the logo img').toBeGreaterThan(0)
+    expect(h, 'no height on the logo img').toBeGreaterThan(0)
+    expect(Math.abs(w / h - 322 / 122)).toBeLessThan(0.05)
   })
 
   it('the logo sits on the navy bar the site puts it on', () => {
