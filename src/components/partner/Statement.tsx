@@ -526,7 +526,11 @@ export default async function Statement({ partner }: { partner: StatementPartner
               <span className="ml-2 align-middle text-base font-semibold">of net profit</span>
             </p>
             <p className="mt-1 text-sm leading-relaxed text-gray-600">
-              for {REFERRAL_TERMS.COMMISSION_MONTHS} months from that client&apos;s first paid invoice
+              {/* One template string, not `for {X} months`. JSX dropped the
+                  space after the closing brace -- SWC compiled that form to
+                  "for ", MONTHS, "months from..." and the screen read "for
+                  12months". Interpolating inside the string cannot lose it. */}
+              {`for ${REFERRAL_TERMS.COMMISSION_MONTHS} months from that client’s first paid invoice`}
             </p>
           </div>
         </div>
