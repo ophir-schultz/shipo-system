@@ -40,7 +40,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const partnerId = process.argv[2]
 if (!partnerId) {
-  console.error('Usage: prep-agreement-envelope.mts <partner-id> [notice address]')
+  console.error('Usage: prep-agreement-envelope.mts <partner-id> [notice address] [legal name]')
   console.error('Partner ids: node --env-file=.env.local scripts/probe-partner-rows.mjs')
   process.exit(1)
 }
@@ -55,6 +55,17 @@ if (!partnerId) {
 // the one place the two behaviours are chosen between, so it is a visible
 // argument rather than a lookup that silently finds nothing.
 const noticeAddress = process.argv[3]?.trim() || undefined
+
+// The legal name of the contracting party, optional, and on the command
+// line for a stronger reason than the address: it cannot be derived at
+// all. partyName falls back to company-or-name, which is right for an
+// incorporated agency and for a sole trader who left `company` blank, and
+// WRONG for a sole trader who filled in both — clause 1 then reads a
+// trading name, which is not a legal person. Nothing on the row can tell
+// those apart (partner_type is null everywhere, and tax_status
+// 'us_person' covers human and company alike), so this is a judgement
+// made once, by a person, and printed below before anything is created.
+const legalName = process.argv[4]?.trim() || undefined
 
 // ---------------------------------------------------------------------
 // 1. The partner, from the row the webhook will later match on.
@@ -145,6 +156,7 @@ try {
       company: partner.company,
       tax_status: partner.tax_status,
       address: noticeAddress,
+      legal_name: legalName,
     },
     shipo: { name: 'Ophir Schultz', email: 'ophir@shipousa.com' },
     webhookUrl,
@@ -173,9 +185,38 @@ writeFileSync(outFile, JSON.stringify(envelope, null, 2))
 // both would mean two identical files, and two identical files is how
 // somebody ends up reviewing the stale one.
 
+/**
+ * The value actually written into clause 1, pulled back out of the payload
+ * by its tab label. Throws rather than printing a guess: if the label ever
+ * changes, a reviewer must not be shown a confident name that came from
+ * somewhere else.
+ */
+function clauseOneName(env: ReturnType<typeof buildPartnerAgreementEnvelope>): string {
+  for (const composite of env.compositeTemplates ?? []) {
+    for (const inline of composite.inlineTemplates ?? []) {
+      for (const signer of inline.recipients?.signers ?? []) {
+        for (const tab of signer.tabs?.textTabs ?? []) {
+          // `'value' in tab` is a narrowing, not a safety blanket: a text
+          // tab the PARTNER fills carries no value, and the compiler knows
+          // it. Without this the union has no `value` to read at all.
+          if (tab.tabLabel === 'agreement_partner_name' && 'value' in tab) return String(tab.value)
+        }
+      }
+    }
+  }
+  throw new Error('No agreement_partner_name tab in the built envelope — clause 1 would be blank.')
+}
+
 console.log('Prepared — nothing has been created or sent.\n')
 console.log(`  partner        ${partner.name}  <${partner.email}>`)
-console.log(`  clause 1 names ${partyName({ ...partner, email: partner.email })}`)
+// READ OFF THE BUILT ENVELOPE, not computed a second time. This line used
+// to call partyName() again on the row, which was a second place the same
+// fact was written — and the moment `legal_name` arrived it drifted: the
+// envelope carried "Jimi P Maciel dba MileMogul" while this line printed
+// "MileMogul", so the one number a reviewer checks disagreed with the
+// payload it was meant to describe. Same reason prefillValues() was
+// deleted from docusign-envelope.ts. The tab is the single source.
+console.log(`  clause 1 names ${clauseOneName(envelope)}`)
 console.log(`  status         ${partner.status} / agreement ${partner.agreement_status ?? 'null'}`)
 console.log(`  template       ${AGREEMENT_TEMPLATE_ID}`)
 console.log(`  tax status     ${partner.tax_status ?? 'NOT RECORDED'}`)

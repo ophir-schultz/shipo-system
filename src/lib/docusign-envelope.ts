@@ -156,11 +156,41 @@ export interface EnvelopePartner {
    * means the partner types it. See agreementProseTabs.
    */
   address?: string | null
+  /**
+   * The legal name of the contracting party, for the case where the
+   * derivation in partyName would get it wrong — a sole trader with a
+   * trading name, principally: "Jimi P Maciel dba MileMogul", not
+   * "MileMogul". Supplied by whoever prepares the envelope, never
+   * derived; see partyName for why nothing on the row can decide it.
+   */
+  legal_name?: string | null
 }
 
-/** Who clause 1 names as "Partner". See EnvelopePartner.company. */
+/**
+ * Who clause 1 names as "Partner". See EnvelopePartner.company.
+ *
+ * THE DERIVATION IS A DEFAULT, NOT A RULE, which is why `legal_name`
+ * beats it. company-or-name is right at both ends — an incorporated
+ * agency is named by its company, a sole trader who left `company` blank
+ * is named by himself — and wrong in the middle, for the sole trader who
+ * fills in BOTH. He is named by the company rule, so clause 1 reads
+ * "MileMogul": a trading name, not a legal person, and a signed contract
+ * whose counterparty does not legally exist.
+ *
+ * It cannot be inferred away. Nothing on referral_partners records
+ * whether a row is a human or a company — `partner_type` exists and is
+ * null on every row, and tax_status 'us_person' covers a US individual
+ * and a US entity alike. A guess here is a guess about who is bound by
+ * the agreement, so the legal name is SUPPLIED by whoever prepares the
+ * envelope, surfaced in the prep script's output and in the payload JSON
+ * that gets reviewed before the envelope is created.
+ *
+ * Trimmed and blank-checked for the same reason company is: this value
+ * arrives from a command-line argument, so '' and '   ' are the
+ * realistic mistakes, and neither may beat a real company.
+ */
 export function partyName(partner: EnvelopePartner): string {
-  return partner.company?.trim() || partner.name.trim()
+  return partner.legal_name?.trim() || partner.company?.trim() || partner.name.trim()
 }
 
 export interface EnvelopeSigner {
@@ -233,7 +263,14 @@ export interface BuildEnvelopeInput {
  * the envelope, not to quietly place no signature field and hand us an
  * agreement that can be "completed" without being signed.
  */
-function anchored(anchorString: string, extra: Record<string, unknown> = {}) {
+// GENERIC IN `extra` so the returned type keeps the caller's own keys.
+// Typed as Record<string, unknown> the spread widened away tabLabel,
+// value and locked, so every tab read back out of a built envelope was
+// `any`-adjacent and a misspelled label type-checked. scripts/
+// prep-agreement-envelope.mts reads agreement_partner_name back to report
+// what clause 1 will say, and that read is only worth something if the
+// compiler knows the property exists.
+function anchored<T extends Record<string, unknown>>(anchorString: string, extra: T = {} as T) {
   return {
     anchorString,
     anchorUnits: 'pixels',

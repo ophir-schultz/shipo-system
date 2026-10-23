@@ -784,6 +784,64 @@ describe('who clause 1 calls "Partner"', () => {
     expect(partyName({ id: 'x', name: 'Dana Katz', email: 'd@e.com', company: null }))
       .toBe('Dana Katz')
   })
+
+  // THE SOLE TRADER WITH A TRADING NAME, which the two rules above get
+  // wrong between them. A sole proprietor who fills in BOTH fields —
+  // person in `name`, trading name in `company` — is named by the company
+  // rule, so clause 1 reads "MileMogul": a trade name, not a legal person,
+  // and an ambiguous counterparty on a signed contract.
+  //
+  // It is not fixable by inference. Nothing on referral_partners says
+  // whether a row is an individual or an entity — `partner_type` exists
+  // and is null on every row, and tax_status 'us_person' covers both a US
+  // human and a US company. So the legal name is SUPPLIED, never derived,
+  // and the derivation stays exactly as it was when it is not.
+  it('uses an explicit legal name when one is supplied', () => {
+    expect(
+      partyName({
+        id: 'x',
+        name: 'Jimi Maciel',
+        email: 'd@e.com',
+        company: 'MileMogul',
+        legal_name: 'Jimi P Maciel dba MileMogul',
+      }),
+    ).toBe('Jimi P Maciel dba MileMogul')
+  })
+
+  it('prefers the legal name over the company, which is the whole point', () => {
+    expect(
+      partyName({
+        id: 'x',
+        name: 'Dana Katz',
+        email: 'd@e.com',
+        company: 'Katz Media LLC',
+        legal_name: 'Dana Katz, an individual',
+      }),
+    ).toBe('Dana Katz, an individual')
+  })
+
+  it('ignores a blank legal name instead of naming nobody', () => {
+    // Same shape as the blank-company rule above: this arrives from a
+    // command-line argument, so '' and '  ' are the realistic mistakes,
+    // and a blank here must not beat a real company.
+    for (const blank of ['', '   ', null, undefined]) {
+      expect(
+        partyName({
+          id: 'x',
+          name: 'Dana Katz',
+          email: 'd@e.com',
+          company: 'Katz Media LLC',
+          legal_name: blank,
+        }),
+      ).toBe('Katz Media LLC')
+    }
+  })
+
+  it('trims a supplied legal name', () => {
+    expect(
+      partyName({ id: 'x', name: 'Dana Katz', email: 'd@e.com', legal_name: '  Dana Katz LLC  ' }),
+    ).toBe('Dana Katz LLC')
+  })
 })
 
 // ============================================================
