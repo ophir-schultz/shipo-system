@@ -65,15 +65,53 @@ describe('isMissingLinkColumn', () => {
 
 describe('signInLinkOrigin', () => {
   const saved = {
+    partner: process.env.NEXT_PUBLIC_PARTNER_URL,
     site: process.env.NEXT_PUBLIC_SITE_URL,
     vercel: process.env.VERCEL_PROJECT_PRODUCTION_URL,
   }
+  // DELETE, DO NOT ASSIGN, WHEN THE SAVED VALUE IS UNDEFINED.
+  // `process.env.X = undefined` stores the STRING "undefined", which is
+  // truthy — so restoring an unset variable leaves it set to a hostname
+  // that does not exist, and it leaks into every later test in the file.
+  // NEXT_PUBLIC_PARTNER_URL is unset in this environment, so adding it
+  // here turned the two fallback tests below red for a reason that had
+  // nothing to do with them.
+  const restore = (key: string, value: string | undefined) => {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
   afterEach(() => {
-    process.env.NEXT_PUBLIC_SITE_URL = saved.site
-    process.env.VERCEL_PROJECT_PRODUCTION_URL = saved.vercel
+    restore('NEXT_PUBLIC_PARTNER_URL', saved.partner)
+    restore('NEXT_PUBLIC_SITE_URL', saved.site)
+    restore('VERCEL_PROJECT_PRODUCTION_URL', saved.vercel)
+  })
+
+  // THE PARTNER HOST WINS, AND IT IS A SEPARATE VARIABLE FOR A REASON.
+  // NEXT_PUBLIC_SITE_URL does three jobs: it builds the DocuSign
+  // eventNotification URL, it builds the links in the staff monitor
+  // emails (/dashboard, /losses, /adjustments), and it used to build
+  // this. Repointing that one value at partners.shipousa.com to fix the
+  // sign-in link would have sent Shipo's own alert emails to the partner
+  // hostname -- which resolves, so nothing would have failed and nobody
+  // would have noticed.
+  it('prefers the partner host when one is configured', () => {
+    process.env.NEXT_PUBLIC_PARTNER_URL = 'https://partners.shipousa.com'
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://shipo-system.vercel.app'
+    expect(signInLinkOrigin()).toBe('https://partners.shipousa.com')
+  })
+
+  it('ignores a blank partner host rather than emailing a scheme with no host', () => {
+    // An env var set to '' is the shape a half-finished dashboard edit
+    // leaves behind, and `'' || next` already falls through -- but only
+    // because the check is truthiness. Pinned so a later `!== undefined`
+    // cannot turn an empty string into a link to nowhere.
+    process.env.NEXT_PUBLIC_PARTNER_URL = '   '
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://shipo-system.vercel.app'
+    expect(signInLinkOrigin()).toBe('https://shipo-system.vercel.app')
   })
 
   it('prefers the configured site url', () => {
+    delete process.env.NEXT_PUBLIC_PARTNER_URL
     process.env.NEXT_PUBLIC_SITE_URL = 'https://shipousa.com'
     process.env.VERCEL_PROJECT_PRODUCTION_URL = 'shipo-system.vercel.app'
     expect(signInLinkOrigin()).toBe('https://shipousa.com')

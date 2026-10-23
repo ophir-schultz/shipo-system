@@ -70,7 +70,22 @@ export function isMissingLinkColumn(error: unknown): boolean {
  * the link, and the 6-digit code in the same message still works.
  */
 export function signInLinkOrigin(): string | null {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL
+  // NEXT_PUBLIC_PARTNER_URL first, and it is a SEPARATE VARIABLE on
+  // purpose. NEXT_PUBLIC_SITE_URL does three jobs: it builds the DocuSign
+  // eventNotification URL, it builds the links in the staff monitor
+  // emails (/dashboard, /losses, /adjustments), and until now it built
+  // this one. Repointing that single value at partners.shipousa.com to
+  // fix the sign-in link would also have sent Shipo's own alert emails to
+  // the partner hostname — which resolves and serves, so nothing would
+  // have broken and nobody would have noticed.
+  //
+  // Trimmed before it is believed: an env var set to '' or '  ' is what a
+  // half-finished dashboard edit leaves behind, and a bare scheme with no
+  // host is a link to nowhere in a partner's inbox.
+  const partner = process.env.NEXT_PUBLIC_PARTNER_URL?.trim()
+  if (partner) return partner
+
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim()
   if (configured) return configured
 
   const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL
