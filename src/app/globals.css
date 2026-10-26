@@ -122,6 +122,39 @@ body {
     box-shadow: none !important;
   }
 
+  /* ---- Shipo brand, on paper -------------------------------------------
+     The reset above is deliberately total, so anything branded has to opt
+     back in by class. A class beats the universal selector on specificity,
+     so these win without needing a louder !important.
+
+     `print-color-adjust: exact` only on these few elements: it tells the
+     browser not to drop the colour, and granting it page-wide is how a
+     dark-theme app prints as a black rectangle. Scoped to the rule, the
+     logo and the table head, it costs a few square centimetres of ink. */
+  .print-brand-rule {
+    border-bottom: 2px solid #00AAFF !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .print-brand-mark {
+    width: 150px;
+    height: auto;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .print-brand-title { color: #0090DD !important; }
+
+  /* Column headings in the brand blue rather than a filled band -- same
+     reason the logo is blue ink on white instead of white on a blue block:
+     a filled row is the first thing a printer drops and the first thing
+     that drains a cartridge. */
+  thead th {
+    color: #0090DD !important;
+    border-bottom: 2px solid #00AAFF !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
   @page { margin: 14mm; }
 
   /* A money table split mid-row across a page break puts a figure on one

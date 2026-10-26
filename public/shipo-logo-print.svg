@@ -1,0 +1,27 @@
+<!--
+  Print variant of shipo-logo.svg.
+
+  The original is WHITE lettering, drawn to sit on the sidebar's #00AAFF
+  panel. On paper the page is white, so that artwork renders as nothing at
+  all -- a blank space above a client-facing report. This is the same
+  geometry in the brand blue instead.
+
+  Blue ink on white rather than white on a blue band: a full-bleed colour
+  block is what most browsers drop when "background graphics" is off, and
+  when they do print it, it costs a cartridge over a month of statements.
+  The mark reads the same either way.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 70" fill="none">
+  <text
+    x="20"
+    y="48"
+    font-family="Arial Black, Arial, sans-serif"
+    font-size="46"
+    font-weight="900"
+    font-style="italic"
+    fill="#00AAFF"
+    letter-spacing="-2"
+  >Shipo</text>
+  <line x1="18" y1="57" x2="160" y2="57" stroke="#00AAFF" stroke-width="3" stroke-linecap="round"/>
+  <line x1="163" y1="57" x2="182" y2="57" stroke="#00AAFF" stroke-width="3" stroke-linecap="round"/>
+</svg>
