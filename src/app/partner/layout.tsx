@@ -46,7 +46,7 @@ export default function PartnerLayout({ children }: { children: React.ReactNode 
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/shipo-logo.png" alt="Shipo" width={111} height={42} />
           </a>
-          <span className="text-xs uppercase tracking-widest text-white/80">
+          <span className="text-xs font-bold uppercase tracking-widest text-white">
             Partner Portal
           </span>
         </div>
