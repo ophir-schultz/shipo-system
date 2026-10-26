@@ -6,10 +6,20 @@ import {
 } from '@/lib/billing/unpriced'
 import { pnlFigures, campaignFigures, attributedRevenue } from '@/lib/billing/margin'
 import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 
 export const dynamic = 'force-dynamic'
+
+/** The shape the paged shipment read returns; readAllPages cannot infer it. */
+interface PnlShipmentRow {
+  client_id: string | null
+  client_rate: number | null
+  actual_cost: number | null
+  profit_loss: number | null
+  clients: { name: string } | { name: string }[] | null
+}
 
 // Six reads aggregated into per-client margin and a four-card summary bar, and
 // the aggregation is the problem: every figure on this page is a SUM across
@@ -38,9 +48,17 @@ const CHANNEL_LABELS: Record<string, string> = {
 
 async function getPnlData() {
   const [shipRes, whRes, inboundRes, campaignsRes, clientsRes, payoutsRes] = await Promise.all([
-    supabaseAdmin
-      .from('shipments')
-      .select('client_id, client_rate, actual_cost, profit_loss, clients(name)'),
+    // PAGED. Every shipment ever, with no window, feeding the per-client P&L.
+    // Unpaged it returned the first 1000 rows of 1823 as a complete answer --
+    // PostgREST caps at `db-max-rows` and says nothing, so the P&L was short
+    // by whatever fell past row 1000 and read as a finished number. Found on
+    // 2026-10-23 on the dashboard, where the same defect halved the revenue
+    // figure; see src/lib/db/page.ts.
+    readAllPages<PnlShipmentRow>((from, to) =>
+      supabaseAdmin
+        .from('shipments')
+        .select('client_id, client_rate, actual_cost, profit_loss, clients(name)')
+        .order('id').range(from, to)),
     supabaseAdmin
       .from('warehouse_daily_log')
       .select('client_id, total'),

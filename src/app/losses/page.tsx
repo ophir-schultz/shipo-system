@@ -5,6 +5,7 @@ import {
 import { reconcile, reconciledOrUnknown, marginPct } from '@/lib/billing/profit-rollup'
 import { billedOz, weightBracket } from '@/lib/billing/weight-bracket'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 
 // Read at REQUEST time, never at build time. Without this the App Router
@@ -13,6 +14,14 @@ import ViewUnreadable from '@/components/ui/ViewUnreadable'
 // landmine behind the two that were reported.
 // See src/app/dynamic-rendering.test.ts.
 export const dynamic = 'force-dynamic'
+
+/** The shape the paged totals read returns; readAllPages cannot infer it. */
+interface LossTotalsRow {
+  actual_cost: number | null
+  client_rate: number | null
+  profit_loss: number | null
+  is_loss: boolean | null
+}
 
 // This page answers "which shipments are we losing money on". An unpriced
 // shipment is NOT on it and must not be: `is_loss` is false when profit is
@@ -59,10 +68,18 @@ async function getLossData() {
       .eq('is_loss', true)
       .order('profit_loss', { ascending: true })
       .limit(2000),
-    supabaseAdmin
-      .from('shipments')
-      .select('actual_cost, client_rate, profit_loss, is_loss')
-      .not('client_id', 'is', null),
+    // PAGED. The denominator for every proportion on this page: "N of M
+    // shipments are losses" means nothing if M is the first 1000 rows of 1823
+    // and nothing on screen says so. PostgREST caps a select at `db-max-rows`
+    // and reports the cap nowhere. Found 2026-10-23, when the same defect on
+    // the dashboard turned out to be halving the year's revenue figure. See
+    // the header of src/lib/db/page.ts.
+    readAllPages<LossTotalsRow>((from, to) =>
+      supabaseAdmin
+        .from('shipments')
+        .select('actual_cost, client_rate, profit_loss, is_loss')
+        .not('client_id', 'is', null)
+        .order('id').range(from, to)),
   ])
 
   const lossRead = read('shipments (losses)', lossRes)
