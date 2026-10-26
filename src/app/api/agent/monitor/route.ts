@@ -40,6 +40,13 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { syncShipments } from '@/lib/sync/shipstation'
 import { syncClientAssignments } from '@/lib/sync/zenventory'
 import { sendEmail } from '@/lib/email'
+import {
+  auditAgreements,
+  docusignVerdict,
+  type AgreementRow,
+  type EnvelopeVerdict,
+} from '@/lib/partner-agreement-audit'
+import { docusignConfig, envelopeStatus } from '@/lib/docusign-client'
 import { requireStaffOrCron } from '@/lib/require-staff'
 import { recalculateShipments, type RecalculateStats } from '@/lib/billing/recalculate'
 // CHARGE_CRON_HOURS_UTC is imported for the undelivered-report message, which
@@ -695,6 +702,55 @@ export async function GET(req: Request) {
       + `is unbilled. This is the backlog, not today's news: it stays until someone `
       + `supplies a date. Expected after a Zenventory outage — the sync declines to `
       + `invent a date rather than stamp today's on weeks of old picks.`)
+  }
+
+  // ── 4b. Does Shipo agree with DocuSign about who has signed? ──────────────
+  //
+  // Jimi Maciel signed at 2026-10-23T23:38:42Z, DocuSign recorded
+  // `completed`, and his row stayed `sent` because the completion webhook
+  // never landed. The portal he had just signed a contract to reach
+  // refused him for three days and NOTHING ANNOUNCED IT: that webhook is
+  // the only writer of the column, and one that never arrives raises no
+  // error and writes no log. Every other failure here is loud. This one
+  // cannot be, so it gets looked for.
+  //
+  // It reports and does not repair. A cron that quietly stamps the row
+  // hides how often the webhook fails, and the fix is one UPDATE a human
+  // runs with DocuSign's own timestamp in front of them.
+  try {
+    const { data: agreementRows, error: agreementError } = await supabaseAdmin
+      .from('referral_partners')
+      .select('id, name, email, agreement_status, agreement_sent_at, agreement_signed_at, agreement_envelope_id')
+
+    if (agreementError) {
+      scanFailed('the partner agreement audit', agreementError)
+    } else {
+      const rows = (agreementRows ?? []) as AgreementRow[]
+      const cfg = docusignConfig(process.env)
+      const verdicts = new Map<string, EnvelopeVerdict>()
+
+      if (cfg) {
+        const ids = [...new Set(rows.map((r) => r.agreement_envelope_id).filter((v): v is string => !!v))]
+        for (const id of ids) {
+          const v = docusignVerdict(await envelopeStatus(id, cfg))
+          if (v) verdicts.set(id, v)
+        }
+      }
+
+      const findings = auditAgreements(rows, verdicts, new Date())
+      for (const f of findings) {
+        const line = `${f.severity === 'critical' ? '✗' : '⚠'} Partner agreement (${f.kind}): ${f.name} — ${f.detail}`
+        // Criticals go to errors, which is what turns the subject line
+        // red. A warning only reaches the body.
+        if (f.severity === 'critical') errors.push(line)
+        else log.push(line)
+      }
+      if (findings.length === 0) {
+        log.push(`✓ Partner agreements: ${rows.length} checked, Shipo and DocuSign agree`)
+      }
+    }
+  } catch (err) {
+    scanFailed('the partner agreement audit', { message: err instanceof Error ? err.message : String(err) })
   }
 
   // ── 5. Send email report ───────────────────────────────────────────────────

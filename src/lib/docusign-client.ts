@@ -279,6 +279,37 @@ async function api(
 }
 
 /**
+ * What DocuSign says about one envelope, or null when it cannot say.
+ *
+ * NULL IS A REAL ANSWER HERE, not an error to swallow. The agreement
+ * audit treats "could not ask" as a finding of its own, because the
+ * failure it exists to catch is a check that goes quiet — and the
+ * likeliest reason this returns null today is that the configured
+ * credentials point at a DIFFERENT DocuSign world from the envelope
+ * (demo credentials, production envelope), which answers 404 and looks
+ * exactly like "no such envelope".
+ *
+ * Returns DocuSign's own status string: sent, delivered, completed,
+ * declined, voided. Mapping that to a verdict is the caller's business.
+ */
+export async function envelopeStatus(envelopeId: string, cfg: DocusignConfig): Promise<string | null> {
+  let token: string
+  try {
+    token = await accessToken(cfg)
+  } catch {
+    return null
+  }
+
+  const res = await fetch(`${cfg.restBase}/v2.1/accounts/${cfg.accountId}/envelopes/${envelopeId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) return null
+
+  const body = (await res.json().catch(() => null)) as { status?: string } | null
+  return body?.status ?? null
+}
+
+/**
  * Create an envelope and return its id.
  *
  * `envelope` is whatever docusign-envelope.ts built. This function does
