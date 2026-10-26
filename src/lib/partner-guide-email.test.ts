@@ -103,6 +103,27 @@ describe('what the guide must never carry', () => {
     expect(SIX_DIGITS.test('Your code is 481902')).toBe(true)
   })
 
+  /**
+   * No square brackets anywhere a reader can see them.
+   *
+   * Bracketed subject tags — "[Copy of ...]", "[Reminder]", "[Action
+   * required]" — are a spam-filter signal and, worse, a reader signal:
+   * they read as bulk mail, which is the opposite of what an
+   * onboarding message needs to look like. The HTML is checked with
+   * tags stripped first, so markup and attributes are not mistaken for
+   * visible copy.
+   */
+  it('shows no square brackets, which read as bulk mail', () => {
+    const visible = mail.html.replace(/<[^>]*>/g, ' ')
+    expect(/[[\]]/.test(mail.subject), `brackets in subject: ${mail.subject}`).toBe(false)
+    expect(/[[\]]/.test(mail.text)).toBe(false)
+    expect(/[[\]]/.test(visible)).toBe(false)
+  })
+
+  it('would catch a bracketed subject (control)', () => {
+    expect(/[[\]]/.test('[Reminder] Your dashboard')).toBe(true)
+  })
+
   it('shows no rate card, per-unit price or per-order cost', () => {
     const banned = [/per[- ]unit/i, /rate card/i, /cost_labour/i, /per[- ]order cost/i]
     for (const re of banned) {
