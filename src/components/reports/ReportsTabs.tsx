@@ -14,6 +14,7 @@ import { scopeRows, undatedNote, unattributedNote, type Scoped } from '@/lib/bil
 import {
   REPORT_TABS, reportTabById, reportTypeForTab, tabRequiresClient,
 } from '@/lib/billing/report-types'
+import { reportHeading } from '@/lib/billing/report-heading'
 
 // `client_rate`, the profit derived from it, and `warehouse_daily_log.total`
 // are all nullable: recalculate.ts and the daily-log route write null when they
@@ -197,6 +198,17 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
   const [dateTo, setDateTo] = useState(data.defaultTo)
   const [downloading, setDownloading] = useState(false)
 
+  // Recomputed per render rather than memoised: it is four strings, and a
+  // stale generated-at stamp is the one thing on the sheet that must not lag.
+  const printHeading = reportHeading({
+    tabLabel: reportTabById(activeTab)?.label ?? 'Report',
+    clientId,
+    clients: data.clients,
+    dateFrom,
+    dateTo,
+    generatedAt: new Date(),
+  })
+
   function handlePrintPDF() {
     window.print()
   }
@@ -244,8 +256,23 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
 
   return (
     <div className="space-y-4">
+      {/*
+        PRINT ONLY, and it is not decoration. On screen the filter bar states
+        the report's scope -- which client, which dates. Those are form
+        controls, so window.print() takes them away with the rest of the
+        chrome and leaves a table of figures with nothing saying whose they
+        are or what period they cover. This puts the scope in the document
+        instead. See src/lib/billing/report-heading.ts.
+      */}
+      <div className="print-only" style={{ marginBottom: '12px' }}>
+        <h1 style={{ fontSize: '16pt', fontWeight: 700 }}>{printHeading.title}</h1>
+        <p style={{ fontSize: '11pt' }}>{printHeading.scope}</p>
+        <p style={{ fontSize: '11pt' }}>{printHeading.period}</p>
+        <p style={{ fontSize: '9pt' }}>{printHeading.generated}</p>
+      </div>
+
       {/* Filters + Download bar */}
-      <div className="bg-gray-800 rounded-xl px-5 py-4 flex flex-wrap items-end gap-4">
+      <div data-print-hide className="bg-gray-800 rounded-xl px-5 py-4 flex flex-wrap items-end gap-4">
         <div>
           <label className="block text-xs text-gray-400 mb-1">From</label>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
@@ -286,8 +313,9 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-900 rounded-xl p-1">
+      {/* Tabs. Navigation, so it does not belong on paper -- and a printed
+          tab strip implies the other tabs are part of this document. */}
+      <div data-print-hide className="flex gap-1 bg-gray-900 rounded-xl p-1">
         {REPORT_TABS.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition ${

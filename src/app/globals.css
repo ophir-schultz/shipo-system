@@ -73,3 +73,71 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #00AAFF88;
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   PRINT: turn the application into a document.
+
+   The PDF button on /reports is window.print(), and until this block existed
+   there were no print rules at all -- so it printed the app. Sidebar, filter
+   bar, tab strip, buttons, dark background, and the report somewhere inside.
+
+   The worst of it was not the look. The filter bar is where the screen states
+   its scope -- which client, which dates -- and those are form controls, so
+   they went with the chrome and left a table of figures with nothing on it
+   saying whose they were. The .print-only header below replaces them, and
+   that is why it is `display: block` here and hidden everywhere else.
+
+   `data-print-hide` is opt-in rather than a list of selectors, so a component
+   that grows a new button does not quietly start appearing on client paper.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.print-only { display: none; }
+
+@media print {
+  [data-print-hide] { display: none !important; }
+  .print-only { display: block !important; }
+
+  /* The navigation sidebar. Targeted by element because `<aside>` appears
+     exactly once in this codebase (components/layout/Sidebar.tsx) -- keeping
+     it here leaves the print concern in the print stylesheet rather than
+     scattering print classes through a component every page renders. */
+  aside { display: none !important; }
+  /* The sidebar is a flex sibling of <main>; with it gone, main should take
+     the page rather than keep a column's worth of empty gutter. */
+  main { padding: 0 !important; overflow: visible !important; }
+
+  /* Paper is white whatever the screen is. `color-adjust` is NOT set: letting
+     the browser drop the dark theme is the behaviour we want, not one to
+     override -- a dark background wastes ink and renders grey text unreadable
+     on most office printers. */
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  /* The app paints its own backgrounds on nested panels, which survive the
+     body reset and box the report in grey. */
+  * {
+    background: transparent !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+
+  @page { margin: 14mm; }
+
+  /* A money table split mid-row across a page break puts a figure on one
+     sheet and its label on the next. Repeating the head means page two is
+     still readable as a table rather than as a list of numbers. */
+  table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  th, td {
+    border: 1px solid #999 !important;
+    padding: 4px 6px;
+    font-size: 10pt;
+  }
+
+  /* Links print as their text. A client-facing sheet showing
+     "Statement (https://shipo-system.vercel.app/...)" is noise at best and
+     an internal URL at worst. */
+  a[href]::after { content: none !important; }
+}
