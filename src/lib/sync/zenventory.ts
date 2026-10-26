@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCustomerOrders } from '@/lib/api/zenventory'
-import { normaliseLines, NegativeQuantityError } from '@/lib/ledger/order-line'
+import { normaliseLines, NegativeQuantityError, PICKED_KEYS } from '@/lib/ledger/order-line'
 import { watermarkPickDate, watermarkIsEvidence } from '@/lib/ledger/pick-date'
 import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
 
@@ -169,6 +169,12 @@ export async function syncClientAssignments(daysBack = 30) {
     const watermarkUsable = !previousRunErr
       && watermarkIsEvidence(previousRun?.finished_at, now)
     let undatedPicks = 0
+    // Lines whose payload carried NONE of PICKED_KEYS. Counted because the
+    // alternative is what happened for eight months: a key that matched
+    // nothing wrote null on every line, null is a legal value meaning "not
+    // picked", and 3,394 lines accumulated with no pick data and no signal.
+    let linesSeen = 0
+    let linesWithNoPickedKey = 0
 
     let run: Awaited<ReturnType<typeof openSyncRun>>
     try {
@@ -322,6 +328,8 @@ export async function syncClientAssignments(daysBack = 30) {
             )
 
             for (const line of lines) {
+              linesSeen++
+              if (line.picked_key === null) linesWithNoPickedKey++
               // pick_date is set ONCE and never moved. Read the existing row
               // first so an established date survives a re-sync.
               const { data: existing, error: existingErr } = await supabaseAdmin
@@ -459,6 +467,21 @@ export async function syncClientAssignments(daysBack = 30) {
         run.warn('pick date continuity unknown', `could not read the previous `
           + `zenventory sync_runs row for this client, so the pick-date watermark `
           + `was not trusted: ${previousRunErr.message}`)
+      }
+      // The loud half of the 2026-10-26 fix. A payload with no recognisable
+      // picked field is not a warehouse that picked nothing -- it is a field
+      // we cannot read, and the two are indistinguishable in the column
+      // afterwards. Reported whenever it is ALL of them, which is the shape a
+      // renamed or wrong key makes; a genuine quiet day is some, not all.
+      if (linesSeen > 0 && linesWithNoPickedKey === linesSeen) {
+        run.warn('picked quantity unreadable', `none of the ${linesSeen} order `
+          + `line${linesSeen > 1 ? 's' : ''} in this pass carried any of the `
+          + `field names this sync reads a picked quantity from `
+          + `(${PICKED_KEYS.join(', ')}). quantity_picked was written null for `
+          + `all of them, which pick_days reads as "not picked", so NO pick, `
+          + `pack or material charge can be generated. If Zenventory has `
+          + `renamed the field, add it to PICKED_KEYS in `
+          + `src/lib/ledger/order-line.ts.`)
       }
       if (undatedPicks > 0) {
         run.warn('undated picks', `${undatedPicks} picked line`

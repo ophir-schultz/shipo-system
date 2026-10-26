@@ -98,3 +98,81 @@ describe('normaliseLines', () => {
     expect(out[0].is_component).toBe(true)
   })
 })
+
+describe('normaliseLines: which key the picked quantity came from', () => {
+  // Measured 2026-10-26: 3,394 order lines in production, 3,394 with a
+  // quantity ordered, 3,394 with an SKU, ZERO with a quantity picked. This
+  // read `line.quantityPicked` and nothing else, while Zenventory's REST docs
+  // name the field `pickedQuantity`. Eight months of syncing, 139 agreed
+  // warehouse rate lines, and not one pick, pack or material charge could be
+  // generated, because pick_days needs quantity_picked > 0.
+  //
+  // The old mapping passes every test below that uses `quantityPicked`, which
+  // is how it survived: the suite agreed with the code about the field name
+  // and neither of them had seen the payload.
+
+  it('reads the name Zenventory actually documents', () => {
+    const [line] = normaliseLines([{ sku: 'A', pickedQuantity: 3 }])
+    expect(line.quantity_picked).toBe(3)
+    expect(line.picked).toBe(true)
+    expect(line.picked_key).toBe('pickedQuantity')
+  })
+
+  it('still reads the name this code used before', () => {
+    // Kept, not replaced. The live payload has not been inspected directly --
+    // the field name came from documentation -- so dropping the old spelling
+    // would trade one guess for another.
+    const [line] = normaliseLines([{ sku: 'A', quantityPicked: 2 }])
+    expect(line.quantity_picked).toBe(2)
+    expect(line.picked_key).toBe('quantityPicked')
+  })
+
+  it('reads snake_case and abbreviated spellings too', () => {
+    expect(normaliseLines([{ quantity_picked: 4 }])[0].quantity_picked).toBe(4)
+    expect(normaliseLines([{ picked_quantity: 5 }])[0].quantity_picked).toBe(5)
+    expect(normaliseLines([{ qtyPicked: 6 }])[0].quantity_picked).toBe(6)
+  })
+
+  it('reports picked_key = null when the payload has none of them', () => {
+    // THE WHOLE POINT. Without this the sync cannot tell "nobody picked it"
+    // from "we are reading the wrong field", because both write null.
+    const [line] = normaliseLines([{ sku: 'A', quantity: 10 }])
+    expect(line.quantity_picked).toBeNull()
+    expect(line.picked_key).toBeNull()
+  })
+
+  it('distinguishes a key that is present and null from a key that is absent', () => {
+    // Present-and-null is Zenventory saying "not picked" -- a fact. Absent is
+    // us not knowing how to ask. Same stored value, opposite meanings, and
+    // conflating them is exactly what hid this for eight months.
+    const absent = normaliseLines([{ sku: 'A' }])[0]
+    const present = normaliseLines([{ sku: 'A', pickedQuantity: null }])[0]
+    expect(absent.quantity_picked).toBeNull()
+    expect(present.quantity_picked).toBeNull()
+    expect(absent.picked_key).toBeNull()
+    expect(present.picked_key).toBe('pickedQuantity')
+  })
+
+  it('takes the first key PRESENT, not the first that holds a value', () => {
+    // If the live field says null and a legacy alias still carries a stale
+    // number, the live field wins. Falling through to the alias would
+    // resurrect an old pick count as though it were current.
+    const [line] = normaliseLines([{ pickedQuantity: null, quantityPicked: 9 }])
+    expect(line.quantity_picked).toBeNull()
+    expect(line.picked_key).toBe('pickedQuantity')
+  })
+
+  it('keeps zero meaning NOT PICKED, whichever key carried it', () => {
+    const [line] = normaliseLines([{ sku: 'A', pickedQuantity: 0 }])
+    expect(line.quantity_picked).toBe(0)
+    expect(line.picked).toBe(false)
+  })
+
+  it('still refuses a negative quantity under the new key', () => {
+    // The guard that stops a negative pick charge -- the business paying a
+    // client to have their order picked -- must cover every spelling, not
+    // only the one it was written against.
+    expect(() => normaliseLines([{ sku: 'A', pickedQuantity: -1 }]))
+      .toThrow(NegativeQuantityError)
+  })
+})
