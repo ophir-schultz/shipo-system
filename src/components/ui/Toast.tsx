@@ -42,10 +42,10 @@ const ICONS: Record<ToastType, string> = {
 }
 
 const STYLES: Record<ToastType, string> = {
-  error: 'border-red-700/60 bg-red-950/90',
-  success: 'border-green-700/60 bg-green-950/90',
-  warning: 'border-yellow-700/60 bg-yellow-950/90',
-  info: 'border-blue-700/60 bg-blue-950/90',
+  error: 'border-red-200 bg-red-50',
+  success: 'border-emerald-200 bg-emerald-50',
+  warning: 'border-amber-200 bg-amber-50',
+  info: 'border-blue-200 bg-blue-50',
 }
 
 const ICON_STYLES: Record<ToastType, string> = {

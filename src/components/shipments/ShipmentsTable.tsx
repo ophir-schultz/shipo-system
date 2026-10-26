@@ -195,9 +195,9 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
           <p className="text-xs text-[#4B4F58]">Charged Clients</p>
           <p className="text-xl font-bold text-[#0B1220]">{fig(known.revenue)}</p>
         </div>
-        <div className={`rounded-xl px-4 py-3 ${known.profit !== null && !plPositive ? 'bg-red-950/40 border border-red-800/40' : 'bg-white'}`}>
-          <p className="text-xs text-[#4B4F58]">Net P / L {lossCount > 0 && <span className="text-red-400 ml-1">· {lossCount} losses</span>}</p>
-          <p className={`text-xl font-bold ${known.profit === null ? 'text-[#4B4F58]' : plPositive ? 'text-green-400' : 'text-red-400'}`}>
+        <div className={`rounded-xl px-4 py-3 ${known.profit !== null && !plPositive ? 'bg-red-50 border border-red-200' : 'bg-white'}`}>
+          <p className="text-xs text-[#4B4F58]">Net P / L {lossCount > 0 && <span className="text-red-700 ml-1">· {lossCount} losses</span>}</p>
+          <p className={`text-xl font-bold ${known.profit === null ? 'text-[#4B4F58]' : plPositive ? 'text-emerald-700' : 'text-red-700'}`}>
             {plFigure}
           </p>
         </div>
@@ -209,7 +209,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
           excludes nothing -- a permanent all-clear is how a real warning stops
           being read. */}
       {marginNote && (
-        <p className="text-xs text-amber-400 px-1">⚠ {marginNote}</p>
+        <p className="text-xs text-amber-700 px-1">⚠ {marginNote}</p>
       )}
 
       {/* Table */}
@@ -238,7 +238,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                   <td colSpan={12} className="px-5 py-12 text-center text-[#6B7A8D]">No shipments match the current filters</td>
                 </tr>
               ) : filtered.map((s: any) => (
-                <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
+                <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                   <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                   <td className="px-4 py-2.5 font-medium text-sm">{s.clients?.name ?? <span className="text-[#6B7A8D]">Unassigned</span>}</td>
                   <td className="px-4 py-2.5 text-[#4B4F58] text-xs whitespace-nowrap">{s.ship_date ? new Date(s.ship_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
@@ -248,12 +248,12 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                     {s.length && s.width && s.height ? `${s.length}×${s.width}×${s.height}` : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-right text-xs text-[#3A4658]">{s.weight ? `${s.weight}` : '—'}</td>
-                  <td className={`px-4 py-2.5 text-right text-xs font-medium ${s.dim_weight > s.weight ? 'text-orange-400' : 'text-[#4B4F58]'}`}>
+                  <td className={`px-4 py-2.5 text-right text-xs font-medium ${s.dim_weight > s.weight ? 'text-amber-700' : 'text-[#4B4F58]'}`}>
                     {s.dim_weight ? `${s.dim_weight}` : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-right text-xs font-semibold text-[#1A73E8]">{s.billed_weight ? `${s.billed_weight}` : '—'}</td>
                   <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
-                  <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400'}`}
+                  <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-700'}`}
                       title={isPriced(s.client_rate) ? undefined : 'No rate-card rate covers this shipment'}>
                     {formatPrice(s.client_rate)}
                   </td>
@@ -262,7 +262,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                       dash with the same green as a real profit. */}
                   <td className={`px-4 py-2.5 text-right font-bold ${
                     !isPriced(s.profit_loss) ? 'text-[#6B7A8D]'
-                      : s.is_loss ? 'text-red-400' : 'text-green-400'
+                      : s.is_loss ? 'text-red-700' : 'text-emerald-700'
                   }`}>
                     {formatSignedPrice(s.profit_loss)}
                   </td>
@@ -279,12 +279,12 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                   <td colSpan={9} className="px-5 py-3 text-[#4B4F58] text-sm">
                     Total ({margin.reconciled} of {filtered.length} shipments)
                     {marginNote && (
-                      <span className="ml-2 text-amber-400 font-normal">⚠ {marginNote}</span>
+                      <span className="ml-2 text-amber-700 font-normal">⚠ {marginNote}</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">{fig(known.cost)}</td>
                   <td className="px-4 py-3 text-right">{fig(known.revenue)}</td>
-                  <td className={`px-4 py-3 text-right ${known.profit === null ? 'text-[#4B4F58]' : plPositive ? 'text-green-400' : 'text-red-400'}`}>
+                  <td className={`px-4 py-3 text-right ${known.profit === null ? 'text-[#4B4F58]' : plPositive ? 'text-emerald-700' : 'text-red-700'}`}>
                     {plFigure}
                   </td>
                 </tr>

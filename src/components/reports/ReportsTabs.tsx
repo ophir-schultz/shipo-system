@@ -15,6 +15,7 @@ import {
   REPORT_TABS, reportTabById, reportTypeForTab, tabRequiresClient,
 } from '@/lib/billing/report-types'
 import { reportHeading } from '@/lib/billing/report-heading'
+import ShipoMark from '@/components/ui/ShipoMark'
 
 // `client_rate`, the profit derived from it, and `warehouse_daily_log.total`
 // are all nullable: recalculate.ts and the daily-log route write null when they
@@ -266,18 +267,10 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
       */}
       <div className="print-only print-brand-rule"
         style={{ marginBottom: '14px', paddingBottom: '10px' }}>
-        {/*
-          A plain <img>, not next/image. next/image lazy-loads and rewrites
-          the src through the optimiser; at print time a logo that has not
-          finished loading is a blank space at the top of a client-facing
-          document, and the optimiser adds nothing for a 600-byte SVG.
-
-          shipo-logo-print.svg, not shipo-logo.svg: the original is WHITE
-          lettering drawn for the sidebar's blue panel, so on paper it
-          renders as nothing.
-        */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/shipo-logo-print.svg" alt="Shipo" className="print-brand-mark" />
+        {/* The lockup, shared with the login screen so the two cannot
+            drift. ShipoMark carries the real wordmark on its navy field --
+            the bare mark is white and would vanish on paper. */}
+        <ShipoMark width={170} className="print-brand-mark" />
         <h1 className="print-brand-title"
           style={{ fontSize: '16pt', fontWeight: 700, marginTop: '6px' }}>
           {printHeading.title}
@@ -599,7 +592,7 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
               : `${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}`,
             // `t.profit === null` first: `null >= 0` is TRUE in JS, so testing
             // the sign before the null would paint an UNKNOWN margin green.
-            t.profit === null ? 'text-[#4B4F58]' : t.profit >= 0 ? 'text-green-400' : 'text-red-400',
+            t.profit === null ? 'text-[#4B4F58]' : t.profit >= 0 ? 'text-emerald-700' : 'text-red-700',
           ],
           ['Margin', marginPctText(totals), 'text-[#0B1220]'],
         ] as Array<[string, string, string]>).map(([l, v, cls]) => (
@@ -618,13 +611,13 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
         three different shortfalls.
       */}
       {totalNote && (
-        <p className="px-5 py-2 text-[11px] text-amber-400 border-b border-[#E2E8F0]">⚠ {totalNote}</p>
+        <p className="px-5 py-2 text-[11px] text-amber-700 border-b border-[#E2E8F0]">⚠ {totalNote}</p>
       )}
       {omissionNote(period) && (
-        <p className="px-5 py-2 text-[11px] text-amber-400 border-b border-[#E2E8F0]">⚠ {omissionNote(period)}</p>
+        <p className="px-5 py-2 text-[11px] text-amber-700 border-b border-[#E2E8F0]">⚠ {omissionNote(period)}</p>
       )}
       {totals.stale > 0 && (
-        <p className="px-5 py-2 text-[11px] text-amber-400 border-b border-[#E2E8F0]">
+        <p className="px-5 py-2 text-[11px] text-amber-700 border-b border-[#E2E8F0]">
           ⚠ {totals.stale} of {totals.reconciled} reconciled shipments have a stored
           profit_loss that disagrees with charged minus paid. The figures above are
           derived by subtraction and do not use that column; the disagreement means
@@ -651,7 +644,7 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
               return (
                 <tr key={line.key} className={line.unattributed ? 'bg-[#F1F5FB]/40' : ''}>
                   <td className="px-4 py-2 text-[#0B1220]">
-                    {line.unattributed ? <span className="text-amber-400">⚠ {line.label}</span> : line.label}
+                    {line.unattributed ? <span className="text-amber-700">⚠ {line.label}</span> : line.label}
                   </td>
                   {/*
                     reconciled OF counted, not just one of them. "40" alone
@@ -671,14 +664,14 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
                     {v.cost === null ? UNPRICED_DASH : `$${v.cost.toFixed(2)}`}
                   </td>
                   <td className={`px-4 py-2 text-right font-semibold ${
-                    v.profit === null ? 'text-[#4B4F58]' : v.profit >= 0 ? 'text-green-400' : 'text-red-400'
+                    v.profit === null ? 'text-[#4B4F58]' : v.profit >= 0 ? 'text-emerald-700' : 'text-red-700'
                   }`}>
                     {v.profit === null
                       ? UNPRICED_DASH
                       : `${v.profit >= 0 ? '+' : ''}$${v.profit.toFixed(2)}`}
                   </td>
                   <td className="px-4 py-2 text-right text-[#3A4658]">{marginPctText(line.r)}</td>
-                  <td className="px-4 py-2 text-[11px] text-amber-400">{exclusionNote(line.r)}</td>
+                  <td className="px-4 py-2 text-[11px] text-amber-700">{exclusionNote(line.r)}</td>
                 </tr>
               )
             })}
@@ -698,7 +691,7 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
                 {t.cost === null ? UNPRICED_DASH : `$${t.cost.toFixed(2)}`}
               </td>
               <td className={`px-4 py-2 text-right ${
-                t.profit === null ? 'text-[#4B4F58]' : t.profit >= 0 ? 'text-green-400' : 'text-red-400'
+                t.profit === null ? 'text-[#4B4F58]' : t.profit >= 0 ? 'text-emerald-700' : 'text-red-700'
               }`}>
                 {t.profit === null
                   ? UNPRICED_DASH
@@ -899,7 +892,7 @@ function StatementPanel({ clients, clientId, dateFrom, dateTo }: {
       </div>
 
       {stale && (
-        <div className="px-5 py-3 bg-amber-500/10 text-amber-300 text-sm">
+        <div className="px-5 py-3 bg-amber-500/10 text-amber-700 text-sm">
           The client or period changed. These figures are for{' '}
           <span className="font-mono">{state.data.client.name ?? state.data.client.id}</span>,{' '}
           <span className="font-mono">{state.data.period}</span>. Rebuild to see
@@ -921,7 +914,7 @@ function StatementPanel({ clients, clientId, dateFrom, dateTo }: {
         // 'Could not load' here would discard the only part an operator can act
         // on, and a generic message beside a blank table reads as "no charges".
         <div className="px-5 py-6">
-          <div className="text-red-400 font-semibold text-sm mb-1">
+          <div className="text-red-700 font-semibold text-sm mb-1">
             No figures were shown
           </div>
           <p className="text-[#3A4658] text-sm">{state.message}</p>
@@ -978,7 +971,7 @@ function StatementLines({ data }: { data: StatementDTO }) {
                 <td className="px-4 py-2 text-right text-[#0B1220]">
                   {line.amount === null ? UNPRICED_DASH : `$${line.amount.toFixed(2)}`}
                 </td>
-                <td className="px-4 py-2 text-[11px] text-amber-400">
+                <td className="px-4 py-2 text-[11px] text-amber-700">
                   {lineCaveat(line)}
                 </td>
               </tr>
@@ -990,7 +983,7 @@ function StatementLines({ data }: { data: StatementDTO }) {
               <td className="px-4 py-3 text-right text-[#0B1220]">
                 {data.total === null ? UNPRICED_DASH : `$${data.total.toFixed(2)}`}
               </td>
-              <td className="px-4 py-3 text-[11px] text-amber-400">
+              <td className="px-4 py-3 text-[11px] text-amber-700">
                 {data.unpriced > 0
                   ? `${data.unpriced} of ${data.counted} charges not yet priced`
                   : ''}
@@ -1033,7 +1026,7 @@ function StatementNotes({ notes }: { notes: string[] }) {
   return (
     <div className="px-5 py-3 space-y-1">
       {notes.map(note => (
-        <p key={note} className="text-[11px] text-amber-400">{note}</p>
+        <p key={note} className="text-[11px] text-amber-700">{note}</p>
       ))}
     </div>
   )
@@ -1081,8 +1074,8 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
         {stats.map(([l, v, note]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-[#4B4F58]">{l}</p>
-            <p className={`font-bold text-lg ${l === 'Net P/L' ? (known.profit === null ? 'text-[#4B4F58]' : plPositive ? 'text-green-400' : 'text-red-400') : 'text-[#0B1220]'}`}>{v}</p>
-            {note && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {note}</p>}
+            <p className={`font-bold text-lg ${l === 'Net P/L' ? (known.profit === null ? 'text-[#4B4F58]' : plPositive ? 'text-emerald-700' : 'text-red-700') : 'text-[#0B1220]'}`}>{v}</p>
+            {note && <p className="text-[11px] text-amber-700 mt-0.5">⚠ {note}</p>}
           </div>
         ))}
       </div>
@@ -1102,20 +1095,20 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
           </thead>
           <tbody>
             {filtered.length === 0 ? <tr><td colSpan={8}><Empty msg="No shipments in this range" /></td></tr> : filtered.map(s => (
-              <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
+              <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                 <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? <span className="text-[#6B7A8D]">—</span>}</td>
                 <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-[#6B7A8D]">{s.tracking_number ?? '—'}</td>
                 <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
-                <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400'}`}
+                <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-700'}`}
                     title={isPriced(s.client_rate) ? undefined : 'No rate-card rate covers this shipment'}>
                   {formatPrice(s.client_rate)}
                 </td>
                 <td className={`px-4 py-2.5 text-right font-semibold ${
                   !isPriced(s.profit_loss) ? 'text-[#6B7A8D]'
-                    : s.is_loss ? 'text-red-400' : 'text-green-400'
+                    : s.is_loss ? 'text-red-700' : 'text-emerald-700'
                 }`}>
                   {formatSignedPrice(s.profit_loss)}
                 </td>
@@ -1141,16 +1134,16 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
   const note = unpricedNote(plSum.unpriced)
   return (
     <>
-      <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]" style={{ background: '#1a0a0a' }}>
+      <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]" style={{ background: '#FEF2F2' }}>
         {([
           ['Loss Shipments', filtered.length, omissionNote(period)],
           ['Total Lost', `-$${total.toFixed(2)}`, note],
           ['Avg Loss', priced ? `-$${(total / priced).toFixed(2)}` : '$0.00', note],
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
           <div key={l} className="px-5 py-3">
-            <p className="text-xs text-red-400/70">{l}</p>
-            <p className="font-bold text-lg text-red-400">{v}</p>
-            {n && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {n}</p>}
+            <p className="text-xs text-red-700">{l}</p>
+            <p className="font-bold text-lg text-red-700">{v}</p>
+            {n && <p className="text-[11px] text-amber-700 mt-0.5">⚠ {n}</p>}
           </div>
         ))}
       </div>
@@ -1169,16 +1162,16 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
           </thead>
           <tbody>
             {filtered.length === 0 ? <tr><td colSpan={7}><Empty msg="✓ No loss shipments in this range" /></td></tr> : filtered.map(s => (
-              <tr key={s.id ?? s.order_number} className="border-b border-[#E2E8F0]/40 hover:bg-red-950/20">
+              <tr key={s.id ?? s.order_number} className="border-b border-[#E2E8F0]/40 hover:bg-red-50">
                 <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
-                <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400'}`}>
+                <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-700'}`}>
                   {formatPrice(s.client_rate)}
                 </td>
-                <td className={`px-4 py-2.5 text-right font-bold ${isPriced(s.profit_loss) ? 'text-red-400' : 'text-[#6B7A8D]'}`}>
+                <td className={`px-4 py-2.5 text-right font-bold ${isPriced(s.profit_loss) ? 'text-red-700' : 'text-[#6B7A8D]'}`}>
                   {isPriced(s.profit_loss) ? `-${formatPrice(Math.abs(Number(s.profit_loss)))}` : formatPrice(null)}
                 </td>
               </tr>
@@ -1201,8 +1194,8 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<Repor
   // falls to it now. Narrowing instead would mean a non-null assertion, which
   // is a claim about the column nobody here has checked.
   const statusBadge = (s: string | null) => s === 'pending'
-    ? 'bg-orange-900/60 text-orange-300'
-    : s === 'charged' ? 'bg-green-900/60 text-green-300' : 'bg-[#EEF3FA] text-[#4B4F58]'
+    ? 'bg-amber-50 text-amber-700'
+    : s === 'charged' ? 'bg-emerald-50 text-emerald-700' : 'bg-[#EEF3FA] text-[#4B4F58]'
 
   return (
     <>
@@ -1214,8 +1207,8 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<Repor
         ] as Array<[string, string | number, string]>).map(([l, v, n]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-[#4B4F58]">{l}</p>
-            <p className={`font-bold text-lg ${l === 'To Recover' ? 'text-orange-400' : 'text-[#0B1220]'}`}>{v}</p>
-            {n && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {n}</p>}
+            <p className={`font-bold text-lg ${l === 'To Recover' ? 'text-amber-700' : 'text-[#0B1220]'}`}>{v}</p>
+            {n && <p className="text-[11px] text-amber-700 mt-0.5">⚠ {n}</p>}
           </div>
         ))}
       </div>
@@ -1242,7 +1235,7 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<Repor
                 <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(a.original_cost)}</td>
                 <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(a.adjusted_cost)}</td>
-                <td className="px-4 py-2.5 text-right font-bold text-orange-400">{formatSignedPrice(a.adjustment_amount)}</td>
+                <td className="px-4 py-2.5 text-right font-bold text-amber-700">{formatSignedPrice(a.adjustment_amount)}</td>
                 <td className="px-4 py-2.5 text-center">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge(a.status)}`}>{a.status}</span>
                 </td>
@@ -1260,7 +1253,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBil
   const filtered = period.rows
   const billedSum = sumPriced(filtered, 'grand_total')
   // Nullable for the same reason as the one in AdjustmentsTable above.
-  const statusBadge = (s: string | null) => s === 'paid' ? 'bg-green-900/60 text-green-300' : s === 'sent' ? 'bg-[#1A73E8]/10 text-[#1A73E8]' : 'bg-[#EEF3FA] text-[#4B4F58]'
+  const statusBadge = (s: string | null) => s === 'paid' ? 'bg-emerald-50 text-emerald-700' : s === 'sent' ? 'bg-[#1A73E8]/10 text-[#1A73E8]' : 'bg-[#EEF3FA] text-[#4B4F58]'
 
   return (
     <>
@@ -1273,7 +1266,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBil
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-[#4B4F58]">{l}</p>
             <p className="font-bold text-lg text-[#0B1220]">{v}</p>
-            {n && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {n}</p>}
+            {n && <p className="text-[11px] text-amber-700 mt-0.5">⚠ {n}</p>}
           </div>
         ))}
       </div>
@@ -1337,7 +1330,7 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportW
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-[#4B4F58]">{l}</p>
             <p className="font-bold text-lg text-[#0B1220]">{v}</p>
-            {n && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {n}</p>}
+            {n && <p className="text-[11px] text-amber-700 mt-0.5">⚠ {n}</p>}
           </div>
         ))}
       </div>
@@ -1362,7 +1355,7 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportW
                 <td className="px-4 py-2.5 text-[#3A4658] capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                 <td className="px-4 py-2.5 text-right">{w.quantity}</td>
                 <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(w.rate)}</td>
-                <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-green-400' : 'text-amber-400'}`}
+                <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-emerald-700' : 'text-amber-700'}`}
                     title={isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day'}>
                   {formatPrice(w.total)}
                 </td>

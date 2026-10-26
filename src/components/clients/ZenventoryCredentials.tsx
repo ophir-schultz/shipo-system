@@ -80,7 +80,7 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
       </div>
 
       {tested !== null && (
-        <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${tested.ok ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
+        <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${tested.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
           <p>{tested.ok ? '✓' : '✗'} {tested.title}</p>
           {/* The server's own words, kept in the banner rather than a toast
               that vanishes. `break-all` because the body is JSON from

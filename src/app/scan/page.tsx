@@ -147,13 +147,13 @@ export default function ScanPage() {
         <h2 className="text-2xl font-bold text-[#0B1220]">Serialization Scan</h2>
       </div>
       <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-5">
-        <p className="text-red-300 text-sm font-semibold">
+        <p className="text-red-700 text-sm font-semibold">
           Could not load the client list
         </p>
-        <p className="text-red-200/70 text-xs mt-1">
+        <p className="text-red-700 text-xs mt-1">
           {loadError}
         </p>
-        <p className="text-red-200/70 text-xs mt-2">
+        <p className="text-red-700 text-xs mt-2">
           This is a read failure, not a sign that there are no clients set up.
           Nothing already recorded has been lost or changed. A scan cannot be
           saved without a client, so do not work through the cartons on this
@@ -270,7 +270,7 @@ export default function ScanPage() {
               to push it — so say that here rather than letting it look
               queued. */}
           {orderRef.trim() && !sku.trim() && (
-            <p className="text-xs text-amber-400">
+            <p className="text-xs text-amber-700">
               No SKU — this scan will be billed and stored, but not queued for
               Zenventory. The serials go onto a specific order line, so the line
               has to be named.
@@ -338,14 +338,14 @@ export default function ScanPage() {
 
           {/* The three states worth interrupting for. */}
           {dupes.length > 0 && (
-            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+            <p className="text-sm text-red-700 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
               The same serial appears twice: {dupes.join(', ')}. That is a double-read or a
               bad split — clear the field and scan again.
             </p>
           )}
 
           {serials.length > 0 && result.method === 'single' && (
-            <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+            <p className="text-sm text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
               Only ONE value came out of that scan. No separator was found, so this is
               either a single serial or a box label in a format this tool does not
               recognise yet. Do not assume it is a whole box.
@@ -353,14 +353,14 @@ export default function ScanPage() {
           )}
 
           {result.guess && (
-            <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+            <p className="text-sm text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
               Split by fixed width — a GUESS, not a detected separator. Check a few serials
               by eye before submitting.
             </p>
           )}
 
           {short && (
-            <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+            <p className="text-sm text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
               Short box: {serials.length} of {expected} expected. It still bills as one box —
               the shortfall is recorded for review, not repriced.
             </p>
@@ -376,7 +376,7 @@ export default function ScanPage() {
           </ul>
 
           {error && (
-            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+            <p className="text-sm text-red-700 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
               {error}
             </p>
           )}
@@ -391,7 +391,7 @@ export default function ScanPage() {
           </button>
 
           {last && (
-            <div className="text-sm text-green-300 bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2">
+            <div className="text-sm text-emerald-700 bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2">
               Recorded {last.serial_count} serial{last.serial_count === 1 ? '' : 's'} —
               billed ${Number(last.total).toFixed(2)} ({last.service_type}).{' '}
               {last.queued

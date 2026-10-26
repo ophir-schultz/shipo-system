@@ -91,15 +91,15 @@ function Summary({ data }: { data: LoadedData<Awaited<ReturnType<typeof getAdjus
     <>
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="rounded-xl p-4 border border-orange-800/60" style={{ background: '#1a1000' }}>
-          <p className="text-orange-400/70 text-xs uppercase tracking-wider">Pending</p>
-          <p className="text-2xl font-bold text-orange-400 mt-1">{pending.length}</p>
-          <p className="text-orange-400/60 text-xs mt-1">+${pendingTotal.toFixed(2)} to recover</p>
+        <div className="rounded-xl p-4 border border-amber-200" style={{ background: '#FFFBEB' }}>
+          <p className="text-amber-700 text-xs uppercase tracking-wider">Pending</p>
+          <p className="text-2xl font-bold text-amber-700 mt-1">{pending.length}</p>
+          <p className="text-amber-700 text-xs mt-1">+${pendingTotal.toFixed(2)} to recover</p>
         </div>
-        <div className="rounded-xl p-4 border border-green-800/40 bg-green-950/30">
-          <p className="text-green-400/70 text-xs uppercase tracking-wider">Approved</p>
-          <p className="text-2xl font-bold text-green-400 mt-1">{resolved.filter((r: any) => r.status === 'approved').length}</p>
-          <p className="text-green-400/60 text-xs mt-1">Approved, not yet billed</p>
+        <div className="rounded-xl p-4 border border-emerald-200 bg-emerald-50">
+          <p className="text-emerald-700 text-xs uppercase tracking-wider">Approved</p>
+          <p className="text-2xl font-bold text-emerald-700 mt-1">{resolved.filter((r: any) => r.status === 'approved').length}</p>
+          <p className="text-emerald-700 text-xs mt-1">Approved, not yet billed</p>
         </div>
         <div className="rounded-xl p-4 border border-[#1A73E8]/20 bg-[#1A73E8]/5">
           <p className="text-[#1A73E8]/70 text-xs uppercase tracking-wider">Billed</p>

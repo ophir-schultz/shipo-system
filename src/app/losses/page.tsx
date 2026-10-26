@@ -229,11 +229,11 @@ export default async function LossesPage() {
           the thing being investigated. A shipment with no agreed rate may well
           be the worst loss in the business; nothing here can tell yet. */}
       {d.unpricedShipments > 0 && (
-        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-3">
-          <p className="text-amber-300 text-sm font-semibold">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3">
+          <p className="text-amber-700 text-sm font-semibold">
             ⚠ {d.unpricedShipments} shipment{d.unpricedShipments === 1 ? '' : 's'} have no agreed rate
           </p>
-          <p className="text-amber-200/70 text-xs mt-1">
+          <p className="text-amber-700 text-xs mt-1">
             They are excluded from the revenue, cost, profit and margin figures below, and
             they are not in the loss table — a shipment whose price is unknown cannot be
             shown to be a loss. They are not $0, and this is the urgent bucket: we paid a
@@ -249,11 +249,11 @@ export default async function LossesPage() {
           someone to fix a rate card for a shipment whose rate is already fine
           sends them to the wrong screen. */}
       {d.uncostedShipments > 0 && (
-        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-3">
-          <p className="text-amber-300 text-sm font-semibold">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3">
+          <p className="text-amber-700 text-sm font-semibold">
             ⚠ {d.uncostedShipments} shipment{d.uncostedShipments === 1 ? '' : 's'} have no carrier cost
           </p>
-          <p className="text-amber-200/70 text-xs mt-1">
+          <p className="text-amber-700 text-xs mt-1">
             They are excluded from the revenue, cost and profit figures below — all three,
             because those figures are now summed over one set of rows so that they subtract.
             A shipment whose cost is unknown has no knowable margin, so its revenue is held
@@ -270,11 +270,11 @@ export default async function LossesPage() {
           known" is usually a sync that half-landed, which is a different job
           again from writing a rate card or chasing a carrier invoice. */}
       {d.unmeasuredShipments > 0 && (
-        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-3">
-          <p className="text-amber-300 text-sm font-semibold">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3">
+          <p className="text-amber-700 text-sm font-semibold">
             ⚠ {d.unmeasuredShipments} shipment{d.unmeasuredShipments === 1 ? '' : 's'} have neither a rate nor a cost
           </p>
-          <p className="text-amber-200/70 text-xs mt-1">
+          <p className="text-amber-700 text-xs mt-1">
             Nothing is known about the money on these, so they are in none of the figures
             below. That is usually a sync that half-landed rather than a pricing gap — run
             the sync again, and if they persist they are worth reporting.
@@ -290,11 +290,11 @@ export default async function LossesPage() {
           describe a shipment differently from the cards. Recalculate rewrites
           the column from the current rate card, which is the fix. */}
       {d.staleProfits > 0 && (
-        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-3">
-          <p className="text-amber-300 text-sm font-semibold">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3">
+          <p className="text-amber-700 text-sm font-semibold">
             ⚠ {d.staleProfits} shipment{d.staleProfits === 1 ? '' : 's'} have a stored profit that no longer matches
           </p>
-          <p className="text-amber-200/70 text-xs mt-1">
+          <p className="text-amber-700 text-xs mt-1">
             Their saved profit figure disagrees with charged minus paid by a cent or more,
             so the rate or the cost changed after it was written. The totals above are
             unaffected — they subtract rather than read that column — but the Loss column in
@@ -311,11 +311,11 @@ export default async function LossesPage() {
           understated by an unknown amount -- which is precisely the failure the
           five `Math.abs(x ?? 0)` accumulators were silently absorbing. */}
       {d.unmeasuredLosses > 0 && (
-        <div className="rounded-xl border border-red-700/60 bg-red-950/30 px-5 py-3">
-          <p className="text-red-300 text-sm font-semibold">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-3">
+          <p className="text-red-700 text-sm font-semibold">
             ⚠ {d.unmeasuredLosses} loss shipment{d.unmeasuredLosses === 1 ? '' : 's'} have an unreadable loss amount
           </p>
-          <p className="text-red-200/70 text-xs mt-1">
+          <p className="text-red-700 text-xs mt-1">
             They are flagged as losses, but their profit figure will not read as a number,
             so every total and breakdown on this page is understating the loss by an unknown
             amount. They are not $0. This should not be reachable — worth reporting.
@@ -371,7 +371,7 @@ export default async function LossesPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-[#3A4658] truncate">{c.name}</span>
-                      <span className="text-red-400 font-medium ml-2 shrink-0">-${c.lossAmt.toFixed(2)}</span>
+                      <span className="text-red-700 font-medium ml-2 shrink-0">-${c.lossAmt.toFixed(2)}</span>
                     </div>
                     <div className="h-1.5 bg-[#EEF3FA] rounded-full overflow-hidden">
                       <div
@@ -398,7 +398,7 @@ export default async function LossesPage() {
                   <div className="flex-1">
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-[#3A4658]">{zone}</span>
-                      <span className="text-red-400 font-medium">-${v.lossAmt.toFixed(2)}</span>
+                      <span className="text-red-700 font-medium">-${v.lossAmt.toFixed(2)}</span>
                     </div>
                     <div className="h-1.5 bg-[#EEF3FA] rounded-full overflow-hidden">
                       <div
@@ -425,7 +425,7 @@ export default async function LossesPage() {
                   <div className="flex-1">
                     <div className="flex justify-between text-sm mb-1">
                       <span className="text-[#3A4658]">{bracket}</span>
-                      <span className="text-red-400 font-medium">-${v.lossAmt.toFixed(2)}</span>
+                      <span className="text-red-700 font-medium">-${v.lossAmt.toFixed(2)}</span>
                     </div>
                     <div className="h-1.5 bg-[#EEF3FA] rounded-full overflow-hidden">
                       <div
@@ -462,7 +462,7 @@ export default async function LossesPage() {
                 <tr key={svc} className="border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30">
                   <td className="py-2.5 text-gray-200">{svc}</td>
                   <td className="py-2.5 text-right text-[#4B4F58]">{v.count}</td>
-                  <td className="py-2.5 text-right text-red-400 font-medium">-${v.lossAmt.toFixed(2)}</td>
+                  <td className="py-2.5 text-right text-red-700 font-medium">-${v.lossAmt.toFixed(2)}</td>
                   <td className="py-2.5 text-right text-[#4B4F58]">-${(v.lossAmt / v.count).toFixed(2)}</td>
                   <td className="py-2.5 pl-4">
                     <div className="h-2 bg-[#EEF3FA] rounded-full overflow-hidden">
@@ -488,7 +488,7 @@ export default async function LossesPage() {
         {d.losses.length === 0
           ? (
             <div className="text-center py-12">
-              <p className="text-green-400 text-lg font-medium">✓ No loss shipments found</p>
+              <p className="text-emerald-700 text-lg font-medium">✓ No loss shipments found</p>
               <p className="text-[#6B7A8D] text-sm mt-2">Either there are no losses, or rates haven&apos;t been calculated yet.</p>
               <p className="text-[#6B7A8D] text-xs mt-1">Try: Dashboard → Recalculate Weights after uploading rate cards.</p>
             </div>
@@ -512,7 +512,7 @@ export default async function LossesPage() {
                 </thead>
                 <tbody>
                   {d.losses.map((s: any) => (
-                    <tr key={s.id} className="border-b border-[#E2E8F0]/30 hover:bg-red-950/20">
+                    <tr key={s.id} className="border-b border-[#E2E8F0]/30 hover:bg-red-50">
                       <td className="py-2 pr-3 text-[#4B4F58]">{s.ship_date?.split('T')[0] ?? '—'}</td>
                       <td className="py-2 pr-3 font-mono text-[#3A4658]">{s.order_number}</td>
                       <td className="py-2 pr-3 text-[#3A4658]">{(s.clients as any)?.name ?? <span className="text-[#6B7A8D] italic">unassigned</span>}</td>
@@ -529,13 +529,13 @@ export default async function LossesPage() {
                       <td className="py-2 pr-3 text-right text-[#4B4F58]">{s.recipient_state ?? '—'}</td>
                       <td className="py-2 pr-3 text-right text-[#3A4658]">{formatPrice(s.actual_cost)}</td>
                       <td className="py-2 pr-3 text-right text-[#3A4658]">{formatPrice(s.client_rate)}</td>
-                      <td className="py-2 text-right font-bold text-red-400">{lossFigure(s.profit_loss)}</td>
+                      <td className="py-2 text-right font-bold text-red-700">{lossFigure(s.profit_loss)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-red-800/40">
-                    <td colSpan={7} className="pt-3 text-red-400 text-xs font-semibold">TOTAL LOSSES</td>
+                  <tr className="border-t border-red-200">
+                    <td colSpan={7} className="pt-3 text-red-700 text-xs font-semibold">TOTAL LOSSES</td>
                     {/* Every row in this table has is_loss = true, which can
                         only be set when both figures are known, so neither of
                         these totals can be withholding anything. sumPriced is
@@ -543,7 +543,7 @@ export default async function LossesPage() {
                         string coercion -- not because a null is expected. */}
                     <td className="pt-3 text-right text-[#3A4658] text-xs">${sumPriced(d.losses, 'actual_cost').total.toFixed(2)}</td>
                     <td className="pt-3 text-right text-[#3A4658] text-xs">${sumPriced(d.losses, 'client_rate').total.toFixed(2)}</td>
-                    <td className="pt-3 text-right font-bold text-red-400">-${d.totalLossAmt.toFixed(2)}</td>
+                    <td className="pt-3 text-right font-bold text-red-700">-${d.totalLossAmt.toFixed(2)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -557,8 +557,8 @@ export default async function LossesPage() {
 
 function StatCard({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   const colors: Record<string, string> = {
-    red: 'border-red-800/50 bg-red-950/40',
-    green: 'border-green-800/50 bg-green-950/40',
+    red: 'border-red-200 bg-red-50',
+    green: 'border-emerald-200 bg-emerald-50',
     blue: 'border-[#1A73E8]/20 bg-[#1A73E8]/5',
     // Deliberately not green and not red. A figure nobody could compute should
     // not borrow the styling of a good result or a bad one.

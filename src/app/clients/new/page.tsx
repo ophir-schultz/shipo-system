@@ -59,7 +59,7 @@ export default function NewClientPage() {
             placeholder="+1 (555) 000-0000"
           />
         </div>
-        {error && <p className="text-red-400 text-sm">{error}</p>}
+        {error && <p className="text-red-700 text-sm">{error}</p>}
         <div className="flex gap-3 pt-2">
           <button
             type="button"

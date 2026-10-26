@@ -182,10 +182,10 @@ export default function WarehousePage() {
 
       {unpriced.length > 0 && (
         <div className="w-full bg-amber-500/10 border border-amber-500/40 rounded-xl p-5 mb-6 text-left">
-          <p className="text-amber-300 text-sm font-semibold mb-1">
+          <p className="text-amber-700 text-sm font-semibold mb-1">
             {unpriced.length} line{unpriced.length === 1 ? '' : 's'} saved with no rate
           </p>
-          <p className="text-amber-200/70 text-xs mb-3">
+          <p className="text-amber-700 text-xs mb-3">
             The work is recorded, but these lines have no total and will not appear
             in any revenue figure until they are priced. They are not $0.
           </p>
@@ -228,13 +228,13 @@ export default function WarehousePage() {
     <div className="max-w-2xl">
       <h2 className="text-2xl font-bold text-[#0B1220] mb-4">Daily Warehouse Log</h2>
       <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-5">
-        <p className="text-red-300 text-sm font-semibold">
+        <p className="text-red-700 text-sm font-semibold">
           Could not load the clients and their rates
         </p>
-        <p className="text-red-200/70 text-xs mt-1">
+        <p className="text-red-700 text-xs mt-1">
           {loadError}
         </p>
-        <p className="text-red-200/70 text-xs mt-2">
+        <p className="text-red-700 text-xs mt-2">
           This is a read failure, not an empty day and not a list of clients
           with no rates. Nothing already submitted for {today} has been lost.
           Reload; if it keeps failing, the log needs to be taken on paper and
@@ -341,10 +341,10 @@ export default function WarehousePage() {
                 different places, so they are not collapsed into one message. */}
             {currentNotice && (
               <div className="px-5 py-4 bg-amber-500/10 border-b border-amber-500/40">
-                <p className="text-amber-300 text-sm font-semibold mb-1">
+                <p className="text-amber-700 text-sm font-semibold mb-1">
                   {currentNotice.title}
                 </p>
-                <p className="text-amber-200/70 text-xs">{currentNotice.body}</p>
+                <p className="text-amber-700 text-xs">{currentNotice.body}</p>
               </div>
             )}
 
@@ -471,12 +471,12 @@ export default function WarehousePage() {
             the only remedy is an edit. */}
         {currentOverlap && (
           <div className="bg-amber-500/10 border border-amber-500/40 rounded-xl px-5 py-3">
-            <p className="text-amber-300 text-xs font-semibold mb-1">Check this before submitting</p>
-            <p className="text-amber-200/70 text-xs">{currentOverlap}</p>
+            <p className="text-amber-700 text-xs font-semibold mb-1">Check this before submitting</p>
+            <p className="text-amber-700 text-xs">{currentOverlap}</p>
           </div>
         )}
 
-        {error && <p className="text-red-400 text-sm">{error}</p>}
+        {error && <p className="text-red-700 text-sm">{error}</p>}
 
         <div className="pt-2 pb-6">
           {/*
@@ -530,8 +530,8 @@ function TodayLog({ date }: { date: string }) {
 
   if (loadError) return (
     <div className="mt-4 bg-red-500/10 border border-red-500/40 rounded-xl p-5">
-      <p className="text-red-300 text-sm font-semibold">Could not load today's entries</p>
-      <p className="text-red-200/70 text-xs mt-1">
+      <p className="text-red-700 text-sm font-semibold">Could not load today's entries</p>
+      <p className="text-red-700 text-xs mt-1">
         {loadError} — this is a read failure, not an empty day. Anything already
         submitted for {date} is still saved; do not re-enter it on the strength
         of this panel being blank.
@@ -577,7 +577,7 @@ function TodayLog({ date }: { date: string }) {
                     <td className="py-1.5">{e.quantity}</td>
                     <td className="py-1.5 text-[#6B7A8D] text-xs">{e.notes ?? '—'}</td>
                     <td className="py-1.5 text-right text-[#4B4F58]">{money(e.rate)}</td>
-                    <td className={`py-1.5 text-right font-semibold ${e.total === null || e.total === undefined ? 'text-amber-400' : 'text-green-400'}`}>
+                    <td className={`py-1.5 text-right font-semibold ${e.total === null || e.total === undefined ? 'text-amber-700' : 'text-emerald-700'}`}>
                       {e.total === null || e.total === undefined ? 'unpriced' : money(e.total)}
                     </td>
                   </tr>
@@ -588,7 +588,7 @@ function TodayLog({ date }: { date: string }) {
                   <td colSpan={4} className="pt-2 text-[#6B7A8D] text-xs">
                     Subtotal
                     {clientEntries.some((e: any) => e.total === null || e.total === undefined) && (
-                      <span className="text-amber-400"> (excludes unpriced lines)</span>
+                      <span className="text-amber-700"> (excludes unpriced lines)</span>
                     )}
                   </td>
                   <td className="pt-2 text-right font-bold text-[#0B1220] text-sm">
@@ -605,7 +605,7 @@ function TodayLog({ date }: { date: string }) {
         <div className="text-right">
           <span className="text-[#0B1220] font-bold">${entries.reduce((s, e) => s + (e.total ?? 0), 0).toFixed(2)}</span>
           {unpricedCount > 0 && (
-            <p className="text-amber-400 text-xs mt-0.5">
+            <p className="text-amber-700 text-xs mt-0.5">
               excludes {unpricedCount} unpriced line{unpricedCount === 1 ? '' : 's'}
             </p>
           )}

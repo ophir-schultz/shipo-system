@@ -90,17 +90,17 @@ export default function SyncButton() {
     </div>
 
     {recalc && hasRecalcGaps(recalc) && (
-      <div className="border border-amber-700/60 bg-amber-950/40 rounded-lg p-4 text-sm">
+      <div className="border border-amber-200 bg-amber-50 rounded-lg p-4 text-sm">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="font-semibold text-amber-200">
+            <p className="font-semibold text-amber-700">
               Shipments this run could not price
             </p>
-            <p className="text-amber-300/80 text-xs mt-0.5">{recalcSummary(recalc)}</p>
+            <p className="text-amber-700 text-xs mt-0.5">{recalcSummary(recalc)}</p>
           </div>
           <button
             onClick={() => setRecalc(null)}
-            className="text-amber-300/70 hover:text-amber-200 text-xs shrink-0"
+            className="text-amber-700 hover:text-amber-700 text-xs shrink-0"
           >
             Dismiss
           </button>
@@ -111,7 +111,7 @@ export default function SyncButton() {
             rows still hold their OLD price and the screen below is stale for
             them. Re-run before trusting any figure. */}
         {typeof recalc.failed === 'number' && recalc.failed > 0 && (
-          <p className="mt-3 text-red-300 text-xs">
+          <p className="mt-3 text-red-700 text-xs">
             ⚠ {recalc.failed} row{recalc.failed === 1 ? '' : 's'} failed to save — those
             shipments still hold their previous price. Re-run before billing.
           </p>
@@ -120,7 +120,7 @@ export default function SyncButton() {
         {recalcGaps(recalc).length > 0 && (
           <table className="mt-3 w-full text-xs">
             <thead>
-              <tr className="text-amber-300/60 text-left">
+              <tr className="text-amber-700 text-left">
                 <th className="font-normal pb-1">What was missing</th>
                 <th className="font-normal pb-1 text-right w-20">Shipments</th>
                 <th className="font-normal pb-1 text-right w-28">Example order</th>
@@ -128,9 +128,9 @@ export default function SyncButton() {
             </thead>
             <tbody>
               {recalcGaps(recalc).map(g => (
-                <tr key={g.reason} className="border-t border-amber-800/30">
+                <tr key={g.reason} className="border-t border-amber-200">
                   <td className="py-1 pr-3 text-gray-200">{g.reason}</td>
-                  <td className="py-1 text-right text-amber-200 font-medium tabular-nums">{g.count}</td>
+                  <td className="py-1 text-right text-amber-700 font-medium tabular-nums">{g.count}</td>
                   <td className="py-1 text-right text-[#4B4F58] font-mono">{g.example}</td>
                 </tr>
               ))}
@@ -138,7 +138,7 @@ export default function SyncButton() {
           </table>
         )}
 
-        <p className="mt-3 text-amber-300/60 text-xs">
+        <p className="mt-3 text-amber-700 text-xs">
           Each line is a rate the system has no price for. Open the example order to see
           the carrier, service and billed weight that found no band, then add that band to
           the client&apos;s rate card and run this again.

@@ -146,7 +146,7 @@ export default function ZoneChartUpload({ clientId, originZip }: Props) {
         </div>
       </div>
 
-      {error && <p className="text-red-400 text-xs mb-2">{error}</p>}
+      {error && <p className="text-red-700 text-xs mb-2">{error}</p>}
 
       {entries.length > 0 && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
@@ -184,7 +184,7 @@ export default function ZoneChartUpload({ clientId, originZip }: Props) {
               </table>
             </div>
 
-            {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+            {error && <p className="text-red-700 text-sm mb-3">{error}</p>}
             <div className="flex gap-3">
               <button
                 onClick={() => { setEntries([]); if (fileRef.current) fileRef.current.value = '' }}

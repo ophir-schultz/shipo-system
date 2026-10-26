@@ -112,7 +112,7 @@ function Badge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     written: '#2a4a7f',
     published: '#1a5c3a',
-    queued: '#3a3a2a',
+    queued: '#FDE68A',
     sent: '#1a5c3a',
   }
   const textColors: Record<string, string> = {
@@ -247,7 +247,7 @@ export default function MarketingDashboard() {
               </div>
             ))}
 
-            <div style={{ marginTop: 16, padding: '12px 16px', background: '#0a1020', borderRadius: 10, border: '1px dashed #2a3a5c' }}>
+            <div style={{ marginTop: 16, padding: '12px 16px', background: '#F8FAFC', borderRadius: 10, border: '1px dashed #2a3a5c' }}>
               <div style={{ fontSize: 12, color: '#8899bb', marginBottom: 4 }}>⏰ Schedule</div>
               <div style={{ fontSize: 13, color: '#ccd6ee' }}>{data.schedule.linkedinDaily} — auto-email to ophir@shipousa.com</div>
             </div>
@@ -272,7 +272,7 @@ export default function MarketingDashboard() {
             </div>
 
             {data.blog.postsPublished === 0 && (
-              <div style={{ background: '#2a1a0a', border: '1px solid #ffaa4444', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#ffaa44' }}>
+              <div style={{ background: '#FEF3C7', border: '1px solid #ffaa4444', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#ffaa44' }}>
                 ⚠️ 0 posts published — add WordPress credentials to auto-publish
               </div>
             )}
@@ -403,7 +403,7 @@ export default function MarketingDashboard() {
               })}
             </div>
 
-            <div style={{ marginTop: 16, padding: '14px 16px', background: '#1a1a2a', borderRadius: 10, border: '1px dashed #2a3a5c', fontSize: 13, color: '#8899bb' }}>
+            <div style={{ marginTop: 16, padding: '14px 16px', background: '#EEF3FA', borderRadius: 10, border: '1px dashed #2a3a5c', fontSize: 13, color: '#8899bb' }}>
               📁 Scripts saved in <span style={{ color: '#1A73E8' }}>~/shipo-marketing/video-scripts/</span> · linkedin/ · youtube/ · website/
             </div>
           </div>
@@ -426,7 +426,7 @@ export default function MarketingDashboard() {
           </div>
 
           {!website?.connected && (
-            <div style={{ background: '#1a1a0a', border: '1px solid #ffaa4444', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
+            <div style={{ background: '#FFFBEB', border: '1px solid #ffaa4444', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
               <div style={{ fontSize: 13, color: '#ffaa44', fontWeight: 600, marginBottom: 6 }}>
                 {website?.message || 'Add VERCEL_TOKEN to see live traffic data'}
               </div>
@@ -503,7 +503,7 @@ export default function MarketingDashboard() {
                       fontWeight: 700,
                       padding: '2px 8px',
                       borderRadius: 10,
-                      background: d.state === 'READY' ? '#1a5c3a' : '#3a1a1a',
+                      background: d.state === 'READY' ? '#1a5c3a' : '#FECACA',
                       color: d.state === 'READY' ? '#44dd88' : '#ff6644',
                     }}>
                       {d.state}

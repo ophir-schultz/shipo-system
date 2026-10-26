@@ -171,7 +171,7 @@ export default function ReferralsManager({
                       <td className="py-2.5 pr-3 text-gray-200">{l.partnerName}</td>
                       <td className="py-2.5 pr-3 text-[#3A4658]">{l.clientName}</td>
                       <td className="py-2.5 pr-3">
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${l.kind === 'signup_bonus' ? 'bg-purple-900/40 text-purple-300' : 'bg-sky-900/30 text-sky-300'}`}>
+                        <span className={`px-1.5 py-0.5 rounded text-xs ${l.kind === 'signup_bonus' ? 'bg-purple-900/40 text-purple-300' : 'bg-blue-50 text-blue-700'}`}>
                           {/* Reads the line's own amount, not a constant — a
                               Founding Partner's bonus is $500 and a badge
                               hardcoded to $300 would misstate the money
@@ -203,7 +203,7 @@ export default function ReferralsManager({
                               <button
                                 onClick={() => payoutAction(l, 'paid')}
                                 disabled={busy === l.dedupeKey}
-                                className="px-2 py-1 rounded text-xs bg-green-900/40 text-green-300 hover:bg-green-900/60 disabled:opacity-50"
+                                className="px-2 py-1 rounded text-xs bg-emerald-50 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
                               >
                                 Mark paid
                               </button>
@@ -281,9 +281,9 @@ function AgreementCell({ partner }: { partner: Partner }) {
   const { text, tone } = agreementLabel(partner.agreement_status)
   const colour =
     tone === 'good'
-      ? 'text-green-400'
+      ? 'text-emerald-700'
       : tone === 'bad'
-        ? 'text-red-400'
+        ? 'text-red-700'
         : 'text-[#6B7A8D]'
   const signed = partner.agreement_status === 'signed'
   const w9 = w9Label(partner)
@@ -297,7 +297,7 @@ function AgreementCell({ partner }: { partner: Partner }) {
       )}
       {signed && (
         <span
-          className={`block text-[10px] ${w9.tone === 'good' ? 'text-[#6B7A8D]' : 'text-red-400'}`}
+          className={`block text-[10px] ${w9.tone === 'good' ? 'text-[#6B7A8D]' : 'text-red-700'}`}
           // The consequence, not the status. "missing" alone invites
           // "missing from where?"; this says what it stops.
           title={payoutBlockedReason(partner) ?? 'W-9 on file. This partner can be paid.'}
@@ -455,7 +455,7 @@ function PartnersPanel({
             </thead>
             <tbody>
               {partners.map((p) => (
-                <tr key={p.id} className={`border-b border-[#E2E8F0]/40 ${p.status === 'pending' ? 'bg-yellow-950/20' : ''}`}>
+                <tr key={p.id} className={`border-b border-[#E2E8F0]/40 ${p.status === 'pending' ? 'bg-amber-50' : ''}`}>
                   <td className="py-2.5 pr-3 text-gray-200">{p.name}</td>
                   <td className="py-2.5 pr-3 text-[#4B4F58]">{p.company ?? '—'}</td>
                   <td className="py-2.5 pr-3 text-[#4B4F58]">
@@ -516,7 +516,7 @@ function PartnersPanel({
                           <button
                             onClick={() => signOutEverywhere(p)}
                             disabled={busy === `link-${p.id}`}
-                            className="px-2 py-1 rounded text-xs bg-[#EEF3FA] text-[#4B4F58] hover:bg-red-900/40 hover:text-red-300 disabled:opacity-50"
+                            className="px-2 py-1 rounded text-xs bg-[#EEF3FA] text-[#4B4F58] hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
                             title="End every open session. They can sign in again with a new code."
                           >
                             Sign out
@@ -816,11 +816,11 @@ function InvoicesPanel({
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E2E8F0]/60 pt-3">
           <div className="text-sm">
             {costsExceed ? (
-              <span className="text-red-400">Costs {fmt(previewCosts)} exceed the {fmt(n(f.amount))} invoiced.</span>
+              <span className="text-red-700">Costs {fmt(previewCosts)} exceed the {fmt(n(f.amount))} invoiced.</span>
             ) : (
               <span className="text-[#4B4F58]">
                 Net profit <span className="text-gray-200">{fmt(previewProfit)}</span> · partner gets{' '}
-                <span className="text-sky-300">{fmt(previewShare)}</span>
+                <span className="text-blue-700">{fmt(previewShare)}</span>
               </span>
             )}
           </div>
@@ -867,12 +867,12 @@ function InvoicesPanel({
                   <td className="py-2 pr-3 text-right text-[#3A4658]">{fmt(i.amount)}</td>
                   <td className="py-2 pr-3 text-right text-[#6B7A8D]">{fmt(totalCosts(i))}</td>
                   <td className="py-2 pr-3 text-right text-gray-200">{fmt(netProfit(i))}</td>
-                  <td className="py-2 pr-3 text-right text-sky-300">{fmt(commissionOn(i))}</td>
+                  <td className="py-2 pr-3 text-right text-blue-700">{fmt(commissionOn(i))}</td>
                   <td className="py-2 text-right">
                     <button
                       onClick={() => remove(i.id)}
                       disabled={busy === i.id}
-                      className="px-2 py-1 rounded text-xs bg-[#EEF3FA] text-[#4B4F58] hover:bg-red-900/40 hover:text-red-300 disabled:opacity-50"
+                      className="px-2 py-1 rounded text-xs bg-[#EEF3FA] text-[#4B4F58] hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
                     >
                       Delete
                     </button>
@@ -935,8 +935,8 @@ function Section({ title, subtitle, action, children }: { title: string; subtitl
 
 function StatCard({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   const colors: Record<string, string> = {
-    yellow: 'border-yellow-800/50 bg-yellow-950/30',
-    green: 'border-green-800/50 bg-green-950/40',
+    yellow: 'border-amber-200 bg-amber-50',
+    green: 'border-emerald-200 bg-emerald-50',
     blue: 'border-[#1A73E8]/20 bg-[#1A73E8]/5',
     gray: 'border-[#E2E8F0] bg-white',
   }
@@ -951,12 +951,12 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    paid: 'bg-green-900/50 text-green-400',
+    paid: 'bg-emerald-50 text-emerald-700',
     approved: 'bg-[#1A73E8]/15 text-[#1A73E8]',
-    pending: 'bg-yellow-900/40 text-yellow-400',
+    pending: 'bg-amber-50 text-amber-700',
     computed: 'bg-[#EEF3FA] text-[#3A4658]',
     awaiting: 'bg-[#EEF3FA]/60 text-[#6B7A8D]',
-    active: 'bg-green-900/40 text-green-400',
+    active: 'bg-emerald-50 text-emerald-700',
     inactive: 'bg-[#EEF3FA] text-[#6B7A8D]',
   }
   const label: Record<string, string> = { computed: 'not recorded', awaiting: 'awaiting 1st payment' }

@@ -111,7 +111,7 @@ export default function ShippingRatesUpload({ clientId }: { clientId: string }) 
       </button>
 
       {error && !preview.length && (
-        <p className="w-full text-red-400 text-sm mt-1">{error}</p>
+        <p className="w-full text-red-700 text-sm mt-1">{error}</p>
       )}
 
       {preview.length > 0 && (
@@ -135,7 +135,7 @@ export default function ShippingRatesUpload({ clientId }: { clientId: string }) 
                     <tr key={i} className="border-b border-[#E2E8F0]/50">
                       <td className="py-2 pr-4 text-[#3A4658]">{row.carrier}</td>
                       <td className="py-2 pr-4 text-[#3A4658]">{row.service}</td>
-                      <td className="py-2 pr-4 text-right text-green-400">${row.rate.toFixed(2)}</td>
+                      <td className="py-2 pr-4 text-right text-emerald-700">${row.rate.toFixed(2)}</td>
                       <td className="py-2 pr-4 text-right text-[#4B4F58]">{row.weight_min}</td>
                       <td className="py-2 pr-4 text-right text-[#4B4F58]">{row.weight_max ?? '∞'}</td>
                     </tr>
@@ -150,7 +150,7 @@ export default function ShippingRatesUpload({ clientId }: { clientId: string }) 
                 </tbody>
               </table>
             </div>
-            {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+            {error && <p className="text-red-700 text-sm mb-3">{error}</p>}
             <div className="flex gap-3">
               <button
                 onClick={() => { setPreview([]); setAllRows([]) }}

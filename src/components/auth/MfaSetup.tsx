@@ -128,7 +128,7 @@ export default function MfaSetup() {
               <button
                 onClick={() => handleRemove(f.id)}
                 disabled={loading}
-                className="text-xs text-red-400 hover:text-red-300 transition disabled:opacity-50"
+                className="text-xs text-red-700 hover:text-red-700 transition disabled:opacity-50"
               >
                 Remove
               </button>
@@ -181,7 +181,7 @@ export default function MfaSetup() {
               />
             </div>
             {error && (
-              <p className="text-sm text-red-400 bg-red-950/30 border border-red-800/40 rounded-lg px-3 py-2">{error}</p>
+              <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
             )}
             <div className="flex gap-3">
               <button

@@ -33,8 +33,8 @@ export default function AdjustmentsClient({ pending, resolved, pendingTotal }: {
 
   const statusBadge = (status: string) => {
     const map: Record<string, string> = {
-      approved: 'bg-green-900/60 text-green-300',
-      billed: 'bg-blue-900/60 text-[#63B3FF]',
+      approved: 'bg-emerald-50 text-emerald-700',
+      billed: 'bg-blue-50 text-[#63B3FF]',
       waived: 'bg-[#EEF3FA] text-[#4B4F58]',
     }
     return map[status] ?? 'bg-[#EEF3FA] text-[#4B4F58]'
@@ -43,21 +43,21 @@ export default function AdjustmentsClient({ pending, resolved, pendingTotal }: {
   return (
     <div className="space-y-6">
       {/* Pending */}
-      <div className="rounded-xl overflow-hidden border border-orange-800/40" style={{ background: '#110d00' }}>
-        <div className="px-5 py-4 border-b border-orange-800/30 flex items-center justify-between" style={{ background: '#1e1500' }}>
+      <div className="rounded-xl overflow-hidden border border-amber-200" style={{ background: '#FFFBEB' }}>
+        <div className="px-5 py-4 border-b border-amber-200 flex items-center justify-between" style={{ background: '#FFFBEB' }}>
           <div className="flex items-center gap-2">
-            <span className="text-orange-400 text-lg">🔔</span>
-            <span className="text-orange-300 font-bold">Pending — Needs Action</span>
+            <span className="text-amber-700 text-lg">🔔</span>
+            <span className="text-amber-700 font-bold">Pending — Needs Action</span>
             {pending.length > 0 && (
               <span className="bg-orange-700 text-orange-100 text-xs font-bold px-2 py-0.5 rounded-full">{pending.length}</span>
             )}
           </div>
-          <span className="text-orange-400 font-bold">+${pendingTotal.toFixed(2)} total</span>
+          <span className="text-amber-700 font-bold">+${pendingTotal.toFixed(2)} total</span>
         </div>
 
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-orange-400/60 text-left border-b border-orange-900/30 text-xs uppercase tracking-wider">
+            <tr className="text-amber-700 text-left border-b border-amber-200 text-xs uppercase tracking-wider">
               <th className="px-5 py-3">Order #</th>
               <th className="px-4 py-3">Client</th>
               <th className="px-4 py-3">Reason</th>
@@ -71,7 +71,7 @@ export default function AdjustmentsClient({ pending, resolved, pendingTotal }: {
           <tbody>
             {pending.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-5 py-10 text-center text-green-400">
+                <td colSpan={8} className="px-5 py-10 text-center text-emerald-700">
                   ✓ No pending adjustments — all carrier charges are settled
                 </td>
               </tr>
@@ -79,7 +79,7 @@ export default function AdjustmentsClient({ pending, resolved, pendingTotal }: {
               pending.map((a: any) => {
                 const busy = loading?.startsWith(a.id)
                 return (
-                  <tr key={a.id} className="border-b border-orange-900/20 hover:bg-orange-900/10">
+                  <tr key={a.id} className="border-b border-amber-200 hover:bg-amber-50">
                     <td className="px-5 py-3 font-mono text-xs text-[#3A4658]">{a.order_number}</td>
                     <td className="px-4 py-3 font-medium text-gray-200">{a.clients?.name ?? <span className="text-[#6B7A8D] italic">Unassigned</span>}</td>
                     <td className="px-4 py-3 text-[#3A4658]">{a.reason ?? 'Carrier reweigh / rate change'}</td>
@@ -88,14 +88,14 @@ export default function AdjustmentsClient({ pending, resolved, pendingTotal }: {
                     </td>
                     <td className="px-4 py-3 text-right text-[#4B4F58]">{a.original_cost != null ? `$${Number(a.original_cost).toFixed(2)}` : '—'}</td>
                     <td className="px-4 py-3 text-right text-[#3A4658]">{a.adjusted_cost != null ? `$${Number(a.adjusted_cost).toFixed(2)}` : '—'}</td>
-                    <td className="px-4 py-3 text-right font-bold text-orange-400">+${Number(a.adjustment_amount ?? 0).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right font-bold text-amber-700">+${Number(a.adjustment_amount ?? 0).toFixed(2)}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1.5 justify-center">
                         <button
                           onClick={() => updateStatus(a.id, 'approved', 'approved')}
                           disabled={!!busy}
                           title="Mark as approved — will be charged to client"
-                          className="px-2.5 py-1 rounded text-xs font-medium bg-green-800 hover:bg-green-700 text-green-200 disabled:opacity-40 transition"
+                          className="px-2.5 py-1 rounded text-xs font-medium bg-green-800 hover:bg-green-700 text-emerald-700 disabled:opacity-40 transition"
                         >
                           {loading === a.id + 'approved' ? '…' : '✓ Approve'}
                         </button>
@@ -124,9 +124,9 @@ export default function AdjustmentsClient({ pending, resolved, pendingTotal }: {
           </tbody>
           {pending.length > 0 && (
             <tfoot>
-              <tr className="border-t border-orange-800/40">
-                <td colSpan={6} className="px-5 py-3 text-orange-400 text-xs font-semibold">Total to Recover from Clients</td>
-                <td className="px-4 py-3 text-right font-bold text-orange-400">+${pendingTotal.toFixed(2)}</td>
+              <tr className="border-t border-amber-200">
+                <td colSpan={6} className="px-5 py-3 text-amber-700 text-xs font-semibold">Total to Recover from Clients</td>
+                <td className="px-4 py-3 text-right font-bold text-amber-700">+${pendingTotal.toFixed(2)}</td>
                 <td />
               </tr>
             </tfoot>

@@ -169,13 +169,13 @@ export default async function ReferralsPage() {
           client&apos;s first payment, plus <span className="text-[#3A4658]">{(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%</span> of{' '}
           <span className="text-[#3A4658]">net profit</span> on that account for{' '}
           <span className="text-[#3A4658]">{REFERRAL_TERMS.COMMISSION_MONTHS} months</span> from their first paid invoice. Every payout
-          stays <span className="text-yellow-400">pending</span> until you approve it — nothing is ever paid automatically.
+          stays <span className="text-amber-700">pending</span> until you approve it — nothing is ever paid automatically.
         </p>
       </div>
 
       {d.migrationMissing && (
-        <div className="rounded-xl p-4 border border-yellow-700/50 bg-yellow-950/30">
-          <p className="text-yellow-300 text-sm font-medium">⚠ Referral tables not created yet</p>
+        <div className="rounded-xl p-4 border border-amber-200 bg-amber-50">
+          <p className="text-amber-700 text-sm font-medium">⚠ Referral tables not created yet</p>
           <p className="text-yellow-500/80 text-xs mt-1">
             Run <span className="font-mono">supabase/referral_program.sql</span>, then{' '}
             <span className="font-mono">supabase/partner_portal.sql</span>, then{' '}

@@ -169,14 +169,19 @@ describe('the printed report carries its own scope', () => {
   })
 
   it('carries the Shipo mark, in a variant that is visible on white', () => {
-    // shipo-logo.svg is WHITE lettering, drawn for the sidebar's blue panel.
+    // shipo-logo.svg is WHITE lettering, drawn for the navy sidebar.
     // Printed on paper it renders as nothing -- a blank space at the top of a
     // client-facing document. The print variant is the same geometry in brand
     // blue, and referencing the wrong one is invisible in review and obvious
     // on the page.
-    expect(TABS).toContain('/shipo-logo-print.svg')
+    // The real asset from shipousa.com, not public/shipo-logo.svg -- that
+    // file is a redraw in Arial Black and was shipped as the brand once.
+    expect(TABS).toContain('ShipoMark')
     expect(TABS).not.toContain('"/shipo-logo.svg"')
     expect(TABS).toContain('print-brand-mark')
+    const MARK = readFileSync(join(SRC, 'components/ui/ShipoMark.tsx'), 'utf8')
+    expect(MARK).toContain('/shipo-logo-white.png')
+    expect(MARK).toContain('#E0EE47')
   })
 
   it('keeps the brand colour from being dropped by the printer', () => {

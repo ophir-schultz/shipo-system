@@ -49,8 +49,8 @@ export default async function QuotesPage() {
       </div>
 
       {migrationMissing && (
-        <div className="rounded-xl p-4 border border-yellow-700/50 bg-yellow-950/30">
-          <p className="text-yellow-300 text-sm font-medium">⚠ Rate sheet table not created yet</p>
+        <div className="rounded-xl p-4 border border-amber-200 bg-amber-50">
+          <p className="text-amber-700 text-sm font-medium">⚠ Rate sheet table not created yet</p>
           <p className="text-yellow-500/80 text-xs mt-1">
             Run <span className="font-mono">supabase/rate_sheets.sql</span> in the Supabase SQL
             editor, then reload this page.

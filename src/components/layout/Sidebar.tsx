@@ -48,9 +48,10 @@ export default function Sidebar() {
     <aside className="w-60 min-h-screen flex flex-col" style={{ background: 'linear-gradient(165deg, #081A33 0%, #0B3361 55%, #0F4A94 100%)', borderRight: '1px solid #0B3361' }}>
       <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.14)' }}>
         <div className="px-1 py-2 mb-1">
-          <Image src="/shipo-logo.svg" alt="Shipo" width={160} height={52} className="w-full h-auto" priority />
+          <Image src="/shipo-logo-white.png" alt="Shipo" width={322} height={122} className="w-full h-auto" priority />
         </div>
-        <p className="text-xs text-center mt-1" style={{ color: '#C7D8F0' }}>Operations Platform</p>
+        <div style={{ height: '4px', borderRadius: '2px', background: '#E0EE47', margin: '6px 2px 0' }} />
+        <p className="text-xs text-center mt-2" style={{ color: '#C7D8F0' }}>Operations Platform</p>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-0.5">
         {nav.map((item) => {

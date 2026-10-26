@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import ShipoMark from '@/components/ui/ShipoMark'
 import Script from 'next/script'
 import { createClient } from '@/lib/supabase-browser'
 
@@ -196,9 +197,10 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex justify-center mb-8">
-          <div className="rounded-2xl px-6 py-5" style={{ background: '#1A73E8' }}>
-            <Image src="/shipo-logo.jpg" alt="Shipo" width={180} height={60} className="rounded-xl" priority />
-          </div>
+          {/* The wordmark plain on white, as shipousa.com presents it --
+              the blue tile existed only so the WHITE logo would show on the
+              old dark page. */}
+          <ShipoMark width={200} />
         </div>
 
         <div className="rounded-2xl p-8" style={{ background: '#FFFFFF', border: '1px solid #E2E8F0' }}>
@@ -239,7 +241,7 @@ export default function LoginPage() {
                 )}
 
                 {error && (
-                  <p className="text-sm text-red-400 bg-red-950/30 border border-red-800/40 rounded-lg px-3 py-2">{error}</p>
+                  <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
                 )}
 
                 <button
@@ -306,7 +308,7 @@ export default function LoginPage() {
                 </label>
 
                 {error && (
-                  <p className="text-sm text-red-400 bg-red-950/30 border border-red-800/40 rounded-lg px-3 py-2">{error}</p>
+                  <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
                 )}
 
                 <button

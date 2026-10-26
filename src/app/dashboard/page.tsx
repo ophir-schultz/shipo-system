@@ -422,16 +422,16 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 gap-4">
 
         {/* Loss Shipments Panel */}
-        <div className="rounded-xl overflow-hidden border border-red-800/60" style={{ background: '#1a0a0a' }}>
-          <div className="flex items-center justify-between px-5 py-3 border-b border-red-800/40" style={{ background: '#2a0f0f' }}>
+        <div className="rounded-xl overflow-hidden border border-red-200" style={{ background: '#FEF2F2' }}>
+          <div className="flex items-center justify-between px-5 py-3 border-b border-red-200" style={{ background: '#FEE2E2' }}>
             <a href="/shipments?filter=loss" className="flex items-center gap-2 hover:opacity-80 transition">
-              <span className="text-red-400 text-lg">⚠️</span>
-              <span className="text-red-300 font-bold text-sm underline-offset-2 hover:underline">Shipping Losses</span>
+              <span className="text-red-700 text-lg">⚠️</span>
+              <span className="text-red-700 font-bold text-sm underline-offset-2 hover:underline">Shipping Losses</span>
               {!d.lossError && d.lossShipments.length > 0 && (
                 <span className="bg-red-700 text-red-100 text-xs font-bold px-2 py-0.5 rounded-full">{d.lossShipments.length}</span>
               )}
             </a>
-            <span className="text-red-400 font-bold text-sm">
+            <span className="text-red-700 font-bold text-sm">
               {!d.lossError && d.lossShipments.length > 0 ? `-${formatPrice(d.lossTotal)}` : ''}
             </span>
           </div>
@@ -447,14 +447,14 @@ export default async function DashboardPage() {
             </div>
           ) : d.lossShipments.length === 0 ? (
             <div className="px-5 py-8 text-center">
-              <p className="text-green-400 text-sm font-medium">✓ No loss shipments</p>
+              <p className="text-emerald-700 text-sm font-medium">✓ No loss shipments</p>
               <p className="text-[#6B7A8D] text-xs mt-1">All shipments are profitable</p>
             </div>
           ) : (
             <div className="overflow-auto max-h-72">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-red-400/70 text-left border-b border-red-900/40">
+                  <tr className="text-red-700 text-left border-b border-red-200">
                     <th className="px-4 py-2">Order #</th>
                     <th className="px-2 py-2">Client</th>
                     <th className="px-2 py-2 text-right">We Paid</th>
@@ -473,12 +473,12 @@ export default async function DashboardPage() {
                     // disagreeing in silence is the thing being removed.
                     const loss = priceOf(s.profit_loss)
                     return (
-                      <tr key={s.order_number} className="border-b border-red-900/20 hover:bg-red-900/20">
+                      <tr key={s.order_number} className="border-b border-red-200 hover:bg-red-50">
                         <td className="px-4 py-2 font-mono text-[#3A4658]">{s.order_number}</td>
                         <td className="px-2 py-2 text-[#3A4658]">{s.clients?.name ?? '—'}</td>
                         <td className="px-2 py-2 text-right text-[#4B4F58]">{formatPrice(s.actual_cost)}</td>
                         <td className="px-2 py-2 text-right text-[#4B4F58]">{formatPrice(s.client_rate)}</td>
-                        <td className="px-2 py-2 text-right font-bold text-red-400">
+                        <td className="px-2 py-2 text-right font-bold text-red-700">
                           {loss === null ? UNPRICED_DASH : `-${formatPrice(Math.abs(loss))}`}
                         </td>
                       </tr>
@@ -486,9 +486,9 @@ export default async function DashboardPage() {
                   })}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-red-800/40">
-                    <td colSpan={4} className="px-4 py-2 text-red-400 text-xs font-semibold">Total Loss</td>
-                    <td className="px-2 py-2 text-right font-bold text-red-400">-{formatPrice(d.lossTotal)}</td>
+                  <tr className="border-t border-red-200">
+                    <td colSpan={4} className="px-4 py-2 text-red-700 text-xs font-semibold">Total Loss</td>
+                    <td className="px-2 py-2 text-right font-bold text-red-700">-{formatPrice(d.lossTotal)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -497,16 +497,16 @@ export default async function DashboardPage() {
         </div>
 
         {/* Pending Adjustments Panel */}
-        <div className="rounded-xl overflow-hidden border border-orange-800/60" style={{ background: '#1a1000' }}>
-          <div className="flex items-center justify-between px-5 py-3 border-b border-orange-800/40" style={{ background: '#2a1800' }}>
+        <div className="rounded-xl overflow-hidden border border-amber-200" style={{ background: '#FFFBEB' }}>
+          <div className="flex items-center justify-between px-5 py-3 border-b border-amber-200" style={{ background: '#FEF3C7' }}>
             <a href="/adjustments" className="flex items-center gap-2 hover:opacity-80 transition">
-              <span className="text-orange-400 text-lg">🔔</span>
-              <span className="text-orange-300 font-bold text-sm hover:underline underline-offset-2">Carrier Price Adjustments</span>
+              <span className="text-amber-700 text-lg">🔔</span>
+              <span className="text-amber-700 font-bold text-sm hover:underline underline-offset-2">Carrier Price Adjustments</span>
               {!d.pendingAdjError && d.pendingAdjustments.length > 0 && (
                 <span className="bg-orange-700 text-orange-100 text-xs font-bold px-2 py-0.5 rounded-full">{d.pendingAdjustments.length}</span>
               )}
             </a>
-            <span className="text-orange-400 font-bold text-sm">
+            <span className="text-amber-700 font-bold text-sm">
               {!d.pendingAdjError && d.pendingAdjustments.length > 0 ? `+${formatPrice(d.pendingAdjustmentsTotal)}` : ''}
             </span>
           </div>
@@ -519,14 +519,14 @@ export default async function DashboardPage() {
             </div>
           ) : d.pendingAdjustments.length === 0 ? (
             <div className="px-5 py-8 text-center">
-              <p className="text-green-400 text-sm font-medium">✓ No pending adjustments</p>
+              <p className="text-emerald-700 text-sm font-medium">✓ No pending adjustments</p>
               <p className="text-[#6B7A8D] text-xs mt-1">No carrier price changes detected</p>
             </div>
           ) : (
             <div className="overflow-auto max-h-72">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-orange-400/70 text-left border-b border-orange-900/40">
+                  <tr className="text-amber-700 text-left border-b border-amber-200">
                     <th className="px-4 py-2">Order #</th>
                     <th className="px-2 py-2">Client</th>
                     <th className="px-2 py-2">Reason</th>
@@ -536,7 +536,7 @@ export default async function DashboardPage() {
                 </thead>
                 <tbody>
                   {d.pendingAdjustments.map((a: any) => (
-                    <tr key={a.id} className="border-b border-orange-900/20 hover:bg-orange-900/20">
+                    <tr key={a.id} className="border-b border-amber-200 hover:bg-amber-50">
                       <td className="px-4 py-2 font-mono text-[#3A4658]">{a.order_number}</td>
                       <td className="px-2 py-2 text-[#3A4658]">{a.clients?.name ?? '—'}</td>
                       <td className="px-2 py-2 text-[#4B4F58]">{a.reason ?? 'Carrier reweigh'}</td>
@@ -546,14 +546,14 @@ export default async function DashboardPage() {
                           null to that column, so dashing it would be a guess
                           dressed as a fix. formatPrice still dashes it if that
                           ever stops being true. */}
-                      <td className="px-2 py-2 text-right font-bold text-orange-400">+{formatPrice(a.adjustment_amount)}</td>
+                      <td className="px-2 py-2 text-right font-bold text-amber-700">+{formatPrice(a.adjustment_amount)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-orange-800/40">
-                    <td colSpan={4} className="px-4 py-2 text-orange-400 text-xs font-semibold">Total to Recover</td>
-                    <td className="px-2 py-2 text-right font-bold text-orange-400">+{formatPrice(d.pendingAdjustmentsTotal)}</td>
+                  <tr className="border-t border-amber-200">
+                    <td colSpan={4} className="px-4 py-2 text-amber-700 text-xs font-semibold">Total to Recover</td>
+                    <td className="px-2 py-2 text-right font-bold text-amber-700">+{formatPrice(d.pendingAdjustmentsTotal)}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -663,7 +663,7 @@ export default async function DashboardPage() {
                       dash. */}
                   <td className={`py-3 text-right font-semibold ${
                     c.profit === null ? 'text-[#6B7A8D]'
-                      : c.profit >= 0 ? 'text-green-400' : 'text-red-400'
+                      : c.profit >= 0 ? 'text-emerald-700' : 'text-red-700'
                   }`}>
                     {formatSignedPrice(c.profit)}
                     {c.marginPct !== null && (
@@ -679,12 +679,12 @@ export default async function DashboardPage() {
                   <td className="py-3 text-right text-[#3A4658]">
                     {c.warehouseSum.counted === 0 ? UNPRICED_DASH : formatPrice(c.warehouse)}
                   </td>
-                  <td className={`py-3 text-right ${c.pendingAdj > 0 ? 'text-orange-400 font-semibold' : 'text-[#6B7A8D]'}`}>
+                  <td className={`py-3 text-right ${c.pendingAdj > 0 ? 'text-amber-700 font-semibold' : 'text-[#6B7A8D]'}`}>
                     {c.pendingAdj > 0 ? `+$${c.pendingAdj.toFixed(2)}` : '—'}
                   </td>
                   <td className="py-3 text-center">
                     {c.lossCount > 0 && (
-                      <span className="bg-red-900/60 text-red-300 px-2 py-0.5 rounded text-xs mr-1">⚠ {c.lossCount} loss</span>
+                      <span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs mr-1">⚠ {c.lossCount} loss</span>
                     )}
                     {/* Two badges and not one combined "incomplete" count,
                         because they send you to different places and only one
@@ -694,7 +694,7 @@ export default async function DashboardPage() {
                         badge is on this row because this client's rate card is
                         the thing to go and edit. */}
                     {c.unrated > 0 && (
-                      <span className="bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded text-xs mr-1"
+                      <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs mr-1"
                         title="We paid a carrier for these and no rate was agreed, so they are in none of the figures on this row. They are not $0.">
                         ⚠ {c.unrated} no rate
                       </span>
@@ -706,13 +706,13 @@ export default async function DashboardPage() {
                       </span>
                     )}
                     {c.warehouseUnpriced > 0 && (
-                      <span className="bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded text-xs mr-1"
+                      <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs mr-1"
                         title="Warehouse lines with no agreed rate. Excluded from the Warehouse column -- they are not $0.">
                         ⚠ {c.warehouseUnpriced} unpriced wh.
                       </span>
                     )}
                     {c.pendingAdj > 0 && (
-                      <span className="bg-orange-900/60 text-orange-300 px-2 py-0.5 rounded text-xs">🔔 adj</span>
+                      <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded text-xs">🔔 adj</span>
                     )}
                     {/* The green tick requires EVERY row of this client's to
                         have reconciled. `lossCount` cannot stand in for that:
@@ -726,7 +726,7 @@ export default async function DashboardPage() {
                         with it. */}
                     {c.lossCount === 0 && c.pendingAdj === 0
                       && c.excluded === 0 && c.warehouseUnpriced === 0 && (
-                      <span className="text-green-400 text-xs">✓</span>
+                      <span className="text-emerald-700 text-xs">✓</span>
                     )}
                   </td>
                 </tr>
@@ -750,7 +750,7 @@ export default async function DashboardPage() {
                       rows; these figures do not. Saying so is the whole point
                       -- otherwise the two disagree in silence. */}
                   {d.breakdownExcluded > 0 && (
-                    <span className="block text-amber-400/90 text-xs font-normal">
+                    <span className="block text-amber-700 text-xs font-normal">
                       ⚠ {d.breakdownExclusions}
                     </span>
                   )}
@@ -760,7 +760,7 @@ export default async function DashboardPage() {
                 </td>
                 <td className={`pt-3 text-right ${
                   d.breakdownProfitTotal === null ? 'text-[#6B7A8D]'
-                    : d.breakdownProfitTotal >= 0 ? 'text-green-400' : 'text-red-400'
+                    : d.breakdownProfitTotal >= 0 ? 'text-emerald-700' : 'text-red-700'
                 }`}>
                   {formatSignedPrice(d.breakdownProfitTotal)}
                   {d.breakdownMarginPct !== null && (
@@ -772,12 +772,12 @@ export default async function DashboardPage() {
                 <td className="pt-3 text-right text-[#3A4658]">
                   {formatPrice(d.breakdownWarehouseTotal)}
                   {d.breakdownWarehouseUnpriced > 0 && (
-                    <span className="block text-amber-400/90 text-xs font-normal">
+                    <span className="block text-amber-700 text-xs font-normal">
                       ⚠ {unpricedNote(d.breakdownWarehouseUnpriced, 'line')}
                     </span>
                   )}
                 </td>
-                <td className="pt-3 text-right text-orange-400">
+                <td className="pt-3 text-right text-amber-700">
                   ${d.clientBreakdown.reduce((s: number, c: any) => s + c.pendingAdj, 0).toFixed(2)}
                 </td>
                 <td></td>
@@ -814,7 +814,7 @@ export default async function DashboardPage() {
                   <td className="py-3 text-right font-semibold">{formatPrice(b.grand_total)}</td>
                   <td className="py-3 text-center">
                     <span className={`px-2 py-0.5 rounded text-xs ${
-                      b.status === 'paid' ? 'bg-green-900 text-green-300' :
+                      b.status === 'paid' ? 'bg-emerald-50 text-emerald-700' :
                       b.status === 'sent' ? 'bg-[#1A73E8]/10 text-[#63B3FF]' :
                       'bg-[#EEF3FA] text-[#3A4658]'
                     }`}>{b.status}</span>
@@ -875,7 +875,7 @@ function PeriodCard({ title, p }: { title: string; p: PeriodFigures }) {
               paint it green. */}
           <span className={`font-bold ${
             p.profit === null ? 'text-[#6B7A8D]'
-              : p.profit >= 0 ? 'text-green-400' : 'text-red-400'
+              : p.profit >= 0 ? 'text-emerald-700' : 'text-red-700'
           }`}>
             {formatSignedPrice(p.profit)}
             {p.marginPct !== null && (
@@ -895,7 +895,7 @@ function PeriodCard({ title, p }: { title: string; p: PeriodFigures }) {
             <p className="text-[#6B7A8D] text-xs pt-1">
               Over {p.reconciled} of {p.shipments} shipments
             </p>
-            <p className="text-amber-400/90 text-xs">⚠ {p.exclusions}</p>
+            <p className="text-amber-700 text-xs">⚠ {p.exclusions}</p>
           </>
         )}
 
@@ -909,7 +909,7 @@ function PeriodCard({ title, p }: { title: string; p: PeriodFigures }) {
           </div>
         )}
         {p.billableUnpriced > 0 && (
-          <p className="text-amber-400/90 text-xs">⚠ {unpricedNote(p.billableUnpriced)}</p>
+          <p className="text-amber-700 text-xs">⚠ {unpricedNote(p.billableUnpriced)}</p>
         )}
 
         {/* Below the rule and outside the margin, which is the entire point of
@@ -934,7 +934,7 @@ function PeriodCard({ title, p }: { title: string; p: PeriodFigures }) {
           </p>
         )}
         {p.otherIncomeUnpriced > 0 && (
-          <p className="text-amber-400/90 text-xs">
+          <p className="text-amber-700 text-xs">
             ⚠ {unpricedNote(p.otherIncomeUnpriced, 'line')}
           </p>
         )}
@@ -969,8 +969,8 @@ function BigStat(
 ) {
   const colors: Record<string, string> = {
     blue: 'border-[#1A73E8]/30 bg-[#1A73E8]/5',
-    green: 'border-green-700/50 bg-green-950/50',
-    red: 'border-red-700/50 bg-red-950/50',
+    green: 'border-emerald-200 bg-emerald-50',
+    red: 'border-red-200 bg-red-50',
     gray: 'border-[#E2E8F0] bg-white',
   }
   // An unreadable stat keeps its tile and its label but loses its colour and
@@ -978,11 +978,11 @@ function BigStat(
   // what stops the dash reading as "zero, rendered tidily".
   if (unreadable) {
     return (
-      <div className="rounded-xl p-5 border border-red-800/50 bg-red-950/20">
+      <div className="rounded-xl p-5 border border-red-200 bg-red-50">
         <p className="text-[#4B4F58] text-xs uppercase tracking-wider">{label}</p>
         <p className="text-2xl font-bold mt-2 text-[#6B7A8D]">—</p>
-        <p className="mt-1.5 text-xs font-medium text-red-300">Could not read this</p>
-        <p className="mt-0.5 font-mono text-[10px] leading-tight text-red-400">{unreadable}</p>
+        <p className="mt-1.5 text-xs font-medium text-red-700">Could not read this</p>
+        <p className="mt-0.5 font-mono text-[10px] leading-tight text-red-700">{unreadable}</p>
       </div>
     )
   }
@@ -997,7 +997,7 @@ function BigStat(
       {note ? (
         noteTone === 'muted'
           ? <p className="text-[#6B7A8D] text-xs mt-1.5">{note}</p>
-          : <p className="text-amber-400/90 text-xs mt-1.5">⚠ {note}</p>
+          : <p className="text-amber-700 text-xs mt-1.5">⚠ {note}</p>
       ) : null}
     </div>
   )

@@ -173,6 +173,6 @@ export const config = {
     // fetch it. src/lib/partner-public-assets.test.ts now compares this
     // list against the assets the partner layout actually requests.
     // shipo-logo.jpg stays: it is the staff login and sidebar mark.
-    '/((?!_next/static|_next/image|favicon.ico|shipo-logo.jpg|shipo-logo.png|chat.js|api/|partner$|partner/|rate-sheets/).*)',
+    '/((?!_next/static|_next/image|favicon.ico|shipo-logo.jpg|shipo-logo.svg|shipo-logo-white.png|shipo-logo.png|chat.js|api/|partner$|partner/|rate-sheets/).*)',
   ],
 }

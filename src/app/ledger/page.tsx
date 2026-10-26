@@ -49,7 +49,7 @@ function marginClass(n: number | null | undefined): string {
   // positive branch and painted a vanished figure GREEN. summary.ts now
   // withholds such rows outright, and this is the belt to that braces.
   if (n === null || n === undefined) return 'text-slate-400'
-  return n < 0 ? 'text-red-400' : 'text-green-400'
+  return n < 0 ? 'text-red-700' : 'text-emerald-700'
 }
 
 /**
@@ -70,8 +70,8 @@ function fmtRate(n: number | null | undefined): string {
  */
 function varianceClass(n: number | null): string {
   if (n === null) return 'text-slate-400'
-  if (n > 0) return 'text-red-400'
-  if (n < 0) return 'text-green-400'
+  if (n > 0) return 'text-red-700'
+  if (n < 0) return 'text-emerald-700'
   return 'text-slate-300'
 }
 
@@ -137,7 +137,7 @@ function LeakAmount({ amount }: { amount: number | null }) {
       </span>
     )
   }
-  return <span className="text-red-400">{fmt(amount)}</span>
+  return <span className="text-red-700">{fmt(amount)}</span>
 }
 
 /**
@@ -219,7 +219,7 @@ function VariantBreakdown({ row }: { row: VarianceRow }) {
     <div className="space-y-0.5">
       {parts.map((p, i) => (
         <div key={i} className="whitespace-nowrap text-xs">
-          <span className="font-mono text-sky-300">{p.variant ?? 'no variant'}</span>
+          <span className="font-mono text-blue-700">{p.variant ?? 'no variant'}</span>
           <span className="ml-1.5 text-slate-400">{int(p.units)} u</span>
           <span className="ml-1.5 text-slate-500">@</span>
           {p.standard_rate === null ? (
@@ -237,7 +237,7 @@ function VariantBreakdown({ row }: { row: VarianceRow }) {
             <span className="ml-1 text-slate-300">{fmtRate(p.standard_rate)}</span>
           )}
           {p.basis === 'estimated' && (
-            <span className="ml-1.5 text-amber-400/80">est</span>
+            <span className="ml-1.5 text-amber-700">est</span>
           )}
         </div>
       ))}
@@ -249,7 +249,7 @@ function VariantBreakdown({ row }: { row: VarianceRow }) {
 function LeakCells({ row }: { row: LeakRow }) {
   return (
     <>
-      <td className="py-2.5 pr-3 font-mono text-xs text-sky-300">{row.leak}</td>
+      <td className="py-2.5 pr-3 font-mono text-xs text-blue-700">{row.leak}</td>
       <td className="py-2.5 pr-3 text-slate-300">{row.detail}</td>
       <td className="py-2.5 pr-3 text-right text-slate-400">{int(row.records)}</td>
       <td className="py-2.5 text-right font-medium">
@@ -285,11 +285,11 @@ export default async function LedgerPage() {
 
       {/* Error banner — errors surface here, not as empty tables */}
       {errors.length > 0 && (
-        <div className="rounded-xl border border-red-700/50 bg-red-950/30 p-4">
-          <p className="text-sm font-medium text-red-300">One or more views failed to load:</p>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-medium text-red-700">One or more views failed to load:</p>
           <ul className="mt-2 space-y-1">
             {errors.map((e, i) => (
-              <li key={i} className="font-mono text-xs text-red-400">{e}</li>
+              <li key={i} className="font-mono text-xs text-red-700">{e}</li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-red-500/70">
@@ -365,12 +365,12 @@ export default async function LedgerPage() {
           </div>
         )}
         {leaksUndated.length > 0 && (
-          <div className="mt-5 rounded-lg border border-orange-800/40 bg-orange-950/20 p-4">
+          <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4">
             <div className="mb-1 flex items-start justify-between">
-              <h4 className="text-sm font-medium text-orange-300">Undated — outside every month above</h4>
+              <h4 className="text-sm font-medium text-amber-700">Undated — outside every month above</h4>
               <RowCount shown={leaksUndated.length} total={counts.leaksUndated} unreadable={!!failed.leaksUndated} />
             </div>
-            <p className="mb-3 text-xs text-orange-300/80">
+            <p className="mb-3 text-xs text-amber-700">
               The records behind these rows carry no date, so they fall into no month and every dated figure
               on this screen — including the table above — leaves them out. The usual case is a shipment
               with a carrier cost, no shipping charge and no ship date: money already paid that will never
@@ -381,7 +381,7 @@ export default async function LedgerPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-orange-800/40 text-left text-xs uppercase text-orange-400/70">
+                  <tr className="border-b border-amber-200 text-left text-xs uppercase text-amber-700">
                     <th className="pb-2 pr-3">Leak</th>
                     <th className="pb-2 pr-3">Detail</th>
                     <th className="pb-2 pr-3 text-right">Records</th>
@@ -390,7 +390,7 @@ export default async function LedgerPage() {
                 </thead>
                 <tbody>
                   {leaksUndated.map((r, i) => (
-                    <tr key={i} className="border-b border-orange-900/30 hover:bg-white/5">
+                    <tr key={i} className="border-b border-amber-200 hover:bg-white/5">
                       <LeakCells row={r} />
                     </tr>
                   ))}
@@ -490,7 +490,7 @@ export default async function LedgerPage() {
                     {/* Flags */}
                     <td className="py-2.5 text-right">
                       {r.has_estimates && (
-                        <span className="rounded bg-amber-900/30 px-1.5 py-0.5 text-xs text-amber-400">
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
                           estimate
                         </span>
                       )}
@@ -544,7 +544,7 @@ export default async function LedgerPage() {
                     <td className="py-2.5 pr-3 text-slate-300">
                       {r.client_name ?? <span className="italic text-slate-600">unassigned</span>}
                     </td>
-                    <td className="py-2.5 pr-3 font-mono text-xs text-sky-300">{r.charge_type}</td>
+                    <td className="py-2.5 pr-3 font-mono text-xs text-blue-700">{r.charge_type}</td>
                     <td className="py-2.5 pr-3 text-right text-slate-400">{int(r.charges)}</td>
                     {/* Revenue — show revenue_unknown_charges beside it */}
                     <td className="py-2.5 pr-3 text-right">
@@ -579,7 +579,7 @@ export default async function LedgerPage() {
                     {/* Flags */}
                     <td className="py-2.5 text-right">
                       {r.has_estimates && (
-                        <span className="rounded bg-amber-900/30 px-1.5 py-0.5 text-xs text-amber-400">
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
                           estimate
                         </span>
                       )}
@@ -627,14 +627,14 @@ export default async function LedgerPage() {
                 {picks.map((r, i) => {
                   const conf = confidenceLabel(r.confidence)
                   const confClass =
-                    conf === 'high' ? 'text-green-400' : conf === 'medium' ? 'text-amber-400' : 'text-orange-500'
+                    conf === 'high' ? 'text-emerald-700' : conf === 'medium' ? 'text-amber-700' : 'text-orange-500'
                   return (
                     <tr key={i} className="border-b border-slate-700 hover:bg-white/5">
                       <td className="py-2.5 pr-3 text-slate-400">{r.pick_date}</td>
-                      <td className="py-2.5 pr-3 font-mono text-xs text-sky-300">
+                      <td className="py-2.5 pr-3 font-mono text-xs text-blue-700">
                         {r.sku}
                         {r.is_component && (
-                          <span className="ml-1 rounded bg-[#1e3a5f] px-1 text-[0.65rem] text-blue-300">
+                          <span className="ml-1 rounded bg-[#1e3a5f] px-1 text-[0.65rem] text-blue-700">
                             component
                           </span>
                         )}
@@ -645,7 +645,7 @@ export default async function LedgerPage() {
                       <td className="py-2.5 text-right">
                         <span className={confClass}>{conf}</span>
                         {r.has_estimates && (
-                          <span className="ml-1 rounded bg-amber-900/30 px-1.5 py-0.5 text-xs text-amber-400">
+                          <span className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">
                             est
                           </span>
                         )}
@@ -680,15 +680,15 @@ export default async function LedgerPage() {
         <p className="mb-2 text-xs text-slate-500">
           Actual direct-labor payroll against the standard cost of the units picked:
           <span className="mx-1 font-mono text-slate-400">variance = payroll − units × standard rate</span>.
-          A <span className="font-medium text-red-400">positive</span> figure is an overspend against
-          standard; a <span className="font-medium text-green-400">negative</span> one is an underspend.
+          A <span className="font-medium text-red-700">positive</span> figure is an overspend against
+          standard; a <span className="font-medium text-emerald-700">negative</span> one is an underspend.
           The standard rate is the units-weighted blend of the per-variant rates shown on the right,
           and it is null — so the variance is not computable — unless every variant picked that month
           has a rate in effect. The one exception is a month in which nothing was picked at all:
           absorbed is then zero whatever the rate, so the whole payroll is the variance and the
           standard rate column reads <span className="font-mono text-slate-400">—</span>.
         </p>
-        <p className="mb-4 text-xs text-amber-400/90">
+        <p className="mb-4 text-xs text-amber-700">
           This is a secondary signal. Until piece 2 reconciles against actual bills, the labour
           variance rests on a standard rate whose own accuracy is unproven.
           {varianceIsEstimated && (
@@ -768,7 +768,7 @@ export default async function LedgerPage() {
                           the caveat the prose gives every other case. */}
                       {r.units_picked === 0 && (
                         <span
-                          className="ml-1 cursor-help text-xs text-amber-400"
+                          className="ml-1 cursor-help text-xs text-amber-700"
                           title="Zero pick charges recorded. The ledger cannot tell a month in which nothing was picked from one the charge calculator has not run for yet — confirm which before treating the whole payroll as an overspend."
                         >
                           ?
@@ -783,7 +783,7 @@ export default async function LedgerPage() {
                       <span className="text-slate-300">{fmtRate(r.standard_rate)}</span>
                       {r.standard_rate_basis !== null && r.standard_rate_basis !== 'measured' && (
                         <span
-                          className="ml-1 rounded bg-amber-900/30 px-1.5 py-0.5 text-xs text-amber-400"
+                          className="ml-1 rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700"
                           title={`The held standard rate for this month is ${r.standard_rate_basis}, not measured. The variance is only as good as it is.`}
                         >
                           {r.standard_rate_basis}

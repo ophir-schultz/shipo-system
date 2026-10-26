@@ -97,7 +97,7 @@ export default async function ClientsPage() {
                   <p className="text-[#6B7A8D] text-xs">Warehouse Rates</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-xs ${client.active ? 'bg-green-900 text-green-300' : 'bg-[#EEF3FA] text-[#4B4F58]'}`}>
+                  <span className={`px-2 py-0.5 rounded text-xs ${client.active ? 'bg-emerald-50 text-emerald-700' : 'bg-[#EEF3FA] text-[#4B4F58]'}`}>
                     {client.active ? 'Active' : 'Inactive'}
                   </span>
                   <Link

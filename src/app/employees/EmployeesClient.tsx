@@ -67,7 +67,7 @@ export default function EmployeesClient({ employees }: { employees: Employee[] }
   return (
     <div className="space-y-4">
       {message && (
-        <div className={`px-4 py-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-green-950/40 border border-green-800/40 text-green-400' : 'bg-red-950/40 border border-red-800/40 text-red-400'}`}>
+        <div className={`px-4 py-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
           {message.text}
         </div>
       )}
@@ -174,7 +174,7 @@ export default function EmployeesClient({ employees }: { employees: Employee[] }
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                     emp.role === 'admin' ? 'bg-purple-900/50 text-purple-300' :
                     emp.role === 'manager' ? 'text-[#0B1220]' :
-                    emp.role === 'warehouse' ? 'bg-blue-900/50 text-blue-300' :
+                    emp.role === 'warehouse' ? 'bg-blue-50 text-blue-700' :
                     'bg-[#EEF3FA] text-[#3A4658]'
                   }`}
                   style={emp.role === 'manager' ? { background: '#1A73E833', color: '#1A73E8' } : {}}>
@@ -186,7 +186,7 @@ export default function EmployeesClient({ employees }: { employees: Employee[] }
                 <td className="px-4 py-3 text-right">
                   <button
                     onClick={() => handleDelete(emp.id, emp.email)}
-                    className="text-xs text-[#6B7A8D] hover:text-red-400 transition px-2 py-1 rounded hover:bg-red-950/30"
+                    className="text-xs text-[#6B7A8D] hover:text-red-700 transition px-2 py-1 rounded hover:bg-red-50"
                   >
                     Remove
                   </button>

@@ -459,8 +459,8 @@ export default async function PnlPage() {
       <Header />
 
       {res.migrationMissing && (
-        <div className="rounded-xl p-4 border border-yellow-700/50 bg-yellow-950/30">
-          <p className="text-yellow-300 text-sm font-medium">⚠ Campaign / referral / inbound tables not created yet</p>
+        <div className="rounded-xl p-4 border border-amber-200 bg-amber-50">
+          <p className="text-amber-700 text-sm font-medium">⚠ Campaign / referral / inbound tables not created yet</p>
           <p className="text-yellow-500/80 text-xs mt-1">Per-client P&amp;L below is live from real shipment + warehouse data. Run <span className="font-mono">supabase/campaigns_pnl.sql</span> in Supabase to enable the campaign ROI, referral payout, and inbound-log sections.</p>
         </div>
       )}
@@ -527,7 +527,7 @@ export default async function PnlPage() {
                       <td className="py-2.5 pr-3 text-gray-200">{c.name}</td>
                       <td className="py-2.5 pr-3 text-[#4B4F58]">{CHANNEL_LABELS[c.channel] ?? c.channel}</td>
                       <td className="py-2.5 pr-3">
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${c.status === 'active' ? 'bg-green-900/50 text-green-400' : c.status === 'paused' ? 'bg-yellow-900/40 text-yellow-400' : 'bg-[#EEF3FA] text-[#4B4F58]'}`}>{c.status}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-xs ${c.status === 'active' ? 'bg-emerald-50 text-emerald-700' : c.status === 'paused' ? 'bg-amber-50 text-amber-700' : 'bg-[#EEF3FA] text-[#4B4F58]'}`}>{c.status}</span>
                       </td>
                       <td className="py-2.5 pr-3 text-right text-[#3A4658]"
                         title={c.spend === null ? 'Spend not entered for this campaign. Not $0 — ROI and CAC cannot be computed.' : undefined}>{fmtOrDash(c.spend)}</td>
@@ -542,7 +542,7 @@ export default async function PnlPage() {
                           on a profit computed from a spend of zero, so an
                           un-costed campaign showed a green profit equal to its
                           whole revenue. */}
-                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit === null ? 'text-[#6B7A8D]' : c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(c.profit)}</td>
+                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit === null ? 'text-[#6B7A8D]' : c.profit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtOrDash(c.profit)}</td>
                       <td className="py-2.5 pr-3 text-right text-[#4B4F58]">{c.roi === null ? '—' : `${c.roi.toFixed(0)}%`}</td>
                       <td className="py-2.5 text-right text-[#4B4F58]">{c.cac === null ? '—' : fmt(c.cac)}</td>
                     </tr>
@@ -553,7 +553,7 @@ export default async function PnlPage() {
                     <td colSpan={3} className="pt-3 text-[#3A4658] text-xs font-semibold uppercase">
                       Total
                       {d.unknownSpend > 0 && (
-                        <span className="block text-amber-400/90 text-xs font-normal normal-case mt-0.5">
+                        <span className="block text-amber-700 text-xs font-normal normal-case mt-0.5">
                           ⚠ {d.unknownSpend} campaign{d.unknownSpend === 1 ? '' : 's'} with no spend entered, not included
                         </span>
                       )}
@@ -561,7 +561,7 @@ export default async function PnlPage() {
                           a missing spend is a figure to enter here, an
                           unreadable client revenue is a rate card to fix. */}
                       {d.unreadCampaignRevenue > 0 && (
-                        <span className="block text-amber-400/90 text-xs font-normal normal-case mt-0.5">
+                        <span className="block text-amber-700 text-xs font-normal normal-case mt-0.5">
                           ⚠ {d.unreadCampaignRevenue} tagged client{d.unreadCampaignRevenue === 1 ? '' : 's'} with unreadable revenue, not included
                         </span>
                       )}
@@ -585,10 +585,10 @@ export default async function PnlPage() {
           <span className="text-xs text-[#4B4F58]">Revenue = shipping + warehouse + inbound · Cost = carrier + receiving · gross of labor</span>
         </div>
         {d.unassignedCount > 0 && (
-          <div className="mb-4 rounded-lg px-4 py-3 border border-orange-800/40 bg-orange-950/20 text-xs text-orange-300/90">
-            <span className="font-medium text-orange-300">{d.unassignedCount} unassigned shipments</span> carry {fmtOrDash(d.unassignedCost)} in carrier cost not yet attributed to any client or priced. Assign them to clients + run rate calculation to move this cost into per-client margin.
+          <div className="mb-4 rounded-lg px-4 py-3 border border-amber-200 bg-amber-50 text-xs text-amber-700">
+            <span className="font-medium text-amber-700">{d.unassignedCount} unassigned shipments</span> carry {fmtOrDash(d.unassignedCost)} in carrier cost not yet attributed to any client or priced. Assign them to clients + run rate calculation to move this cost into per-client margin.
             {d.unassignedUnpriced > 0 && (
-              <span className="block mt-1 text-orange-200/80">
+              <span className="block mt-1 text-amber-700">
                 {/* Two sentences, because "understated by an unknown amount"
                     describes a figure, and when every cost was unreadable there
                     is no figure above to understate -- only a dash. */}
@@ -632,7 +632,7 @@ export default async function PnlPage() {
                             unknown COSTS as well as unknown revenue, so the
                             tooltip no longer promises which side is short. */}
                         {c.unpriced > 0 && (
-                          <span className="block text-amber-400/90 text-xs"
+                          <span className="block text-amber-700 text-xs"
                             title="Figures this row could not read and left out of its revenue, cost, profit and margin. They are not $0.">
                             ⚠ {unpricedNote(c.unpriced, 'line')}
                           </span>
@@ -648,7 +648,7 @@ export default async function PnlPage() {
                       <td className="py-2.5 pr-3 text-right text-[#4B4F58]">{fmtOrDash(c.inRev)}</td>
                       <td className="py-2.5 pr-3 text-right text-[#3A4658]">{fmtOrDash(c.revenue)}</td>
                       <td className="py-2.5 pr-3 text-right text-[#3A4658]">{fmtOrDash(c.cost)}</td>
-                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit === null ? 'text-[#6B7A8D]' : c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(c.profit)}</td>
+                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit === null ? 'text-[#6B7A8D]' : c.profit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtOrDash(c.profit)}</td>
                       <td className="py-2.5 pl-1">
                         {/* No bar at all for an unknown margin, and no colour.
                             `revenue > 0 ? ... : 0` gave a client whose every
@@ -669,7 +669,7 @@ export default async function PnlPage() {
                               <div className="flex-1 h-1.5 bg-[#EEF3FA] rounded-full overflow-hidden">
                                 <div className={`h-full rounded-full ${c.margin >= 0 ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${Math.min(100, Math.abs(c.margin))}%` }} />
                               </div>
-                              <span className={`text-xs shrink-0 ${c.margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{c.margin.toFixed(0)}%</span>
+                              <span className={`text-xs shrink-0 ${c.margin >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{c.margin.toFixed(0)}%</span>
                             </div>
                           )
                         }
@@ -682,7 +682,7 @@ export default async function PnlPage() {
                     <td className="pt-3 text-[#3A4658] text-xs font-semibold uppercase">
                       Total
                       {d.clientPnl.reduce((s, c) => s + c.unpriced, 0) > 0 && (
-                        <span className="block text-amber-400/90 text-xs font-normal normal-case mt-0.5">
+                        <span className="block text-amber-700 text-xs font-normal normal-case mt-0.5">
                           ⚠ {unpricedNote(d.clientPnl.reduce((s, c) => s + c.unpriced, 0), 'line')}
                         </span>
                       )}
@@ -690,7 +690,7 @@ export default async function PnlPage() {
                     <td colSpan={3}></td>
                     <td className="pt-3 text-right text-[#3A4658] text-sm">{fmtOrDash(d.totalRevenue)}</td>
                     <td className="pt-3 text-right text-[#3A4658] text-sm">{fmtOrDash(d.totalCost)}</td>
-                    <td className={`pt-3 text-right text-sm font-bold ${d.totalProfit === null ? 'text-[#6B7A8D]' : d.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(d.totalProfit)}</td>
+                    <td className={`pt-3 text-right text-sm font-bold ${d.totalProfit === null ? 'text-[#6B7A8D]' : d.totalProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>{fmtOrDash(d.totalProfit)}</td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -713,13 +713,13 @@ export default async function PnlPage() {
               because a payout total that silently omits a row is money owed to
               a partner that nobody is tracking. */}
           {d.unmeasuredPayouts > 0 && (
-            <p className="mb-3 text-xs text-red-300">
+            <p className="mb-3 text-xs text-red-700">
               ⚠ {d.unmeasuredPayouts} payout{d.unmeasuredPayouts === 1 ? '' : 's'} have an unreadable amount and are
               excluded from both totals here.
             </p>
           )}
           {d.payouts.length === 0
-            ? <p className="text-[#6B7A8D] text-sm">No referral payouts recorded. Every payout is held at <span className="text-yellow-400">pending</span> until you approve it.</p>
+            ? <p className="text-[#6B7A8D] text-sm">No referral payouts recorded. Every payout is held at <span className="text-amber-700">pending</span> until you approve it.</p>
             : (
               <table className="w-full text-sm">
                 <thead>
@@ -739,7 +739,7 @@ export default async function PnlPage() {
                       <td className="py-2 pr-3 text-[#4B4F58]">{p.period ?? '—'}</td>
                       <td className="py-2 pr-3 text-right text-[#3A4658]">{formatPrice(p.amount)}</td>
                       <td className="py-2 text-right">
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${p.status === 'paid' ? 'bg-green-900/50 text-green-400' : p.status === 'approved' ? 'bg-[#1A73E8]/15 text-[#1A73E8]' : 'bg-yellow-900/40 text-yellow-400'}`}>{p.status}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-xs ${p.status === 'paid' ? 'bg-emerald-50 text-emerald-700' : p.status === 'approved' ? 'bg-[#1A73E8]/15 text-[#1A73E8]' : 'bg-amber-50 text-amber-700'}`}>{p.status}</span>
                       </td>
                     </tr>
                   ))}
@@ -804,8 +804,8 @@ export default async function PnlPage() {
 
 function StatCard({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   const colors: Record<string, string> = {
-    red: 'border-red-800/50 bg-red-950/40',
-    green: 'border-green-800/50 bg-green-950/40',
+    red: 'border-red-200 bg-red-50',
+    green: 'border-emerald-200 bg-emerald-50',
     blue: 'border-[#1A73E8]/20 bg-[#1A73E8]/5',
     gray: 'border-[#E2E8F0] bg-white',
     // The same neutral as `gray`, under its own name, so that a card reading

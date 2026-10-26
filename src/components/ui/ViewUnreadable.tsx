@@ -16,12 +16,12 @@
  */
 export function ViewUnreadable({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-red-800/50 bg-red-950/20 p-3">
-      <p className="text-sm font-medium text-red-300">
+    <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+      <p className="text-sm font-medium text-red-700">
         Could not read this, so nothing is shown for it. This is not an absence
         of data — it is an absence of an answer.
       </p>
-      <p className="mt-1 font-mono text-xs text-red-400">{message}</p>
+      <p className="mt-1 font-mono text-xs text-red-700">{message}</p>
     </div>
   )
 }

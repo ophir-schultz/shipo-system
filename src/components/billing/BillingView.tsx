@@ -313,11 +313,11 @@ export default function BillingView({ data }: { data: BillingData }) {
           something to say. */}
       {client && billable.unpriced > 0 && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4">
-          <p className="font-semibold text-amber-300">
+          <p className="font-semibold text-amber-700">
             ⚠ Not ready to bill — {billable.unpriced} of {billable.counted} line
             {billable.counted === 1 ? '' : 's'} has no price
           </p>
-          <p className="mt-1 text-sm text-amber-200/80">
+          <p className="mt-1 text-sm text-amber-700">
             No rate card covers {billable.unpriced === 1 ? 'it' : 'them'}, so{' '}
             {billable.unpriced === 1 ? 'it is' : 'they are'} missing from
             &ldquo;Total to Bill&rdquo; below. Price {billable.unpriced === 1 ? 'it' : 'them'} and
@@ -376,7 +376,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                 color={known.profit === null ? 'gray' : profitPositive ? 'green' : 'red'} />
             </div>
             {marginNote && (
-              <p className="px-5 py-2 text-xs text-amber-400 border-b border-[#E2E8F0]">⚠ {marginNote}</p>
+              <p className="px-5 py-2 text-xs text-amber-700 border-b border-[#E2E8F0]">⚠ {marginNote}</p>
             )}
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
@@ -394,18 +394,18 @@ export default function BillingView({ data }: { data: BillingData }) {
                   {shipments.length === 0
                     ? <tr><td colSpan={6} className="px-5 py-10 text-center text-[#6B7A8D]">No shipments in this period</td></tr>
                     : shipments.map(s => (
-                      <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
+                      <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                         <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                         <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
                         <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                         <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
-                        <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400 font-semibold'}`}
+                        <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-700 font-semibold'}`}
                             title={isPriced(s.client_rate) ? undefined : 'No rate-card rate covers this shipment — it is NOT in the total to bill'}>
                           {formatPrice(s.client_rate)}
                         </td>
                         <td className={`px-4 py-2.5 text-right font-semibold ${
                           !isPriced(s.profit_loss) ? 'text-[#6B7A8D]'
-                            : s.is_loss ? 'text-red-400' : 'text-green-400'
+                            : s.is_loss ? 'text-red-700' : 'text-emerald-700'
                         }`}>
                           {formatSignedPrice(s.profit_loss)}
                         </td>
@@ -445,7 +445,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                         <td className="px-4 py-2.5 text-[#3A4658] capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                         <td className="px-4 py-2.5 text-right">{w.quantity}</td>
                         <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(w.rate)}</td>
-                        <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-green-400' : 'text-amber-400'}`}
+                        <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-emerald-700' : 'text-amber-700'}`}
                             title={isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day — it is NOT in the total to bill'}>
                           {formatPrice(w.total)}
                         </td>
@@ -484,11 +484,11 @@ export default function BillingView({ data }: { data: BillingData }) {
                         <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{a.order_number}</td>
                         <td className="px-4 py-2.5 text-[#3A4658] text-xs">{a.reason ?? 'Carrier reweigh'}</td>
                         <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-orange-400">{formatSignedPrice(a.adjustment_amount)}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-amber-700">{formatSignedPrice(a.adjustment_amount)}</td>
                         <td className="px-4 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            a.status === 'pending' ? 'bg-orange-900/60 text-orange-300' :
-                            a.status === 'charged' ? 'bg-green-900/60 text-green-300' :
+                            a.status === 'pending' ? 'bg-amber-50 text-amber-700' :
+                            a.status === 'charged' ? 'bg-emerald-50 text-emerald-700' :
                             'bg-[#EEF3FA] text-[#4B4F58]'
                           }`}>{a.status}</span>
                         </td>
@@ -533,7 +533,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                         <td className="px-4 py-2.5 text-right font-bold">{formatPrice(b.grand_total)}</td>
                         <td className="px-4 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            b.status === 'paid' ? 'bg-green-900/60 text-green-300' :
+                            b.status === 'paid' ? 'bg-emerald-50 text-emerald-700' :
                             b.status === 'sent' ? 'bg-[#1A73E8]/10 text-[#1A73E8]' :
                             'bg-[#EEF3FA] text-[#4B4F58]'
                           }`}>{b.status}</span>
@@ -553,13 +553,13 @@ export default function BillingView({ data }: { data: BillingData }) {
 function SummaryCard({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   const colors: Record<string, string> = {
     blue: 'border-[#1A73E8]/30 bg-[#1A73E8]/5',
-    green: 'border-green-700/40 bg-green-950/30',
-    red: 'border-red-700/40 bg-red-950/30',
-    orange: 'border-orange-700/40 bg-orange-950/30',
+    green: 'border-emerald-200 bg-emerald-50',
+    red: 'border-red-200 bg-red-50',
+    orange: 'border-amber-200 bg-amber-50',
     gray: 'border-[#E2E8F0] bg-white',
   }
   const textColors: Record<string, string> = {
-    blue: 'text-[#1A73E8]', green: 'text-green-400', red: 'text-red-400', orange: 'text-orange-400', gray: 'text-[#0B1220]',
+    blue: 'text-[#1A73E8]', green: 'text-emerald-700', red: 'text-red-700', orange: 'text-amber-700', gray: 'text-[#0B1220]',
   }
   return (
     <div className={`rounded-xl p-4 border ${colors[color]}`}>
@@ -581,8 +581,8 @@ function Stat({ label, value, note, color }: { label: string; value: string | nu
           should not be styled like one that was measured, and it must not
           borrow green or red either. Same rule as the 'unknown' StatCard on
           /losses. */}
-      <p className={`font-bold text-lg ${color === 'green' ? 'text-green-400' : color === 'red' ? 'text-red-400' : color === 'orange' ? 'text-orange-400' : color === 'gray' ? 'text-[#4B4F58]' : 'text-[#0B1220]'}`}>{value}</p>
-      {note && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {note}</p>}
+      <p className={`font-bold text-lg ${color === 'green' ? 'text-emerald-700' : color === 'red' ? 'text-red-700' : color === 'orange' ? 'text-amber-700' : color === 'gray' ? 'text-[#4B4F58]' : 'text-[#0B1220]'}`}>{value}</p>
+      {note && <p className="text-[11px] text-amber-700 mt-0.5">⚠ {note}</p>}
     </div>
   )
 }

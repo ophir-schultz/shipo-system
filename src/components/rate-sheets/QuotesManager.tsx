@@ -221,7 +221,7 @@ export default function QuotesManager({
           />
         </label>
 
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-red-700">{error}</p>}
 
         <button
           type="submit"
@@ -254,10 +254,10 @@ export default function QuotesManager({
                 <span
                   className={`text-xs rounded-full px-2 py-0.5 ${
                     sheet.status === 'sent'
-                      ? 'bg-sky-950 text-sky-300'
+                      ? 'bg-blue-50 text-blue-700'
                       : sheet.status === 'expired'
                         ? 'bg-white text-[#4B4F58]'
-                        : 'bg-amber-950 text-amber-300'
+                        : 'bg-amber-50 text-amber-700'
                   }`}
                 >
                   {sheet.status}

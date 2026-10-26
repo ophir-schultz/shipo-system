@@ -207,7 +207,7 @@ export default async function StatementsPage(
       </form>
 
       {grainNote !== '' && (
-        <p className="rounded-xl border border-amber-700/50 bg-amber-950/30 p-4 text-sm text-amber-300">
+        <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
           {grainNote}
         </p>
       )}
@@ -310,7 +310,7 @@ function StatementTable(
                   key={`${line.charge_type}\u0000${line.label}`}
                   className="border-b border-slate-800 hover:bg-white/5"
                 >
-                  <td className="py-2.5 pr-3 font-mono text-xs text-sky-300">{line.charge_type}</td>
+                  <td className="py-2.5 pr-3 font-mono text-xs text-blue-700">{line.charge_type}</td>
                   <td className="py-2.5 pr-3 text-slate-300">{line.label}</td>
                   <td className="py-2.5 pr-3 text-right"><Units quantity={line.quantity} /></td>
                   <td className="py-2.5 pr-3 text-right font-mono text-xs text-slate-400">
@@ -344,7 +344,7 @@ function StatementTable(
       {/* The caveats. Each renders only when it has something to say, so none of
           them is the permanent all-clear that teaches a reader to skip the box. */}
       {(coverage !== '' || unpriced !== '' || estimated !== '') && (
-        <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-400/90">
+        <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-700">
           {coverage !== '' && <li>{coverage}</li>}
           {unpriced !== '' && <li>{unpriced} — billed at cost, awaiting the carrier.</li>}
           {estimated !== '' && <li>{estimated}.</li>}

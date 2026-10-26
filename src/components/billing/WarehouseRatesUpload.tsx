@@ -231,12 +231,12 @@ export default function WarehouseRatesUpload(
                     here rather than in a toast because the operator has to
                     decide whether the spreadsheet named the wrong service. */}
                 <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg p-4 mb-4">
-                  <p className="text-amber-300 text-sm font-medium mb-2">
+                  <p className="text-amber-700 text-sm font-medium mb-2">
                     {saved.warnings.length} rate(s) will never be billed from
                   </p>
                   <ul className="space-y-2">
                     {saved.warnings.map((w, i) => (
-                      <li key={i} className="text-amber-200/90 text-sm">• {w}</li>
+                      <li key={i} className="text-amber-700 text-sm">• {w}</li>
                     ))}
                   </ul>
                 </div>
@@ -287,7 +287,7 @@ export default function WarehouseRatesUpload(
                     >
                       {UNITS.map(u => <option key={u} value={u}>{u.replace(/_/g, ' ')}</option>)}
                     </select>
-                    <button onClick={() => removeRow(i)} className="text-[#6B7A8D] hover:text-red-400 px-2">✕</button>
+                    <button onClick={() => removeRow(i)} className="text-[#6B7A8D] hover:text-red-700 px-2">✕</button>
                   </div>
                 </div>
               ))}
@@ -300,16 +300,16 @@ export default function WarehouseRatesUpload(
                 and the only moment that is still fixable is this one. */}
             {dropped.length > 0 && (
               <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg p-3 mb-3">
-                <p className="text-amber-300 text-sm font-medium mb-1">
+                <p className="text-amber-700 text-sm font-medium mb-1">
                   Saving now will remove {dropped.length} existing rate(s)
                 </p>
-                <p className="text-amber-200/80 text-xs">
+                <p className="text-amber-700 text-xs">
                   {dropped.map(s => s.replace(/_/g, ' ')).join(', ')}
                 </p>
               </div>
             )}
 
-            {error && <p className="text-red-400 text-sm mb-3 whitespace-pre-wrap">{error}</p>}
+            {error && <p className="text-red-700 text-sm mb-3 whitespace-pre-wrap">{error}</p>}
             <div className="flex gap-3">
               <button onClick={closeModal} className="flex-1 bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] py-2 rounded-lg text-sm transition">Cancel</button>
               <button onClick={handleSave} disabled={loading} className="flex-1 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-medium transition" style={{ background: '#1A73E8' }}>

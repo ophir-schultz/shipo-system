@@ -4,10 +4,10 @@ import { useState } from 'react'
 import { showError, showSuccess } from '@/components/ui/Toast'
 
 const colors: Record<string, string> = {
-  blue: 'border-blue-700 bg-blue-950/30',
-  green: 'border-green-700 bg-green-950/30',
-  red: 'border-red-700 bg-red-950/30',
-  yellow: 'border-yellow-700 bg-yellow-950/30',
+  blue: 'border-blue-200 bg-blue-50',
+  green: 'border-emerald-200 bg-emerald-50',
+  red: 'border-red-200 bg-red-50',
+  yellow: 'border-amber-200 bg-amber-50',
   purple: 'border-purple-700 bg-purple-950/30',
   gray: 'border-[#E2E8F0] bg-white',
 }

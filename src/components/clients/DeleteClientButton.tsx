@@ -19,7 +19,7 @@ export default function DeleteClientButton({ clientId, clientName }: { clientId:
     <>
       <button
         onClick={() => setConfirm(true)}
-        className="bg-red-900 hover:bg-red-800 text-red-300 px-4 py-2 rounded-lg text-sm font-medium transition"
+        className="bg-red-50 hover:bg-red-800 text-red-700 px-4 py-2 rounded-lg text-sm font-medium transition"
       >
         Delete Client
       </button>

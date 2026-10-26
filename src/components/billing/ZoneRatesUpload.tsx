@@ -139,7 +139,7 @@ export default function ZoneRatesUpload({ clientId }: { clientId: string }) {
         Upload Zone Matrix
       </button>
 
-      {error && !cells.length && <p className="w-full text-red-400 text-sm mt-1">{error}</p>}
+      {error && !cells.length && <p className="w-full text-red-700 text-sm mt-1">{error}</p>}
 
       {cells.length > 0 && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
@@ -177,7 +177,7 @@ export default function ZoneRatesUpload({ clientId }: { clientId: string }) {
                     <tr key={w} className="border-b border-[#E2E8F0]/40">
                       <td className="p-2 text-[#3A4658] sticky left-0 bg-white">{w}</td>
                       {zones.map(z => (
-                        <td key={z} className="p-2 text-right text-green-400">
+                        <td key={z} className="p-2 text-right text-emerald-700">
                           {grid.rows[w]?.[z] != null ? `$${grid.rows[w][z].toFixed(2)}` : '—'}
                         </td>
                       ))}
@@ -187,7 +187,7 @@ export default function ZoneRatesUpload({ clientId }: { clientId: string }) {
               </table>
             </div>
 
-            {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+            {error && <p className="text-red-700 text-sm mb-3">{error}</p>}
             <div className="flex gap-3">
               <button
                 onClick={() => { setCells([]); if (fileRef.current) fileRef.current.value = '' }}
