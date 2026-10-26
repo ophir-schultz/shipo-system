@@ -264,8 +264,24 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
         are or what period they cover. This puts the scope in the document
         instead. See src/lib/billing/report-heading.ts.
       */}
-      <div className="print-only" style={{ marginBottom: '12px' }}>
-        <h1 style={{ fontSize: '16pt', fontWeight: 700 }}>{printHeading.title}</h1>
+      <div className="print-only print-brand-rule"
+        style={{ marginBottom: '14px', paddingBottom: '10px' }}>
+        {/*
+          A plain <img>, not next/image. next/image lazy-loads and rewrites
+          the src through the optimiser; at print time a logo that has not
+          finished loading is a blank space at the top of a client-facing
+          document, and the optimiser adds nothing for a 600-byte SVG.
+
+          shipo-logo-print.svg, not shipo-logo.svg: the original is WHITE
+          lettering drawn for the sidebar's blue panel, so on paper it
+          renders as nothing.
+        */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/shipo-logo-print.svg" alt="Shipo" className="print-brand-mark" />
+        <h1 className="print-brand-title"
+          style={{ fontSize: '16pt', fontWeight: 700, marginTop: '6px' }}>
+          {printHeading.title}
+        </h1>
         <p style={{ fontSize: '11pt' }}>{printHeading.scope}</p>
         <p style={{ fontSize: '11pt' }}>{printHeading.period}</p>
         <p style={{ fontSize: '9pt' }}>{printHeading.generated}</p>
