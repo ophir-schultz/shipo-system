@@ -1,5 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { fetchAllPages } from '@/lib/ledger/load-charge-inputs'
+// readAllPages rather than fetchAllPages for the one read below that keeps its
+// own error branch: fetchAllPages throws, and the caller there turns the error
+// into a message naming the statement it failed.
+import { readAllPages } from '@/lib/db/page'
 import { buildStorageCharges, type StorageCharge } from '@/lib/ledger/storage-charges'
 import type { RateCardLine } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
@@ -279,7 +283,15 @@ export async function persistStorageCharges(): Promise<StorageResult> {
       // sweep below needs to see rows that are no longer being written, and a
       // `.in('charge_key', keys)` filter can by construction never return one.
       const prefix = `storage:${m.period_month}:`
-      const { data: existing, error: selErr } = await supabaseAdmin
+      // PAGED, like every other read in this file. The stale sweep below is
+      // what makes the cap dangerous here rather than merely incomplete: a row
+      // this read does not see is a row the sweep cannot delete, so a
+      // truncated page leaves superseded storage charges standing on the
+      // client's statement -- an over-bill, produced by a read that returned
+      // 200 and no error. PostgREST caps at `db-max-rows` and says nothing.
+      const { data: existing, error: selErr } = await readAllPages<
+        { id: string; charge_key: string }
+      >((from, to) => supabaseAdmin
         .from('order_charges')
         .select('id, charge_key')
         .eq('client_id', m.client_id)
@@ -289,6 +301,8 @@ export async function persistStorageCharges(): Promise<StorageResult> {
         // happened to share a key.
         .is('order_id', null)
         .like('charge_key', `${prefix}%`)
+        .order('id')
+        .range(from, to))
       if (selErr) throw new Error(`storage select: ${selErr.message}`, { cause: selErr })
 
       const existingByKey = new Map<string, string>()
@@ -401,6 +415,12 @@ export async function persistStorageCharges(): Promise<StorageResult> {
           .like('charge_key', 'storage:%')
           .gte('charge_date', windowStart)
           .lte('charge_date', windowEnd)
+          // UNIQUE SORT: (client_id, charge_key) is unique across these rows
+          // under the partial unique index on order_charges where order_id is
+          // null -- the same predicate as `.is('order_id', null)` above. So
+          // the sort is already total, and two OFFSET pages cannot repeat a
+          // row or skip one. That is the only thing a primary-key tiebreaker
+          // would add here, so there is nothing for one to do.
           .order('client_id', { ascending: true })
           .order('charge_key', { ascending: true })
           .range(from, to)

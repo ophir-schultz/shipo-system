@@ -10,6 +10,7 @@ import OriginZipEditor from '@/components/clients/OriginZipEditor'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
 import { rateCellLabel } from '@/lib/billing/warehouse-rate-card'
 import { read, readOne } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 
 // Every getter on this page used to end `return data ?? []` and drop the error
 // on the floor. That turns one bad second against the database into three
@@ -58,11 +59,22 @@ async function getWarehouseRates(clientId: string) {
 }
 
 async function getZoneRates(clientId: string) {
-  return read('client_zone_rates', await supabaseAdmin
-    .from('client_zone_rates')
-    .select('*')
-    .eq('client_id', clientId)
-    .order('weight_lb'))
+  // PAGED. Orcam's matrix is 1600 cells; PostgREST caps a select at
+  // `db-max-rows` (1000) and reports the cap nowhere, so this page rendered
+  // two thirds of a rate card as though it were the whole card -- on the one
+  // screen you open to ask "is this weight in the agreement?". Everything past
+  // the cap was simply absent, and absent is exactly how a missing band looks.
+  //
+  // `.order('id')` after weight_lb keeps the display order and gives the pager
+  // the unique final sort key its contract requires: without one, two OFFSET
+  // queries can return the same cell twice and skip another.
+  return read('client_zone_rates', await readAllPages<Record<string, unknown>>(
+    (from, to) => supabaseAdmin
+      .from('client_zone_rates')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('weight_lb').order('id')
+      .range(from, to)))
 }
 
 type ZoneMatrix = {
