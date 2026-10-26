@@ -214,10 +214,15 @@ export const PARTNER_WEBHOOK_PATH = '/api/partner/agreement-webhook'
  * WHY THIS IS A FUNCTION AND NOT A STRING EACH CALLER WRITES. Two callers
  * need it — scripts/prep-agreement-envelope.mts and the W-9 sign route —
  * and a path written twice is a path that can be renamed once. The half
- * that got missed would go on building envelopes whose completions POST to
- * a 404, which is the same invisible failure as shipping no
- * eventNotification at all: the envelope sends, the partner signs,
- * DocuSign says Completed, and nothing is ever stamped.
+ * that got missed would go on pointing completions at a 404: the envelope
+ * sends, the partner signs, DocuSign says Completed, and nothing is ever
+ * stamped.
+ *
+ * NOTE: the envelope builders no longer consume this. The webhook URL now
+ * lives on account-level Connect configuration 21777111, because only an
+ * account-level configuration can be HMAC-signed. This is kept for the
+ * callers that still compose the URL for their own configuration and
+ * logging.
  *
  * TAKES THE ORIGIN, DOES NOT READ IT. The callers differ on where the
  * origin comes from and on what to do when it is missing, and that is
@@ -225,9 +230,9 @@ export const PARTNER_WEBHOOK_PATH = '/api/partner/agreement-webhook'
  * trailing slash a human copying out of a browser address bar will bring
  * with them, which would otherwise produce a `//` path that Next 404s on.
  *
- * Scheme is NOT checked here. Both builders refuse a non-https webhookUrl
- * themselves, which is the check that matters because it also covers a
- * caller who never came through this function.
+ * Scheme is NOT checked here, and no longer anywhere else either: the
+ * builders that used to refuse a non-https URL no longer take one. The
+ * Connect configuration itself requires HTTPS.
  */
 export function partnerWebhookUrl(siteOrigin: string): string {
   const origin = siteOrigin?.trim().replace(/\/+$/, '')
@@ -241,20 +246,6 @@ export interface BuildEnvelopeInput {
   partner: EnvelopePartner
   /** Whoever signs for Shipo. Routing order 1 — they sign first. */
   shipo: EnvelopeSigner
-  /**
-   * Absolute HTTPS URL DocuSign POSTs envelope events to. Required —
-   * if omitted, the envelope ships without an `eventNotification` and
-   * the partner-promotion webhook (`/api/partner/agreement-webhook`)
-   * never fires on completion, which looks healthy from the sender's
-   * side and silently never promotes anyone. Pattern:
-   * `${NEXT_PUBLIC_SITE_URL}/api/partner/agreement-webhook`. HMAC-signed
-   * by DocuSign using the account-level HMAC key (one key is enough;
-   * configured once at Admin → Connect → Connect Keys, verified in the
-   * route against DOCUSIGN_CONNECT_SECRET). There is no per-envelope
-   * HMAC key — this field only names WHERE events go, not how they are
-   * signed.
-   */
-  webhookUrl: string
 }
 
 /**
@@ -544,21 +535,22 @@ export function w9PartnerTabs() {
  * not drag the agreement's confidential commission terms along with it.
  */
 export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
-  const { partner, shipo, webhookUrl } = input
+  const { partner, shipo } = input
 
   if (!partner.id) throw new Error('buildPartnerAgreementEnvelope: partner.id is required')
   if (!partner.name?.trim()) throw new Error('buildPartnerAgreementEnvelope: partner.name is required')
   if (!partner.email?.trim()) throw new Error('buildPartnerAgreementEnvelope: partner.email is required')
 
-  // webhookUrl is required at the type level and asserted at runtime
-  // because a quietly-missing eventNotification would ship — the
-  // envelope sends, DocuSign silently has nowhere to deliver completion
-  // events, and the partner would stay 'pending' forever. HTTPS is
-  // enforced because DocuSign refuses to deliver to plain HTTP.
-  if (!webhookUrl?.trim()) throw new Error('buildPartnerAgreementEnvelope: webhookUrl is required')
-  if (!/^https:\/\//.test(webhookUrl)) {
-    throw new Error('buildPartnerAgreementEnvelope: webhookUrl must be https://')
-  }
+  // THIS ENVELOPE CARRIES NO eventNotification, AND MUST NOT.
+  // DocuSign HMAC-signs only ACCOUNT-LEVEL Connect configurations, so a
+  // per-envelope notification arrives unsigned and the webhook route —
+  // which requires a signature — answers 401 to every one. That is what
+  // locked Jimi Maciel out for three days after he signed. Promotion now
+  // runs through account-level configuration 21777111 (REST v2.1, HMAC
+  // on, Custom Fields + Recipients included), which covers every
+  // envelope this account sends. Re-adding a block here would make each
+  // event fire twice: once as signed JSON that works, once as unsigned
+  // XML that 401s forever.
 
   // US PERSONS ONLY, AND THE CHECK IS HERE RATHER THAN AT THE CALL SITE
   // (spec §2a.7). The guard stays on this builder even though the W-9 is
@@ -619,16 +611,6 @@ export function buildPartnerAgreementEnvelope(input: BuildEnvelopeInput) {
     // visible under Connect → Logs when debugging a stuck envelope.
     // `requireAcknowledgment: 'true'` makes DocuSign retry on a 5xx —
     // without it, a transient outage silently loses the completion.
-    eventNotification: {
-      url: webhookUrl,
-      loggingEnabled: 'true',
-      requireAcknowledgment: 'true',
-      envelopeEvents: [
-        { envelopeEventStatusCode: 'completed' },
-        { envelopeEventStatusCode: 'declined' },
-        { envelopeEventStatusCode: 'voided' },
-      ],
-    },
 
     customFields: {
       textCustomFields: [
@@ -701,30 +683,6 @@ export interface BuildW9EnvelopeInput {
    * row id — stable, and already what the webhook resolves on.
    */
   clientUserId: string
-  /**
-   * Where DocuSign POSTs this envelope's completion — the same
-   * /api/partner/agreement-webhook the agreement uses, because
-   * completedEnvelopeStamp tells the two apart by ENVELOPE_KIND_FIELD.
-   *
-   * REQUIRED, AND THAT IS THE WHOLE POINT. An envelope with no
-   * eventNotification is valid DocuSign: it sends, the partner signs, the
-   * accountant gets his copy, DocuSign shows Completed. Nothing anywhere
-   * looks wrong — except /referrals, which goes on reading "no W-9 on file"
-   * about a W-9 that exists, and the remedy a human reaches for is to ask
-   * the partner to sign it a second time.
-   *
-   * That is not hypothetical. On 2026-10-20 the AGREEMENT envelope was
-   * found shipping without one; the route, the HMAC verifier and the
-   * three-signature-header loop had all existed since 2026-10-12 with
-   * nowhere to deliver to, under 38 green tests, because not one of them
-   * asserted that the field was PRESENT. Defaulting here would reproduce
-   * that exactly, so the builder refuses instead.
-   *
-   * Threaded in rather than read from env, so a script pointed at
-   * localhost cannot fire the live webhook — and this envelope's webhook
-   * WRITES to a partner row.
-   */
-  webhookUrl: string
 }
 
 /**
@@ -754,7 +712,7 @@ export interface BuildW9EnvelopeInput {
  * click nobody is waiting for.
  */
 export function buildW9Envelope(input: BuildW9EnvelopeInput) {
-  const { partner, w9DocumentBase64, accountantEmail, accountantName, clientUserId, webhookUrl } =
+  const { partner, w9DocumentBase64, accountantEmail, accountantName, clientUserId } =
     input
 
   if (!partner.id) throw new Error('buildW9Envelope: partner.id is required')
@@ -785,16 +743,9 @@ export function buildW9Envelope(input: BuildW9EnvelopeInput) {
   // not.
   if (!clientUserId?.trim()) throw new Error('buildW9Envelope: clientUserId is required')
 
-  // Refuse, never omit. See the webhookUrl JSDoc above: a missing
-  // eventNotification is the one defect on this envelope that produces no
-  // symptom at all until someone asks why a signed W-9 reads as missing.
-  if (!webhookUrl?.trim()) throw new Error('buildW9Envelope: webhookUrl is required')
-  if (!/^https:\/\//.test(webhookUrl)) {
-    // The POST body carries the envelope's custom fields and its signer
-    // list — a partner's name and email in the clear over http, and an HMAC
-    // verified against a body anyone on the path could have rewritten.
-    throw new Error('buildW9Envelope: webhookUrl must be https://')
-  }
+  // No eventNotification here either — same reason as the agreement
+  // builder above. w9_received_at is stamped from the completion event
+  // delivered by account-level configuration 21777111.
 
   return {
     // The partner signs embedded and is never emailed, so this subject has
@@ -879,24 +830,6 @@ export function buildW9Envelope(input: BuildW9EnvelopeInput) {
     // W-9 STILL READS AS MISSING. It is the only thing that tells DocuSign
     // where to report completion, and completion is the only moment
     // w9_received_at can be stamped from.
-    eventNotification: {
-      url: webhookUrl,
-      loggingEnabled: 'true',
-      // Makes DocuSign retry a delivery we did not 2xx. A deploy that lands
-      // in the minute a partner signs would otherwise lose the stamp
-      // silently and permanently.
-      requireAcknowledgment: 'true',
-      envelopeEvents: [
-        { envelopeEventStatusCode: 'completed' },
-        // Declined and voided as well, for the same reason the agreement
-        // subscribes to them: the route already branches on all three, and
-        // subscribing to fewer events than the code handles leaves a
-        // partner who declined his W-9 looking like one still thinking
-        // about it.
-        { envelopeEventStatusCode: 'declined' },
-        { envelopeEventStatusCode: 'voided' },
-      ],
-    },
   }
 }
 

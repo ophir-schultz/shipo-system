@@ -98,7 +98,6 @@ export async function POST(req: Request) {
       // Composed, never written out here: the path literal lives in
       // partnerWebhookUrl so it cannot be renamed in one of its two
       // callers. Non-null past the ladder above.
-      webhookUrl: partnerWebhookUrl(siteOrigin!),
     })
   } catch (e) {
     // The builder throws for a partner the IRS wants a different form

@@ -53,7 +53,7 @@ const WEBHOOK_URL = 'https://shipousa.com/api/partner/agreement-webhook'
 const W9_WEBHOOK_URL = WEBHOOK_URL
 
 function build() {
-  return buildPartnerAgreementEnvelope({ partner, shipo, webhookUrl: WEBHOOK_URL })
+  return buildPartnerAgreementEnvelope({ partner, shipo })
 }
 
 // The W-9-only envelope (spec §2a). The partner signs this one from his
@@ -66,7 +66,6 @@ const w9Input: BuildW9EnvelopeInput = {
   accountantEmail: 'accountant@example.com',
   accountantName: 'Test Accountant',
   clientUserId: 'p1',
-  webhookUrl: W9_WEBHOOK_URL,
 }
 
 // Narrow helpers, so a change in the payload's shape fails here rather
@@ -442,7 +441,6 @@ describe('refusals', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, id: '' },
         shipo,
-        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/partner.id/)
   })
@@ -452,7 +450,6 @@ describe('refusals', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, email: '' },
         shipo,
-        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/email/)
   })
@@ -462,32 +459,11 @@ describe('refusals', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, name: '  ' },
         shipo,
-        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/name/)
   })
 
-  it('will not build an envelope with no webhookUrl', () => {
-    // Without eventNotification, the envelope completes without
-    // notifying the app — the partner stays 'pending' forever. We refuse
-    // rather than silently ship a dead-end envelope.
-    expect(() =>
-      buildPartnerAgreementEnvelope({ partner, shipo, webhookUrl: '' }),
-    ).toThrow(/webhookUrl/)
-  })
 
-  it('refuses a plain-http webhookUrl', () => {
-    // DocuSign silently will not deliver to http://; it discards the
-    // event. Catch that at build time rather than at the first signed
-    // envelope none of us watch.
-    expect(() =>
-      buildPartnerAgreementEnvelope({
-        partner,
-        shipo,
-        webhookUrl: 'http://shipousa.com/api/partner/agreement-webhook',
-      }),
-    ).toThrow(/https/)
-  })
 })
 
 // §2a.7, and the spec calls these "the test that matters". A signed W-9
@@ -504,7 +480,6 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: 'foreign_individual' },
         shipo,
-        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/W-8BEN/)
   })
@@ -514,7 +489,6 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: 'foreign_entity' },
         shipo,
-        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/W-8BEN-E/)
   })
@@ -526,7 +500,6 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: null },
         shipo,
-        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/tax status/i)
   })
@@ -539,7 +512,6 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: 'US_PERSON' },
         shipo,
-        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow(/tax status/i)
   })
@@ -552,7 +524,6 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: null },
         shipo,
-        webhookUrl: WEBHOOK_URL,
       }),
     ).toThrow()
   })
@@ -564,41 +535,42 @@ describe('refuses anything but a US person', () => {
       buildPartnerAgreementEnvelope({
         partner: { ...partner, tax_status: 'us_person' },
         shipo,
-        webhookUrl: WEBHOOK_URL,
       }),
     ).not.toThrow()
   })
 })
 
-describe('eventNotification — the webhook that promotes the partner', () => {
-  it('ships the configured webhook URL on every envelope', () => {
-    const env = build() as { eventNotification: { url: string } }
-    // Not a literal — the whole point of threading webhookUrl through
-    // the input is that a test envelope cannot accidentally fire against
-    // production. If this ever hard-codes shipousa.com, the next time
-    // someone runs the script against localhost the webhook will post
-    // to the live site.
-    expect(env.eventNotification.url).toBe(WEBHOOK_URL)
+describe('eventNotification — deliberately absent', () => {
+  // THE ENVELOPE NO LONGER CARRIES ONE, AND THAT IS THE FIX.
+  //
+  // A per-envelope eventNotification cannot be HMAC-signed. DocuSign
+  // applies HMAC only to ACCOUNT-LEVEL Connect configurations — its own
+  // Connect Keys page says so — so every per-envelope delivery arrived
+  // unsigned, and the webhook route, which requires a valid signature,
+  // answered 401 to every one. Jimi Maciel signed on 2026-10-23 and was
+  // locked out for three days because of it. The Connect log recorded
+  // the same line a dozen times: `{ "error": "Invalid signature." }`.
+  //
+  // It was also the wrong FORMAT: a per-envelope notification sends XML,
+  // and the route does JSON.parse. Two faults, one of them hiding the
+  // other.
+  //
+  // Promotion now runs through account-level Connect configuration
+  // 21777111 — REST v2.1, HMAC on, Custom Fields and Recipients
+  // included — which covers every envelope this account sends, whoever
+  // sent it. Verified end to end on 2026-10-26: a fresh envelope was
+  // signed and agreement_status went not_sent -> signed with nobody
+  // touching the database.
+  //
+  // Leaving the per-envelope block in place would mean every event fired
+  // TWICE: once as signed JSON that works, and once as unsigned XML that
+  // 401s forever and fills the Connect log with failures.
+  it('carries no eventNotification on the agreement envelope', () => {
+    expect(build()).not.toHaveProperty('eventNotification')
   })
 
-  it('subscribes to completed, declined, voided — the three the route handles', () => {
-    const env = build() as {
-      eventNotification: { envelopeEvents: Array<{ envelopeEventStatusCode: string }> }
-    }
-    const codes = env.eventNotification.envelopeEvents.map((e) => e.envelopeEventStatusCode)
-    // These are the three branches of the webhook's switch. Add a code
-    // here without a branch there and DocuSign fires events the route
-    // discards — add a branch there without a code here and the route
-    // never hears about the state change.
-    expect(codes).toEqual(expect.arrayContaining(['completed', 'declined', 'voided']))
-  })
-
-  it('requires acknowledgment so a transient 5xx retries', () => {
-    const env = build() as { eventNotification: { requireAcknowledgment: string } }
-    // Without this, one bad deploy during the exact minute a partner
-    // signs quietly loses the promotion. DocuSign keeps the event for
-    // 24h of retries when acknowledgment is required.
-    expect(env.eventNotification.requireAcknowledgment).toBe('true')
+  it('carries no eventNotification on the W-9 envelope', () => {
+    expect(buildW9Envelope(w9Input)).not.toHaveProperty('eventNotification')
   })
 })
 
@@ -727,7 +699,6 @@ describe('the contract prose has no blanks left in it', () => {
     const env = buildPartnerAgreementEnvelope({
       partner: { ...partner, address: '4291 Express Ln, Ste 4995-901, Sarasota, FL 34249, USA' },
       shipo,
-      webhookUrl: WEBHOOK_URL,
     })
     const tab = byAnchor(AGREEMENT_ANCHORS.partnerAddressPrefill, env)
     expect(tab.value).toBe('4291 Express Ln, Ste 4995-901, Sarasota, FL 34249, USA')
@@ -743,7 +714,6 @@ describe('the contract prose has no blanks left in it', () => {
     const env = buildPartnerAgreementEnvelope({
       partner: { ...partner, address: '   ' },
       shipo,
-      webhookUrl: WEBHOOK_URL,
     })
     const tab = byAnchor(AGREEMENT_ANCHORS.partnerAddressPrefill, env)
     expect(tab.value).toBeUndefined()
@@ -940,56 +910,10 @@ describe('buildW9Envelope', () => {
   // is the only thing that distinguishes a filed W-9 from a missing one.
   // =========================================================================
 
-  it('ships an eventNotification, or no completion is ever stamped', () => {
-    const env = buildW9Envelope(w9Input) as { eventNotification?: { url: string } }
-    expect(env.eventNotification).toBeDefined()
-    // Threaded through the input, not a literal. A hardcoded production URL
-    // means the next person who runs a script against localhost fires the
-    // live webhook — and this envelope's webhook WRITES to a partner row.
-    expect(env.eventNotification!.url).toBe(W9_WEBHOOK_URL)
-  })
 
-  it('subscribes to completed — the event w9_received_at hangs off', () => {
-    const env = buildW9Envelope(w9Input) as {
-      eventNotification: { envelopeEvents: Array<{ envelopeEventStatusCode: string }> }
-    }
-    const codes = env.eventNotification.envelopeEvents.map((e) => e.envelopeEventStatusCode)
-    expect(codes).toContain('completed')
-    // Declined and voided too: a partner who declines his W-9 must not read
-    // as one still thinking about it. The route already branches on all
-    // three, so leaving one out subscribes to less than the code handles.
-    expect(codes).toEqual(expect.arrayContaining(['completed', 'declined', 'voided']))
-  })
 
-  it('requires acknowledgment so a transient 5xx retries', () => {
-    const env = buildW9Envelope(w9Input) as {
-      eventNotification: { requireAcknowledgment: string }
-    }
-    // One bad deploy during the minute a partner signs would otherwise lose
-    // the stamp silently and permanently — DocuSign does not re-send an
-    // unacknowledged event unless asked to.
-    expect(env.eventNotification.requireAcknowledgment).toBe('true')
-  })
 
-  it('will not build without a webhookUrl', () => {
-    // REFUSES rather than omitting. An envelope with no eventNotification is
-    // valid, sends cleanly and completes — the defect is invisible until
-    // someone asks why a signed W-9 reads as missing. The agreement builder
-    // was made to refuse for this reason; so is this one.
-    expect(() => buildW9Envelope({ ...w9Input, webhookUrl: '' })).toThrow(/webhookUrl/)
-    expect(() =>
-      buildW9Envelope({ ...w9Input, webhookUrl: undefined as unknown as string }),
-    ).toThrow(/webhookUrl/)
-  })
 
-  it('refuses a plain-http webhookUrl', () => {
-    // The POST body carries the envelope's custom fields and its signer
-    // list. Over http that is a partner's name and email in the clear, and
-    // an HMAC verified against a body anyone on the path could have rewritten.
-    expect(() =>
-      buildW9Envelope({ ...w9Input, webhookUrl: 'http://shipousa.com/api/partner/agreement-webhook' }),
-    ).toThrow(/https/)
-  })
 
   it('sets the w9 custom field from the shared constants, by name', () => {
     const f = textCustomFieldsOf(buildW9Envelope(w9Input)).find((x) => x.name === W9_CUSTOM_FIELD)

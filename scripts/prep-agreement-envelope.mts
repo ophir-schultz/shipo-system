@@ -159,7 +159,6 @@ try {
       legal_name: legalName,
     },
     shipo: { name: 'Ophir Schultz', email: 'ophir@shipousa.com' },
-    webhookUrl,
   })
 } catch (e) {
   console.error((e as Error).message)

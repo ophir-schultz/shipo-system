@@ -56,7 +56,6 @@ function envelopeWidths(): Record<string, number> {
       address: '1 Example Street, Providence, RI 02903',
     },
     shipo: { name: 'Ophir Schultz', email: 'ophir@shipousa.com' },
-    webhookUrl: 'https://example.com/api/partner/agreement-webhook',
   })
 
   const byAnchor: Record<string, number> = {}
