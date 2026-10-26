@@ -4,6 +4,20 @@ import { sendSignInEmail, SIGN_IN_EMAIL_COLUMNS } from '@/lib/partner-signin-ema
 import { redactForStorage } from '@/lib/docusign-redact'
 import { W9_CUSTOM_FIELD } from '@/lib/partner-w9'
 import { ENVELOPE_KIND_FIELD, completedEnvelopeStamp } from '@/lib/partner-envelope-stamp'
+// DELIBERATELY NOT ADDED TO THE SELECTS IN resolvePartner.
+//
+// sendPartnerGuide skips a partner whose `guide_sent_at` is already
+// set, and the row read here does not carry that column — so the guide
+// is sent on the strength of the idempotency ledger instead, which
+// already refuses a second (envelope, event) pair.
+//
+// That is the lesser evil on purpose. Adding guide_sent_at to
+// resolvePartner's selects would make all three of them fail while the
+// column is absent or PostgREST's schema cache is stale, resolvePartner
+// would return null, and the webhook would stop promoting partners at
+// all. A guide is best-effort; promotion is the thing a partner's
+// access depends on. The guide must never be able to break it.
+import { sendPartnerGuide } from '@/lib/partner-guide-send'
 
 // ============================================================
 // DocuSign Connect listener — the step that makes onboarding
@@ -276,6 +290,31 @@ export async function POST(req: Request) {
         // refused him — contradictory, and the only record of it is this
         // line. sendSignInEmail logs the detail; this names the path.
         console.error('[agreement-webhook] sign-in email not sent:', invite.reason)
+      }
+
+      // AFTER the credential, never before. The sign-in email is the
+      // useful one — it is a way in. This one explains what that way in
+      // leads to, and asks for the single thing only the partner can
+      // supply: which clients are his. Reversed, he reads about a
+      // dashboard he cannot yet open.
+      //
+      // Also best-effort, and for a sharper reason than the invite: by
+      // this line the partner is already stamped signed and already
+      // mailed a credential. A throw here would become a 500, DocuSign
+      // would retry the whole envelope, and the retry would land on a
+      // partner who is active — so a missing guide would escalate into
+      // a contradictory second pass. A partner who never gets the guide
+      // still has a working portal; one caught in a retry loop may not.
+      //
+      // No origin is passed, by design. See partner-guide-send.ts.
+      const guide = await sendPartnerGuide(partner)
+      if (!guide.sent) {
+        console.error('[agreement-webhook] portal guide not sent:', guide.reason)
+      } else if (guide.reason) {
+        // sent === true WITH a reason means the mail went and the
+        // "already sent" stamp did not. Loud, because the next run of
+        // scripts/send-partner-guide.mts will mail him a second copy.
+        console.error('[agreement-webhook] portal guide:', guide.reason)
       }
     }
 

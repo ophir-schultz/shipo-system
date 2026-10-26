@@ -28,7 +28,7 @@ import { createClient } from '@supabase/supabase-js'
 import { buildPartnerGuideEmail, type GuideCandidate } from '../src/lib/partner-guide-email'
 import { portalAccessBlockedReason } from '../src/lib/partner-access'
 import { signInLinkOrigin } from '../src/lib/partner-login-issue'
-import { sendEmail } from '../src/lib/email'
+import { sendPartnerGuide } from '../src/lib/partner-guide-send'
 
 const SEND = process.argv.includes('--send')
 
@@ -104,39 +104,29 @@ for (const row of rows) {
     continue
   }
 
-  const result = await sendEmail({
-    to: row.email!,
-    subject: mail.subject,
-    html: mail.html,
-    text: mail.text,
-    // The footer tells them to reply; From is a shared env var that
-    // defaults to security@. Without this the two disagree.
-    replyTo: 'Support@shipousa.com',
-  })
+  // The SAME function the completion webhook calls. Not a second copy
+  // of send-then-stamp: two copies would be two slightly different
+  // emails depending on whether a partner signed before or after this
+  // script existed, which is exactly the drift partner-signin-email.ts
+  // was consolidated to prevent.
+  const result = await sendPartnerGuide(row)
 
   if (!result.sent) {
-    console.log(`FAILED      ${label} — ${result.error ?? 'no reason given'} (${result.provider})`)
+    console.log(`FAILED      ${label} — ${result.reason ?? 'no reason given'}`)
     failed++
     continue
   }
 
-  // Stamp only AFTER the provider accepted it. Stamping first would
-  // mark a partner as told on a send that never left.
-  const { error: stampError } = await db
-    .from('referral_partners')
-    .update({ guide_sent_at: new Date().toISOString() })
-    .eq('id', row.id)
-
-  if (stampError) {
-    // Loud, because the mail DID go and the record did not. The next
-    // run would send it again.
-    console.log(`SENT, NOT RECORDED  ${label} — ${stampError.message}`)
+  if (result.reason) {
+    // sent AND a reason: the mail went, the stamp did not. Loud,
+    // because the next run would mail this partner a second copy.
+    console.log(`SENT, NOT RECORDED  ${label} — ${result.reason}`)
     console.log('            Set guide_sent_at by hand or this partner gets a second copy.')
     failed++
     continue
   }
 
-  console.log(`SENT        ${label} (${result.provider})`)
+  console.log(`SENT        ${label}`)
   sent++
 }
 
