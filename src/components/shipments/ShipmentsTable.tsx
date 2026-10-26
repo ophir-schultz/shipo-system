@@ -118,7 +118,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
   return (
     <div className="space-y-4">
       {/* Filter bar */}
-      <div className="bg-gray-800 rounded-xl p-4 space-y-3">
+      <div className="bg-white rounded-xl p-4 space-y-3">
         {/* Quick date ranges */}
         <div className="flex flex-wrap gap-2">
           {QUICK_RANGES.map(r => (
@@ -126,9 +126,9 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
               key={r.label}
               onClick={() => applyQuick(r.label, r.days)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                activeQuick === r.label ? 'text-white' : 'bg-gray-700 text-gray-400 hover:text-white'
+                activeQuick === r.label ? 'text-[#0B1220]' : 'bg-[#EEF3FA] text-[#4B4F58] hover:text-[#0B1220]'
               }`}
-              style={activeQuick === r.label ? { background: '#00AAFF' } : {}}
+              style={activeQuick === r.label ? { background: '#1A73E8' } : {}}
             >
               {r.label}
             </button>
@@ -138,44 +138,44 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
         {/* Filter inputs */}
         <div className="flex flex-wrap gap-3 items-end">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">From</label>
+            <label className="block text-xs text-[#4B4F58] mb-1">From</label>
             <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setActiveQuick('') }}
-              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]" />
+              className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]" />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">To</label>
+            <label className="block text-xs text-[#4B4F58] mb-1">To</label>
             <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setActiveQuick('') }}
-              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]" />
+              className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]" />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Client</label>
+            <label className="block text-xs text-[#4B4F58] mb-1">Client</label>
             <select value={clientId} onChange={e => setClientId(e.target.value)}
-              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]">
+              className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]">
               <option value="">All Clients</option>
               {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Carrier</label>
+            <label className="block text-xs text-[#4B4F58] mb-1">Carrier</label>
             <select value={carrier} onChange={e => setCarrier(e.target.value)}
-              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]">
+              className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]">
               <option value="">All Carriers</option>
               {carriers.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Search</label>
+            <label className="block text-xs text-[#4B4F58] mb-1">Search</label>
             <input type="text" placeholder="Order #, tracking, client…" value={search} onChange={e => setSearch(e.target.value)}
-              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF] w-52" />
+              className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8] w-52" />
           </div>
           <button
             onClick={() => setLossOnly(v => !v)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${lossOnly ? 'bg-red-700 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${lossOnly ? 'bg-red-700 text-[#0B1220]' : 'bg-[#EEF3FA] text-[#4B4F58] hover:text-[#0B1220]'}`}
           >
             ⚠️ Losses Only
           </button>
           <button onClick={() => { setDateFrom(monthStart); setDateTo(today); setClientId(''); setCarrier(''); setLossOnly(false); setSearch(''); setActiveQuick('This Month') }}
-            className="px-3 py-2 rounded-lg text-xs text-gray-500 hover:text-white bg-gray-700 hover:bg-gray-600 transition">
+            className="px-3 py-2 rounded-lg text-xs text-[#6B7A8D] hover:text-[#0B1220] bg-[#EEF3FA] hover:bg-[#DDE6F2] transition">
             Clear
           </button>
         </div>
@@ -183,21 +183,21 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
 
       {/* Summary stats */}
       <div className="grid grid-cols-4 gap-3">
-        <div className="bg-gray-800 rounded-xl px-4 py-3">
-          <p className="text-xs text-gray-400">Shipments</p>
-          <p className="text-xl font-bold text-white">{filtered.length}</p>
+        <div className="bg-white rounded-xl px-4 py-3">
+          <p className="text-xs text-[#4B4F58]">Shipments</p>
+          <p className="text-xl font-bold text-[#0B1220]">{filtered.length}</p>
         </div>
-        <div className="bg-gray-800 rounded-xl px-4 py-3">
-          <p className="text-xs text-gray-400">We Paid (Carrier)</p>
-          <p className="text-xl font-bold text-white">{fig(known.cost)}</p>
+        <div className="bg-white rounded-xl px-4 py-3">
+          <p className="text-xs text-[#4B4F58]">We Paid (Carrier)</p>
+          <p className="text-xl font-bold text-[#0B1220]">{fig(known.cost)}</p>
         </div>
-        <div className="bg-gray-800 rounded-xl px-4 py-3">
-          <p className="text-xs text-gray-400">Charged Clients</p>
-          <p className="text-xl font-bold text-white">{fig(known.revenue)}</p>
+        <div className="bg-white rounded-xl px-4 py-3">
+          <p className="text-xs text-[#4B4F58]">Charged Clients</p>
+          <p className="text-xl font-bold text-[#0B1220]">{fig(known.revenue)}</p>
         </div>
-        <div className={`rounded-xl px-4 py-3 ${known.profit !== null && !plPositive ? 'bg-red-950/40 border border-red-800/40' : 'bg-gray-800'}`}>
-          <p className="text-xs text-gray-400">Net P / L {lossCount > 0 && <span className="text-red-400 ml-1">· {lossCount} losses</span>}</p>
-          <p className={`text-xl font-bold ${known.profit === null ? 'text-gray-400' : plPositive ? 'text-green-400' : 'text-red-400'}`}>
+        <div className={`rounded-xl px-4 py-3 ${known.profit !== null && !plPositive ? 'bg-red-950/40 border border-red-800/40' : 'bg-white'}`}>
+          <p className="text-xs text-[#4B4F58]">Net P / L {lossCount > 0 && <span className="text-red-400 ml-1">· {lossCount} losses</span>}</p>
+          <p className={`text-xl font-bold ${known.profit === null ? 'text-[#4B4F58]' : plPositive ? 'text-green-400' : 'text-red-400'}`}>
             {plFigure}
           </p>
         </div>
@@ -213,11 +213,11 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
       )}
 
       {/* Table */}
-      <div className="bg-gray-800 rounded-xl overflow-hidden">
+      <div className="bg-white rounded-xl overflow-hidden">
         <div className="overflow-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase tracking-wider sticky top-0 bg-gray-900">
+              <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase tracking-wider sticky top-0 bg-[#F1F5FB]">
                 <th className="px-5 py-3">Order #</th>
                 <th className="px-4 py-3">Client</th>
                 <th className="px-4 py-3">Ship Date</th>
@@ -235,23 +235,23 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-5 py-12 text-center text-gray-500">No shipments match the current filters</td>
+                  <td colSpan={12} className="px-5 py-12 text-center text-[#6B7A8D]">No shipments match the current filters</td>
                 </tr>
               ) : filtered.map((s: any) => (
-                <tr key={s.id ?? s.order_number} className={`border-b border-gray-700/40 hover:bg-gray-700/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
-                  <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{s.order_number}</td>
-                  <td className="px-4 py-2.5 font-medium text-sm">{s.clients?.name ?? <span className="text-gray-500">Unassigned</span>}</td>
-                  <td className="px-4 py-2.5 text-gray-400 text-xs whitespace-nowrap">{s.ship_date ? new Date(s.ship_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
-                  <td className="px-4 py-2.5 text-gray-300 text-xs whitespace-nowrap">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{s.tracking_number ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-right text-xs text-gray-300">
+                <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
+                  <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
+                  <td className="px-4 py-2.5 font-medium text-sm">{s.clients?.name ?? <span className="text-[#6B7A8D]">Unassigned</span>}</td>
+                  <td className="px-4 py-2.5 text-[#4B4F58] text-xs whitespace-nowrap">{s.ship_date ? new Date(s.ship_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
+                  <td className="px-4 py-2.5 text-[#3A4658] text-xs whitespace-nowrap">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-[#6B7A8D]">{s.tracking_number ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-right text-xs text-[#3A4658]">
                     {s.length && s.width && s.height ? `${s.length}×${s.width}×${s.height}` : '—'}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-xs text-gray-300">{s.weight ? `${s.weight}` : '—'}</td>
-                  <td className={`px-4 py-2.5 text-right text-xs font-medium ${s.dim_weight > s.weight ? 'text-orange-400' : 'text-gray-400'}`}>
+                  <td className="px-4 py-2.5 text-right text-xs text-[#3A4658]">{s.weight ? `${s.weight}` : '—'}</td>
+                  <td className={`px-4 py-2.5 text-right text-xs font-medium ${s.dim_weight > s.weight ? 'text-orange-400' : 'text-[#4B4F58]'}`}>
                     {s.dim_weight ? `${s.dim_weight}` : '—'}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-xs font-semibold text-[#00AAFF]">{s.billed_weight ? `${s.billed_weight}` : '—'}</td>
+                  <td className="px-4 py-2.5 text-right text-xs font-semibold text-[#1A73E8]">{s.billed_weight ? `${s.billed_weight}` : '—'}</td>
                   <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
                   <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400'}`}
                       title={isPriced(s.client_rate) ? undefined : 'No rate-card rate covers this shipment'}>
@@ -261,7 +261,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                       for an unpriced shipment, so the old ternary painted the
                       dash with the same green as a real profit. */}
                   <td className={`px-4 py-2.5 text-right font-bold ${
-                    !isPriced(s.profit_loss) ? 'text-gray-500'
+                    !isPriced(s.profit_loss) ? 'text-[#6B7A8D]'
                       : s.is_loss ? 'text-red-400' : 'text-green-400'
                   }`}>
                     {formatSignedPrice(s.profit_loss)}
@@ -271,12 +271,12 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
             </tbody>
             {filtered.length > 0 && (
               <tfoot>
-                <tr className="border-t border-gray-600 font-semibold bg-gray-900/50">
+                <tr className="border-t border-[#CBD5E1] font-semibold bg-[#F1F5FB]/50">
                   {/* One note on the label cell, not three different ones on
                       three cells. The three totals come off one reconciliation
                       now, so they are short by exactly the same rows and
                       `exclusionNote` says which rows and why. */}
-                  <td colSpan={9} className="px-5 py-3 text-gray-400 text-sm">
+                  <td colSpan={9} className="px-5 py-3 text-[#4B4F58] text-sm">
                     Total ({margin.reconciled} of {filtered.length} shipments)
                     {marginNote && (
                       <span className="ml-2 text-amber-400 font-normal">⚠ {marginNote}</span>
@@ -284,7 +284,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                   </td>
                   <td className="px-4 py-3 text-right">{fig(known.cost)}</td>
                   <td className="px-4 py-3 text-right">{fig(known.revenue)}</td>
-                  <td className={`px-4 py-3 text-right ${known.profit === null ? 'text-gray-400' : plPositive ? 'text-green-400' : 'text-red-400'}`}>
+                  <td className={`px-4 py-3 text-right ${known.profit === null ? 'text-[#4B4F58]' : plPositive ? 'text-green-400' : 'text-red-400'}`}>
                     {plFigure}
                   </td>
                 </tr>

@@ -28,13 +28,13 @@ export default async function EmployeesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-white">Employees</h2>
-        <p className="text-gray-400 text-sm mt-1">{employees.length} user{employees.length !== 1 ? 's' : ''} with access</p>
+        <h2 className="text-2xl font-bold text-[#0B1220]">Employees</h2>
+        <p className="text-[#4B4F58] text-sm mt-1">{employees.length} user{employees.length !== 1 ? 's' : ''} with access</p>
       </div>
       <EmployeesClient employees={employees} />
 
       <div>
-        <h3 className="text-lg font-semibold text-white mb-3">My Security</h3>
+        <h3 className="text-lg font-semibold text-[#0B1220] mb-3">My Security</h3>
         <div className="max-w-md">
           <MfaSetup />
         </div>

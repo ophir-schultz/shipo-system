@@ -97,15 +97,15 @@ export default function ShippingRatesUpload({ clientId }: { clientId: string }) 
       <a
         href="/templates/shipping-rates-template.csv"
         download
-        className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+        className="bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition"
       >
         ↓ Template
       </a>
       <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} className="hidden" />
       <button
         onClick={() => fileRef.current?.click()}
-        className="text-white px-4 py-2 rounded-lg text-sm font-medium transition"
-        style={{ background: '#00AAFF' }}
+        className="text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition"
+        style={{ background: '#1A73E8' }}
       >
         Upload Price List
       </button>
@@ -116,13 +116,13 @@ export default function ShippingRatesUpload({ clientId }: { clientId: string }) 
 
       {preview.length > 0 && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="bg-gray-800 rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <h4 className="font-semibold text-white mb-1">Preview — {allRows.length} rates ready to upload</h4>
-            <p className="text-gray-400 text-sm mb-4">Showing first 5 rows. This will replace all existing rates for this client.</p>
+          <div className="bg-white rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <h4 className="font-semibold text-[#0B1220] mb-1">Preview — {allRows.length} rates ready to upload</h4>
+            <p className="text-[#4B4F58] text-sm mb-4">Showing first 5 rows. This will replace all existing rates for this client.</p>
             <div className="overflow-x-auto mb-4">
               <table className="text-sm w-full">
                 <thead>
-                  <tr className="text-gray-400 border-b border-gray-700 text-xs uppercase">
+                  <tr className="text-[#4B4F58] border-b border-[#E2E8F0] text-xs uppercase">
                     <th className="pb-2 pr-4 text-left">Carrier</th>
                     <th className="pb-2 pr-4 text-left">Service</th>
                     <th className="pb-2 pr-4 text-right">Rate</th>
@@ -132,17 +132,17 @@ export default function ShippingRatesUpload({ clientId }: { clientId: string }) 
                 </thead>
                 <tbody>
                   {preview.map((row, i) => (
-                    <tr key={i} className="border-b border-gray-700/50">
-                      <td className="py-2 pr-4 text-gray-300">{row.carrier}</td>
-                      <td className="py-2 pr-4 text-gray-300">{row.service}</td>
+                    <tr key={i} className="border-b border-[#E2E8F0]/50">
+                      <td className="py-2 pr-4 text-[#3A4658]">{row.carrier}</td>
+                      <td className="py-2 pr-4 text-[#3A4658]">{row.service}</td>
                       <td className="py-2 pr-4 text-right text-green-400">${row.rate.toFixed(2)}</td>
-                      <td className="py-2 pr-4 text-right text-gray-400">{row.weight_min}</td>
-                      <td className="py-2 pr-4 text-right text-gray-400">{row.weight_max ?? '∞'}</td>
+                      <td className="py-2 pr-4 text-right text-[#4B4F58]">{row.weight_min}</td>
+                      <td className="py-2 pr-4 text-right text-[#4B4F58]">{row.weight_max ?? '∞'}</td>
                     </tr>
                   ))}
                   {allRows.length > 5 && (
                     <tr>
-                      <td colSpan={5} className="py-2 text-gray-500 text-xs">
+                      <td colSpan={5} className="py-2 text-[#6B7A8D] text-xs">
                         + {allRows.length - 5} more rows…
                       </td>
                     </tr>
@@ -154,15 +154,15 @@ export default function ShippingRatesUpload({ clientId }: { clientId: string }) 
             <div className="flex gap-3">
               <button
                 onClick={() => { setPreview([]); setAllRows([]) }}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition"
+                className="flex-1 bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] py-2 rounded-lg text-sm transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleUpload}
                 disabled={loading}
-                className="flex-1 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-medium transition"
-                style={{ background: '#00AAFF' }}
+                className="flex-1 disabled:opacity-50 text-[#0B1220] py-2 rounded-lg text-sm font-medium transition"
+                style={{ background: '#1A73E8' }}
               >
                 {loading ? 'Uploading...' : `Upload ${allRows.length} Rates`}
               </button>

@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 // A prospect-facing commercial document, not part of the staff app:
 // no sidebar, no internal navigation, and a light palette rather than
 // the ops dark theme — this page is meant to be read by a stranger and
-// printed to PDF, and #0a0f1a prints as a sheet of solid ink.
+// printed to PDF, and #FFFFFF prints as a sheet of solid ink.
 export const metadata: Metadata = {
   title: 'Fulfillment Rate Sheet — Shipo LLC',
   // Pricing prepared for one named prospect. Never indexed, and

@@ -52,12 +52,12 @@ export default async function ClientsPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h2 className="text-2xl font-bold text-white">Clients</h2>
-          <p className="text-gray-400 text-sm mt-1">Manage clients and their price lists</p>
+          <h2 className="text-2xl font-bold text-[#0B1220]">Clients</h2>
+          <p className="text-[#4B4F58] text-sm mt-1">Manage clients and their price lists</p>
         </div>
         <Link
           href="/clients/new"
-          className="bg-[#00AAFF] hover:bg-[#33BBFF] text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+          className="bg-[#1A73E8] hover:bg-[#63B3FF] text-white px-4 py-2 rounded-lg text-sm font-medium transition"
         >
           + Add Client
         </Link>
@@ -66,43 +66,43 @@ export default async function ClientsPage() {
       {!clients.ok ? (
         <ViewUnreadable message={clients.error} />
       ) : clients.data.length === 0 ? (
-        <div className="bg-gray-800 rounded-xl p-16 text-center">
+        <div className="bg-white rounded-xl p-16 text-center">
           <p className="text-5xl mb-4">👥</p>
-          <p className="text-gray-300 font-medium text-lg">No clients yet</p>
-          <p className="text-gray-500 text-sm mt-2 mb-6">Add your first client to start managing their pricing and billing</p>
-          <Link href="/clients/new" className="bg-[#00AAFF] hover:bg-[#33BBFF] text-white px-6 py-2.5 rounded-lg text-sm font-medium transition">
+          <p className="text-[#3A4658] font-medium text-lg">No clients yet</p>
+          <p className="text-[#6B7A8D] text-sm mt-2 mb-6">Add your first client to start managing their pricing and billing</p>
+          <Link href="/clients/new" className="bg-[#1A73E8] hover:bg-[#63B3FF] text-white px-6 py-2.5 rounded-lg text-sm font-medium transition">
             Add First Client
           </Link>
         </div>
       ) : (
         <div className="grid gap-4">
           {clients.data.map((client: any) => (
-            <div key={client.id} className="bg-gray-800 rounded-xl p-5 flex items-center justify-between hover:bg-gray-750">
+            <div key={client.id} className="bg-white rounded-xl p-5 flex items-center justify-between hover:bg-[#F8FAFC]">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-[#0090DD] flex items-center justify-center font-bold text-white">
+                <div className="w-10 h-10 rounded-full bg-[#0B5ED7] flex items-center justify-center font-bold text-white">
                   {nameInitial(client.name)}
                 </div>
                 <div>
-                  <p className="font-semibold text-white">{client.name}</p>
-                  <p className="text-gray-400 text-sm">{client.email ?? 'No email'} {client.phone ? `· ${client.phone}` : ''}</p>
+                  <p className="font-semibold text-[#0B1220]">{client.name}</p>
+                  <p className="text-[#4B4F58] text-sm">{client.email ?? 'No email'} {client.phone ? `· ${client.phone}` : ''}</p>
                 </div>
               </div>
               <div className="flex items-center gap-6">
                 <div className="text-center">
-                  <p className="text-white font-semibold">{client.client_shipping_rates?.[0]?.count ?? 0}</p>
-                  <p className="text-gray-500 text-xs">Shipping Rates</p>
+                  <p className="text-[#0B1220] font-semibold">{client.client_shipping_rates?.[0]?.count ?? 0}</p>
+                  <p className="text-[#6B7A8D] text-xs">Shipping Rates</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-white font-semibold">{client.client_warehouse_rates?.[0]?.count ?? 0}</p>
-                  <p className="text-gray-500 text-xs">Warehouse Rates</p>
+                  <p className="text-[#0B1220] font-semibold">{client.client_warehouse_rates?.[0]?.count ?? 0}</p>
+                  <p className="text-[#6B7A8D] text-xs">Warehouse Rates</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-0.5 rounded text-xs ${client.active ? 'bg-green-900 text-green-300' : 'bg-gray-700 text-gray-400'}`}>
+                  <span className={`px-2 py-0.5 rounded text-xs ${client.active ? 'bg-green-900 text-green-300' : 'bg-[#EEF3FA] text-[#4B4F58]'}`}>
                     {client.active ? 'Active' : 'Inactive'}
                   </span>
                   <Link
                     href={`/clients/${client.id}`}
-                    className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm transition"
+                    className="bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] px-3 py-1.5 rounded-lg text-sm transition"
                   >
                     Manage →
                   </Link>

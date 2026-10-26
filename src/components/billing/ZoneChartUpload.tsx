@@ -113,8 +113,8 @@ export default function ZoneChartUpload({ clientId, originZip }: Props) {
     <div>
       <div className="flex items-center gap-3 mb-3">
         <div>
-          <p className="text-sm font-medium text-white">Zone Map (ZIP → Zone)</p>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="text-sm font-medium text-[#0B1220]">Zone Map (ZIP → Zone)</p>
+          <p className="text-xs text-[#4B4F58] mt-0.5">
             {chartCount == null
               ? 'Loading…'
               : chartCount > 0
@@ -129,7 +129,7 @@ export default function ZoneChartUpload({ clientId, originZip }: Props) {
           <a
             href="/templates/zone-chart-template.csv"
             download
-            className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition"
+            className="bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] px-3 py-1.5 rounded-lg text-xs font-medium transition"
           >
             ↓ Template
           </a>
@@ -138,8 +138,8 @@ export default function ZoneChartUpload({ clientId, originZip }: Props) {
             onClick={() => fileRef.current?.click()}
             disabled={!originZip}
             title={!originZip ? 'Set the Origin ZIP first' : 'Upload zone map'}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition disabled:opacity-40"
-            style={{ background: '#00AAFF' }}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#0B1220] transition disabled:opacity-40"
+            style={{ background: '#1A73E8' }}
           >
             {chartCount && chartCount > 0 ? 'Replace Zone Map' : 'Upload Zone Map'}
           </button>
@@ -150,29 +150,29 @@ export default function ZoneChartUpload({ clientId, originZip }: Props) {
 
       {entries.length > 0 && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="bg-gray-800 rounded-xl p-6 max-w-lg w-full max-h-[85vh] overflow-y-auto">
-            <h4 className="font-semibold text-white mb-1">Zone Map Preview</h4>
-            <p className="text-gray-400 text-sm mb-4">
-              {entries.length} mappings from origin prefix <strong className="text-white">{String(originZip).slice(0, 3)}</strong>. This will replace the existing zone map.
+          <div className="bg-white rounded-xl p-6 max-w-lg w-full max-h-[85vh] overflow-y-auto">
+            <h4 className="font-semibold text-[#0B1220] mb-1">Zone Map Preview</h4>
+            <p className="text-[#4B4F58] text-sm mb-4">
+              {entries.length} mappings from origin prefix <strong className="text-[#0B1220]">{String(originZip).slice(0, 3)}</strong>. This will replace the existing zone map.
             </p>
 
-            <div className="border border-gray-700 rounded-lg overflow-hidden mb-4">
+            <div className="border border-[#E2E8F0] rounded-lg overflow-hidden mb-4">
               <table className="text-sm w-full">
                 <thead>
-                  <tr className="text-gray-400 text-xs uppercase border-b border-gray-700">
+                  <tr className="text-[#4B4F58] text-xs uppercase border-b border-[#E2E8F0]">
                     <th className="p-2 text-left">Dest ZIP Prefix</th>
                     <th className="p-2 text-center">Zone</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.map((e, i) => (
-                    <tr key={i} className="border-b border-gray-700/40">
+                    <tr key={i} className="border-b border-[#E2E8F0]/40">
                       {e.dest_prefix === '…'
-                        ? <td colSpan={2} className="p-2 text-gray-500 text-center text-xs">…{entries.length - 15} more rows…</td>
+                        ? <td colSpan={2} className="p-2 text-[#6B7A8D] text-center text-xs">…{entries.length - 15} more rows…</td>
                         : <>
-                          <td className="p-2 text-gray-300 font-mono">{e.dest_prefix}xxx</td>
+                          <td className="p-2 text-[#3A4658] font-mono">{e.dest_prefix}xxx</td>
                           <td className="p-2 text-center">
-                            <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: '#00AAFF33', color: '#00AAFF' }}>
+                            <span className="px-2 py-0.5 rounded text-xs font-bold" style={{ background: '#1A73E833', color: '#1A73E8' }}>
                               Zone {e.zone}
                             </span>
                           </td>
@@ -188,15 +188,15 @@ export default function ZoneChartUpload({ clientId, originZip }: Props) {
             <div className="flex gap-3">
               <button
                 onClick={() => { setEntries([]); if (fileRef.current) fileRef.current.value = '' }}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition"
+                className="flex-1 bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] py-2 rounded-lg text-sm transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleUpload}
                 disabled={loading}
-                className="flex-1 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-medium transition"
-                style={{ background: '#00AAFF' }}
+                className="flex-1 disabled:opacity-50 text-[#0B1220] py-2 rounded-lg text-sm font-medium transition"
+                style={{ background: '#1A73E8' }}
               >
                 {loading ? 'Uploading…' : `Save ${entries.length} Mappings`}
               </button>

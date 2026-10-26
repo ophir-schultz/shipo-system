@@ -145,7 +145,7 @@ export default function ReferralsManager({
       {/* ---- Payouts Owed ---- */}
       <Section title="Payouts Owed" subtitle="Auto-computed — approve each line to clear it for payment">
         {owed.length === 0 ? (
-          <p className="text-gray-500 text-sm">
+          <p className="text-[#6B7A8D] text-sm">
             No payouts yet. Link a client to a partner and add a monthly account below, and the $
             {REFERRAL_TERMS.SIGNUP_BONUS} bonus + {PCT} commissions will appear here.
           </p>
@@ -153,7 +153,7 @@ export default function ReferralsManager({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
+                <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
                   <th className="pb-2 pr-3">Partner</th>
                   <th className="pb-2 pr-3">Client</th>
                   <th className="pb-2 pr-3">Type</th>
@@ -167,9 +167,9 @@ export default function ReferralsManager({
                 {owed.map((l) => {
                   const notYetOwed = l.kind === 'signup_bonus' && l.period === 'awaiting'
                   return (
-                    <tr key={l.dedupeKey} className="border-b border-gray-700/40 hover:bg-gray-700/20">
+                    <tr key={l.dedupeKey} className="border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/20">
                       <td className="py-2.5 pr-3 text-gray-200">{l.partnerName}</td>
-                      <td className="py-2.5 pr-3 text-gray-300">{l.clientName}</td>
+                      <td className="py-2.5 pr-3 text-[#3A4658]">{l.clientName}</td>
                       <td className="py-2.5 pr-3">
                         <span className={`px-1.5 py-0.5 rounded text-xs ${l.kind === 'signup_bonus' ? 'bg-purple-900/40 text-purple-300' : 'bg-sky-900/30 text-sky-300'}`}>
                           {/* Reads the line's own amount, not a constant — a
@@ -179,22 +179,22 @@ export default function ReferralsManager({
                           {l.kind === 'signup_bonus' ? `${fmt(l.amount)} bonus` : `${PCT} of net profit`}
                         </span>
                       </td>
-                      <td className="py-2.5 pr-3 text-gray-400">{l.period === 'awaiting' ? '—' : l.period}</td>
+                      <td className="py-2.5 pr-3 text-[#4B4F58]">{l.period === 'awaiting' ? '—' : l.period}</td>
                       <td className="py-2.5 pr-3 text-right text-gray-200">{fmt(l.amount)}</td>
                       <td className="py-2.5 pr-3">
                         <StatusBadge status={notYetOwed ? 'awaiting' : l.status} />
-                        {l.note && <span className="block text-[10px] text-gray-500 mt-0.5">{l.note}</span>}
+                        {l.note && <span className="block text-[10px] text-[#6B7A8D] mt-0.5">{l.note}</span>}
                       </td>
                       <td className="py-2.5 text-right whitespace-nowrap">
                         {notYetOwed ? (
-                          <span className="text-xs text-gray-600">—</span>
+                          <span className="text-xs text-[#6B7A8D]">—</span>
                         ) : (
                           <div className="inline-flex gap-1.5">
                             {(l.status === 'computed' || l.status === 'pending') && (
                               <button
                                 onClick={() => payoutAction(l, 'approve')}
                                 disabled={busy === l.dedupeKey}
-                                className="px-2 py-1 rounded text-xs bg-[#00AAFF]/15 text-[#00AAFF] hover:bg-[#00AAFF]/25 disabled:opacity-50"
+                                className="px-2 py-1 rounded text-xs bg-[#1A73E8]/15 text-[#1A73E8] hover:bg-[#1A73E8]/25 disabled:opacity-50"
                               >
                                 Approve
                               </button>
@@ -212,7 +212,7 @@ export default function ReferralsManager({
                               <button
                                 onClick={() => payoutAction(l, 'unrecord')}
                                 disabled={busy === l.dedupeKey}
-                                className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-400 hover:bg-gray-600 disabled:opacity-50"
+                                className="px-2 py-1 rounded text-xs bg-[#EEF3FA] text-[#4B4F58] hover:bg-[#DDE6F2] disabled:opacity-50"
                                 title="Revert to computed"
                               >
                                 Revert
@@ -284,20 +284,20 @@ function AgreementCell({ partner }: { partner: Partner }) {
       ? 'text-green-400'
       : tone === 'bad'
         ? 'text-red-400'
-        : 'text-gray-500'
+        : 'text-[#6B7A8D]'
   const signed = partner.agreement_status === 'signed'
   const w9 = w9Label(partner)
   return (
     <div>
       <span className={`text-xs ${colour}`}>{text}</span>
       {signed && partner.agreement_signed_at && (
-        <span className="block text-[10px] text-gray-600">
+        <span className="block text-[10px] text-[#6B7A8D]">
           {partner.agreement_signed_at.slice(0, 10)}
         </span>
       )}
       {signed && (
         <span
-          className={`block text-[10px] ${w9.tone === 'good' ? 'text-gray-500' : 'text-red-400'}`}
+          className={`block text-[10px] ${w9.tone === 'good' ? 'text-[#6B7A8D]' : 'text-red-400'}`}
           // The consequence, not the status. "missing" alone invites
           // "missing from where?"; this says what it stops.
           title={payoutBlockedReason(partner) ?? 'W-9 on file. This partner can be paid.'}
@@ -407,14 +407,14 @@ function PartnersPanel({
       action={
         <button
           onClick={() => setOpen((o) => !o)}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#00AAFF] text-white hover:opacity-90"
+          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1A73E8] text-white hover:opacity-90"
         >
           {open ? 'Close' : '+ Add partner'}
         </button>
       }
     >
       {open && (
-        <div className="mb-4 grid grid-cols-2 gap-3 rounded-lg border border-gray-700 bg-gray-900/40 p-4">
+        <div className="mb-4 grid grid-cols-2 gap-3 rounded-lg border border-[#E2E8F0] bg-[#F1F5FB]/40 p-4">
           <Input label="Name *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
           <Input label="Company" value={form.company} onChange={(v) => setForm({ ...form, company: v })} />
           <Input label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
@@ -426,7 +426,7 @@ function PartnersPanel({
             <button
               onClick={addPartner}
               disabled={busy === 'add-partner'}
-              className="px-4 py-2 rounded-lg text-sm bg-[#00AAFF] text-white hover:opacity-90 disabled:opacity-50"
+              className="px-4 py-2 rounded-lg text-sm bg-[#1A73E8] text-white hover:opacity-90 disabled:opacity-50"
             >
               {busy === 'add-partner' ? 'Saving…' : 'Save partner'}
             </button>
@@ -435,12 +435,12 @@ function PartnersPanel({
       )}
 
       {partners.length === 0 ? (
-        <p className="text-gray-500 text-sm">No partners yet. Website sign-ups land here as “pending” for you to review.</p>
+        <p className="text-[#6B7A8D] text-sm">No partners yet. Website sign-ups land here as “pending” for you to review.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
+              <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
                 <th className="pb-2 pr-3">Name</th>
                 <th className="pb-2 pr-3">Company</th>
                 <th className="pb-2 pr-3">Contact</th>
@@ -455,15 +455,15 @@ function PartnersPanel({
             </thead>
             <tbody>
               {partners.map((p) => (
-                <tr key={p.id} className={`border-b border-gray-700/40 ${p.status === 'pending' ? 'bg-yellow-950/20' : ''}`}>
+                <tr key={p.id} className={`border-b border-[#E2E8F0]/40 ${p.status === 'pending' ? 'bg-yellow-950/20' : ''}`}>
                   <td className="py-2.5 pr-3 text-gray-200">{p.name}</td>
-                  <td className="py-2.5 pr-3 text-gray-400">{p.company ?? '—'}</td>
-                  <td className="py-2.5 pr-3 text-gray-400">
+                  <td className="py-2.5 pr-3 text-[#4B4F58]">{p.company ?? '—'}</td>
+                  <td className="py-2.5 pr-3 text-[#4B4F58]">
                     <div>{p.email ?? '—'}</div>
-                    {p.phone && <div className="text-xs text-gray-500">{p.phone}</div>}
+                    {p.phone && <div className="text-xs text-[#6B7A8D]">{p.phone}</div>}
                   </td>
-                  <td className="py-2.5 pr-3 text-gray-400">{p.partner_type ?? '—'}</td>
-                  <td className="py-2.5 pr-3 text-gray-500 text-xs">{p.source === 'website_form' ? 'website' : 'manual'}</td>
+                  <td className="py-2.5 pr-3 text-[#4B4F58]">{p.partner_type ?? '—'}</td>
+                  <td className="py-2.5 pr-3 text-[#6B7A8D] text-xs">{p.source === 'website_form' ? 'website' : 'manual'}</td>
                   <td className="py-2.5 pr-3"><StatusBadge status={p.status ?? 'active'} /></td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">
                     <AgreementCell partner={p} />
@@ -499,7 +499,7 @@ function PartnersPanel({
                         <button
                           onClick={() => sendInvite(p)}
                           disabled={busy === `link-${p.id}` || blockedReason(p) !== null}
-                          className="px-2 py-1 rounded text-xs bg-[#00AAFF]/15 text-[#00AAFF] hover:bg-[#00AAFF]/25 disabled:opacity-40"
+                          className="px-2 py-1 rounded text-xs bg-[#1A73E8]/15 text-[#1A73E8] hover:bg-[#1A73E8]/25 disabled:opacity-40"
                           // The reason, not a generic tooltip. A dead button
                           // with no explanation is the thing that gets
                           // reported as "the portal is broken".
@@ -516,7 +516,7 @@ function PartnersPanel({
                           <button
                             onClick={() => signOutEverywhere(p)}
                             disabled={busy === `link-${p.id}`}
-                            className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-400 hover:bg-red-900/40 hover:text-red-300 disabled:opacity-50"
+                            className="px-2 py-1 rounded text-xs bg-[#EEF3FA] text-[#4B4F58] hover:bg-red-900/40 hover:text-red-300 disabled:opacity-50"
                             title="End every open session. They can sign in again with a new code."
                           >
                             Sign out
@@ -524,10 +524,10 @@ function PartnersPanel({
                         )}
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-600">Needs an email</span>
+                      <span className="text-xs text-[#6B7A8D]">Needs an email</span>
                     )}
                     {p.portal_last_seen_at && (
-                      <span className="block text-[10px] text-gray-600 mt-0.5">
+                      <span className="block text-[10px] text-[#6B7A8D] mt-0.5">
                         last opened {p.portal_last_seen_at.slice(0, 10)}
                       </span>
                     )}
@@ -537,16 +537,16 @@ function PartnersPanel({
                       <button
                         onClick={() => setStatus(p, 'active')}
                         disabled={busy === p.id}
-                        className="px-2 py-1 rounded text-xs bg-[#00AAFF]/15 text-[#00AAFF] hover:bg-[#00AAFF]/25 disabled:opacity-50"
+                        className="px-2 py-1 rounded text-xs bg-[#1A73E8]/15 text-[#1A73E8] hover:bg-[#1A73E8]/25 disabled:opacity-50"
                       >
                         Approve partner
                       </button>
                     ) : p.status === 'inactive' ? (
-                      <button onClick={() => setStatus(p, 'active')} disabled={busy === p.id} className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 disabled:opacity-50">
+                      <button onClick={() => setStatus(p, 'active')} disabled={busy === p.id} className="px-2 py-1 rounded text-xs bg-[#EEF3FA] text-[#3A4658] hover:bg-[#DDE6F2] disabled:opacity-50">
                         Reactivate
                       </button>
                     ) : (
-                      <button onClick={() => setStatus(p, 'inactive')} disabled={busy === p.id} className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-400 hover:bg-gray-600 disabled:opacity-50">
+                      <button onClick={() => setStatus(p, 'inactive')} disabled={busy === p.id} className="px-2 py-1 rounded text-xs bg-[#EEF3FA] text-[#4B4F58] hover:bg-[#DDE6F2] disabled:opacity-50">
                         Deactivate
                       </button>
                     )}
@@ -615,17 +615,17 @@ function ClientsPanel({
       subtitle="Link a client to the partner who referred them. The first-payment date is what starts the 12-month clock — without it nothing is owed."
     >
       {clients.length === 0 ? (
-        <p className="text-gray-500 text-sm">No clients yet.</p>
+        <p className="text-[#6B7A8D] text-sm">No clients yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
+              <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
                 <th className="pb-2 pr-3">Client</th>
                 <th className="pb-2 pr-3">Referred by</th>
-                <th className="pb-2 pr-3">Signup date <span className="normal-case text-gray-600">(record only)</span></th>
+                <th className="pb-2 pr-3">Signup date <span className="normal-case text-[#6B7A8D]">(record only)</span></th>
                 <th className="pb-2 pr-3">
-                  1st payment <span className="normal-case text-gray-600">($300 trigger + {PCT} clock)</span>
+                  1st payment <span className="normal-case text-[#6B7A8D]">($300 trigger + {PCT} clock)</span>
                 </th>
                 <th className="pb-2 text-right">Save</th>
               </tr>
@@ -634,13 +634,13 @@ function ClientsPanel({
               {clients.map((c) => {
                 const dirty = !!draft[c.id]
                 return (
-                  <tr key={c.id} className="border-b border-gray-700/40">
+                  <tr key={c.id} className="border-b border-[#E2E8F0]/40">
                     <td className="py-2 pr-3 text-gray-200">{c.name}</td>
                     <td className="py-2 pr-3">
                       <select
                         value={value(c, 'referral_partner_id') as string}
                         onChange={(e) => setField(c.id, 'referral_partner_id', e.target.value)}
-                        className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200 w-44"
+                        className="bg-[#F1F5FB] border border-[#E2E8F0] rounded px-2 py-1 text-sm text-gray-200 w-44"
                       >
                         <option value="">— none —</option>
                         {activePartners.map((p) => (
@@ -653,7 +653,7 @@ function ClientsPanel({
                         type="date"
                         value={value(c, 'referral_signup_date') as string}
                         onChange={(e) => setField(c.id, 'referral_signup_date', e.target.value)}
-                        className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                        className="bg-[#F1F5FB] border border-[#E2E8F0] rounded px-2 py-1 text-sm text-gray-200"
                       />
                     </td>
                     <td className="py-2 pr-3">
@@ -661,14 +661,14 @@ function ClientsPanel({
                         type="date"
                         value={value(c, 'referral_first_payment_date') as string}
                         onChange={(e) => setField(c.id, 'referral_first_payment_date', e.target.value)}
-                        className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
+                        className="bg-[#F1F5FB] border border-[#E2E8F0] rounded px-2 py-1 text-sm text-gray-200"
                       />
                     </td>
                     <td className="py-2 text-right">
                       <button
                         onClick={() => save(c)}
                         disabled={!dirty || busy === c.id}
-                        className="px-3 py-1 rounded text-xs bg-[#00AAFF] text-white hover:opacity-90 disabled:opacity-30"
+                        className="px-3 py-1 rounded text-xs bg-[#1A73E8] text-white hover:opacity-90 disabled:opacity-30"
                       >
                         {busy === c.id ? '…' : 'Save'}
                       </button>
@@ -768,14 +768,14 @@ function InvoicesPanel({
       title="Monthly Account Figures"
       subtitle={`Net profit = invoiced less these four direct costs. Warehouse labor is NOT deducted. ${PCT} of the result is the partner's.`}
     >
-      <div className="mb-4 rounded-lg border border-gray-700 bg-gray-900/40 p-4 space-y-3">
+      <div className="mb-4 rounded-lg border border-[#E2E8F0] bg-[#F1F5FB]/40 p-4 space-y-3">
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Referred client</label>
+            <label className="block text-xs text-[#4B4F58] mb-1">Referred client</label>
             <select
               value={f.clientId}
               onChange={(e) => set('clientId', e.target.value)}
-              className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 w-52"
+              className="bg-[#F1F5FB] border border-[#E2E8F0] rounded px-2 py-1.5 text-sm text-gray-200 w-52"
             >
               <option value="">— select —</option>
               {referred.map((c) => (
@@ -784,12 +784,12 @@ function InvoicesPanel({
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Month</label>
+            <label className="block text-xs text-[#4B4F58] mb-1">Month</label>
             <input
               type="month"
               value={f.month}
               onChange={(e) => set('month', e.target.value)}
-              className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+              className="bg-[#F1F5FB] border border-[#E2E8F0] rounded px-2 py-1.5 text-sm text-gray-200"
             />
           </div>
           <Num label="FBA units" value={f.units} onChange={(v) => set('units', v)} step="1" width="w-24" />
@@ -801,24 +801,24 @@ function InvoicesPanel({
             statement that the client did zero that month; blank is
             the statement that there is no such figure. The bonus
             qualification treats them differently. */}
-        <p className="text-xs text-gray-500 -mt-1">
+        <p className="text-xs text-[#6B7A8D] -mt-1">
           Fill whichever applies — leave the other blank. A blank means “no such figure”; a 0 means “zero this month”.
         </p>
 
-        <div className="flex flex-wrap items-end gap-3 border-t border-gray-700/60 pt-3">
-          <span className="text-xs text-gray-500 pb-2">Direct costs</span>
+        <div className="flex flex-wrap items-end gap-3 border-t border-[#E2E8F0]/60 pt-3">
+          <span className="text-xs text-[#6B7A8D] pb-2">Direct costs</span>
           <Num label="Freight &amp; carrier ($)" value={f.cost_freight} onChange={(v) => set('cost_freight', v)} />
           <Num label="Packaging &amp; materials ($)" value={f.cost_materials} onChange={(v) => set('cost_materials', v)} />
           <Num label="Storage ($)" value={f.cost_storage} onChange={(v) => set('cost_storage', v)} />
           <Num label="Payment processing ($)" value={f.cost_processing} onChange={(v) => set('cost_processing', v)} />
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-700/60 pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#E2E8F0]/60 pt-3">
           <div className="text-sm">
             {costsExceed ? (
               <span className="text-red-400">Costs {fmt(previewCosts)} exceed the {fmt(n(f.amount))} invoiced.</span>
             ) : (
-              <span className="text-gray-400">
+              <span className="text-[#4B4F58]">
                 Net profit <span className="text-gray-200">{fmt(previewProfit)}</span> · partner gets{' '}
                 <span className="text-sky-300">{fmt(previewShare)}</span>
               </span>
@@ -827,7 +827,7 @@ function InvoicesPanel({
           <button
             onClick={add}
             disabled={busy === 'add-invoice' || costsExceed}
-            className="px-4 py-2 rounded-lg text-sm bg-[#00AAFF] text-white hover:opacity-90 disabled:opacity-50"
+            className="px-4 py-2 rounded-lg text-sm bg-[#1A73E8] text-white hover:opacity-90 disabled:opacity-50"
           >
             {busy === 'add-invoice' ? 'Saving…' : 'Save month'}
           </button>
@@ -839,12 +839,12 @@ function InvoicesPanel({
       </div>
 
       {invoices.length === 0 ? (
-        <p className="text-gray-500 text-sm">Nothing logged yet.</p>
+        <p className="text-[#6B7A8D] text-sm">Nothing logged yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
+              <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
                 <th className="pb-2 pr-3">Client</th>
                 <th className="pb-2 pr-3">Month</th>
                 <th className="pb-2 pr-3 text-right">Volume</th>
@@ -857,22 +857,22 @@ function InvoicesPanel({
             </thead>
             <tbody>
               {invoices.map((i) => (
-                <tr key={i.id} className="border-b border-gray-700/40">
+                <tr key={i.id} className="border-b border-[#E2E8F0]/40">
                   <td className="py-2 pr-3 text-gray-200">{clientName(i.client_id)}</td>
-                  <td className="py-2 pr-3 text-gray-400">{i.period.slice(0, 7)}</td>
+                  <td className="py-2 pr-3 text-[#4B4F58]">{i.period.slice(0, 7)}</td>
                   {/* An em dash for "not recorded", never a 0 — the
                       two mean different things and only one of them
                       blocks a bonus. */}
-                  <td className="py-2 pr-3 text-right text-gray-400 whitespace-nowrap">{volumeLabel(i)}</td>
-                  <td className="py-2 pr-3 text-right text-gray-300">{fmt(i.amount)}</td>
-                  <td className="py-2 pr-3 text-right text-gray-500">{fmt(totalCosts(i))}</td>
+                  <td className="py-2 pr-3 text-right text-[#4B4F58] whitespace-nowrap">{volumeLabel(i)}</td>
+                  <td className="py-2 pr-3 text-right text-[#3A4658]">{fmt(i.amount)}</td>
+                  <td className="py-2 pr-3 text-right text-[#6B7A8D]">{fmt(totalCosts(i))}</td>
                   <td className="py-2 pr-3 text-right text-gray-200">{fmt(netProfit(i))}</td>
                   <td className="py-2 pr-3 text-right text-sky-300">{fmt(commissionOn(i))}</td>
                   <td className="py-2 text-right">
                     <button
                       onClick={() => remove(i.id)}
                       disabled={busy === i.id}
-                      className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-400 hover:bg-red-900/40 hover:text-red-300 disabled:opacity-50"
+                      className="px-2 py-1 rounded text-xs bg-[#EEF3FA] text-[#4B4F58] hover:bg-red-900/40 hover:text-red-300 disabled:opacity-50"
                     >
                       Delete
                     </button>
@@ -902,14 +902,14 @@ function Num({
 }) {
   return (
     <div>
-      <label className="block text-xs text-gray-400 mb-1" dangerouslySetInnerHTML={{ __html: label }} />
+      <label className="block text-xs text-[#4B4F58] mb-1" dangerouslySetInnerHTML={{ __html: label }} />
       <input
         type="number"
         min="0"
         step={step}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200 ${width}`}
+        className={`bg-[#F1F5FB] border border-[#E2E8F0] rounded px-2 py-1.5 text-sm text-gray-200 ${width}`}
       />
     </div>
   )
@@ -920,11 +920,11 @@ function Num({
 // ============================================================
 function Section({ title, subtitle, action, children }: { title: string; subtitle?: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="bg-gray-800 rounded-xl p-5">
+    <div className="bg-white rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="font-semibold text-white">{title}</h3>
-          {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+          <h3 className="font-semibold text-[#0B1220]">{title}</h3>
+          {subtitle && <p className="text-xs text-[#4B4F58] mt-0.5">{subtitle}</p>}
         </div>
         {action}
       </div>
@@ -937,14 +937,14 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
   const colors: Record<string, string> = {
     yellow: 'border-yellow-800/50 bg-yellow-950/30',
     green: 'border-green-800/50 bg-green-950/40',
-    blue: 'border-[#00AAFF]/20 bg-[#00AAFF]/5',
-    gray: 'border-gray-700 bg-gray-800',
+    blue: 'border-[#1A73E8]/20 bg-[#1A73E8]/5',
+    gray: 'border-[#E2E8F0] bg-white',
   }
   return (
-    <div className={`rounded-xl p-5 border ${colors[color] ?? 'bg-gray-800 border-gray-700'}`}>
-      <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">{label}</p>
-      <p className="text-2xl font-bold text-white">{value}</p>
-      <p className="text-gray-500 text-xs mt-1">{sub}</p>
+    <div className={`rounded-xl p-5 border ${colors[color] ?? 'bg-white border-[#E2E8F0]'}`}>
+      <p className="text-[#4B4F58] text-xs uppercase tracking-wider mb-2">{label}</p>
+      <p className="text-2xl font-bold text-[#0B1220]">{value}</p>
+      <p className="text-[#6B7A8D] text-xs mt-1">{sub}</p>
     </div>
   )
 }
@@ -952,25 +952,25 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     paid: 'bg-green-900/50 text-green-400',
-    approved: 'bg-[#00AAFF]/15 text-[#00AAFF]',
+    approved: 'bg-[#1A73E8]/15 text-[#1A73E8]',
     pending: 'bg-yellow-900/40 text-yellow-400',
-    computed: 'bg-gray-700 text-gray-300',
-    awaiting: 'bg-gray-700/60 text-gray-500',
+    computed: 'bg-[#EEF3FA] text-[#3A4658]',
+    awaiting: 'bg-[#EEF3FA]/60 text-[#6B7A8D]',
     active: 'bg-green-900/40 text-green-400',
-    inactive: 'bg-gray-700 text-gray-500',
+    inactive: 'bg-[#EEF3FA] text-[#6B7A8D]',
   }
   const label: Record<string, string> = { computed: 'not recorded', awaiting: 'awaiting 1st payment' }
-  return <span className={`px-1.5 py-0.5 rounded text-xs ${map[status] ?? 'bg-gray-700 text-gray-300'}`}>{label[status] ?? status}</span>
+  return <span className={`px-1.5 py-0.5 rounded text-xs ${map[status] ?? 'bg-[#EEF3FA] text-[#3A4658]'}`}>{label[status] ?? status}</span>
 }
 
 function Input({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <div>
-      <label className="block text-xs text-gray-400 mb-1">{label}</label>
+      <label className="block text-xs text-[#4B4F58] mb-1">{label}</label>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-200"
+        className="w-full bg-[#F1F5FB] border border-[#E2E8F0] rounded px-2 py-1.5 text-sm text-gray-200"
       />
     </div>
   )

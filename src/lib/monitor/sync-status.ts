@@ -246,7 +246,7 @@ export function describeSync(
   view: { syncing: boolean; elapsed: string | null },
 ): { dot: string; label: string } {
   if (view.syncing) {
-    return { dot: 'bg-[#00AAFF] animate-pulse', label: 'Syncing…' }
+    return { dot: 'bg-[#1A73E8] animate-pulse', label: 'Syncing…' }
   }
 
   if (!status) {

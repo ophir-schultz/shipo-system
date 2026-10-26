@@ -136,7 +136,7 @@ export default function AutoSync() {
     // flex row, so the list cannot sit inline without pushing the buttons off.
     <div className="relative flex items-center gap-2 text-xs">
       <span className={`w-2 h-2 rounded-full transition-colors ${dot}`} />
-      <span className={status?.outcome === 'unknown' ? 'text-red-400' : 'text-gray-400'}>
+      <span className={status?.outcome === 'unknown' ? 'text-red-400' : 'text-[#4B4F58]'}>
         {label}
       </span>
 
@@ -155,7 +155,7 @@ export default function AutoSync() {
       )}
 
       {open && issues.count > 0 && (
-        <div className="absolute right-0 top-6 z-50 w-[32rem] max-h-96 overflow-auto rounded-lg border border-amber-700/60 bg-gray-900 p-4 shadow-xl">
+        <div className="absolute right-0 top-6 z-50 w-[32rem] max-h-96 overflow-auto rounded-lg border border-amber-700/60 bg-[#F1F5FB] p-4 shadow-xl">
           <div className="flex items-start justify-between gap-4">
             <p className="font-semibold text-amber-200">
               What the last monitor pass found

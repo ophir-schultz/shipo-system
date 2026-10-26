@@ -31,8 +31,8 @@ export default function OriginZipEditor({ clientId, originZip }: { clientId: str
   return (
     <div className="flex items-center gap-3">
       <div className="flex-1">
-        <p className="text-sm font-medium text-white">Warehouse Origin ZIP</p>
-        <p className="text-xs text-gray-400 mt-0.5">Used to determine delivery zone from recipient ZIP code</p>
+        <p className="text-sm font-medium text-[#0B1220]">Warehouse Origin ZIP</p>
+        <p className="text-xs text-[#4B4F58] mt-0.5">Used to determine delivery zone from recipient ZIP code</p>
       </div>
       {editing ? (
         <div className="flex gap-2 items-center">
@@ -42,31 +42,31 @@ export default function OriginZipEditor({ clientId, originZip }: { clientId: str
             onChange={e => setZip(e.target.value.replace(/\D/g, '').slice(0, 10))}
             placeholder="e.g. 07001"
             maxLength={10}
-            className="w-32 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-sm font-mono focus:outline-none focus:border-[#00AAFF]"
+            className="w-32 bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-1.5 text-[#0B1220] text-sm font-mono focus:outline-none focus:border-[#1A73E8]"
           />
           <button
             onClick={handleSave}
             disabled={loading}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50 transition"
-            style={{ background: '#00AAFF' }}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#0B1220] disabled:opacity-50 transition"
+            style={{ background: '#1A73E8' }}
           >
             {loading ? 'Saving…' : 'Save'}
           </button>
           <button
             onClick={() => { setZip(originZip); setEditing(false) }}
-            className="px-3 py-1.5 rounded-lg text-xs text-gray-400 bg-gray-700 hover:bg-gray-600 transition"
+            className="px-3 py-1.5 rounded-lg text-xs text-[#4B4F58] bg-[#EEF3FA] hover:bg-[#DDE6F2] transition"
           >
             Cancel
           </button>
         </div>
       ) : (
         <div className="flex items-center gap-3">
-          <span className="font-mono text-sm text-white">
-            {originZip || <span className="text-gray-500 italic">Not set</span>}
+          <span className="font-mono text-sm text-[#0B1220]">
+            {originZip || <span className="text-[#6B7A8D] italic">Not set</span>}
           </span>
           <button
             onClick={() => setEditing(true)}
-            className="text-xs text-[#00AAFF] hover:text-[#33BBFF] transition"
+            className="text-xs text-[#1A73E8] hover:text-[#63B3FF] transition"
           >
             {originZip ? 'Edit' : 'Set ZIP'}
           </button>

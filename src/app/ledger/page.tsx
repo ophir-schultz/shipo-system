@@ -277,7 +277,7 @@ export default async function LedgerPage() {
 
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-white">Ledger</h2>
+        <h2 className="text-2xl font-bold text-[#0B1220]">Ledger</h2>
         <p className="mt-1 text-sm text-slate-400">
           Read-only view of leaks, monthly P&amp;L, per-client margins, and pick activity — last three months.
         </p>
@@ -307,7 +307,7 @@ export default async function LedgerPage() {
           ---------------------------------------------------------------- */}
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
-          <h3 className="font-semibold text-white">Leaks</h3>
+          <h3 className="font-semibold text-[#0B1220]">Leaks</h3>
           <RowCount shown={leaks.length} total={counts.leaks} unreadable={!!failed.leaks} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
@@ -410,7 +410,7 @@ export default async function LedgerPage() {
           ---------------------------------------------------------------- */}
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
-          <h3 className="font-semibold text-white">Monthly P&amp;L</h3>
+          <h3 className="font-semibold text-[#0B1220]">Monthly P&amp;L</h3>
           <RowCount shown={monthly.length} total={counts.monthly} unreadable={!!failed.monthly} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
@@ -512,7 +512,7 @@ export default async function LedgerPage() {
           ---------------------------------------------------------------- */}
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
-          <h3 className="font-semibold text-white">Per-Client P&amp;L</h3>
+          <h3 className="font-semibold text-[#0B1220]">Per-Client P&amp;L</h3>
           <RowCount shown={clients.length} total={counts.clients} unreadable={!!failed.clients} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
@@ -599,7 +599,7 @@ export default async function LedgerPage() {
           ---------------------------------------------------------------- */}
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
-          <h3 className="font-semibold text-white">Pick Activity</h3>
+          <h3 className="font-semibold text-[#0B1220]">Pick Activity</h3>
           <RowCount shown={picks.length} total={counts.picks} cap={PICK_ROW_LIMIT} unreadable={!!failed.picks} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
@@ -669,7 +669,7 @@ export default async function LedgerPage() {
           ---------------------------------------------------------------- */}
       <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
-          <h3 className="font-semibold text-white">
+          <h3 className="font-semibold text-[#0B1220]">
             Labour Variance
             <span className="ml-2 rounded bg-slate-700 px-1.5 py-0.5 align-middle text-xs font-normal uppercase tracking-wide text-slate-300">
               secondary signal

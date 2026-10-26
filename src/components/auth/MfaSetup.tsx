@@ -103,15 +103,15 @@ export default function MfaSetup() {
   const has2FA = verifiedFactors.length > 0
 
   return (
-    <div className="rounded-xl p-6" style={{ background: '#0d1420', border: '1px solid #1a2540' }}>
+    <div className="rounded-xl p-6" style={{ background: '#FFFFFF', border: '1px solid #E2E8F0' }}>
       <div className="flex items-center gap-3 mb-4">
         <span className="text-2xl">🔐</span>
         <div>
-          <h3 className="font-semibold text-white">Two-Factor Authentication</h3>
-          <p className="text-xs text-gray-400">Add an extra layer of security to your account</p>
+          <h3 className="font-semibold text-[#0B1220]">Two-Factor Authentication</h3>
+          <p className="text-xs text-[#4B4F58]">Add an extra layer of security to your account</p>
         </div>
         {has2FA && (
-          <span className="ml-auto text-xs font-medium px-2 py-1 rounded-full" style={{ background: '#00AAFF22', color: '#00AAFF' }}>
+          <span className="ml-auto text-xs font-medium px-2 py-1 rounded-full" style={{ background: '#1A73E822', color: '#1A73E8' }}>
             ✓ Enabled
           </span>
         )}
@@ -120,10 +120,10 @@ export default function MfaSetup() {
       {has2FA ? (
         <div className="space-y-3">
           {verifiedFactors.map(f => (
-            <div key={f.id} className="flex items-center justify-between p-3 rounded-lg bg-gray-800/50">
+            <div key={f.id} className="flex items-center justify-between p-3 rounded-lg bg-white/50">
               <div>
-                <p className="text-sm text-white">{f.friendly_name || 'Authenticator App'}</p>
-                <p className="text-xs text-gray-500">TOTP · Active</p>
+                <p className="text-sm text-[#0B1220]">{f.friendly_name || 'Authenticator App'}</p>
+                <p className="text-xs text-[#6B7A8D]">TOTP · Active</p>
               </div>
               <button
                 onClick={() => handleRemove(f.id)}
@@ -137,21 +137,21 @@ export default function MfaSetup() {
         </div>
       ) : step === 'idle' ? (
         <div>
-          <p className="text-sm text-gray-400 mb-4">
-            Use an authenticator app like <strong className="text-gray-300">Google Authenticator</strong> or <strong className="text-gray-300">Authy</strong> to get a 6-digit code every time you log in.
+          <p className="text-sm text-[#4B4F58] mb-4">
+            Use an authenticator app like <strong className="text-[#3A4658]">Google Authenticator</strong> or <strong className="text-[#3A4658]">Authy</strong> to get a 6-digit code every time you log in.
           </p>
           <button
             onClick={handleEnroll}
             disabled={loading}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white transition disabled:opacity-50"
-            style={{ background: '#00AAFF' }}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-[#0B1220] transition disabled:opacity-50"
+            style={{ background: '#1A73E8' }}
           >
             {loading ? 'Setting up…' : 'Enable 2FA'}
           </button>
         </div>
       ) : step === 'enrolling' ? (
         <div className="space-y-4">
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-[#4B4F58]">
             Scan this QR code with your authenticator app, then enter the 6-digit code below to confirm.
           </p>
           {qrCode && (
@@ -162,13 +162,13 @@ export default function MfaSetup() {
           )}
           {secret && (
             <div className="text-center">
-              <p className="text-xs text-gray-500 mb-1">Or enter this key manually:</p>
-              <code className="text-xs text-gray-300 bg-gray-800 px-3 py-1.5 rounded-lg break-all">{secret}</code>
+              <p className="text-xs text-[#6B7A8D] mb-1">Or enter this key manually:</p>
+              <code className="text-xs text-[#3A4658] bg-white px-3 py-1.5 rounded-lg break-all">{secret}</code>
             </div>
           )}
           <form onSubmit={handleVerify} className="space-y-3">
             <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Verification code</label>
+              <label className="block text-xs text-[#4B4F58] mb-1.5">Verification code</label>
               <input
                 type="text"
                 inputMode="numeric"
@@ -177,7 +177,7 @@ export default function MfaSetup() {
                 required
                 placeholder="000000"
                 maxLength={6}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white text-xl font-mono tracking-widest text-center focus:outline-none focus:border-[#00AAFF] transition"
+                className="w-full bg-white border border-[#E2E8F0] rounded-lg px-4 py-3 text-[#0B1220] text-xl font-mono tracking-widest text-center focus:outline-none focus:border-[#1A73E8] transition"
               />
             </div>
             {error && (
@@ -187,15 +187,15 @@ export default function MfaSetup() {
               <button
                 type="button"
                 onClick={() => { setStep('idle'); setCode(''); setError('') }}
-                className="flex-1 py-2 rounded-lg text-sm text-gray-400 bg-gray-700 hover:bg-gray-600 transition"
+                className="flex-1 py-2 rounded-lg text-sm text-[#4B4F58] bg-[#EEF3FA] hover:bg-[#DDE6F2] transition"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={loading || code.length !== 6}
-                className="flex-1 py-2 rounded-lg text-sm font-medium text-white transition disabled:opacity-50"
-                style={{ background: '#00AAFF' }}
+                className="flex-1 py-2 rounded-lg text-sm font-medium text-[#0B1220] transition disabled:opacity-50"
+                style={{ background: '#1A73E8' }}
               >
                 {loading ? 'Verifying…' : 'Confirm & Enable'}
               </button>
@@ -205,8 +205,8 @@ export default function MfaSetup() {
       ) : (
         <div className="text-center py-4">
           <div className="text-4xl mb-2">✅</div>
-          <p className="text-white font-medium">2FA is now active</p>
-          <p className="text-sm text-gray-400 mt-1">You&apos;ll be asked for a code on every login</p>
+          <p className="text-[#0B1220] font-medium">2FA is now active</p>
+          <p className="text-sm text-[#4B4F58] mt-1">You&apos;ll be asked for a code on every login</p>
         </div>
       )}
     </div>

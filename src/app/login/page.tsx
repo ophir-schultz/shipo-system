@@ -186,7 +186,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0f1a' }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#FFFFFF' }}>
       {TURNSTILE_SITE_KEY && (
         <Script
           src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
@@ -196,20 +196,20 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex justify-center mb-8">
-          <div className="rounded-2xl px-6 py-5" style={{ background: '#00AAFF' }}>
+          <div className="rounded-2xl px-6 py-5" style={{ background: '#1A73E8' }}>
             <Image src="/shipo-logo.jpg" alt="Shipo" width={180} height={60} className="rounded-xl" priority />
           </div>
         </div>
 
-        <div className="rounded-2xl p-8" style={{ background: '#0d1420', border: '1px solid #1a2540' }}>
+        <div className="rounded-2xl p-8" style={{ background: '#FFFFFF', border: '1px solid #E2E8F0' }}>
           {step === 'credentials' ? (
             <>
-              <h1 className="text-xl font-bold text-white mb-1">Welcome back</h1>
-              <p className="text-sm text-gray-400 mb-6">Sign in to Shipo Operations Platform</p>
+              <h1 className="text-xl font-bold text-[#0B1220] mb-1">Welcome back</h1>
+              <p className="text-sm text-[#4B4F58] mb-6">Sign in to Shipo Operations Platform</p>
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Email</label>
+                  <label className="block text-xs text-[#4B4F58] mb-1.5">Email</label>
                   <input
                     type="email"
                     value={email}
@@ -217,11 +217,11 @@ export default function LoginPage() {
                     required
                     autoComplete="email"
                     placeholder="you@shipousa.com"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#00AAFF] transition"
+                    className="w-full bg-white border border-[#E2E8F0] rounded-lg px-4 py-2.5 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8] transition"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Password</label>
+                  <label className="block text-xs text-[#4B4F58] mb-1.5">Password</label>
                   <input
                     type="password"
                     value={password}
@@ -229,7 +229,7 @@ export default function LoginPage() {
                     required
                     autoComplete="current-password"
                     placeholder="••••••••"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#00AAFF] transition"
+                    className="w-full bg-white border border-[#E2E8F0] rounded-lg px-4 py-2.5 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8] transition"
                   />
                 </div>
 
@@ -245,8 +245,8 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading || (!!TURNSTILE_SITE_KEY && !captchaToken)}
-                  className="w-full py-2.5 rounded-lg text-white font-semibold text-sm transition disabled:opacity-50"
-                  style={{ background: '#00AAFF' }}
+                  className="w-full py-2.5 rounded-lg text-[#0B1220] font-semibold text-sm transition disabled:opacity-50"
+                  style={{ background: '#1A73E8' }}
                 >
                   {loading ? 'Signing in…' : 'Sign In'}
                 </button>
@@ -255,18 +255,18 @@ export default function LoginPage() {
           ) : (
             <>
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl" style={{ background: '#00AAFF22' }}>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl" style={{ background: '#1A73E822' }}>
                   🔐
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-white">Two-Factor Auth</h1>
-                  <p className="text-sm text-gray-400">Enter the code from your authenticator app</p>
+                  <h1 className="text-xl font-bold text-[#0B1220]">Two-Factor Auth</h1>
+                  <p className="text-sm text-[#4B4F58]">Enter the code from your authenticator app</p>
                 </div>
               </div>
 
               <form onSubmit={handleMfa} className="space-y-4">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">6-digit code</label>
+                  <label className="block text-xs text-[#4B4F58] mb-1.5">6-digit code</label>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -277,7 +277,7 @@ export default function LoginPage() {
                     autoComplete="one-time-code"
                     placeholder="000000"
                     maxLength={6}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white text-2xl font-mono tracking-widest text-center focus:outline-none focus:border-[#00AAFF] transition"
+                    className="w-full bg-white border border-[#E2E8F0] rounded-lg px-4 py-3 text-[#0B1220] text-2xl font-mono tracking-widest text-center focus:outline-none focus:border-[#1A73E8] transition"
                   />
                 </div>
 
@@ -293,14 +293,14 @@ export default function LoginPage() {
                     <div
                       className="w-4 h-4 rounded border-2 flex items-center justify-center transition"
                       style={{
-                        borderColor: trustChecked ? '#00AAFF' : '#4B5563',
-                        background: trustChecked ? '#00AAFF' : 'transparent',
+                        borderColor: trustChecked ? '#1A73E8' : '#4B5563',
+                        background: trustChecked ? '#1A73E8' : 'transparent',
                       }}
                     >
-                      {trustChecked && <span className="text-white text-xs leading-none">✓</span>}
+                      {trustChecked && <span className="text-[#0B1220] text-xs leading-none">✓</span>}
                     </div>
                   </div>
-                  <span className="text-sm text-gray-400 group-hover:text-gray-300 transition">
+                  <span className="text-sm text-[#4B4F58] group-hover:text-[#3A4658] transition">
                     Trust this device for 30 days
                   </span>
                 </label>
@@ -312,8 +312,8 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading || code.length !== 6}
-                  className="w-full py-2.5 rounded-lg text-white font-semibold text-sm transition disabled:opacity-50"
-                  style={{ background: '#00AAFF' }}
+                  className="w-full py-2.5 rounded-lg text-[#0B1220] font-semibold text-sm transition disabled:opacity-50"
+                  style={{ background: '#1A73E8' }}
                 >
                   {loading ? 'Verifying…' : 'Verify'}
                 </button>
@@ -321,7 +321,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => { setStep('credentials'); setCode(''); setError('') }}
-                  className="w-full py-2 text-sm text-gray-500 hover:text-gray-300 transition"
+                  className="w-full py-2 text-sm text-[#6B7A8D] hover:text-[#3A4658] transition"
                 >
                   ← Back to login
                 </button>
@@ -330,7 +330,7 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="text-center text-xs text-gray-600 mt-6">Shipo LLC Operations Platform · Internal Use Only</p>
+        <p className="text-center text-xs text-[#6B7A8D] mt-6">Shipo LLC Operations Platform · Internal Use Only</p>
       </div>
     </div>
   )

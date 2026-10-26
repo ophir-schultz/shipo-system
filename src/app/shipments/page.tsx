@@ -43,8 +43,8 @@ export default async function ShipmentsPage({ searchParams }: { searchParams: Pr
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-white">Shipments</h2>
-        <p className="text-gray-400 text-sm mt-1">
+        <h2 className="text-2xl font-bold text-[#0B1220]">Shipments</h2>
+        <p className="text-[#4B4F58] text-sm mt-1">
           {page.ok
             ? `${page.data.shipments.length} total shipments from ShipStation`
             : 'Shipment count unknown — the read failed'}

@@ -42,7 +42,7 @@ export default async function QuotesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Rate Sheets</h1>
-        <p className="text-sm text-gray-400 mt-1">
+        <p className="text-sm text-[#4B4F58] mt-1">
           Build a shareable fulfillment rate sheet for a prospect. Each one gets its own private
           link you can email or paste into a thread.
         </p>

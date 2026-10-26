@@ -61,19 +61,19 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
   }
 
   return (
-    <div className="bg-gray-800 rounded-xl p-6">
+    <div className="bg-white rounded-xl p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-white">Zenventory API</h3>
-          <p className="text-gray-400 text-sm mt-0.5">API 2.0 (Basic Auth) for orders · Legacy (SecureKey) for shipments</p>
+          <h3 className="text-lg font-semibold text-[#0B1220]">Zenventory API</h3>
+          <p className="text-[#4B4F58] text-sm mt-0.5">API 2.0 (Basic Auth) for orders · Legacy (SecureKey) for shipments</p>
         </div>
         <div className="flex gap-2">
           {apiKey && !editing && (
-            <button onClick={handleTest} disabled={loading} className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-sm transition">
+            <button onClick={handleTest} disabled={loading} className="bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] px-3 py-1.5 rounded-lg text-sm transition">
               {loading ? 'Testing...' : 'Test API 2.0'}
             </button>
           )}
-          <button onClick={() => setEditing(!editing)} className="bg-[#00AAFF] hover:bg-[#33BBFF] text-white px-3 py-1.5 rounded-lg text-sm transition">
+          <button onClick={() => setEditing(!editing)} className="bg-[#1A73E8] hover:bg-[#63B3FF] text-white px-3 py-1.5 rounded-lg text-sm transition">
             {editing ? 'Cancel' : apiKey ? 'Update' : 'Add Credentials'}
           </button>
         </div>
@@ -96,12 +96,12 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
           {apiKey ? (
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-400">API Key (2.0)</span>
-                <span className="text-gray-300 font-mono">{apiKey.slice(0, 8)}••••••••</span>
+                <span className="text-[#4B4F58]">API Key (2.0)</span>
+                <span className="text-[#3A4658] font-mono">{apiKey.slice(0, 8)}••••••••</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-400">API Secret (2.0)</span>
-                <span className="text-gray-300 font-mono">••••••••</span>
+                <span className="text-[#4B4F58]">API Secret (2.0)</span>
+                <span className="text-[#3A4658] font-mono">••••••••</span>
               </div>
             </div>
           ) : (
@@ -110,14 +110,14 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
             // missingKeyNotice.
             <p className={missingKeyNotice(apiKey)?.tone === 'warn'
               ? 'text-yellow-500 text-sm'
-              : 'text-gray-500 text-sm'}>
+              : 'text-[#6B7A8D] text-sm'}>
               {missingKeyNotice(apiKey)?.text}
             </p>
           )}
           {secureKey ? (
             <div className="flex justify-between text-sm">
-              <span className="text-gray-400">SecureKey (Legacy)</span>
-              <span className="text-gray-300 font-mono">{secureKey.slice(0, 8)}••••••••</span>
+              <span className="text-[#4B4F58]">SecureKey (Legacy)</span>
+              <span className="text-[#3A4658] font-mono">{secureKey.slice(0, 8)}••••••••</span>
             </div>
           ) : (
             <p className="text-yellow-600 text-sm">No SecureKey — add it to enable Legacy API shipment data.</p>
@@ -128,23 +128,23 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
       {editing && (
         <div className="space-y-4">
           <div>
-            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wider">API 2.0 — Basic Auth (Customer Orders)</p>
+            <p className="text-xs text-[#6B7A8D] mb-3 uppercase tracking-wider">API 2.0 — Basic Auth (Customer Orders)</p>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm text-gray-400 mb-1.5">API Key</label>
+                <label className="block text-sm text-[#4B4F58] mb-1.5">API Key</label>
                 <input
                   value={key}
                   onChange={e => setKey(e.target.value)}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-[#00AAFF]"
+                  className="w-full bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-4 py-2.5 text-[#0B1220] font-mono text-sm focus:outline-none focus:border-[#1A73E8]"
                   placeholder="Zenventory API Key"
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1.5">API Secret</label>
+                <label className="block text-sm text-[#4B4F58] mb-1.5">API Secret</label>
                 <input
                   value={secret}
                   onChange={e => setSecret(e.target.value)}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-[#00AAFF]"
+                  className="w-full bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-4 py-2.5 text-[#0B1220] font-mono text-sm focus:outline-none focus:border-[#1A73E8]"
                   placeholder="Zenventory API Secret"
                 />
               </div>
@@ -152,19 +152,19 @@ export default function ZenventoryCredentials({ clientId, apiKey, apiSecret, sec
           </div>
 
           <div>
-            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wider">Legacy API — SecureKey (Shipment Data)</p>
+            <p className="text-xs text-[#6B7A8D] mb-3 uppercase tracking-wider">Legacy API — SecureKey (Shipment Data)</p>
             <div>
-              <label className="block text-sm text-gray-400 mb-1.5">SecureKey</label>
+              <label className="block text-sm text-[#4B4F58] mb-1.5">SecureKey</label>
               <input
                 value={sk}
                 onChange={e => setSk(e.target.value)}
-                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-[#00AAFF]"
+                className="w-full bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-4 py-2.5 text-[#0B1220] font-mono text-sm focus:outline-none focus:border-[#1A73E8]"
                 placeholder="Zenventory SecureKey"
               />
             </div>
           </div>
 
-          <button onClick={handleSave} disabled={loading} className="w-full bg-[#00AAFF] hover:bg-[#33BBFF] disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-medium transition">
+          <button onClick={handleSave} disabled={loading} className="w-full bg-[#1A73E8] hover:bg-[#63B3FF] disabled:opacity-50 text-white py-2.5 rounded-lg text-sm font-medium transition">
             {loading ? 'Saving...' : 'Save Credentials'}
           </button>
         </div>

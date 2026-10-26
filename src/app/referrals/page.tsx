@@ -163,12 +163,12 @@ export default async function ReferralsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-white">Referral Payouts</h2>
-        <p className="text-gray-400 text-sm mt-1">
-          Who to pay and how much. <span className="text-gray-300">${REFERRAL_TERMS.SIGNUP_BONUS}</span> one-time after the referred
-          client&apos;s first payment, plus <span className="text-gray-300">{(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%</span> of{' '}
-          <span className="text-gray-300">net profit</span> on that account for{' '}
-          <span className="text-gray-300">{REFERRAL_TERMS.COMMISSION_MONTHS} months</span> from their first paid invoice. Every payout
+        <h2 className="text-2xl font-bold text-[#0B1220]">Referral Payouts</h2>
+        <p className="text-[#4B4F58] text-sm mt-1">
+          Who to pay and how much. <span className="text-[#3A4658]">${REFERRAL_TERMS.SIGNUP_BONUS}</span> one-time after the referred
+          client&apos;s first payment, plus <span className="text-[#3A4658]">{(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%</span> of{' '}
+          <span className="text-[#3A4658]">net profit</span> on that account for{' '}
+          <span className="text-[#3A4658]">{REFERRAL_TERMS.COMMISSION_MONTHS} months</span> from their first paid invoice. Every payout
           stays <span className="text-yellow-400">pending</span> until you approve it — nothing is ever paid automatically.
         </p>
       </div>

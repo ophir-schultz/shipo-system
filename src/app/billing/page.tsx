@@ -96,8 +96,8 @@ async function getBillingData() {
 function Header() {
   return (
     <div>
-      <h2 className="text-2xl font-bold text-white">Billing</h2>
-      <p className="text-gray-400 text-sm mt-1">Full billing breakdown per client — shipments, warehouse, adjustments</p>
+      <h2 className="text-2xl font-bold text-[#0B1220]">Billing</h2>
+      <p className="text-[#4B4F58] text-sm mt-1">Full billing breakdown per client — shipments, warehouse, adjustments</p>
     </div>
   )
 }

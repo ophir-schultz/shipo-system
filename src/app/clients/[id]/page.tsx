@@ -115,9 +115,9 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   if (clientError) {
     return (
       <div className="space-y-4">
-        <h2 className="text-2xl font-bold text-white">Client</h2>
+        <h2 className="text-2xl font-bold text-[#0B1220]">Client</h2>
         <ViewUnreadable message={clientError} />
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-[#4B4F58]">
           This is not the 404 page. The client may well exist — the database did
           not answer, so nothing about this client is shown, including its rate
           cards. Do not re-create or re-upload anything on the strength of this
@@ -144,11 +144,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">{client.name}</h2>
-          <p className="text-gray-400 text-sm mt-1">{client.email} {client.phone ? `· ${client.phone}` : ''}</p>
+          <h2 className="text-2xl font-bold text-[#0B1220]">{client.name}</h2>
+          <p className="text-[#4B4F58] text-sm mt-1">{client.email} {client.phone ? `· ${client.phone}` : ''}</p>
         </div>
         <div className="flex items-center gap-3">
-          <span className={`px-3 py-1 rounded-full text-sm ${client.active ? 'bg-green-900 text-green-300' : 'bg-gray-700 text-gray-400'}`}>
+          <span className={`px-3 py-1 rounded-full text-sm ${client.active ? 'bg-emerald-50 text-emerald-700' : 'bg-[#EEF3FA] text-[#4B4F58]'}`}>
             {client.active ? 'Active' : 'Inactive'}
           </span>
           <DeleteClientButton clientId={id} clientName={client.name} />
@@ -164,11 +164,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       />
 
       {/* Shipping Rates */}
-      <div className="bg-gray-800 rounded-xl p-6">
+      <div className="bg-white rounded-xl p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-lg font-semibold text-white">Shipping Price List</h3>
-            <p className="text-gray-400 text-sm mt-0.5">What you charge this client per carrier & service</p>
+            <h3 className="text-lg font-semibold text-[#0B1220]">Shipping Price List</h3>
+            <p className="text-[#4B4F58] text-sm mt-0.5">What you charge this client per carrier & service</p>
           </div>
           <ShippingRatesUpload clientId={id} />
         </div>
@@ -176,14 +176,14 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         {shippingRates.error ? (
           <ViewUnreadable message={shippingRates.error} />
         ) : shippingRates.rows.length === 0 ? (
-          <div className="text-center py-10 border-2 border-dashed border-gray-700 rounded-lg">
-            <p className="text-gray-500 mb-2">No shipping rates yet</p>
-            <p className="text-gray-600 text-sm">Upload a CSV or Excel file with this client's shipping prices</p>
+          <div className="text-center py-10 border-2 border-dashed border-[#E2E8F0] rounded-lg">
+            <p className="text-[#6B7A8D] mb-2">No shipping rates yet</p>
+            <p className="text-[#6B7A8D] text-sm">Upload a CSV or Excel file with this client's shipping prices</p>
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-gray-400 text-left border-b border-gray-700">
+              <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0]">
                 <th className="pb-3">Carrier</th>
                 <th className="pb-3">Service</th>
                 <th className="pb-3">Min Weight (lbs)</th>
@@ -193,12 +193,12 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             </thead>
             <tbody>
               {shippingRates.rows.map((r: any) => (
-                <tr key={r.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                <tr key={r.id} className="border-b border-[#E2E8F0]/50 hover:bg-[#EEF3FA]/30">
                   <td className="py-3 font-medium">{r.carrier}</td>
-                  <td className="py-3 text-gray-300">{r.service}</td>
-                  <td className="py-3 text-gray-400">{r.weight_min ?? 0}</td>
-                  <td className="py-3 text-gray-400">{r.weight_max ?? '∞'}</td>
-                  <td className="py-3 text-right text-green-400 font-semibold">${Number(r.rate).toFixed(2)}</td>
+                  <td className="py-3 text-[#3A4658]">{r.service}</td>
+                  <td className="py-3 text-[#4B4F58]">{r.weight_min ?? 0}</td>
+                  <td className="py-3 text-[#4B4F58]">{r.weight_max ?? '∞'}</td>
+                  <td className="py-3 text-right text-emerald-700 font-semibold">${Number(r.rate).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -207,19 +207,19 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       </div>
 
       {/* Zone Rate Matrix (Weight LB × Zone 1-8) */}
-      <div className="bg-gray-800 rounded-xl p-6">
+      <div className="bg-white rounded-xl p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-lg font-semibold text-white">Zone Rate Matrix</h3>
-            <p className="text-gray-400 text-sm mt-0.5">Weight (LB) × Zone pricing. Upload the rate card exactly as the table.</p>
+            <h3 className="text-lg font-semibold text-[#0B1220]">Zone Rate Matrix</h3>
+            <p className="text-[#4B4F58] text-sm mt-0.5">Weight (LB) × Zone pricing. Upload the rate card exactly as the table.</p>
           </div>
           <ZoneRatesUpload clientId={id} />
         </div>
 
         {/* Origin ZIP + Zone Map */}
-        <div className="border border-gray-700 rounded-xl p-4 mb-4 space-y-4">
+        <div className="border border-[#E2E8F0] rounded-xl p-4 mb-4 space-y-4">
           <OriginZipEditor clientId={id} originZip={client.origin_zip ?? ''} />
-          <div className="border-t border-gray-700/50 pt-4">
+          <div className="border-t border-[#E2E8F0]/50 pt-4">
             <ZoneChartUpload clientId={id} originZip={client.origin_zip ?? ''} />
           </div>
         </div>
@@ -227,33 +227,33 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         {zoneRates.error ? (
           <ViewUnreadable message={zoneRates.error} />
         ) : zoneMatrices.length === 0 ? (
-          <div className="text-center py-10 border-2 border-dashed border-gray-700 rounded-lg">
-            <p className="text-gray-500 mb-2">No zone rates yet</p>
-            <p className="text-gray-600 text-sm">Upload a CSV/Excel with a “Weight (LB)” column and “ZONE 1”…“ZONE 8” columns</p>
+          <div className="text-center py-10 border-2 border-dashed border-[#E2E8F0] rounded-lg">
+            <p className="text-[#6B7A8D] mb-2">No zone rates yet</p>
+            <p className="text-[#6B7A8D] text-sm">Upload a CSV/Excel with a “Weight (LB)” column and “ZONE 1”…“ZONE 8” columns</p>
           </div>
         ) : (
           <div className="space-y-6">
             {zoneMatrices.map(m => (
               <div key={m.key}>
-                <p className="text-sm text-gray-300 mb-2 font-medium">
+                <p className="text-sm text-[#3A4658] mb-2 font-medium">
                   {m.carrier || m.service
                     ? `${m.carrier || 'Any carrier'} · ${m.service || 'Any service'}`
                     : 'Blanket rate card (any carrier / service)'}
                 </p>
-                <div className="overflow-x-auto border border-gray-700 rounded-lg">
+                <div className="overflow-x-auto border border-[#E2E8F0] rounded-lg">
                   <table className="text-sm w-full">
                     <thead>
-                      <tr className="text-gray-400 border-b border-gray-700 text-xs uppercase">
-                        <th className="p-2 text-left sticky left-0 bg-gray-800">Weight (LB)</th>
+                      <tr className="text-[#4B4F58] border-b border-[#E2E8F0] text-xs uppercase">
+                        <th className="p-2 text-left sticky left-0 bg-white">Weight (LB)</th>
                         {m.zones.map(z => <th key={z} className="p-2 text-right">Zone {z}</th>)}
                       </tr>
                     </thead>
                     <tbody>
                       {m.weights.map(w => (
-                        <tr key={w} className="border-b border-gray-700/40 hover:bg-gray-700/30">
-                          <td className="p-2 text-gray-300 sticky left-0 bg-gray-800">{w}</td>
+                        <tr key={w} className="border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30">
+                          <td className="p-2 text-[#3A4658] sticky left-0 bg-white">{w}</td>
                           {m.zones.map(z => (
-                            <td key={z} className="p-2 text-right text-green-400">
+                            <td key={z} className="p-2 text-right text-emerald-700">
                               {m.rows[w]?.[z] != null ? `$${m.rows[w][z].toFixed(2)}` : '—'}
                             </td>
                           ))}
@@ -269,11 +269,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       </div>
 
       {/* Warehouse Rates */}
-      <div className="bg-gray-800 rounded-xl p-6">
+      <div className="bg-white rounded-xl p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h3 className="text-lg font-semibold text-white">Warehouse Price List</h3>
-            <p className="text-gray-400 text-sm mt-0.5">Pick & pack, storage, receiving and other services</p>
+            <h3 className="text-lg font-semibold text-[#0B1220]">Warehouse Price List</h3>
+            <p className="text-[#4B4F58] text-sm mt-0.5">Pick & pack, storage, receiving and other services</p>
           </div>
           {/*
             `error ? null : rows` -- NOT `rows`. The editor replaces the whole
@@ -292,14 +292,14 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         {warehouseRates.error ? (
           <ViewUnreadable message={warehouseRates.error} />
         ) : warehouseRates.rows.length === 0 ? (
-          <div className="text-center py-10 border-2 border-dashed border-gray-700 rounded-lg">
-            <p className="text-gray-500 mb-2">No warehouse rates yet</p>
-            <p className="text-gray-600 text-sm">Upload a CSV or add rates manually</p>
+          <div className="text-center py-10 border-2 border-dashed border-[#E2E8F0] rounded-lg">
+            <p className="text-[#6B7A8D] mb-2">No warehouse rates yet</p>
+            <p className="text-[#6B7A8D] text-sm">Upload a CSV or add rates manually</p>
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-gray-400 text-left border-b border-gray-700">
+              <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0]">
                 <th className="pb-3">Service Type</th>
                 <th className="pb-3">Unit</th>
                 <th className="pb-3 text-right">Rate</th>
@@ -348,10 +348,10 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
               {warehouseRates.rows.map((r: any) => {
                 const cell = rateCellLabel(r)
                 return (
-                  <tr key={r.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                  <tr key={r.id} className="border-b border-[#E2E8F0]/50 hover:bg-[#EEF3FA]/30">
                     <td className="py-3 font-medium capitalize">{r.label ?? r.service_type?.replace(/_/g, ' ') ?? '—'}</td>
-                    <td className="py-3 text-gray-400 capitalize">{r.unit?.replace(/_/g, ' ') ?? '—'}</td>
-                    <td className={`py-3 text-right font-semibold ${cell.agreed ? 'text-green-400' : 'text-gray-400'}`}>
+                    <td className="py-3 text-[#4B4F58] capitalize">{r.unit?.replace(/_/g, ' ') ?? '—'}</td>
+                    <td className={`py-3 text-right font-semibold ${cell.agreed ? 'text-emerald-700' : 'text-[#4B4F58]'}`}>
                       {cell.text}
                     </td>
                   </tr>

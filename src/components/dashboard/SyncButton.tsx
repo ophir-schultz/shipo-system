@@ -75,7 +75,7 @@ export default function SyncButton() {
       <button
         onClick={handleRecalculate}
         disabled={recalcLoading || loading}
-        className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
+        className="bg-[#EEF3FA] hover:bg-[#DDE6F2] disabled:opacity-50 text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
         title="Recalculate all shipment rates using billed weight (max of actual vs dimensional)"
       >
         {recalcLoading ? <><span className="animate-spin">⟳</span> Recalculating...</> : '⚖️ Recalculate Weights'}
@@ -131,7 +131,7 @@ export default function SyncButton() {
                 <tr key={g.reason} className="border-t border-amber-800/30">
                   <td className="py-1 pr-3 text-gray-200">{g.reason}</td>
                   <td className="py-1 text-right text-amber-200 font-medium tabular-nums">{g.count}</td>
-                  <td className="py-1 text-right text-gray-400 font-mono">{g.example}</td>
+                  <td className="py-1 text-right text-[#4B4F58] font-mono">{g.example}</td>
                 </tr>
               ))}
             </tbody>

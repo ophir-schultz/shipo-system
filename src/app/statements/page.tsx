@@ -247,7 +247,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="space-y-6 font-sans text-slate-200">
       <div>
-        <h2 className="text-2xl font-bold text-white">Statements</h2>
+        <h2 className="text-2xl font-bold text-[#0B1220]">Statements</h2>
         <p className="mt-1 text-sm text-slate-400">
           What one client has been billed for a period — pick and pack counts at
           their own rates, plus shipping. Read live from the ledger; this is not
@@ -276,7 +276,7 @@ function StatementTable(
   return (
     <div className="rounded-xl bg-slate-800 p-5">
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
-        <h3 className="font-semibold text-white">{name}</h3>
+        <h3 className="font-semibold text-[#0B1220]">{name}</h3>
         <span className="font-mono text-xs text-slate-500">{periodLabel(grain, range)}</span>
       </div>
 
@@ -325,7 +325,7 @@ function StatementTable(
                 <td className="pt-3 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
                   Total for the period
                 </td>
-                <td className="pt-3 text-right text-base font-bold text-white">
+                <td className="pt-3 text-right text-base font-bold text-[#0B1220]">
                   {total === null ? (
                     <span
                       className="text-orange-500"

@@ -164,9 +164,9 @@ export default async function PartnerPayouts() {
   return (
     <Shell>
       {readErrors.length > 0 && (
-        <div className="mb-4 rounded-lg border border-red-800/60 bg-red-950/30 px-4 py-3 text-xs text-red-300">
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
           <p className="font-semibold">⚠ A ledger read FAILED. Nothing below is a payable figure.</p>
-          <ul className="mt-1.5 space-y-0.5 font-mono text-[11px] text-red-400/90">
+          <ul className="mt-1.5 space-y-0.5 font-mono text-[11px] text-red-700">
             {readErrors.map((e) => (
               <li key={e}>{e}</li>
             ))}
@@ -179,7 +179,7 @@ export default async function PartnerPayouts() {
       )}
 
       {readErrors.length === 0 && anyClients && !anyMonths && (
-        <p className="mb-4 rounded-lg border border-yellow-800/60 bg-yellow-950/30 px-4 py-3 text-xs text-yellow-300">
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700">
           ⚠ These partners have referred clients, but the ledger returned no months for any of
           them. Either no charges are dated yet, or{' '}
           <span className="font-mono">supabase/partner_ledger.sql</span> has not been run — the two
@@ -198,14 +198,14 @@ export default async function PartnerPayouts() {
 
 function Shell({ children, note }: { children?: React.ReactNode; note?: string }) {
   return (
-    <div className="bg-gray-800 rounded-xl p-5">
+    <div className="bg-white rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-white">Partner Payout Detail</h3>
-        <span className="text-xs text-gray-400">
+        <h3 className="font-semibold text-[#0B1220]">Partner Payout Detail</h3>
+        <span className="text-xs text-[#4B4F58]">
           Every client, every month, every charge — from the ledger
         </span>
       </div>
-      {note ? <p className="text-gray-500 text-sm">{note}</p> : children}
+      {note ? <p className="text-[#6B7A8D] text-sm">{note}</p> : children}
     </div>
   )
 }
@@ -223,27 +223,27 @@ function PartnerSection({ block }: { block: PartnerBlock }) {
   }
 
   return (
-    <section className="rounded-xl border border-gray-700 overflow-hidden">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-gray-700 bg-gray-900/50 px-4 py-3">
+    <section className="rounded-xl border border-[#E2E8F0] overflow-hidden">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[#E2E8F0] bg-[#F1F5FB]/50 px-4 py-3">
         <div>
-          <span className="font-semibold text-white">{partner.name}</span>
-          {partner.company && <span className="text-gray-500 text-sm ml-2">{partner.company}</span>}
-          <span className="text-gray-500 text-xs ml-2">
+          <span className="font-semibold text-[#0B1220]">{partner.name}</span>
+          {partner.company && <span className="text-[#6B7A8D] text-sm ml-2">{partner.company}</span>}
+          <span className="text-[#6B7A8D] text-xs ml-2">
             {ledger.clients.length === 1 ? '1 client' : `${ledger.clients.length} clients`}
           </span>
         </div>
         <div className="flex gap-5 text-xs">
-          <Figure label="Owed" value={fmt(totals.owed)} tone="text-white" />
-          <Figure label="In review" value={fmt(totals.pending)} tone="text-yellow-400" />
-          <Figure label="Approved" value={fmt(totals.approved)} tone="text-[#00AAFF]" />
-          <Figure label="Paid" value={fmt(totals.paid)} tone="text-green-400" />
+          <Figure label="Owed" value={fmt(totals.owed)} tone="text-[#0B1220]" />
+          <Figure label="In review" value={fmt(totals.pending)} tone="text-amber-700" />
+          <Figure label="Approved" value={fmt(totals.approved)} tone="text-[#1A73E8]" />
+          <Figure label="Paid" value={fmt(totals.paid)} tone="text-emerald-700" />
         </div>
       </div>
 
       {ledger.clients.length === 0 ? (
-        <p className="px-4 py-4 text-sm text-gray-500">No clients linked to this partner.</p>
+        <p className="px-4 py-4 text-sm text-[#6B7A8D]">No clients linked to this partner.</p>
       ) : (
-        <div className="divide-y divide-gray-700/60">
+        <div className="divide-y divide-[#E2E8F0]/60">
           {ledger.clients.map((c) => (
             <ClientRows key={c.id} block={block} clientId={c.id} clientName={c.name} months={byClient.get(c.id) ?? []} />
           ))}
@@ -251,19 +251,19 @@ function PartnerSection({ block }: { block: PartnerBlock }) {
       )}
 
       {block.chargesFailed && (
-        <p className="border-t border-gray-700 px-4 py-2 text-xs text-red-300">
+        <p className="border-t border-[#E2E8F0] px-4 py-2 text-xs text-red-700">
           ⚠ The charge detail could not be read. The monthly figures above come from the ledger
           views and are unaffected, but the drilldowns below are empty for the wrong reason.
         </p>
       )}
       {block.chargesTruncated && (
-        <p className="border-t border-gray-700 px-4 py-2 text-xs text-gray-500">
+        <p className="border-t border-[#E2E8F0] px-4 py-2 text-xs text-[#6B7A8D]">
           Charge drilldown capped at the most recent {CHARGE_LIMIT.toLocaleString('en-US')} charges.
           Older months list fewer charges than they contain; monthly totals are unaffected.
         </p>
       )}
       {ledger.orderUnitsTruncated && (
-        <p className="border-t border-gray-700 px-4 py-2 text-xs text-gray-500">
+        <p className="border-t border-[#E2E8F0] px-4 py-2 text-xs text-[#6B7A8D]">
           This partner has more than {ledger.orderUnits.length.toLocaleString('en-US')} orders, so
           the order count shown for older months falls back to the hand-recorded figure or nothing
           at all, never to a count of the rows that survived the cap.
@@ -289,14 +289,14 @@ function ClientRows({
       <div className="flex items-baseline gap-2 mb-2">
         <span className="text-sm font-medium text-gray-200">{clientName}</span>
         {months.length === 0 && (
-          <span className="text-xs text-gray-500">no ledger months — nothing charged yet</span>
+          <span className="text-xs text-[#6B7A8D]">no ledger months — nothing charged yet</span>
         )}
       </div>
 
       {months.length > 0 && (
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-left text-gray-500 border-b border-gray-700/60 uppercase tracking-wide">
+            <tr className="text-left text-[#6B7A8D] border-b border-[#E2E8F0]/60 uppercase tracking-wide">
               <th className="pb-1.5 pr-3 font-medium">Month</th>
               <th className="pb-1.5 pr-3 font-medium text-right">Billed</th>
               <th className="pb-1.5 pr-3 font-medium text-right">Freight</th>
@@ -359,37 +359,37 @@ function MonthRow({
 
   return (
     <>
-      <tr className="border-b border-gray-700/30">
-        <td className="py-1.5 pr-3 text-gray-300">
+      <tr className="border-b border-[#E2E8F0]/30">
+        <td className="py-1.5 pr-3 text-[#3A4658]">
           {m.period_month.slice(0, 7)}
           {!m.payable && (
-            <span className="ml-1.5 px-1 py-0.5 rounded bg-yellow-900/40 text-yellow-400 text-[10px]">
+            <span className="ml-1.5 px-1 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px]">
               provisional
             </span>
           )}
-          {m.has_estimates && <span className="ml-1.5 text-gray-500 text-[10px]">est.</span>}
+          {m.has_estimates && <span className="ml-1.5 text-[#6B7A8D] text-[10px]">est.</span>}
         </td>
         <td className="py-1.5 pr-3 text-right text-gray-200 tabular-nums">
-          {m.revenue === null ? <span className="text-gray-500">unknown</span> : fmt(num(m.revenue))}
+          {m.revenue === null ? <span className="text-[#6B7A8D]">unknown</span> : fmt(num(m.revenue))}
         </td>
-        <td className="py-1.5 pr-3 text-right text-gray-400 tabular-nums">{fmtNeg(num(m.cost_freight))}</td>
-        <td className="py-1.5 pr-3 text-right text-gray-400 tabular-nums">{fmtNeg(num(m.cost_materials))}</td>
-        <td className="py-1.5 pr-3 text-right text-gray-400 tabular-nums">{fmtNeg(num(m.cost_storage))}</td>
+        <td className="py-1.5 pr-3 text-right text-[#4B4F58] tabular-nums">{fmtNeg(num(m.cost_freight))}</td>
+        <td className="py-1.5 pr-3 text-right text-[#4B4F58] tabular-nums">{fmtNeg(num(m.cost_materials))}</td>
+        <td className="py-1.5 pr-3 text-right text-[#4B4F58] tabular-nums">{fmtNeg(num(m.cost_storage))}</td>
         {/* Reported, never deducted from the partner's figure. */}
-        <td className="py-1.5 pr-3 text-right text-gray-500 tabular-nums">
+        <td className="py-1.5 pr-3 text-right text-[#6B7A8D] tabular-nums">
           ({fmt(num(m.cost_labour_not_deducted))})
         </td>
         <td className="py-1.5 pr-3 text-right text-gray-200 tabular-nums">
           {partnerNet === null ? '—' : fmt(partnerNet)}
         </td>
-        <td className="py-1.5 pr-3 text-right text-gray-300 tabular-nums">
+        <td className="py-1.5 pr-3 text-right text-[#3A4658] tabular-nums">
           {ourMargin === null ? '—' : fmt(ourMargin)}
         </td>
         <td className="py-1.5 text-right tabular-nums">
           {commission === null ? (
-            <span className="text-yellow-400/80">not payable</span>
+            <span className="text-amber-700">not payable</span>
           ) : (
-            <span className="text-white font-semibold">{fmt(commission)}</span>
+            <span className="text-[#0B1220] font-semibold">{fmt(commission)}</span>
           )}
         </td>
       </tr>
@@ -398,7 +398,7 @@ function MonthRow({
         <tr>
           <td colSpan={9} className="pb-2">
             {(m.cost_unknown_charges > 0 || m.revenue_unknown_charges > 0) && (
-              <p className="text-[11px] text-yellow-400/90">
+              <p className="text-[11px] text-amber-700">
                 {m.revenue_unknown_charges > 0 && (
                   <>
                     {m.revenue_unknown_charges} charge
@@ -417,7 +417,7 @@ function MonthRow({
               </p>
             )}
             {delta && delta.delta !== 0 && (
-              <p className="text-[11px] text-orange-300 mt-0.5">
+              <p className="text-[11px] text-amber-700 mt-0.5">
                 Hand-typed fba_invoices says {fmt(delta.manualAmount)}, the ledger says{' '}
                 {fmt(delta.ledgerAmount)} — a {fmt(Math.abs(delta.delta))}{' '}
                 {delta.delta > 0 ? 'shortfall in' : 'overstatement in'} the recorded figure.
@@ -452,13 +452,13 @@ function ChargeDetail({ rows }: { rows: ChargeRow[] }) {
 
   return (
     <details className="mt-1.5">
-      <summary className="text-[11px] text-[#00AAFF] cursor-pointer select-none hover:underline">
+      <summary className="text-[11px] text-[#1A73E8] cursor-pointer select-none hover:underline">
         {ordered.length === 1 ? '1 charge' : `${ordered.length} charges`}
       </summary>
-      <div className="mt-1.5 rounded border border-gray-700/60 overflow-hidden">
+      <div className="mt-1.5 rounded border border-[#E2E8F0]/60 overflow-hidden">
         <table className="w-full text-[11px]">
           <thead>
-            <tr className="bg-gray-900/60 text-gray-500 text-left">
+            <tr className="bg-[#F1F5FB]/60 text-[#6B7A8D] text-left">
               <th className="px-2 py-1 font-medium">Date</th>
               <th className="px-2 py-1 font-medium">Order</th>
               <th className="px-2 py-1 font-medium">Type</th>
@@ -467,27 +467,27 @@ function ChargeDetail({ rows }: { rows: ChargeRow[] }) {
               <th className="px-2 py-1 font-medium text-right">Cost</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-700/40">
+          <tbody className="divide-y divide-[#E2E8F0]/40">
             {ordered.map((r, i) => (
               <tr key={`${r.order_id ?? 'account'}:${r.charge_type}:${r.charge_date}:${i}`}>
-                <td className="px-2 py-1 text-gray-500 tabular-nums">{r.charge_date}</td>
-                <td className="px-2 py-1 text-gray-400">
+                <td className="px-2 py-1 text-[#6B7A8D] tabular-nums">{r.charge_date}</td>
+                <td className="px-2 py-1 text-[#4B4F58]">
                   {/* order_id is nullable: storage and other account-level
                       charges have a client and a month but no order. */}
-                  {r.orders?.order_number ?? <span className="text-gray-600">account-level</span>}
+                  {r.orders?.order_number ?? <span className="text-[#6B7A8D]">account-level</span>}
                 </td>
-                <td className="px-2 py-1 text-gray-400">
+                <td className="px-2 py-1 text-[#4B4F58]">
                   {r.charge_type}
-                  {r.is_estimate && <span className="ml-1 text-gray-600">est.</span>}
+                  {r.is_estimate && <span className="ml-1 text-[#6B7A8D]">est.</span>}
                 </td>
-                <td className="px-2 py-1 text-gray-500">{r.label}</td>
+                <td className="px-2 py-1 text-[#6B7A8D]">{r.label}</td>
                 {/* null is UNKNOWN, not zero, and the whole project exists to
                     keep those apart. A dash here is the honest cell. */}
-                <td className="px-2 py-1 text-right text-gray-300 tabular-nums">
-                  {r.amount === null ? <span className="text-gray-600">—</span> : fmt(num(r.amount))}
+                <td className="px-2 py-1 text-right text-[#3A4658] tabular-nums">
+                  {r.amount === null ? <span className="text-[#6B7A8D]">—</span> : fmt(num(r.amount))}
                 </td>
-                <td className="px-2 py-1 text-right text-gray-400 tabular-nums">
-                  {r.cost === null ? <span className="text-gray-600">—</span> : fmt(num(r.cost))}
+                <td className="px-2 py-1 text-right text-[#4B4F58] tabular-nums">
+                  {r.cost === null ? <span className="text-[#6B7A8D]">—</span> : fmt(num(r.cost))}
                 </td>
               </tr>
             ))}
@@ -497,7 +497,7 @@ function ChargeDetail({ rows }: { rows: ChargeRow[] }) {
                 the month row above are the thing that says what is missing.
                 These two are here to tie the list to the month, not to price
                 anything. */}
-            <tr className="bg-gray-900/40 text-gray-400">
+            <tr className="bg-[#F1F5FB]/40 text-[#4B4F58]">
               <td className="px-2 py-1" colSpan={4}>
                 Priced charges only
               </td>
@@ -514,7 +514,7 @@ function ChargeDetail({ rows }: { rows: ChargeRow[] }) {
 function Figure({ label, value, tone }: { label: string; value: string; tone: string }) {
   return (
     <div className="text-right">
-      <span className="block text-[10px] uppercase tracking-wider text-gray-500">{label}</span>
+      <span className="block text-[10px] uppercase tracking-wider text-[#6B7A8D]">{label}</span>
       <span className={`font-semibold ${tone}`}>{value}</span>
     </div>
   )

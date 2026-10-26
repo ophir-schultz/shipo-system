@@ -198,7 +198,7 @@ describe('the printed report carries its own scope', () => {
       expect(body, `${selector} needs the -webkit- prefix too`)
         .toContain('-webkit-print-color-adjust: exact')
     }
-    expect(ruleBody(CSS, '.print-brand-rule')).toContain('#00AAFF')
+    expect(ruleBody(CSS, '.print-brand-rule')).toContain('#1A73E8')
     // Not page-wide: the reset still forces black text everywhere else.
     expect(CSS.slice(CSS.indexOf('@media print'))).toMatch(/color:\s*#000/)
   })

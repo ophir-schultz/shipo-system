@@ -185,7 +185,7 @@ export default function WarehouseRatesUpload(
       <a
         href="/templates/warehouse-rates-template.csv"
         download
-        className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+        className="bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition"
       >
         ↓ Template
       </a>
@@ -197,7 +197,7 @@ export default function WarehouseRatesUpload(
         onClick={() => fileRef.current?.click()}
         disabled={xlsxLoading || unreadable}
         title={unreadable ? 'Current rates could not be loaded -- reload before replacing them' : undefined}
-        className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+        className="bg-[#EEF3FA] hover:bg-[#DDE6F2] disabled:opacity-50 disabled:cursor-not-allowed text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition"
       >
         {xlsxLoading ? 'Reading...' : '↑ Replace from Excel'}
       </button>
@@ -210,17 +210,17 @@ export default function WarehouseRatesUpload(
         onClick={openEditor}
         disabled={unreadable}
         title={unreadable ? 'Current rates could not be loaded -- reload before editing them' : undefined}
-        className="text-white px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
-        style={{ background: '#00AAFF' }}
+        className="text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{ background: '#1A73E8' }}
       >
         ✎ Edit Rates
       </button>
 
       {open && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="bg-gray-800 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h4 className="font-semibold text-white mb-1">Warehouse Rates</h4>
-            <p className="text-gray-400 text-sm mb-4">
+          <div className="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <h4 className="font-semibold text-[#0B1220] mb-1">Warehouse Rates</h4>
+            <p className="text-[#4B4F58] text-sm mb-4">
               {saved ? `${saved.count} rate(s) saved.` : 'Review and edit before saving'}
             </p>
 
@@ -242,7 +242,7 @@ export default function WarehouseRatesUpload(
                 </div>
                 <button
                   onClick={closeModal}
-                  className="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition"
+                  className="w-full bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] py-2 rounded-lg text-sm transition"
                 >
                   Close
                 </button>
@@ -254,13 +254,13 @@ export default function WarehouseRatesUpload(
                 an operator who deletes a row here is deleting a rate -- that
                 has to be stated where the decision is made, not discovered
                 afterwards from a bill that came out short. */}
-            <p className="text-gray-400 text-xs mb-3 bg-gray-700/40 border border-gray-600/60 rounded-lg px-3 py-2">
+            <p className="text-[#4B4F58] text-xs mb-3 bg-[#EEF3FA]/40 border border-[#CBD5E1]/60 rounded-lg px-3 py-2">
               Saving sets this client&apos;s warehouse rates to exactly the lines below.
               Anything removed from this list stops being billed.
             </p>
 
             <div className="space-y-2 mb-4">
-              <div className="grid grid-cols-3 gap-2 text-xs text-gray-400 px-1">
+              <div className="grid grid-cols-3 gap-2 text-xs text-[#4B4F58] px-1">
                 <span>Service</span><span>Rate ($)</span><span>Unit</span>
               </div>
               {rows.map((row, i) => (
@@ -268,7 +268,7 @@ export default function WarehouseRatesUpload(
                   <select
                     value={row.service_type}
                     onChange={e => updateRow(i, 'service_type', e.target.value)}
-                    className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+                    className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
                   >
                     {SERVICE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
@@ -277,23 +277,23 @@ export default function WarehouseRatesUpload(
                     placeholder="0.00"
                     value={row.rate}
                     onChange={e => updateRow(i, 'rate', e.target.value)}
-                    className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+                    className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
                   />
                   <div className="flex gap-1">
                     <select
                       value={row.unit}
                       onChange={e => updateRow(i, 'unit', e.target.value)}
-                      className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+                      className="flex-1 bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
                     >
                       {UNITS.map(u => <option key={u} value={u}>{u.replace(/_/g, ' ')}</option>)}
                     </select>
-                    <button onClick={() => removeRow(i)} className="text-gray-500 hover:text-red-400 px-2">✕</button>
+                    <button onClick={() => removeRow(i)} className="text-[#6B7A8D] hover:text-red-400 px-2">✕</button>
                   </div>
                 </div>
               ))}
             </div>
 
-            <button onClick={addRow} className="text-[#00AAFF] text-sm hover:text-[#33BBFF] mb-4 block">+ Add row</button>
+            <button onClick={addRow} className="text-[#1A73E8] text-sm hover:text-[#63B3FF] mb-4 block">+ Add row</button>
 
             {/* Named BEFORE the save, from the same function the save uses.
                 A row left blank is not kept at its old rate -- it is dropped --
@@ -311,8 +311,8 @@ export default function WarehouseRatesUpload(
 
             {error && <p className="text-red-400 text-sm mb-3 whitespace-pre-wrap">{error}</p>}
             <div className="flex gap-3">
-              <button onClick={closeModal} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition">Cancel</button>
-              <button onClick={handleSave} disabled={loading} className="flex-1 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-medium transition" style={{ background: '#00AAFF' }}>
+              <button onClick={closeModal} className="flex-1 bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] py-2 rounded-lg text-sm transition">Cancel</button>
+              <button onClick={handleSave} disabled={loading} className="flex-1 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-medium transition" style={{ background: '#1A73E8' }}>
                 {loading ? 'Saving...' : 'Save Rates'}
               </button>
             </div>

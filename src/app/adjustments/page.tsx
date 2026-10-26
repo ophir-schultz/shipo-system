@@ -56,8 +56,8 @@ export default async function AdjustmentsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-white">Carrier Price Adjustments</h2>
-        <p className="text-gray-400 text-sm mt-1">
+        <h2 className="text-2xl font-bold text-[#0B1220]">Carrier Price Adjustments</h2>
+        <p className="text-[#4B4F58] text-sm mt-1">
           Post-shipment price changes detected on each sync — review and charge clients accordingly
         </p>
       </div>
@@ -65,13 +65,13 @@ export default async function AdjustmentsPage() {
       {page.ok ? <Summary data={page.data} /> : <ViewUnreadable message={page.error} />}
 
       {/* How it works */}
-      <div className="rounded-xl p-4 border border-gray-700/50 bg-gray-800/50 flex gap-4 text-sm text-gray-400">
+      <div className="rounded-xl p-4 border border-[#E2E8F0]/50 bg-white/50 flex gap-4 text-sm text-[#4B4F58]">
         <span className="text-2xl shrink-0">ℹ️</span>
         <div>
-          <p className="text-gray-300 font-medium mb-1">How adjustments are detected</p>
+          <p className="text-[#3A4658] font-medium mb-1">How adjustments are detected</p>
           <p>Every sync compares the latest carrier cost for each shipment against what was previously stored.
           If the carrier increased the charge (reweigh, DIM correction, address correction), an adjustment is automatically created here.
-          Use <strong className="text-white">Approve</strong> to flag for billing, <strong className="text-white">Billed</strong> once charged to client, or <strong className="text-white">Waive</strong> to write off.</p>
+          Use <strong className="text-[#0B1220]">Approve</strong> to flag for billing, <strong className="text-[#0B1220]">Billed</strong> once charged to client, or <strong className="text-[#0B1220]">Waive</strong> to write off.</p>
         </div>
       </div>
     </div>
@@ -101,15 +101,15 @@ function Summary({ data }: { data: LoadedData<Awaited<ReturnType<typeof getAdjus
           <p className="text-2xl font-bold text-green-400 mt-1">{resolved.filter((r: any) => r.status === 'approved').length}</p>
           <p className="text-green-400/60 text-xs mt-1">Approved, not yet billed</p>
         </div>
-        <div className="rounded-xl p-4 border border-[#00AAFF]/20 bg-[#00AAFF]/5">
-          <p className="text-[#00AAFF]/70 text-xs uppercase tracking-wider">Billed</p>
-          <p className="text-2xl font-bold text-[#33BBFF] mt-1">{resolved.filter((r: any) => r.status === 'billed').length}</p>
-          <p className="text-[#00AAFF]/60 text-xs mt-1">+${billedTotal.toFixed(2)} recovered</p>
+        <div className="rounded-xl p-4 border border-[#1A73E8]/20 bg-[#1A73E8]/5">
+          <p className="text-[#1A73E8]/70 text-xs uppercase tracking-wider">Billed</p>
+          <p className="text-2xl font-bold text-[#63B3FF] mt-1">{resolved.filter((r: any) => r.status === 'billed').length}</p>
+          <p className="text-[#1A73E8]/60 text-xs mt-1">+${billedTotal.toFixed(2)} recovered</p>
         </div>
-        <div className="rounded-xl p-4 border border-gray-700 bg-gray-800">
-          <p className="text-gray-400 text-xs uppercase tracking-wider">Waived</p>
-          <p className="text-2xl font-bold text-gray-300 mt-1">{resolved.filter((r: any) => r.status === 'waived').length}</p>
-          <p className="text-gray-500 text-xs mt-1">${waivedTotal.toFixed(2)} written off</p>
+        <div className="rounded-xl p-4 border border-[#E2E8F0] bg-white">
+          <p className="text-[#4B4F58] text-xs uppercase tracking-wider">Waived</p>
+          <p className="text-2xl font-bold text-[#3A4658] mt-1">{resolved.filter((r: any) => r.status === 'waived').length}</p>
+          <p className="text-[#6B7A8D] text-xs mt-1">${waivedTotal.toFixed(2)} written off</p>
         </div>
       </div>
 

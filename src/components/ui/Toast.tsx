@@ -51,8 +51,8 @@ const STYLES: Record<ToastType, string> = {
 const ICON_STYLES: Record<ToastType, string> = {
   error: 'bg-red-700 text-white',
   success: 'bg-green-700 text-white',
-  warning: 'bg-yellow-600 text-white',
-  info: 'text-white',
+  warning: 'bg-yellow-600 text-[#0B1220]',
+  info: 'text-[#0B1220]',
 }
 
 export default function ToastContainer() {
@@ -77,12 +77,12 @@ export default function ToastContainer() {
             {ICONS[t.type]}
           </span>
           <div className="flex-1 min-w-0">
-            <p className="text-white text-sm font-medium">{t.title}</p>
-            {t.message && <p className="text-gray-300 text-xs mt-0.5 break-words">{t.message}</p>}
+            <p className="text-[#0B1220] text-sm font-medium">{t.title}</p>
+            {t.message && <p className="text-[#3A4658] text-xs mt-0.5 break-words">{t.message}</p>}
           </div>
           <button
             onClick={() => { toasts = toasts.filter(x => x.id !== t.id); notify() }}
-            className="text-gray-400 hover:text-white text-xs flex-shrink-0 mt-0.5"
+            className="text-[#4B4F58] hover:text-[#0B1220] text-xs flex-shrink-0 mt-0.5"
           >✕</button>
         </div>
       ))}

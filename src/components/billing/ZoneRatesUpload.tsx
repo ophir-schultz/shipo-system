@@ -126,15 +126,15 @@ export default function ZoneRatesUpload({ clientId }: { clientId: string }) {
       <a
         href="/templates/zone-rates-template.csv"
         download
-        className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+        className="bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition"
       >
         ↓ Template
       </a>
       <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" onChange={handleFile} className="hidden" />
       <button
         onClick={() => fileRef.current?.click()}
-        className="text-white px-4 py-2 rounded-lg text-sm font-medium transition"
-        style={{ background: '#00AAFF' }}
+        className="text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition"
+        style={{ background: '#1A73E8' }}
       >
         Upload Zone Matrix
       </button>
@@ -143,9 +143,9 @@ export default function ZoneRatesUpload({ clientId }: { clientId: string }) {
 
       {cells.length > 0 && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="bg-gray-800 rounded-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <h4 className="font-semibold text-white mb-1">Preview — {cells.length} rate cells</h4>
-            <p className="text-gray-400 text-sm mb-4">
+          <div className="bg-white rounded-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <h4 className="font-semibold text-[#0B1220] mb-1">Preview — {cells.length} rate cells</h4>
+            <p className="text-[#4B4F58] text-sm mb-4">
               {grid.weights.length} weight rows × {zones.length} zones. Optionally tag this matrix with a carrier/service (leave blank for a blanket rate card).
             </p>
 
@@ -154,28 +154,28 @@ export default function ZoneRatesUpload({ clientId }: { clientId: string }) {
                 value={carrier}
                 onChange={e => setCarrier(e.target.value)}
                 placeholder="Carrier (optional, e.g. UPS)"
-                className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+                className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
               />
               <input
                 value={service}
                 onChange={e => setService(e.target.value)}
                 placeholder="Service (optional, e.g. Ground)"
-                className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+                className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
               />
             </div>
 
-            <div className="overflow-x-auto mb-4 border border-gray-700 rounded-lg">
+            <div className="overflow-x-auto mb-4 border border-[#E2E8F0] rounded-lg">
               <table className="text-sm w-full">
                 <thead>
-                  <tr className="text-gray-400 border-b border-gray-700 text-xs uppercase">
-                    <th className="p-2 text-left sticky left-0 bg-gray-800">Weight (LB)</th>
+                  <tr className="text-[#4B4F58] border-b border-[#E2E8F0] text-xs uppercase">
+                    <th className="p-2 text-left sticky left-0 bg-white">Weight (LB)</th>
                     {zones.map(z => <th key={z} className="p-2 text-right">Zone {z}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {grid.weights.map(w => (
-                    <tr key={w} className="border-b border-gray-700/40">
-                      <td className="p-2 text-gray-300 sticky left-0 bg-gray-800">{w}</td>
+                    <tr key={w} className="border-b border-[#E2E8F0]/40">
+                      <td className="p-2 text-[#3A4658] sticky left-0 bg-white">{w}</td>
                       {zones.map(z => (
                         <td key={z} className="p-2 text-right text-green-400">
                           {grid.rows[w]?.[z] != null ? `$${grid.rows[w][z].toFixed(2)}` : '—'}
@@ -191,15 +191,15 @@ export default function ZoneRatesUpload({ clientId }: { clientId: string }) {
             <div className="flex gap-3">
               <button
                 onClick={() => { setCells([]); if (fileRef.current) fileRef.current.value = '' }}
-                className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg text-sm transition"
+                className="flex-1 bg-[#EEF3FA] hover:bg-[#DDE6F2] text-[#0B1220] py-2 rounded-lg text-sm transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleUpload}
                 disabled={loading}
-                className="flex-1 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-medium transition"
-                style={{ background: '#00AAFF' }}
+                className="flex-1 disabled:opacity-50 text-[#0B1220] py-2 rounded-lg text-sm font-medium transition"
+                style={{ background: '#1A73E8' }}
               >
                 {loading ? 'Uploading…' : `Upload ${cells.length} Cells`}
               </button>

@@ -9,7 +9,7 @@ const colors: Record<string, string> = {
   red: 'border-red-700 bg-red-950/30',
   yellow: 'border-yellow-700 bg-yellow-950/30',
   purple: 'border-purple-700 bg-purple-950/30',
-  gray: 'border-gray-700 bg-gray-800',
+  gray: 'border-[#E2E8F0] bg-white',
 }
 
 export default function ReportDownloader({ report, clients }: { report: any; clients: any[] }) {
@@ -56,39 +56,39 @@ export default function ReportDownloader({ report, clients }: { report: any; cli
       <div className="flex items-start justify-between mb-4">
         <div>
           <div className="text-2xl mb-2">{report.icon}</div>
-          <h3 className="font-semibold text-white">{report.title}</h3>
-          <p className="text-gray-400 text-sm mt-1">{report.description}</p>
+          <h3 className="font-semibold text-[#0B1220]">{report.title}</h3>
+          <p className="text-[#4B4F58] text-sm mt-1">{report.description}</p>
         </div>
       </div>
 
       <div className="space-y-3 mt-4">
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="block text-xs text-gray-400 mb-1">From</label>
+            <label className="block text-xs text-[#4B4F58] mb-1">From</label>
             <input
               type="date"
               value={dateFrom}
               onChange={e => setDateFrom(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+              className="w-full bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-400 mb-1">To</label>
+            <label className="block text-xs text-[#4B4F58] mb-1">To</label>
             <input
               type="date"
               value={dateTo}
               onChange={e => setDateTo(e.target.value)}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+              className="w-full bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Client (optional — leave blank for all)</label>
+          <label className="block text-xs text-[#4B4F58] mb-1">Client (optional — leave blank for all)</label>
           <select
             value={clientId}
             onChange={e => setClientId(e.target.value)}
-            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+            className="w-full bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
           >
             <option value="">All Clients</option>
             {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}

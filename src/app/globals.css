@@ -1,8 +1,17 @@
 @import "tailwindcss";
 
+/* ───────────────────────────────────────────────────────────────────────────
+   SHIPO BRAND, taken from shipousa.com on 2026-10-26 rather than invented.
+   Every value below was read off the live site's computed styles.
+
+   The app was a dark cyan theme (#00AAFF on #0a0f1a); the website is light,
+   navy and royal blue, set in Inter. Those were two different-looking
+   products sharing a name. These tokens are the site's.
+   ─────────────────────────────────────────────────────────────────────────── */
+
 :root {
-  --background: #0a0f1a;
-  --foreground: #f0f4f8;
+  --background: #ffffff;
+  --foreground: #0b1220;
 
   /* Shipo's actual brand, read off https://shipousa.com/ on 2026-10-20.
      Hit counts from grepping all 415KB of the homepage: ink 35, action 30,
@@ -14,20 +23,40 @@
   --brand-surface: #f4f8fd;
   --brand-surface-2: #f6f8fb;
   --brand-page: #ffffff;
+
+  /* Added 2026-10-26, when the cyan was finally taken out of the STAFF
+     screens too -- the "separate job" the note above scoped out. These are
+     the tones the six tokens above do not name, under the same prefix,
+     because two naming schemes for one brand is how a palette drifts. */
+  --brand-navy-deep: #081a33;
+  --brand-navy-mid: #0f4a94;
+  --brand-hero: linear-gradient(165deg, #081a33 0%, #0b3361 55%, #0f4a94 100%);
+  --brand-action-deep: #0b5ed7;
+  --brand-button: linear-gradient(135deg, #1a73e8, #0b5ed7);
+  --brand-link: #0170b9;
+  --brand-sky: #63b3ff;
+  --brand-pale: #aecdff;
+  --brand-on-navy-muted: #c7d8f0;
+  --brand-ink-strong: #0b1220;
+  --brand-ink-soft: #3a4658;
+  --brand-body: #4b4f58;
+  --brand-muted: #6b7a8d;
+  --brand-line: #e2e8f0;
+  --brand-line-strong: #cbd5e1;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter), var(--font-geist-sans), Inter, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
 
-  /* STAFF SCREENS ONLY, and deliberately left wrong. This cyan is not
-     Shipo's colour, but removing it app-wide is a separate job (spec D5,
-     "partner screens only"). Partner surfaces must not reference it. */
-  --color-shipo: #00AAFF;
-  --color-shipo-dark: #0090DD;
-  --color-shipo-light: #33BBFF;
+  /* The cyan is GONE. These kept their names so the ~170 existing
+     references did not all have to move at once, but they now resolve to
+     the real brand -- the app-wide removal the note here used to defer. */
+  --color-shipo: var(--brand-action);
+  --color-shipo-dark: var(--brand-action-deep);
+  --color-shipo-light: var(--brand-sky);
 
   /* Utility aliases: bg-brand-ink, text-brand-ink, border-brand-surface... */
   --color-brand-ink: var(--brand-ink);
@@ -53,9 +82,17 @@
 }
 
 body {
-  background: #0a0f1a;
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #ffffff;
+  color: var(--shipo-ink);
+  font-family: var(--font-inter), Inter, -apple-system, system-ui, "Segoe UI",
+    Roboto, "Helvetica Neue", sans-serif;
+}
+
+/* The site sets its headings in Inter 800. */
+h1, h2, h3 {
+  font-weight: 800;
+  color: var(--shipo-ink);
+  letter-spacing: -0.01em;
 }
 
 /* Shipo brand scrollbar */
@@ -64,14 +101,14 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0a0f1a;
+  background: #F1F5FB;
 }
 ::-webkit-scrollbar-thumb {
-  background: #00AAFF44;
+  background: #1A73E855;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #00AAFF88;
+  background: #1A73E899;
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -132,7 +169,7 @@ body {
      dark-theme app prints as a black rectangle. Scoped to the rule, the
      logo and the table head, it costs a few square centimetres of ink. */
   .print-brand-rule {
-    border-bottom: 2px solid #00AAFF !important;
+    border-bottom: 2px solid #1A73E8 !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
@@ -142,15 +179,15 @@ body {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
-  .print-brand-title { color: #0090DD !important; }
+  .print-brand-title { color: #0B5ED7 !important; }
 
   /* Column headings in the brand blue rather than a filled band -- same
      reason the logo is blue ink on white instead of white on a blue block:
      a filled row is the first thing a printer drops and the first thing
      that drains a cartridge. */
   thead th {
-    color: #0090DD !important;
-    border-bottom: 2px solid #00AAFF !important;
+    color: #0B5ED7 !important;
+    border-bottom: 2px solid #1A73E8 !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }

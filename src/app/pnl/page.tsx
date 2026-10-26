@@ -425,8 +425,8 @@ async function getPnlData() {
 function Header() {
   return (
     <div>
-      <h2 className="text-2xl font-bold text-white">Campaigns + P&amp;L</h2>
-      <p className="text-gray-400 text-sm mt-1">Marketing ROI by campaign, fulfillment margin by client, referral payouts, and the inbound receiving log.</p>
+      <h2 className="text-2xl font-bold text-[#0B1220]">Campaigns + P&amp;L</h2>
+      <p className="text-[#4B4F58] text-sm mt-1">Marketing ROI by campaign, fulfillment margin by client, referral payouts, and the inbound receiving log.</p>
     </div>
   )
 }
@@ -498,18 +498,18 @@ export default async function PnlPage() {
       </div>
 
       {/* ---- Marketing Campaign P&L ---- */}
-      <div className="bg-gray-800 rounded-xl p-5">
+      <div className="bg-white rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-white">Marketing Campaign P&amp;L</h3>
-          <span className="text-xs text-gray-400">Revenue is attributed once clients are tagged to a campaign</span>
+          <h3 className="font-semibold text-[#0B1220]">Marketing Campaign P&amp;L</h3>
+          <span className="text-xs text-[#4B4F58]">Revenue is attributed once clients are tagged to a campaign</span>
         </div>
         {d.campaignPnl.length === 0
-          ? <p className="text-gray-500 text-sm">No campaigns yet. Run the migration to seed the known campaigns, or add one via the form.</p>
+          ? <p className="text-[#6B7A8D] text-sm">No campaigns yet. Run the migration to seed the known campaigns, or add one via the form.</p>
           : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
+                  <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
                     <th className="pb-2 pr-3">Campaign</th>
                     <th className="pb-2 pr-3">Channel</th>
                     <th className="pb-2 pr-3">Status</th>
@@ -523,16 +523,16 @@ export default async function PnlPage() {
                 </thead>
                 <tbody>
                   {d.campaignPnl.map(c => (
-                    <tr key={c.id} className="border-b border-gray-700/40 hover:bg-gray-700/30">
+                    <tr key={c.id} className="border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30">
                       <td className="py-2.5 pr-3 text-gray-200">{c.name}</td>
-                      <td className="py-2.5 pr-3 text-gray-400">{CHANNEL_LABELS[c.channel] ?? c.channel}</td>
+                      <td className="py-2.5 pr-3 text-[#4B4F58]">{CHANNEL_LABELS[c.channel] ?? c.channel}</td>
                       <td className="py-2.5 pr-3">
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${c.status === 'active' ? 'bg-green-900/50 text-green-400' : c.status === 'paused' ? 'bg-yellow-900/40 text-yellow-400' : 'bg-gray-700 text-gray-400'}`}>{c.status}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-xs ${c.status === 'active' ? 'bg-green-900/50 text-green-400' : c.status === 'paused' ? 'bg-yellow-900/40 text-yellow-400' : 'bg-[#EEF3FA] text-[#4B4F58]'}`}>{c.status}</span>
                       </td>
-                      <td className="py-2.5 pr-3 text-right text-gray-300"
+                      <td className="py-2.5 pr-3 text-right text-[#3A4658]"
                         title={c.spend === null ? 'Spend not entered for this campaign. Not $0 — ROI and CAC cannot be computed.' : undefined}>{fmtOrDash(c.spend)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-400">{c.clientsWon}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-300"
+                      <td className="py-2.5 pr-3 text-right text-[#4B4F58]">{c.clientsWon}</td>
+                      <td className="py-2.5 pr-3 text-right text-[#3A4658]"
                         title={c.revenue === null
                           ? 'Every client tagged to this campaign has unreadable fulfillment revenue. Not $0 — ROI and profit cannot be computed.'
                           : c.revSum.unpriced > 0
@@ -542,15 +542,15 @@ export default async function PnlPage() {
                           on a profit computed from a spend of zero, so an
                           un-costed campaign showed a green profit equal to its
                           whole revenue. */}
-                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit === null ? 'text-gray-500' : c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(c.profit)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-400">{c.roi === null ? '—' : `${c.roi.toFixed(0)}%`}</td>
-                      <td className="py-2.5 text-right text-gray-400">{c.cac === null ? '—' : fmt(c.cac)}</td>
+                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit === null ? 'text-[#6B7A8D]' : c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(c.profit)}</td>
+                      <td className="py-2.5 pr-3 text-right text-[#4B4F58]">{c.roi === null ? '—' : `${c.roi.toFixed(0)}%`}</td>
+                      <td className="py-2.5 text-right text-[#4B4F58]">{c.cac === null ? '—' : fmt(c.cac)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-gray-600">
-                    <td colSpan={3} className="pt-3 text-gray-300 text-xs font-semibold uppercase">
+                  <tr className="border-t border-[#CBD5E1]">
+                    <td colSpan={3} className="pt-3 text-[#3A4658] text-xs font-semibold uppercase">
                       Total
                       {d.unknownSpend > 0 && (
                         <span className="block text-amber-400/90 text-xs font-normal normal-case mt-0.5">
@@ -566,10 +566,10 @@ export default async function PnlPage() {
                         </span>
                       )}
                     </td>
-                    <td className="pt-3 text-right text-gray-300 text-sm">{fmtOrDash(d.totalSpend)}</td>
-                    <td className="pt-3 text-right text-gray-400 text-sm">{d.campaignPnl.reduce((s, c) => s + c.clientsWon, 0)}</td>
-                    <td className="pt-3 text-right text-gray-300 text-sm">{fmtOrDash(d.campaignRevenue)}</td>
-                    <td className="pt-3 text-right text-sm text-gray-300" colSpan={3}></td>
+                    <td className="pt-3 text-right text-[#3A4658] text-sm">{fmtOrDash(d.totalSpend)}</td>
+                    <td className="pt-3 text-right text-[#4B4F58] text-sm">{d.campaignPnl.reduce((s, c) => s + c.clientsWon, 0)}</td>
+                    <td className="pt-3 text-right text-[#3A4658] text-sm">{fmtOrDash(d.campaignRevenue)}</td>
+                    <td className="pt-3 text-right text-sm text-[#3A4658]" colSpan={3}></td>
                   </tr>
                 </tfoot>
               </table>
@@ -579,10 +579,10 @@ export default async function PnlPage() {
       </div>
 
       {/* ---- Per-Client Fulfillment P&L ---- */}
-      <div className="bg-gray-800 rounded-xl p-5">
+      <div className="bg-white rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-white">Per-Client Fulfillment P&amp;L</h3>
-          <span className="text-xs text-gray-400">Revenue = shipping + warehouse + inbound · Cost = carrier + receiving · gross of labor</span>
+          <h3 className="font-semibold text-[#0B1220]">Per-Client Fulfillment P&amp;L</h3>
+          <span className="text-xs text-[#4B4F58]">Revenue = shipping + warehouse + inbound · Cost = carrier + receiving · gross of labor</span>
         </div>
         {d.unassignedCount > 0 && (
           <div className="mb-4 rounded-lg px-4 py-3 border border-orange-800/40 bg-orange-950/20 text-xs text-orange-300/90">
@@ -601,16 +601,16 @@ export default async function PnlPage() {
         )}
         {d.clientPnl.length === 0
           ? (
-            <div className="text-sm text-gray-400 space-y-1">
+            <div className="text-sm text-[#4B4F58] space-y-1">
               <p>No priced, client-assigned shipments yet — so there&apos;s nothing to compute margin on.</p>
-              <p className="text-gray-500 text-xs">{d.rawShipmentCount} shipments are uploaded but not linked to a client or rated. Assign them to clients and run rate calculation (Shipments → Recalculate) to light up per-client P&amp;L.</p>
+              <p className="text-[#6B7A8D] text-xs">{d.rawShipmentCount} shipments are uploaded but not linked to a client or rated. Assign them to clients and run rate calculation (Shipments → Recalculate) to light up per-client P&amp;L.</p>
             </div>
           )
           : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
+                  <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
                     <th className="pb-2 pr-3">Client</th>
                     <th className="pb-2 pr-3 text-right">Ship Rev</th>
                     <th className="pb-2 pr-3 text-right">Warehouse</th>
@@ -623,9 +623,9 @@ export default async function PnlPage() {
                 </thead>
                 <tbody>
                   {d.clientPnl.map((c) => (
-                    <tr key={c.id} className="border-b border-gray-700/40 hover:bg-gray-700/30">
+                    <tr key={c.id} className="border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30">
                       <td className="py-2.5 pr-3 text-gray-200">
-                        {c.id === 'unassigned' ? <span className="text-gray-600 italic">unassigned</span> : c.name}
+                        {c.id === 'unassigned' ? <span className="text-[#6B7A8D] italic">unassigned</span> : c.name}
                         {/* Beside the client's name, because this client's
                             rate card is what has to change for the margin on
                             this row to mean anything. The count now covers
@@ -643,12 +643,12 @@ export default async function PnlPage() {
                           warehouse revenue and no readable shipment rate, and
                           that is worth seeing. The alternative was $0.00 in
                           every one of them. */}
-                      <td className="py-2.5 pr-3 text-right text-gray-400">{fmtOrDash(c.shipRev)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-400">{fmtOrDash(c.whRev)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-400">{fmtOrDash(c.inRev)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-300">{fmtOrDash(c.revenue)}</td>
-                      <td className="py-2.5 pr-3 text-right text-gray-300">{fmtOrDash(c.cost)}</td>
-                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit === null ? 'text-gray-500' : c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(c.profit)}</td>
+                      <td className="py-2.5 pr-3 text-right text-[#4B4F58]">{fmtOrDash(c.shipRev)}</td>
+                      <td className="py-2.5 pr-3 text-right text-[#4B4F58]">{fmtOrDash(c.whRev)}</td>
+                      <td className="py-2.5 pr-3 text-right text-[#4B4F58]">{fmtOrDash(c.inRev)}</td>
+                      <td className="py-2.5 pr-3 text-right text-[#3A4658]">{fmtOrDash(c.revenue)}</td>
+                      <td className="py-2.5 pr-3 text-right text-[#3A4658]">{fmtOrDash(c.cost)}</td>
+                      <td className={`py-2.5 pr-3 text-right font-medium ${c.profit === null ? 'text-[#6B7A8D]' : c.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(c.profit)}</td>
                       <td className="py-2.5 pl-1">
                         {/* No bar at all for an unknown margin, and no colour.
                             `revenue > 0 ? ... : 0` gave a client whose every
@@ -659,14 +659,14 @@ export default async function PnlPage() {
                             other. */}
                         {c.margin === null
                           ? (
-                            <span className="text-xs text-gray-500"
+                            <span className="text-xs text-[#6B7A8D]"
                               title="No readable revenue to compute a margin from. Not 0%.">
                               {UNPRICED_DASH}
                             </span>
                           )
                           : (
                             <div className="flex items-center gap-2">
-                              <div className="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                              <div className="flex-1 h-1.5 bg-[#EEF3FA] rounded-full overflow-hidden">
                                 <div className={`h-full rounded-full ${c.margin >= 0 ? 'bg-green-500' : 'bg-red-500'}`} style={{ width: `${Math.min(100, Math.abs(c.margin))}%` }} />
                               </div>
                               <span className={`text-xs shrink-0 ${c.margin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{c.margin.toFixed(0)}%</span>
@@ -678,8 +678,8 @@ export default async function PnlPage() {
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-gray-600">
-                    <td className="pt-3 text-gray-300 text-xs font-semibold uppercase">
+                  <tr className="border-t border-[#CBD5E1]">
+                    <td className="pt-3 text-[#3A4658] text-xs font-semibold uppercase">
                       Total
                       {d.clientPnl.reduce((s, c) => s + c.unpriced, 0) > 0 && (
                         <span className="block text-amber-400/90 text-xs font-normal normal-case mt-0.5">
@@ -688,9 +688,9 @@ export default async function PnlPage() {
                       )}
                     </td>
                     <td colSpan={3}></td>
-                    <td className="pt-3 text-right text-gray-300 text-sm">{fmtOrDash(d.totalRevenue)}</td>
-                    <td className="pt-3 text-right text-gray-300 text-sm">{fmtOrDash(d.totalCost)}</td>
-                    <td className={`pt-3 text-right text-sm font-bold ${d.totalProfit === null ? 'text-gray-500' : d.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(d.totalProfit)}</td>
+                    <td className="pt-3 text-right text-[#3A4658] text-sm">{fmtOrDash(d.totalRevenue)}</td>
+                    <td className="pt-3 text-right text-[#3A4658] text-sm">{fmtOrDash(d.totalCost)}</td>
+                    <td className={`pt-3 text-right text-sm font-bold ${d.totalProfit === null ? 'text-[#6B7A8D]' : d.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>{fmtOrDash(d.totalProfit)}</td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -703,10 +703,10 @@ export default async function PnlPage() {
       {/* ---- Referral payouts + Inbound log ---- */}
       <div className="grid grid-cols-2 gap-4">
         {/* Referral payouts */}
-        <div className="bg-gray-800 rounded-xl p-5">
+        <div className="bg-white rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-white">Referral Payouts</h3>
-            <span className="text-xs text-gray-400">{fmt(d.pendingPayouts)} pending approval</span>
+            <h3 className="font-semibold text-[#0B1220]">Referral Payouts</h3>
+            <span className="text-xs text-[#4B4F58]">{fmt(d.pendingPayouts)} pending approval</span>
           </div>
           {/* `amount` is `not null`, so this should never render. It exists
               because the sum knows the answer and dropping it is free, and
@@ -719,11 +719,11 @@ export default async function PnlPage() {
             </p>
           )}
           {d.payouts.length === 0
-            ? <p className="text-gray-500 text-sm">No referral payouts recorded. Every payout is held at <span className="text-yellow-400">pending</span> until you approve it.</p>
+            ? <p className="text-[#6B7A8D] text-sm">No referral payouts recorded. Every payout is held at <span className="text-yellow-400">pending</span> until you approve it.</p>
             : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
+                  <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
                     <th className="pb-2 pr-3">Partner</th>
                     <th className="pb-2 pr-3">Client</th>
                     <th className="pb-2 pr-3">Period</th>
@@ -733,13 +733,13 @@ export default async function PnlPage() {
                 </thead>
                 <tbody>
                   {d.payouts.map((p: any) => (
-                    <tr key={p.id} className="border-b border-gray-700/40">
+                    <tr key={p.id} className="border-b border-[#E2E8F0]/40">
                       <td className="py-2 pr-3 text-gray-200">{(p.referral_partners as any)?.name ?? '—'}</td>
-                      <td className="py-2 pr-3 text-gray-400">{(p.clients as any)?.name ?? '—'}</td>
-                      <td className="py-2 pr-3 text-gray-400">{p.period ?? '—'}</td>
-                      <td className="py-2 pr-3 text-right text-gray-300">{formatPrice(p.amount)}</td>
+                      <td className="py-2 pr-3 text-[#4B4F58]">{(p.clients as any)?.name ?? '—'}</td>
+                      <td className="py-2 pr-3 text-[#4B4F58]">{p.period ?? '—'}</td>
+                      <td className="py-2 pr-3 text-right text-[#3A4658]">{formatPrice(p.amount)}</td>
                       <td className="py-2 text-right">
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${p.status === 'paid' ? 'bg-green-900/50 text-green-400' : p.status === 'approved' ? 'bg-[#00AAFF]/15 text-[#00AAFF]' : 'bg-yellow-900/40 text-yellow-400'}`}>{p.status}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-xs ${p.status === 'paid' ? 'bg-green-900/50 text-green-400' : p.status === 'approved' ? 'bg-[#1A73E8]/15 text-[#1A73E8]' : 'bg-yellow-900/40 text-yellow-400'}`}>{p.status}</span>
                       </td>
                     </tr>
                   ))}
@@ -750,17 +750,17 @@ export default async function PnlPage() {
         </div>
 
         {/* Inbound log */}
-        <div className="bg-gray-800 rounded-xl p-5">
+        <div className="bg-white rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-white">Inbound Shipment Log</h3>
-            <span className="text-xs text-gray-400">Receiving / packing list</span>
+            <h3 className="font-semibold text-[#0B1220]">Inbound Shipment Log</h3>
+            <span className="text-xs text-[#4B4F58]">Receiving / packing list</span>
           </div>
           {d.inbound.length === 0
-            ? <p className="text-gray-500 text-sm">No inbound shipments logged yet.</p>
+            ? <p className="text-[#6B7A8D] text-sm">No inbound shipments logged yet.</p>
             : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-gray-400 text-left border-b border-gray-700 text-xs uppercase">
+                  <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
                     <th className="pb-2 pr-3">Date</th>
                     <th className="pb-2 pr-3">Client</th>
                     <th className="pb-2 pr-3">Ref</th>
@@ -771,18 +771,18 @@ export default async function PnlPage() {
                 </thead>
                 <tbody>
                   {d.inbound.map((i: any) => (
-                    <tr key={i.id} className="border-b border-gray-700/40">
-                      <td className="py-2 pr-3 text-gray-400">{i.received_date ?? '—'}</td>
+                    <tr key={i.id} className="border-b border-[#E2E8F0]/40">
+                      <td className="py-2 pr-3 text-[#4B4F58]">{i.received_date ?? '—'}</td>
                       <td className="py-2 pr-3 text-gray-200">{(i.clients as any)?.name ?? '—'}</td>
-                      <td className="py-2 pr-3 font-mono text-gray-400">{i.reference ?? '—'}</td>
-                      <td className="py-2 pr-3 text-right text-gray-400">{i.units ?? 0}</td>
+                      <td className="py-2 pr-3 font-mono text-[#4B4F58]">{i.reference ?? '—'}</td>
+                      <td className="py-2 pr-3 text-right text-[#4B4F58]">{i.units ?? 0}</td>
                       {/* The render-side twins of the two exclusions in the
                           inbound aggregation above. This log is where someone
                           checks what an inbound line was costed at, so a blank
                           column printing '$0.00' here is how it gets believed
                           and left alone. */}
-                      <td className="py-2 pr-3 text-right text-gray-400">{formatPrice(i.our_cost)}</td>
-                      <td className="py-2 text-right text-gray-300">{formatPrice(i.billed_amount)}</td>
+                      <td className="py-2 pr-3 text-right text-[#4B4F58]">{formatPrice(i.our_cost)}</td>
+                      <td className="py-2 text-right text-[#3A4658]">{formatPrice(i.billed_amount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -806,18 +806,18 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
   const colors: Record<string, string> = {
     red: 'border-red-800/50 bg-red-950/40',
     green: 'border-green-800/50 bg-green-950/40',
-    blue: 'border-[#00AAFF]/20 bg-[#00AAFF]/5',
-    gray: 'border-gray-700 bg-gray-800',
+    blue: 'border-[#1A73E8]/20 bg-[#1A73E8]/5',
+    gray: 'border-[#E2E8F0] bg-white',
     // The same neutral as `gray`, under its own name, so that a card reading
     // `color="unknown"` says it is deliberately neither green nor red rather
     // than looking like somebody thought grey suited it.
-    unknown: 'border-gray-700 bg-gray-800',
+    unknown: 'border-[#E2E8F0] bg-white',
   }
   return (
-    <div className={`rounded-xl p-5 border ${colors[color] ?? 'bg-gray-800 border-gray-700'}`}>
-      <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">{label}</p>
-      <p className="text-2xl font-bold text-white">{value}</p>
-      <p className="text-gray-500 text-xs mt-1">{sub}</p>
+    <div className={`rounded-xl p-5 border ${colors[color] ?? 'bg-white border-[#E2E8F0]'}`}>
+      <p className="text-[#4B4F58] text-xs uppercase tracking-wider mb-2">{label}</p>
+      <p className="text-2xl font-bold text-[#0B1220]">{value}</p>
+      <p className="text-[#6B7A8D] text-xs mt-1">{sub}</p>
     </div>
   )
 }

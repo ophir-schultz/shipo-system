@@ -140,8 +140,8 @@ async function getReportData() {
 function Header() {
   return (
     <div>
-      <h2 className="text-2xl font-bold text-white">Reports</h2>
-      <p className="text-gray-400 text-sm mt-1">Live data with Excel export</p>
+      <h2 className="text-2xl font-bold text-[#0B1220]">Reports</h2>
+      <p className="text-[#4B4F58] text-sm mt-1">Live data with Excel export</p>
     </div>
   )
 }

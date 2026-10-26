@@ -105,20 +105,20 @@ export default function QuotesManager({
   }
 
   const input =
-    'w-full rounded-lg px-3 py-2 text-sm bg-[#0d1420] border border-[#1a2540] text-white ' +
-    'placeholder:text-gray-600 focus:outline-none focus:border-[#00AAFF]'
+    'w-full rounded-lg px-3 py-2 text-sm bg-[#FFFFFF] border border-[#E2E8F0] text-white ' +
+    'placeholder:text-[#6B7A8D] focus:outline-none focus:border-[#1A73E8]'
 
   return (
     <div className="space-y-8">
       <form
         onSubmit={create}
-        className="rounded-xl border border-[#1a2540] bg-[#0d1420] p-6 space-y-5"
+        className="rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] p-6 space-y-5"
       >
         <h2 className="font-semibold">New rate sheet</h2>
 
         <div className="grid sm:grid-cols-3 gap-4">
           <label className="block sm:col-span-1">
-            <span className="text-xs text-gray-400">Company name *</span>
+            <span className="text-xs text-[#4B4F58]">Company name *</span>
             <input
               required
               className={input + ' mt-1'}
@@ -128,7 +128,7 @@ export default function QuotesManager({
             />
           </label>
           <label className="block">
-            <span className="text-xs text-gray-400">Contact name</span>
+            <span className="text-xs text-[#4B4F58]">Contact name</span>
             <input
               className={input + ' mt-1'}
               value={form.contact_name}
@@ -136,7 +136,7 @@ export default function QuotesManager({
             />
           </label>
           <label className="block">
-            <span className="text-xs text-gray-400">Contact email</span>
+            <span className="text-xs text-[#4B4F58]">Contact email</span>
             <input
               type="email"
               className={input + ' mt-1'}
@@ -149,7 +149,7 @@ export default function QuotesManager({
         <div className="grid sm:grid-cols-5 gap-4">
           {NUMERIC_FIELDS.map((f) => (
             <label key={f.key} className="block">
-              <span className="text-xs text-gray-400">{f.label}</span>
+              <span className="text-xs text-[#4B4F58]">{f.label}</span>
               <input
                 type="number"
                 min={0}
@@ -163,7 +163,7 @@ export default function QuotesManager({
         </div>
 
         <div>
-          <span className="text-xs text-gray-400">Channels</span>
+          <span className="text-xs text-[#4B4F58]">Channels</span>
           <div className="flex flex-wrap gap-2 mt-2">
             {CHANNELS.map((c) => {
               const on = channels.includes(c)
@@ -176,10 +176,10 @@ export default function QuotesManager({
                   }
                   className={`rounded-full px-3 py-1 text-xs border transition ${
                     on
-                      ? 'text-white border-transparent'
-                      : 'text-gray-400 border-[#1a2540] hover:text-white'
+                      ? 'text-[#0B1220] border-transparent'
+                      : 'text-[#4B4F58] border-[#E2E8F0] hover:text-[#0B1220]'
                   }`}
-                  style={on ? { background: '#00AAFF' } : {}}
+                  style={on ? { background: '#1A73E8' } : {}}
                 >
                   {c}
                 </button>
@@ -190,7 +190,7 @@ export default function QuotesManager({
 
         <div className="grid sm:grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-xs text-gray-400">Rates held until</span>
+            <span className="text-xs text-[#4B4F58]">Rates held until</span>
             <input
               type="date"
               className={input + ' mt-1'}
@@ -199,7 +199,7 @@ export default function QuotesManager({
             />
           </label>
           <label className="block">
-            <span className="text-xs text-gray-400">Profile notes (shown to the prospect)</span>
+            <span className="text-xs text-[#4B4F58]">Profile notes (shown to the prospect)</span>
             <input
               className={input + ' mt-1'}
               value={form.notes}
@@ -210,7 +210,7 @@ export default function QuotesManager({
         </div>
 
         <label className="block">
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-[#4B4F58]">
             Opening paragraph (optional — leave blank for the standard one)
           </span>
           <textarea
@@ -226,8 +226,8 @@ export default function QuotesManager({
         <button
           type="submit"
           disabled={busy || disabled}
-          className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-          style={{ background: '#00AAFF' }}
+          className="rounded-lg px-4 py-2 text-sm font-medium text-[#0B1220] disabled:opacity-40"
+          style={{ background: '#1A73E8' }}
         >
           {busy ? 'Creating…' : 'Create rate sheet'}
         </button>
@@ -235,35 +235,35 @@ export default function QuotesManager({
 
       <div className="space-y-3">
         <h2 className="font-semibold">
-          Sheets <span className="text-gray-500 font-normal">({sheets.length})</span>
+          Sheets <span className="text-[#6B7A8D] font-normal">({sheets.length})</span>
         </h2>
 
         {sheets.length === 0 && (
-          <p className="text-sm text-gray-500">No rate sheets yet.</p>
+          <p className="text-sm text-[#6B7A8D]">No rate sheets yet.</p>
         )}
 
         {sheets.map((sheet) => (
           <div
             key={sheet.id}
-            className="rounded-xl border border-[#1a2540] bg-[#0d1420] p-4 flex flex-wrap items-center gap-x-6 gap-y-3 justify-between"
+            className="rounded-xl border border-[#E2E8F0] bg-[#FFFFFF] p-4 flex flex-wrap items-center gap-x-6 gap-y-3 justify-between"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="font-medium">{sheet.company_name}</span>
-                <span className="text-xs text-gray-600 tabular-nums">#{sheet.public_id}</span>
+                <span className="text-xs text-[#6B7A8D] tabular-nums">#{sheet.public_id}</span>
                 <span
                   className={`text-xs rounded-full px-2 py-0.5 ${
                     sheet.status === 'sent'
                       ? 'bg-sky-950 text-sky-300'
                       : sheet.status === 'expired'
-                        ? 'bg-gray-800 text-gray-400'
+                        ? 'bg-white text-[#4B4F58]'
                         : 'bg-amber-950 text-amber-300'
                   }`}
                 >
                   {sheet.status}
                 </span>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-[#6B7A8D] mt-1">
                 {sheet.contact_name ? `${sheet.contact_name} · ` : ''}
                 {sheet.profile.monthly_orders
                   ? `${sheet.profile.monthly_orders.toLocaleString()} orders/mo · `
@@ -279,15 +279,15 @@ export default function QuotesManager({
                 href={sheetPath(sheet)}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-lg border border-[#1a2540] px-3 py-1.5 text-xs text-gray-300 hover:text-white"
+                className="rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-xs text-[#3A4658] hover:text-[#0B1220]"
               >
                 Preview
               </a>
               <button
                 type="button"
                 onClick={() => copy(sheet)}
-                className="rounded-lg px-3 py-1.5 text-xs font-medium text-white"
-                style={{ background: '#00AAFF' }}
+                className="rounded-lg px-3 py-1.5 text-xs font-medium text-[#0B1220]"
+                style={{ background: '#1A73E8' }}
               >
                 {copiedId === sheet.id ? 'Copied' : 'Copy link'}
               </button>
@@ -302,7 +302,7 @@ export default function QuotesManager({
                     patch(sheet.id, { rotate_token: true })
                   }
                 }}
-                className="rounded-lg border border-[#1a2540] px-3 py-1.5 text-xs text-gray-400 hover:text-white"
+                className="rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-xs text-[#4B4F58] hover:text-[#0B1220]"
               >
                 Replace link
               </button>

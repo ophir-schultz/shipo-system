@@ -276,32 +276,32 @@ export default function BillingView({ data }: { data: BillingData }) {
   return (
     <div className="space-y-4">
       {/* Top filters */}
-      <div className="bg-gray-800 rounded-xl px-5 py-4 flex flex-wrap items-end gap-4">
+      <div className="bg-white rounded-xl px-5 py-4 flex flex-wrap items-end gap-4">
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Client</label>
+          <label className="block text-xs text-[#4B4F58] mb-1">Client</label>
           <select value={selectedClient} onChange={e => setSelectedClient(e.target.value)}
-            className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF] min-w-48">
+            className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8] min-w-48">
             {data.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-1">From</label>
+          <label className="block text-xs text-[#4B4F58] mb-1">From</label>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]" />
+            className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]" />
         </div>
         <div>
-          <label className="block text-xs text-gray-400 mb-1">To</label>
+          <label className="block text-xs text-[#4B4F58] mb-1">To</label>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]" />
+            className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]" />
         </div>
         <div className="ml-auto flex gap-2">
           <button onClick={handleExcel} disabled={dlLoading !== null}
-            className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+            className="flex items-center gap-2 bg-[#EEF3FA] hover:bg-[#DDE6F2] disabled:opacity-50 text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition">
             {dlLoading === 'excel' ? '⏳' : '↓'} Excel
           </button>
           <button onClick={handlePDF} disabled={dlLoading !== null}
-            className="flex items-center gap-2 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
-            style={{ background: '#00AAFF' }}>
+            className="flex items-center gap-2 disabled:opacity-50 text-[#0B1220] px-4 py-2 rounded-lg text-sm font-medium transition"
+            style={{ background: '#1A73E8' }}>
             {dlLoading === 'pdf' ? '⏳ Generating…' : '↓ PDF Invoice'}
           </button>
         </div>
@@ -342,21 +342,21 @@ export default function BillingView({ data }: { data: BillingData }) {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-900 rounded-xl p-1">
+      <div className="flex gap-1 bg-[#F1F5FB] rounded-xl p-1">
         {tabs.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
-              activeTab === tab.id ? 'text-white' : 'text-gray-400 hover:text-white'
+              activeTab === tab.id ? 'text-[#0B1220]' : 'text-[#4B4F58] hover:text-[#0B1220]'
             }`}
-            style={activeTab === tab.id ? { background: '#00AAFF' } : {}}>
+            style={activeTab === tab.id ? { background: '#1A73E8' } : {}}>
             {tab.label}
-            <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTab === tab.id ? 'bg-white/20' : 'bg-gray-700'}`}>{tab.count}</span>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full ${activeTab === tab.id ? 'bg-white/20' : 'bg-[#EEF3FA]'}`}>{tab.count}</span>
           </button>
         ))}
       </div>
 
       {/* Tab content */}
-      <div className="bg-gray-800 rounded-xl overflow-hidden">
+      <div className="bg-white rounded-xl overflow-hidden">
         {activeTab === 'shipments' && (
           <>
             {/* All three money stats come off one reconciliation, so Charged
@@ -365,7 +365,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                 whose carrier cost has not landed, because those have no
                 knowable margin. Two questions, two figures, two labels; the
                 note underneath says which rows are held back and why. */}
-            <div className="grid grid-cols-4 divide-x divide-gray-700 border-b border-gray-700">
+            <div className="grid grid-cols-4 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
               <Stat label="Shipments" value={shipments.length} />
               <Stat label="We Paid (Carrier)" value={fig(known.cost)} />
               <Stat label="Charged Client" value={fig(known.revenue)} />
@@ -376,12 +376,12 @@ export default function BillingView({ data }: { data: BillingData }) {
                 color={known.profit === null ? 'gray' : profitPositive ? 'green' : 'red'} />
             </div>
             {marginNote && (
-              <p className="px-5 py-2 text-xs text-amber-400 border-b border-gray-700">⚠ {marginNote}</p>
+              <p className="px-5 py-2 text-xs text-amber-400 border-b border-[#E2E8F0]">⚠ {marginNote}</p>
             )}
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-gray-900">
-                  <tr className="text-gray-400 text-xs uppercase border-b border-gray-700 text-left">
+                <thead className="sticky top-0 bg-[#F1F5FB]">
+                  <tr className="text-[#4B4F58] text-xs uppercase border-b border-[#E2E8F0] text-left">
                     <th className="px-5 py-3">Order #</th>
                     <th className="px-4 py-3">Ship Date</th>
                     <th className="px-4 py-3">Carrier / Service</th>
@@ -392,19 +392,19 @@ export default function BillingView({ data }: { data: BillingData }) {
                 </thead>
                 <tbody>
                   {shipments.length === 0
-                    ? <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-500">No shipments in this period</td></tr>
+                    ? <tr><td colSpan={6} className="px-5 py-10 text-center text-[#6B7A8D]">No shipments in this period</td></tr>
                     : shipments.map(s => (
-                      <tr key={s.id ?? s.order_number} className={`border-b border-gray-700/40 hover:bg-gray-700/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
-                        <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{s.order_number}</td>
-                        <td className="px-4 py-2.5 text-gray-400 text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
-                        <td className="px-4 py-2.5 text-gray-300 text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
+                      <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-950/10' : ''}`}>
+                        <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
+                        <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
+                        <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                         <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
                         <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-400 font-semibold'}`}
                             title={isPriced(s.client_rate) ? undefined : 'No rate-card rate covers this shipment — it is NOT in the total to bill'}>
                           {formatPrice(s.client_rate)}
                         </td>
                         <td className={`px-4 py-2.5 text-right font-semibold ${
-                          !isPriced(s.profit_loss) ? 'text-gray-500'
+                          !isPriced(s.profit_loss) ? 'text-[#6B7A8D]'
                             : s.is_loss ? 'text-red-400' : 'text-green-400'
                         }`}>
                           {formatSignedPrice(s.profit_loss)}
@@ -419,15 +419,15 @@ export default function BillingView({ data }: { data: BillingData }) {
 
         {activeTab === 'warehouse' && (
           <>
-            <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
+            <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
               <Stat label="Entries" value={warehouse.length} />
               <Stat label="Total Charges" value={`$${warehouseTotal.toFixed(2)}`} />
               <Stat label="Unique Days" value={new Set(warehouse.map(w => w.log_date)).size} />
             </div>
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-gray-900">
-                  <tr className="text-gray-400 text-xs uppercase border-b border-gray-700 text-left">
+                <thead className="sticky top-0 bg-[#F1F5FB]">
+                  <tr className="text-[#4B4F58] text-xs uppercase border-b border-[#E2E8F0] text-left">
                     <th className="px-5 py-3">Date</th>
                     <th className="px-4 py-3">Service</th>
                     <th className="px-4 py-3 text-right">Qty</th>
@@ -438,18 +438,18 @@ export default function BillingView({ data }: { data: BillingData }) {
                 </thead>
                 <tbody>
                   {warehouse.length === 0
-                    ? <tr><td colSpan={6} className="px-5 py-10 text-center text-gray-500">No warehouse activity in this period</td></tr>
+                    ? <tr><td colSpan={6} className="px-5 py-10 text-center text-[#6B7A8D]">No warehouse activity in this period</td></tr>
                     : warehouse.map((w, i) => (
-                      <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
-                        <td className="px-5 py-2.5 text-gray-400 text-xs">{w.log_date ? new Date(w.log_date + 'T12:00:00').toLocaleDateString() : '—'}</td>
-                        <td className="px-4 py-2.5 text-gray-300 capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
+                      <tr key={i} className="border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30">
+                        <td className="px-5 py-2.5 text-[#4B4F58] text-xs">{w.log_date ? new Date(w.log_date + 'T12:00:00').toLocaleDateString() : '—'}</td>
+                        <td className="px-4 py-2.5 text-[#3A4658] capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                         <td className="px-4 py-2.5 text-right">{w.quantity}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-400">{formatPrice(w.rate)}</td>
+                        <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(w.rate)}</td>
                         <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-green-400' : 'text-amber-400'}`}
                             title={isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day — it is NOT in the total to bill'}>
                           {formatPrice(w.total)}
                         </td>
-                        <td className="px-4 py-2.5 text-gray-500 text-xs">{w.notes ?? '—'}</td>
+                        <td className="px-4 py-2.5 text-[#6B7A8D] text-xs">{w.notes ?? '—'}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -460,15 +460,15 @@ export default function BillingView({ data }: { data: BillingData }) {
 
         {activeTab === 'adjustments' && (
           <>
-            <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
+            <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
               <Stat label="Total Adjustments" value={adjustments.length} />
               <Stat label="Pending" value={formatSignedPrice(totalOrUnknown(pendingAdjSum))} note={unpricedNote(pendingAdjSum.unpriced, 'adjustment')} color="orange" />
               <Stat label="Resolved" value={adjustments.filter(a => a.status !== 'pending').length} />
             </div>
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-gray-900">
-                  <tr className="text-gray-400 text-xs uppercase border-b border-gray-700 text-left">
+                <thead className="sticky top-0 bg-[#F1F5FB]">
+                  <tr className="text-[#4B4F58] text-xs uppercase border-b border-[#E2E8F0] text-left">
                     <th className="px-5 py-3">Order #</th>
                     <th className="px-4 py-3">Reason</th>
                     <th className="px-4 py-3">Date</th>
@@ -478,18 +478,18 @@ export default function BillingView({ data }: { data: BillingData }) {
                 </thead>
                 <tbody>
                   {adjustments.length === 0
-                    ? <tr><td colSpan={5} className="px-5 py-10 text-center text-gray-500">No adjustments in this period</td></tr>
+                    ? <tr><td colSpan={5} className="px-5 py-10 text-center text-[#6B7A8D]">No adjustments in this period</td></tr>
                     : adjustments.map((a, i) => (
-                      <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
-                        <td className="px-5 py-2.5 font-mono text-xs text-gray-300">{a.order_number}</td>
-                        <td className="px-4 py-2.5 text-gray-300 text-xs">{a.reason ?? 'Carrier reweigh'}</td>
-                        <td className="px-4 py-2.5 text-gray-400 text-xs">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
+                      <tr key={i} className="border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30">
+                        <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{a.order_number}</td>
+                        <td className="px-4 py-2.5 text-[#3A4658] text-xs">{a.reason ?? 'Carrier reweigh'}</td>
+                        <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
                         <td className="px-4 py-2.5 text-right font-semibold text-orange-400">{formatSignedPrice(a.adjustment_amount)}</td>
                         <td className="px-4 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             a.status === 'pending' ? 'bg-orange-900/60 text-orange-300' :
                             a.status === 'charged' ? 'bg-green-900/60 text-green-300' :
-                            'bg-gray-700 text-gray-400'
+                            'bg-[#EEF3FA] text-[#4B4F58]'
                           }`}>{a.status}</span>
                         </td>
                       </tr>
@@ -502,15 +502,15 @@ export default function BillingView({ data }: { data: BillingData }) {
 
         {activeTab === 'bills' && (
           <>
-            <div className="grid grid-cols-3 divide-x divide-gray-700 border-b border-gray-700">
+            <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
               <Stat label="Bills Generated" value={bills.length} />
               <Stat label="Total Billed" value={formatPrice(totalOrUnknown(billedSum))} note={unpricedNote(billedSum.unpriced, 'bill')} />
               <Stat label="Paid" value={bills.filter(b => b.status === 'paid').length} color="green" />
             </div>
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-gray-900">
-                  <tr className="text-gray-400 text-xs uppercase border-b border-gray-700 text-left">
+                <thead className="sticky top-0 bg-[#F1F5FB]">
+                  <tr className="text-[#4B4F58] text-xs uppercase border-b border-[#E2E8F0] text-left">
                     <th className="px-5 py-3">Week</th>
                     <th className="px-4 py-3 text-right">Shipping</th>
                     <th className="px-4 py-3 text-right">Warehouse</th>
@@ -522,20 +522,20 @@ export default function BillingView({ data }: { data: BillingData }) {
                 </thead>
                 <tbody>
                   {bills.length === 0
-                    ? <tr><td colSpan={7} className="px-5 py-10 text-center text-gray-500">No bills generated yet for this client</td></tr>
+                    ? <tr><td colSpan={7} className="px-5 py-10 text-center text-[#6B7A8D]">No bills generated yet for this client</td></tr>
                     : bills.map((b, i) => (
-                      <tr key={i} className="border-b border-gray-700/40 hover:bg-gray-700/30">
-                        <td className="px-5 py-2.5 text-gray-400 text-xs">{b.week_start} → {b.week_end}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.shipping_total)}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.warehouse_total)}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.adjustments_total)}</td>
-                        <td className="px-4 py-2.5 text-right text-gray-300">{formatPrice(b.manual_charges_total)}</td>
+                      <tr key={i} className="border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30">
+                        <td className="px-5 py-2.5 text-[#4B4F58] text-xs">{b.week_start} → {b.week_end}</td>
+                        <td className="px-4 py-2.5 text-right text-[#3A4658]">{formatPrice(b.shipping_total)}</td>
+                        <td className="px-4 py-2.5 text-right text-[#3A4658]">{formatPrice(b.warehouse_total)}</td>
+                        <td className="px-4 py-2.5 text-right text-[#3A4658]">{formatPrice(b.adjustments_total)}</td>
+                        <td className="px-4 py-2.5 text-right text-[#3A4658]">{formatPrice(b.manual_charges_total)}</td>
                         <td className="px-4 py-2.5 text-right font-bold">{formatPrice(b.grand_total)}</td>
                         <td className="px-4 py-2.5 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             b.status === 'paid' ? 'bg-green-900/60 text-green-300' :
-                            b.status === 'sent' ? 'bg-[#00AAFF]/10 text-[#00AAFF]' :
-                            'bg-gray-700 text-gray-400'
+                            b.status === 'sent' ? 'bg-[#1A73E8]/10 text-[#1A73E8]' :
+                            'bg-[#EEF3FA] text-[#4B4F58]'
                           }`}>{b.status}</span>
                         </td>
                       </tr>
@@ -552,20 +552,20 @@ export default function BillingView({ data }: { data: BillingData }) {
 
 function SummaryCard({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   const colors: Record<string, string> = {
-    blue: 'border-[#00AAFF]/30 bg-[#00AAFF]/5',
+    blue: 'border-[#1A73E8]/30 bg-[#1A73E8]/5',
     green: 'border-green-700/40 bg-green-950/30',
     red: 'border-red-700/40 bg-red-950/30',
     orange: 'border-orange-700/40 bg-orange-950/30',
-    gray: 'border-gray-700 bg-gray-800',
+    gray: 'border-[#E2E8F0] bg-white',
   }
   const textColors: Record<string, string> = {
-    blue: 'text-[#00AAFF]', green: 'text-green-400', red: 'text-red-400', orange: 'text-orange-400', gray: 'text-white',
+    blue: 'text-[#1A73E8]', green: 'text-green-400', red: 'text-red-400', orange: 'text-orange-400', gray: 'text-[#0B1220]',
   }
   return (
     <div className={`rounded-xl p-4 border ${colors[color]}`}>
-      <p className="text-xs text-gray-400 mb-1">{label}</p>
+      <p className="text-xs text-[#4B4F58] mb-1">{label}</p>
       <p className={`text-xl font-bold ${textColors[color]}`}>{value}</p>
-      <p className="text-xs text-gray-500 mt-1">{sub}</p>
+      <p className="text-xs text-[#6B7A8D] mt-1">{sub}</p>
     </div>
   )
 }
@@ -576,12 +576,12 @@ function SummaryCard({ label, value, sub, color }: { label: string; value: strin
 function Stat({ label, value, note, color }: { label: string; value: string | number; note?: string; color?: string }) {
   return (
     <div className="px-5 py-3">
-      <p className="text-xs text-gray-400">{label}</p>
+      <p className="text-xs text-[#4B4F58]">{label}</p>
       {/* 'gray' is deliberately not white: a figure nobody could compute
           should not be styled like one that was measured, and it must not
           borrow green or red either. Same rule as the 'unknown' StatCard on
           /losses. */}
-      <p className={`font-bold text-lg ${color === 'green' ? 'text-green-400' : color === 'red' ? 'text-red-400' : color === 'orange' ? 'text-orange-400' : color === 'gray' ? 'text-gray-400' : 'text-white'}`}>{value}</p>
+      <p className={`font-bold text-lg ${color === 'green' ? 'text-green-400' : color === 'red' ? 'text-red-400' : color === 'orange' ? 'text-orange-400' : color === 'gray' ? 'text-[#4B4F58]' : 'text-[#0B1220]'}`}>{value}</p>
       {note && <p className="text-[11px] text-amber-400 mt-0.5">⚠ {note}</p>}
     </div>
   )

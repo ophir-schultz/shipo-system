@@ -175,10 +175,10 @@ export default function WarehousePage() {
           are not lost -- but a line whose rate could not be resolved carries
           no total, and only the person who just typed it can fix that. */}
       <div className="text-6xl mb-4">{unpriced.length ? '⚠️' : '✅'}</div>
-      <h3 className="text-2xl font-bold text-white mb-2">
+      <h3 className="text-2xl font-bold text-[#0B1220] mb-2">
         {unpriced.length ? 'Submitted, but not everything could be priced' : 'Daily Log Submitted!'}
       </h3>
-      <p className="text-gray-400 mb-6">Warehouse activity for {today} has been saved.</p>
+      <p className="text-[#4B4F58] mb-6">Warehouse activity for {today} has been saved.</p>
 
       {unpriced.length > 0 && (
         <div className="w-full bg-amber-500/10 border border-amber-500/40 rounded-xl p-5 mb-6 text-left">
@@ -191,14 +191,14 @@ export default function WarehousePage() {
           </p>
           <ul className="space-y-2">
             {unpriced.map((u, i) => (
-              <li key={i} className="text-xs text-gray-300">
-                <span className="text-white font-medium">
+              <li key={i} className="text-xs text-[#3A4658]">
+                <span className="text-[#0B1220] font-medium">
                   {clients.find(c => c.id === u.client_id)?.name ?? u.client_id}
                 </span>
                 {' — '}
-                <span className="text-gray-400">{u.service_type.replace(/_/g, ' ')}</span>
+                <span className="text-[#4B4F58]">{u.service_type.replace(/_/g, ' ')}</span>
                 <br />
-                <span className="text-gray-500">{u.reason}</span>
+                <span className="text-[#6B7A8D]">{u.reason}</span>
               </li>
             ))}
           </ul>
@@ -213,7 +213,7 @@ export default function WarehousePage() {
           // `selected` is deliberately left alone: the operator is most likely
           // to log the next entry against the client they were just on.
         }}
-        className="bg-[#00AAFF] hover:bg-[#33BBFF] text-white px-6 py-2.5 rounded-lg text-sm font-medium transition"
+        className="bg-[#1A73E8] hover:bg-[#63B3FF] text-white px-6 py-2.5 rounded-lg text-sm font-medium transition"
       >
         Submit Another Entry
       </button>
@@ -226,7 +226,7 @@ export default function WarehousePage() {
   // gets logged against prices nobody agreed to.
   if (loadError) return (
     <div className="max-w-2xl">
-      <h2 className="text-2xl font-bold text-white mb-4">Daily Warehouse Log</h2>
+      <h2 className="text-2xl font-bold text-[#0B1220] mb-4">Daily Warehouse Log</h2>
       <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-5">
         <p className="text-red-300 text-sm font-semibold">
           Could not load the clients and their rates
@@ -279,29 +279,29 @@ export default function WarehousePage() {
     <div className="max-w-5xl">
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Daily Warehouse Log</h2>
-          <p className="text-gray-400 text-sm mt-1">
+          <h2 className="text-2xl font-bold text-[#0B1220]">Daily Warehouse Log</h2>
+          <p className="text-[#4B4F58] text-sm mt-1">
             Pick a client, then fill in the services — leave quantity blank to skip.
             Work typed for other clients is kept and submitted together.
           </p>
         </div>
-        <div className="bg-gray-800 rounded-xl px-4 py-2">
-          <p className="text-[#00AAFF] font-semibold text-sm">
+        <div className="bg-white rounded-xl px-4 py-2">
+          <p className="text-[#1A73E8] font-semibold text-sm">
             📅 {new Date(today + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-gray-800 rounded-xl px-5 py-4">
-          <label htmlFor="wh-client" className="block text-xs text-gray-400 mb-2">
+        <div className="bg-white rounded-xl px-5 py-4">
+          <label htmlFor="wh-client" className="block text-xs text-[#4B4F58] mb-2">
             Client
           </label>
           <select
             id="wh-client"
             value={selected}
             onChange={e => setSelected(e.target.value)}
-            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+            className="w-full bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2.5 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
           >
             {/* Three states, not two. "Loading clients…" is true only before
                 the fetch resolves; leaving it up after a SUCCESSFUL read that
@@ -325,10 +325,10 @@ export default function WarehousePage() {
         </div>
 
         {current && (
-          <div className="bg-gray-800 rounded-xl overflow-hidden">
-            <div className="bg-gray-750 border-b border-gray-700 px-5 py-3 flex items-center justify-between">
-              <h3 className="font-semibold text-white text-sm">{current.name}</h3>
-              <span className="text-xs text-gray-500">
+          <div className="bg-white rounded-xl overflow-hidden">
+            <div className="bg-[#F8FAFC] border-b border-[#E2E8F0] px-5 py-3 flex items-center justify-between">
+              <h3 className="font-semibold text-[#0B1220] text-sm">{current.name}</h3>
+              <span className="text-xs text-[#6B7A8D]">
                 {filledRows(current.rows).length} service
                 {filledRows(current.rows).length !== 1 ? 's' : ''} logged
               </span>
@@ -355,8 +355,8 @@ export default function WarehousePage() {
                 the other eighteen. Mutually exclusive with the banner by
                 construction -- structuredNote returns null unless `priced`. */}
             {currentStructured && (
-              <div className="px-5 py-3 bg-gray-800/40 border-b border-gray-700">
-                <p className="text-gray-400 text-xs">{currentStructured}</p>
+              <div className="px-5 py-3 bg-white/40 border-b border-[#E2E8F0]">
+                <p className="text-[#4B4F58] text-xs">{currentStructured}</p>
               </div>
             )}
 
@@ -365,16 +365,16 @@ export default function WarehousePage() {
               if (groupRows.length === 0) return null
               return (
                 <div key={group}>
-                  <div className="bg-gray-800/60 border-y border-gray-700/50 px-5 py-1.5">
-                    <span className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">
+                  <div className="bg-white/60 border-y border-[#E2E8F0]/50 px-5 py-1.5">
+                    <span className="text-[11px] uppercase tracking-wide text-[#6B7A8D] font-medium">
                       {group}
                     </span>
                   </div>
-                  <div className="divide-y divide-gray-700/50">
+                  <div className="divide-y divide-[#E2E8F0]/50">
                     {groupRows.map(row => (
                       <div key={row.service_type} className="px-5 py-2.5">
                         <div className="grid grid-cols-[2fr_1fr_2fr] gap-3 items-center">
-                          <span className="text-sm text-gray-300">
+                          <span className="text-sm text-[#3A4658]">
                             {row.label}
                             {/*
                               The agreed rate, shown where the quantity is
@@ -390,7 +390,7 @@ export default function WarehousePage() {
                               gap would put a unit on screen that nobody
                               agreed to.
                             */}
-                            <span className="block text-[11px] text-gray-500 mt-0.5">
+                            <span className="block text-[11px] text-[#6B7A8D] mt-0.5">
                               {money(row.rate)}
                               {row.unit ? ` ${row.unit.replace(/_/g, ' ')}` : ''}
                             </span>
@@ -403,10 +403,10 @@ export default function WarehousePage() {
                               placeholder={row.service_type === 'labor_hours' ? '0.0' : '0'}
                               value={row.quantity}
                               onChange={e => updateRow(current.client_id, row.service_type, 'quantity', e.target.value)}
-                              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+                              className="w-full bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
                             />
                             {row.service_type === 'labor_hours' && (
-                              <span className="absolute right-2 top-2 text-xs text-gray-400">hrs</span>
+                              <span className="absolute right-2 top-2 text-xs text-[#4B4F58]">hrs</span>
                             )}
                           </div>
                           <input
@@ -414,7 +414,7 @@ export default function WarehousePage() {
                             placeholder="Optional notes"
                             value={row.notes}
                             onChange={e => updateRow(current.client_id, row.service_type, 'notes', e.target.value)}
-                            className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#00AAFF]"
+                            className="bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
                           />
                         </div>
 
@@ -433,7 +433,7 @@ export default function WarehousePage() {
                           && row.quantity !== ''
                           && parseFloat(row.quantity) > 0 && (
                           <div className="mt-2.5 pl-1">
-                            <p className="text-[11px] text-gray-500 mb-1.5">
+                            <p className="text-[11px] text-[#6B7A8D] mb-1.5">
                               Steps performed — recorded on the line, does not change the price
                             </p>
                             <div className="flex flex-wrap gap-2">
@@ -447,8 +447,8 @@ export default function WarehousePage() {
                                     aria-pressed={on}
                                     className={`px-2.5 py-1 rounded-lg text-xs border transition ${
                                       on
-                                        ? 'bg-[#00AAFF]/20 border-[#00AAFF] text-[#66CCFF]'
-                                        : 'bg-gray-700 border-gray-600 text-gray-400 hover:border-gray-500'
+                                        ? 'bg-[#1A73E8]/20 border-[#1A73E8] text-[#66CCFF]'
+                                        : 'bg-[#EEF3FA] border-[#CBD5E1] text-[#4B4F58] hover:border-gray-500'
                                     }`}
                                   >
                                     {on ? '✓ ' : ''}{step}
@@ -487,15 +487,15 @@ export default function WarehousePage() {
             kept or dropped the other two.
           */}
           {pending.length > 0 && (
-            <p className="text-xs text-gray-400 mb-2">
+            <p className="text-xs text-[#4B4F58] mb-2">
               Submitting {pendingRowCount} line{pendingRowCount === 1 ? '' : 's'} for{' '}
-              <span className="text-gray-300">{pending.map(p => p.name).join(', ')}</span>
+              <span className="text-[#3A4658]">{pending.map(p => p.name).join(', ')}</span>
             </p>
           )}
           <button
             type="submit"
             disabled={loading || entries.length === 0}
-            className="w-full bg-[#00AAFF] hover:bg-[#33BBFF] disabled:opacity-50 text-white py-3 rounded-xl text-sm font-semibold transition"
+            className="w-full bg-[#1A73E8] hover:bg-[#63B3FF] disabled:opacity-50 text-white py-3 rounded-xl text-sm font-semibold transition"
           >
             {loading ? 'Submitting...' : `✓ Submit Daily Log for ${today}`}
           </button>
@@ -554,15 +554,15 @@ function TodayLog({ date }: { date: string }) {
   }
 
   return (
-    <div className="mt-4 bg-gray-800 rounded-xl p-6">
-      <h3 className="font-semibold text-white mb-4">Today's Submitted Entries</h3>
+    <div className="mt-4 bg-white rounded-xl p-6">
+      <h3 className="font-semibold text-[#0B1220] mb-4">Today's Submitted Entries</h3>
       <div className="space-y-6">
         {Object.entries(byClient).map(([clientName, clientEntries]) => (
           <div key={clientName}>
-            <p className="text-[#00AAFF] text-sm font-medium mb-2">{clientName}</p>
+            <p className="text-[#1A73E8] text-sm font-medium mb-2">{clientName}</p>
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-gray-400 text-left border-b border-gray-700">
+                <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0]">
                   <th className="pb-2">Service</th>
                   <th className="pb-2">Qty</th>
                   <th className="pb-2">Notes</th>
@@ -572,11 +572,11 @@ function TodayLog({ date }: { date: string }) {
               </thead>
               <tbody>
                 {clientEntries.map((e: any) => (
-                  <tr key={e.id} className="border-b border-gray-700/40">
-                    <td className="py-1.5 text-gray-300">{e.service_type?.replace(/_/g, ' ')}</td>
+                  <tr key={e.id} className="border-b border-[#E2E8F0]/40">
+                    <td className="py-1.5 text-[#3A4658]">{e.service_type?.replace(/_/g, ' ')}</td>
                     <td className="py-1.5">{e.quantity}</td>
-                    <td className="py-1.5 text-gray-500 text-xs">{e.notes ?? '—'}</td>
-                    <td className="py-1.5 text-right text-gray-400">{money(e.rate)}</td>
+                    <td className="py-1.5 text-[#6B7A8D] text-xs">{e.notes ?? '—'}</td>
+                    <td className="py-1.5 text-right text-[#4B4F58]">{money(e.rate)}</td>
                     <td className={`py-1.5 text-right font-semibold ${e.total === null || e.total === undefined ? 'text-amber-400' : 'text-green-400'}`}>
                       {e.total === null || e.total === undefined ? 'unpriced' : money(e.total)}
                     </td>
@@ -585,13 +585,13 @@ function TodayLog({ date }: { date: string }) {
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={4} className="pt-2 text-gray-500 text-xs">
+                  <td colSpan={4} className="pt-2 text-[#6B7A8D] text-xs">
                     Subtotal
                     {clientEntries.some((e: any) => e.total === null || e.total === undefined) && (
                       <span className="text-amber-400"> (excludes unpriced lines)</span>
                     )}
                   </td>
-                  <td className="pt-2 text-right font-bold text-white text-sm">
+                  <td className="pt-2 text-right font-bold text-[#0B1220] text-sm">
                     ${clientEntries.reduce((s, e) => s + (e.total ?? 0), 0).toFixed(2)}
                   </td>
                 </tr>
@@ -600,10 +600,10 @@ function TodayLog({ date }: { date: string }) {
           </div>
         ))}
       </div>
-      <div className="border-t border-gray-600 mt-4 pt-4 flex justify-between">
-        <span className="text-gray-400 text-sm font-medium">Day Total</span>
+      <div className="border-t border-[#CBD5E1] mt-4 pt-4 flex justify-between">
+        <span className="text-[#4B4F58] text-sm font-medium">Day Total</span>
         <div className="text-right">
-          <span className="text-white font-bold">${entries.reduce((s, e) => s + (e.total ?? 0), 0).toFixed(2)}</span>
+          <span className="text-[#0B1220] font-bold">${entries.reduce((s, e) => s + (e.total ?? 0), 0).toFixed(2)}</span>
           {unpricedCount > 0 && (
             <p className="text-amber-400 text-xs mt-0.5">
               excludes {unpricedCount} unpriced line{unpricedCount === 1 ? '' : 's'}

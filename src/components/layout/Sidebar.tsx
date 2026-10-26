@@ -45,12 +45,12 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-60 min-h-screen flex flex-col" style={{ background: '#0d1420', borderRight: '1px solid #1a2540' }}>
-      <div className="px-5 py-4" style={{ borderBottom: '1px solid #1a2540' }}>
-        <div className="rounded-xl px-3 py-3 mb-1" style={{ background: '#00AAFF' }}>
-          <Image src="/shipo-logo.jpg" alt="Shipo" width={160} height={52} className="w-full h-auto rounded-lg" priority />
+    <aside className="w-60 min-h-screen flex flex-col" style={{ background: 'linear-gradient(165deg, #081A33 0%, #0B3361 55%, #0F4A94 100%)', borderRight: '1px solid #0B3361' }}>
+      <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.14)' }}>
+        <div className="px-1 py-2 mb-1">
+          <Image src="/shipo-logo.svg" alt="Shipo" width={160} height={52} className="w-full h-auto" priority />
         </div>
-        <p className="text-xs text-center mt-2" style={{ color: '#00AAFF' }}>Operations Platform</p>
+        <p className="text-xs text-center mt-1" style={{ color: '#C7D8F0' }}>Operations Platform</p>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-0.5">
         {nav.map((item) => {
@@ -60,9 +60,11 @@ export default function Sidebar() {
               key={item.href}
               href={item.href}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                active ? 'text-white' : 'text-gray-400 hover:text-white'
+                active ? 'text-white' : 'hover:text-white'
               }`}
-              style={active ? { background: '#00AAFF' } : {}}
+              style={active
+                ? { background: 'linear-gradient(135deg, #1A73E8, #0B5ED7)' }
+                : { color: '#C7D8F0' }}
             >
               <span>{item.icon}</span>
               {item.label}
@@ -70,7 +72,7 @@ export default function Sidebar() {
           )
         })}
       </nav>
-      <div className="px-4 py-4 space-y-2" style={{ borderTop: '1px solid #1a2540' }}>
+      <div className="px-4 py-4 space-y-2" style={{ borderTop: '1px solid rgba(255,255,255,0.14)' }}>
         {userEmail && (
           <div className="px-2 py-1.5">
             <p className="text-xs text-gray-500 truncate">{userEmail}</p>
@@ -78,7 +80,7 @@ export default function Sidebar() {
         )}
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-gray-700/50 transition"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[#C7D8F0] hover:text-white hover:bg-white/10 transition"
         >
           <span>🚪</span> Sign Out
         </button>

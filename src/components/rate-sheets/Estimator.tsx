@@ -137,7 +137,7 @@ export default function Estimator({
 
                 <div className="flex items-baseline justify-between gap-4 pt-2">
                   <span className="font-semibold">Estimated monthly total</span>
-                  <span className="text-xl font-semibold tabular-nums" style={{ color: '#0090DD' }}>
+                  <span className="text-xl font-semibold tabular-nums" style={{ color: '#0B5ED7' }}>
                     {money(estimate.billed)}
                   </span>
                 </div>
