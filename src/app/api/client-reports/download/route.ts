@@ -4,9 +4,12 @@ import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
 import {
   billingLineToReportRow,
+  isReportApproved,
   reportToCsv,
+  reportToPdf,
   reportToXlsx,
   type BillingLineRecord,
+  type ReportApproval,
 } from '@/lib/pricing/client-report'
 
 export const dynamic = 'force-dynamic'
@@ -25,11 +28,30 @@ export async function GET(req: Request) {
   const dateTo = url.searchParams.get('dateTo') ?? ''
   const clientId = url.searchParams.get('clientId') ?? ''
 
-  if (format !== 'csv' && format !== 'xlsx') {
-    return NextResponse.json({ error: 'format must be csv or xlsx' }, { status: 400 })
+  if (format !== 'csv' && format !== 'xlsx' && format !== 'pdf') {
+    return NextResponse.json({ error: 'format must be csv, xlsx or pdf' }, { status: 400 })
   }
   if (!ISO.test(dateFrom) || !ISO.test(dateTo) || dateFrom > dateTo) {
     return NextResponse.json({ error: 'dateFrom and dateTo must be YYYY-MM-DD, from before to' }, { status: 400 })
+  }
+  if (!clientId) {
+    return NextResponse.json({ error: 'Choose a client. A report is approved for one client at a time.' }, { status: 400 })
+  }
+
+  const approvalsRes = await supabaseAdmin
+    .from('client_report_approvals')
+    .select('client_id, period_from, period_to, status')
+    .eq('client_id', clientId)
+    .eq('period_from', dateFrom)
+    .eq('period_to', dateTo)
+    .limit(20)
+  if (approvalsRes.error) {
+    return NextResponse.json({ error: approvalsRes.error.message }, { status: 500 })
+  }
+  if (!isReportApproved((approvalsRes.data ?? []) as ReportApproval[], clientId, dateFrom, dateTo)) {
+    return NextResponse.json({
+      error: 'Finance has not approved this client and date range. Approve it in the system, then download. It is not emailed.',
+    }, { status: 403 })
   }
 
   const { data, error } = await readAllPages<BillingLineRecord>((from, to) => {
@@ -54,6 +76,16 @@ export async function GET(req: Request) {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+    })
+  }
+
+  if (format === 'pdf') {
+    const pdf = await reportToPdf(rows, `Client report ${dateFrom} to ${dateTo}`)
+    return new NextResponse(new Uint8Array(pdf), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="client-report-${dateFrom}-${dateTo}.pdf"`,
       },
     })
   }

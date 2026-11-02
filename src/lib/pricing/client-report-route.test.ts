@@ -10,14 +10,21 @@ const imported = readFileSync(
   join(__dirname, '../../app/api/client-reports/import/route.ts'),
   'utf8',
 )
+const approve = readFileSync(
+  join(__dirname, '../../app/api/client-reports/approve/route.ts'),
+  'utf8',
+)
 
 describe('client report routes stay inside the building', () => {
   it('requires staff and does not email or delete', () => {
-    for (const src of [download, imported]) {
+    for (const src of [download, imported, approve]) {
       expect(src).toContain('requireStaff()')
       expect(src).not.toMatch(/nodemailer|sendMail|resend|mailto:/i)
       expect(src).not.toContain('.delete(')
     }
     expect(imported).toContain('.insert(')
+    expect(approve).toContain('.insert(')
+    expect(download).toContain('isReportApproved')
+    expect(download).toContain('not emailed')
   })
 })

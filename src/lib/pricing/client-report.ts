@@ -88,6 +88,27 @@ export function reportToCsv(rows: ClientReportRow[]): string {
   return [header, ...body].join('\n') + '\n'
 }
 
+export interface ReportApproval {
+  client_id: string
+  period_from: string
+  period_to: string
+  status: string | null
+}
+
+/** True when finance has approved this client and this exact date range. */
+export function isReportApproved(
+  approvals: ReportApproval[],
+  clientId: string,
+  dateFrom: string,
+  dateTo: string,
+): boolean {
+  return approvals.some((row) =>
+    row.status === 'approved'
+    && row.client_id === clientId
+    && row.period_from === dateFrom
+    && row.period_to === dateTo)
+}
+
 export function reportToXlsx(rows: ClientReportRow[]): Buffer {
   const sheet = XLSX.utils.aoa_to_sheet([
     [...CLIENT_REPORT_COLUMNS],
@@ -96,6 +117,46 @@ export function reportToXlsx(rows: ClientReportRow[]): Buffer {
   const book = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(book, sheet, 'Orders')
   return XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+}
+
+/** PDF of the same columns. Stays in the system; nothing here sends it. */
+export async function reportToPdf(rows: ClientReportRow[], title: string): Promise<Buffer> {
+  const { jsPDF } = await import('jspdf')
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const width = 297
+  doc.setFillColor(11, 51, 97)
+  doc.rect(0, 0, width, 16, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(12)
+  doc.text('Shipo client report', 8, 10)
+  doc.setFontSize(8)
+  doc.text(title, width - 8, 10, { align: 'right' })
+  doc.setTextColor(11, 18, 32)
+  doc.setFontSize(5.5)
+  const colW = (width - 16) / CLIENT_REPORT_COLUMNS.length
+  let y = 22
+  const drawHeader = () => {
+    doc.setFont('helvetica', 'bold')
+    CLIENT_REPORT_COLUMNS.forEach((column, i) => {
+      doc.text(column.replace(/\n/g, ' '), 8 + i * colW, y, { maxWidth: colW - 1 })
+    })
+    y += 8
+    doc.setFont('helvetica', 'normal')
+  }
+  drawHeader()
+  for (const row of rows) {
+    if (y > 200) {
+      doc.addPage()
+      y = 12
+      drawHeader()
+    }
+    reportCells(row).forEach((cell, i) => {
+      doc.text(cell.replace(/\n/g, ' ').slice(0, 40), 8 + i * colW, y, { maxWidth: colW - 1 })
+    })
+    y += 5
+  }
+  if (rows.length === 0) doc.text('No orders in this range.', 8, y)
+  return Buffer.from(doc.output('arraybuffer'))
 }
 
 /** Blank stays blank. A number is two decimal places. Zero stays "0.00". */

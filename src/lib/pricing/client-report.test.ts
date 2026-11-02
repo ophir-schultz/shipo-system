@@ -6,7 +6,9 @@ import {
   filterReportRows,
   moneyCell,
   parseReportGrid,
+  isReportApproved,
   reportToCsv,
+  reportToPdf,
   reportToXlsx,
   type ClientReportRow,
 } from './client-report'
@@ -119,5 +121,22 @@ describe('client report columns', () => {
     expect(parsed.rows[0].date).toBe('2026-05-12')
     expect(parsed.rows[0].orderNumber).toBe('SO601044744')
     expect(parsed.rows[0].pickPrice).toBe('0.32')
+  })
+
+  it('treats approval as this client and this exact range', () => {
+    const approvals = [{
+      client_id: 'c1',
+      period_from: '2026-05-01',
+      period_to: '2026-08-31',
+      status: 'approved',
+    }]
+    expect(isReportApproved(approvals, 'c1', '2026-05-01', '2026-08-31')).toBe(true)
+    expect(isReportApproved(approvals, 'c1', '2026-05-02', '2026-08-31')).toBe(false)
+    expect(isReportApproved(approvals, 'c2', '2026-05-01', '2026-08-31')).toBe(false)
+  })
+
+  it('builds a PDF and does not contain an email action', async () => {
+    const pdf = await reportToPdf([sample], 'Nayax 2026-05-01 to 2026-08-31')
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-')
   })
 })

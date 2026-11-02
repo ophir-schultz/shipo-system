@@ -27,7 +27,7 @@ export default function ClientReportView({
   const [clientId, setClientId] = useState('')
   const [dateFrom, setDateFrom] = useState('2026-05-01')
   const [dateTo, setDateTo] = useState('2026-08-31')
-  const [busy, setBusy] = useState<'csv' | 'xlsx' | 'import' | null>(null)
+  const [busy, setBusy] = useState<'csv' | 'xlsx' | 'pdf' | 'approve' | 'import' | null>(null)
   const [importClientId, setImportClientId] = useState('')
 
   const filtered = useMemo(() => {
@@ -35,7 +35,29 @@ export default function ClientReportView({
     return clientId ? ranged.filter((row) => row.clientId === clientId) : ranged
   }, [rows, dateFrom, dateTo, clientId])
 
-  async function download(format: 'csv' | 'xlsx') {
+  async function approve() {
+    if (!clientId) {
+      showError('Choose a client', 'A report is approved for one client and one date range.')
+      return
+    }
+    setBusy('approve')
+    try {
+      const res = await fetch('/api/client-reports/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, dateFrom, dateTo }),
+      })
+      const data = await res.json().catch(() => ({} as { error?: string }))
+      if (!res.ok) throw new Error(data.error ?? `Server error ${res.status}`)
+      showSuccess('Report approved', 'You can download it now. It is not emailed.')
+    } catch (err) {
+      showError('Not approved', err instanceof Error ? err.message : 'Could not record the approval')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function download(format: 'csv' | 'xlsx' | 'pdf') {
     setBusy(format)
     const params = new URLSearchParams({ format, dateFrom, dateTo })
     if (clientId) params.set('clientId', clientId)
@@ -49,10 +71,10 @@ export default function ClientReportView({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `client-report-${dateFrom}-${dateTo}.${format === 'csv' ? 'csv' : 'xlsx'}`
+      a.download = `client-report-${dateFrom}-${dateTo}.${format}`
       a.click()
       URL.revokeObjectURL(url)
-      showSuccess('Report downloaded', format === 'csv' ? 'CSV saved' : 'Excel saved')
+      showSuccess('Report downloaded', `${format.toUpperCase()} saved on this computer. It was not emailed.`)
     } catch (err) {
       showError('Download failed', err instanceof Error ? err.message : 'Could not build the file')
     } finally {
@@ -126,6 +148,14 @@ export default function ClientReportView({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={approve}
+            disabled={busy !== null || linesMissing}
+            className="px-4 py-2 bg-[#0B3361] hover:bg-[#0F4A94] disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
+          >
+            {busy === 'approve' ? 'Approving…' : 'Approve for download'}
+          </button>
+          <button
+            type="button"
             onClick={() => download('csv')}
             disabled={busy !== null || linesMissing}
             className="px-4 py-2 bg-[#1A73E8] hover:bg-[#0B5ED7] disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
@@ -140,7 +170,15 @@ export default function ClientReportView({
           >
             {busy === 'xlsx' ? 'Preparing…' : 'Download Excel'}
           </button>
-          <span className="text-xs text-[#6B7A8D]">{filtered.length} orders in this range</span>
+          <button
+            type="button"
+            onClick={() => download('pdf')}
+            disabled={busy !== null || linesMissing}
+            className="px-4 py-2 bg-white border border-[#CBD5E1] hover:bg-[#EEF3FA] disabled:opacity-50 text-[#0B1220] text-sm font-semibold rounded-lg"
+          >
+            {busy === 'pdf' ? 'Preparing…' : 'Download PDF'}
+          </button>
+          <span className="text-xs text-[#6B7A8D]">{filtered.length} orders in this range. Download is not emailed.</span>
         </div>
       </div>
 
