@@ -66,6 +66,7 @@ const MONEY_READS: Array<[file: string, tables: string[]]> = [
   ['app/pnl/page.tsx', ['shipments', 'warehouse_daily_log', 'inbound_shipments', 'referral_payouts', 'clients']],
   ['components/pnl/PartnerPayouts.tsx', ['referral_payouts']],
   ['app/client-report/page.tsx', ['client_billing_lines', 'clients']],
+  ['app/order-pnl/page.tsx', ['shipments']],
   ['app/api/client-reports/download/route.ts', ['client_billing_lines']],
   ['app/losses/page.tsx', ['shipments']],
   ['app/api/agent/monitor/route.ts', ['shipments']],
