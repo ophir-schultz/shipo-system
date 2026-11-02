@@ -21,6 +21,41 @@ interface PnlShipmentRow {
   clients: { name: string } | { name: string }[] | null
 }
 
+/** Paged the same way as shipments. An unpaged read stops at db-max-rows. */
+interface PnlWarehouseRow {
+  client_id: string | null
+  total: number | null
+}
+
+interface PnlInboundRow {
+  id: string
+  client_id: string | null
+  reference: string | null
+  received_date: string | null
+  units: number | null
+  our_cost: number | null
+  billed_amount: number | null
+  notes: string | null
+  clients: { name: string } | { name: string }[] | null
+}
+
+interface PnlClientRow {
+  id: string
+  name: string
+  acquisition_campaign_id: string | null
+  referral_partner_id: string | null
+}
+
+interface PnlPayoutRow {
+  id: string
+  amount: number | string | null
+  period: string | null
+  status: string | null
+  notes: string | null
+  referral_partners: { name: string } | { name: string }[] | null
+  clients: { name: string } | { name: string }[] | null
+}
+
 // Six reads aggregated into per-client margin and a four-card summary bar, and
 // the aggregation is the problem: every figure on this page is a SUM across
 // tables, so a read that returned `[]` because it failed did not blank a cell,
@@ -59,27 +94,51 @@ async function getPnlData() {
         .from('shipments')
         .select('client_id, client_rate, actual_cost, profit_loss, clients(name)')
         .order('id').range(from, to)),
-    supabaseAdmin
-      .from('warehouse_daily_log')
-      .select('client_id, total'),
+    // PAGED. Same defect as shipments above: PostgREST stops at db-max-rows
+    // (1000) and reports nothing, and this total is warehouse revenue. A
+    // daily log past a thousand rows was a finished-looking short number.
+    readAllPages<PnlWarehouseRow>((from, to) =>
+      supabaseAdmin
+        .from('warehouse_daily_log')
+        .select('client_id, total')
+        .order('id')
+        .range(from, to)),
     // The three tables campaigns_pnl.sql creates: may legitimately not exist
     // yet, which is asked about by error code below -- NOT excused wholesale.
-    supabaseAdmin
-      .from('inbound_shipments')
-      .select('id, client_id, reference, received_date, units, our_cost, billed_amount, notes, clients(name)')
-      .order('received_date', { ascending: false })
-      .limit(500),
+    //
+    // PAGED, and the old `.limit(500)` is gone. That cap was not a top-N
+    // list: inbound billed_amount and our_cost are summed into Net Profit.
+    // Newest-first display order is kept; `id` is the unique tiebreaker
+    // readAllPages requires.
+    readAllPages<PnlInboundRow>((from, to) =>
+      supabaseAdmin
+        .from('inbound_shipments')
+        .select('id, client_id, reference, received_date, units, our_cost, billed_amount, notes, clients(name)')
+        .order('received_date', { ascending: false })
+        .order('id')
+        .range(from, to)),
     supabaseAdmin
       .from('campaigns')
       .select('id, name, channel, status, start_date, monthly_cost, one_time_cost, notes'),
-    supabaseAdmin
-      .from('clients')
-      .select('id, name, acquisition_campaign_id, referral_partner_id'),
-    supabaseAdmin
-      .from('referral_payouts')
-      .select('id, amount, period, status, notes, referral_partners(name), clients(name)')
-      .order('created_at', { ascending: false })
-      .limit(200),
+    // PAGED. Nine clients today does not make an unpaged read safe: the cap
+    // is silent the day the table crosses it, and this read decides which
+    // clients exist for campaign attribution.
+    readAllPages<PnlClientRow>((from, to) =>
+      supabaseAdmin
+        .from('clients')
+        .select('id, name, acquisition_campaign_id, referral_partner_id')
+        .order('id')
+        .range(from, to)),
+    // PAGED. `.limit(200)` fed both the payout table and the pending/paid
+    // totals, so a payout past row 200 was money owed that this page did
+    // not count. The table now shows the whole ledger.
+    readAllPages<PnlPayoutRow>((from, to) =>
+      supabaseAdmin
+        .from('referral_payouts')
+        .select('id, amount, period, status, notes, referral_partners(name), clients(name)')
+        .order('created_at', { ascending: false })
+        .order('id')
+        .range(from, to)),
   ])
 
   // Asked per table rather than inferred from `campaigns` alone. Those three
