@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
 import { easternAddDays, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 // `priceOf` is no longer imported here. The profit-loss branch was its only
 // consumer in this file, and that branch now goes through profit-rollup, which
 // calls priceOf itself on every column before any arithmetic. The per-shipment
@@ -421,12 +422,35 @@ export async function GET(req: Request) {
   ws['!cols'] = colWidths
 
   XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  const format = searchParams.get('format') ?? 'xlsx'
+  if (format !== 'xlsx' && format !== 'csv' && format !== 'pdf') {
+    return NextResponse.json({ error: 'format must be xlsx, csv or pdf' }, { status: 400 })
+  }
+  const filename = `${type}-report-${dateFrom}-to-${dateTo}`
+  if (format === 'csv') {
+    return new NextResponse(recordsToCsv(rows), {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}.csv"`,
+      },
+    })
+  }
+  if (format === 'pdf') {
+    const pdf = await recordsToPdf(rows, `${sheetName} ${dateFrom} to ${dateTo}`)
+    return new NextResponse(new Uint8Array(pdf), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${filename}.pdf"`,
+      },
+    })
+  }
+
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
   return new NextResponse(buf, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${type}-report.xlsx"`,
+      'Content-Disposition': `attachment; filename="${filename}.xlsx"`,
     },
   })
 }
