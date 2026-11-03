@@ -32,7 +32,7 @@ export async function GET() {
   if (!VERCEL_TOKEN) {
     return NextResponse.json({
       connected: false,
-      message: 'Add VERCEL_TOKEN to environment variables to see live analytics',
+      message: 'VERCEL_TOKEN not configured',
       visitors: { total: 0, today: 0, thisWeek: 0, thisMonth: 0 },
       pageviews: { total: 0, today: 0 },
       topPages: [],
