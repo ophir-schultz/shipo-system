@@ -14,6 +14,7 @@ import {
 } from './client-report'
 
 const sample: ClientReportRow = {
+  clientId: 'nayax',
   date: '2026-05-12',
   orderNumber: 'SO601044744',
   recipientName: 'Example',
@@ -104,6 +105,26 @@ describe('client report columns', () => {
     expect(row.pickPrice).toBe('')
     expect(row.boxPrice).toBe('0.00')
     expect(row.recipientName).toBe('')
+    expect(row.clientId).toBeNull()
+    expect(billingLineToReportRow({
+      client_id: 'client-1',
+      line_date: '2026-06-01',
+      order_number: 'SO2',
+      recipient_name: null,
+      tracking_number: null,
+      sku: null,
+      qty: null,
+      qty_count: null,
+      serial_number: null,
+      pick_price: null,
+      box_price: null,
+      shipping_price: null,
+      total: null,
+      zone: null,
+      zipcode: null,
+      weight: null,
+      volume_weight: null,
+    }).clientId).toBe('client-1')
   })
 
   it('reads a grid with the title row above the real header and skips subtotals', () => {

@@ -24,6 +24,8 @@ export const CLIENT_REPORT_COLUMNS = [
 ] as const
 
 export interface ClientReportRow {
+  /** Owning client. Not a workbook column. Null on a parsed sheet before it is stored. */
+  clientId: string | null
   date: string | null
   orderNumber: string
   recipientName: string
@@ -69,11 +71,11 @@ export function inReportRange(date: string | null, dateFrom: string, dateTo: str
   return date >= dateFrom && date <= dateTo
 }
 
-export function filterReportRows(
-  rows: ClientReportRow[],
+export function filterReportRows<T extends ClientReportRow>(
+  rows: T[],
   dateFrom: string,
   dateTo: string,
-): ClientReportRow[] {
+): T[] {
   return rows.filter((row) => inReportRange(row.date, dateFrom, dateTo))
 }
 
@@ -168,6 +170,7 @@ export function moneyCell(value: unknown): string {
 }
 
 export interface BillingLineRecord {
+  client_id?: string | null
   line_date: string | null
   order_number: string | null
   recipient_name: string | null
@@ -214,6 +217,7 @@ export function parseReportGrid(grid: unknown[][]): { rows: ClientReportRow[]; e
     }
     const date = excelDateCell(raw?.[0])
     rows.push({
+      clientId: null,
       date,
       orderNumber,
       recipientName: cell(2),
@@ -252,6 +256,7 @@ function excelDateCell(value: unknown): string | null {
 
 export function billingLineToReportRow(line: BillingLineRecord): ClientReportRow {
   return {
+    clientId: line.client_id ?? null,
     date: line.line_date,
     orderNumber: line.order_number ?? '',
     recipientName: line.recipient_name ?? '',

@@ -37,10 +37,7 @@ async function getReportData() {
   return {
     linesMissing,
     page: loaded(unreadable, () => ({
-      rows: (linesMissing ? [] : linesRead.rows).map((line) => ({
-        clientId: line.client_id,
-        ...billingLineToReportRow(line),
-      })),
+      rows: (linesMissing ? [] : linesRead.rows).map((line) => billingLineToReportRow(line)),
       clients: clientsRead.rows,
     })),
   }
