@@ -20,6 +20,7 @@ import {
   rowsFromCard, rowsInGroup, groupsToRender, filledRows, clearedEntries, money,
   cardStateNotice, structuredNote, type ClientEntry,
 } from '@/lib/billing/warehouse-log-form'
+import { easternToday } from '@/lib/ledger/eastern-day'
 import type { ClientCard } from '@/lib/billing/warehouse-priced-services'
 
 type Unpriced = { client_id: string; service_type: string; reason: string }
@@ -32,7 +33,7 @@ type ServicesRow = { id: string; name: string } & ClientCard
 
 export default function WarehousePage() {
   const [clients, setClients] = useState<any[]>([])
-  const [today] = useState(new Date().toISOString().split('T')[0])
+  const [today] = useState(() => easternToday())
   // Every client stays in state even though one is on screen. Switching the
   // dropdown must not discard what was already typed for another client, and
   // submit covers all of them -- see the summary above the button.
