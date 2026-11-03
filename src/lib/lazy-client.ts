@@ -59,6 +59,19 @@ export function createLazyClient<T extends object>(factory: () => T): T {
  * `env` is a parameter so this is testable without mutating process.env, which
  * leaks between test files.
  */
+export const SUPABASE_ENV_VARS = [
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+] as const
+
+/** Names of Supabase variables that are missing or blank. Values are never returned. */
+export function missingSupabaseEnv(
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  return SUPABASE_ENV_VARS.filter((name) => env[name] === undefined || env[name] === '')
+}
+
 export function requireEnv(
   name: string,
   env: Record<string, string | undefined> = process.env,
