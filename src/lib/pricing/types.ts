@@ -87,16 +87,41 @@ export interface PriceListAmbiguity {
   reason: string
 }
 
+/**
+ * One charge for the order, covering the first `includedItems` units.
+ * Each unit past that is `additionalRate`. Orcam is $0.50 up to 4, then $0.10.
+ */
+export interface OrderPickRate {
+  includedItems: number
+  orderRate: number
+  additionalRate: number
+}
+
+/** $3.50 per return, plus $0.50 for each item past the return itself. */
+export interface ReturnRate {
+  perReturn: number
+  additionalItemRate: number
+}
+
+/** Pallet build. Shrink wrap is included in the per-pallet charge. */
+export interface PalletBuildRate {
+  perPallet: number
+}
+
 export interface PriceListDocument {
   name: string
   clientName: string
   devicePick: DevicePickRate | null
   accessoryPick: { unitRate: number } | null
+  /** Set instead of devicePick and accessoryPick. Not both. */
+  orderPick: OrderPickRate | null
   boxes: BoxRate[]
   noBoxListed: NoBoxListedRate | null
   receiving: { perCarton: number } | null
   storage: { perPallet: number; perShelf: number } | null
   labour: { perHour: number } | null
+  returns: ReturnRate | null
+  palletBuild: PalletBuildRate | null
   materials: { markupPct: number } | null
   peak: PeakSurcharge | null
   /**

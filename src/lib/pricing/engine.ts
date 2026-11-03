@@ -48,7 +48,37 @@ function isDevice(sku: string, prefixes: string[]): boolean {
  * rate. Units are the order total of device SKUs, not each line on its own.
  * Accessories: unit rate × units. A missing section is null, not zero.
  */
+/**
+ * Order pick: one rate covers the first N items, then a rate per item past that.
+ * Item count is the sum of the lines. Zero items is $0, the same as an empty
+ * device pick. A list cannot carry this and a device or accessory rate.
+ */
+export function priceOrderPick(list: PriceListDocument, lines: SkuQty[]): PricedPart {
+  const tier = list.orderPick
+  if (!tier) return part(null, ['the price list has no order pick rate'])
+  if (list.devicePick || list.accessoryPick) {
+    return part(null, ['order pick and a device or accessory rate are both set, so pick was not priced'])
+  }
+  let items = 0
+  for (const line of lines) {
+    if (!Number.isFinite(line.qty)) {
+      return part(null, [`quantity for ${line.sku || '(blank sku)'} is not a number`])
+    }
+    items += line.qty
+  }
+  if (!Number.isInteger(items) || items < 0) {
+    return part(null, [`order item count ${items} is not a whole number`])
+  }
+  if (!Number.isInteger(tier.includedItems) || tier.includedItems <= 0) {
+    return part(null, ['order pick includedItems must be a positive whole number'])
+  }
+  if (items === 0) return part(0)
+  const extra = Math.max(0, items - tier.includedItems)
+  return part(money(tier.orderRate + extra * tier.additionalRate))
+}
+
 export function pricePick(list: PriceListDocument, lines: SkuQty[]): PricedPart {
+  if (list.orderPick) return priceOrderPick(list, lines)
   const reasons: string[] = []
   let deviceUnits = 0
   let accessoryUnits = 0
@@ -226,6 +256,40 @@ export function priceLabour(list: PriceListDocument, hours: number | null): Pric
   if (!list.labour) return part(null, ['the price list has no labour rate'])
   if (!Number.isFinite(hours) || hours < 0) return part(null, ['labour hours are not a number'])
   return part(money(hours * list.labour.perHour))
+}
+
+/**
+ * One return is `perReturn`. Each item past that return is `additionalItemRate`.
+ * Additional items with no return are unknown: they have nothing to attach to.
+ */
+export function priceReturns(
+  list: PriceListDocument,
+  returnCount: number | null,
+  additionalItems: number | null,
+): PricedPart {
+  if (returnCount === null && additionalItems === null) {
+    return part(null, ['return quantity was not provided'])
+  }
+  if (!list.returns) return part(null, ['the price list has no return rate'])
+  const returns = returnCount ?? 0
+  const extra = additionalItems ?? 0
+  if (!Number.isInteger(returns) || !Number.isInteger(extra) || returns < 0 || extra < 0) {
+    return part(null, ['return counts are not whole numbers'])
+  }
+  if (returns === 0 && extra > 0) {
+    return part(null, ['additional returned items need a return to attach to'])
+  }
+  return part(money(returns * list.returns.perReturn + extra * list.returns.additionalItemRate))
+}
+
+/** Pallet build, per pallet built. Shrink wrap is inside the rate, not a second charge. */
+export function pricePalletBuild(list: PriceListDocument, palletsBuilt: number | null): PricedPart {
+  if (palletsBuilt === null) return part(null, ['pallets built were not provided'])
+  if (!list.palletBuild) return part(null, ['the price list has no pallet build rate'])
+  if (!Number.isInteger(palletsBuilt) || palletsBuilt < 0) {
+    return part(null, ['pallets built are not a whole number'])
+  }
+  return part(money(palletsBuilt * list.palletBuild.perPallet))
 }
 
 /** Materials bill at cost plus the list's markup percent. 15 means 15%. */

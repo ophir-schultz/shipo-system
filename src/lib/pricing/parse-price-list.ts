@@ -3,10 +3,13 @@
 
 import type {
   BoxRate,
+  OrderPickRate,
+  PalletBuildRate,
   PeakBasis,
   PriceListAmbiguity,
   PriceListDocument,
   PriceListService,
+  ReturnRate,
   ShippingCell,
   ShippingSchedule,
 } from './types'
@@ -90,6 +93,23 @@ export function parsePriceList(input: unknown): ParsedPriceList {
     accessoryPick = { unitRate }
   }
 
+  let orderPick: OrderPickRate | null = null
+  if (input.orderPick != null) {
+    if (!isObject(input.orderPick)) return { ok: false, error: 'orderPick must be an object' }
+    const includedItems = num(input.orderPick.includedItems)
+    const orderRate = num(input.orderPick.orderRate)
+    const additionalRate = num(input.orderPick.additionalRate)
+    if (includedItems === null || !Number.isInteger(includedItems) || includedItems <= 0) {
+      return { ok: false, error: 'orderPick.includedItems must be a positive whole number' }
+    }
+    if (orderRate === null || orderRate < 0) return { ok: false, error: 'orderPick.orderRate is missing' }
+    if (additionalRate === null || additionalRate < 0) return { ok: false, error: 'orderPick.additionalRate is missing' }
+    orderPick = { includedItems, orderRate, additionalRate }
+  }
+  if (orderPick && (devicePick || accessoryPick)) {
+    return { ok: false, error: 'orderPick cannot be combined with devicePick or accessoryPick' }
+  }
+
   const boxes: BoxRate[] = []
   if (input.boxes != null) {
     if (!Array.isArray(input.boxes)) return { ok: false, error: 'boxes must be a list' }
@@ -138,6 +158,26 @@ export function parsePriceList(input: unknown): ParsedPriceList {
     const perHour = num(input.labour.perHour)
     if (perHour === null || perHour < 0) return { ok: false, error: 'labour.perHour is missing' }
     labour = { perHour }
+  }
+
+  let returns: ReturnRate | null = null
+  if (input.returns != null) {
+    if (!isObject(input.returns)) return { ok: false, error: 'returns must be an object' }
+    const perReturn = num(input.returns.perReturn)
+    const additionalItemRate = num(input.returns.additionalItemRate)
+    if (perReturn === null || perReturn < 0) return { ok: false, error: 'returns.perReturn is missing' }
+    if (additionalItemRate === null || additionalItemRate < 0) {
+      return { ok: false, error: 'returns.additionalItemRate is missing' }
+    }
+    returns = { perReturn, additionalItemRate }
+  }
+
+  let palletBuild: PalletBuildRate | null = null
+  if (input.palletBuild != null) {
+    if (!isObject(input.palletBuild)) return { ok: false, error: 'palletBuild must be an object' }
+    const perPallet = num(input.palletBuild.perPallet)
+    if (perPallet === null || perPallet < 0) return { ok: false, error: 'palletBuild.perPallet is missing' }
+    palletBuild = { perPallet }
   }
 
   let materials: PriceListDocument['materials'] = null
@@ -256,11 +296,14 @@ export function parsePriceList(input: unknown): ParsedPriceList {
       clientName,
       devicePick,
       accessoryPick,
+      orderPick,
       boxes,
       noBoxListed,
       receiving,
       storage,
       labour,
+      returns,
+      palletBuild,
       materials,
       peak,
       shippingSameAs,
@@ -302,6 +345,13 @@ export function summarizePriceList(list: PriceListDocument): string[] {
     )
   }
   if (list.accessoryPick) lines.push(`Accessories: $${list.accessoryPick.unitRate.toFixed(2)} each`)
+  if (list.orderPick) {
+    const p = list.orderPick
+    lines.push(
+      `Pick and pack: $${p.orderRate.toFixed(2)} per order up to ${p.includedItems} items`
+      + ` + $${p.additionalRate.toFixed(2)} each additional item`,
+    )
+  }
   if (list.boxes.length) lines.push(`Box material: ${list.boxes.length} sizes`)
   if (list.noBoxListed) {
     lines.push(`No box listed (${list.noBoxListed.weightLabel}): $${list.noBoxListed.rate.toFixed(2)}`)
@@ -313,6 +363,15 @@ export function summarizePriceList(list: PriceListDocument): string[] {
     )
   }
   if (list.labour) lines.push(`Labour: $${list.labour.perHour.toFixed(2)} per hour`)
+  if (list.returns) {
+    lines.push(
+      `Returns: $${list.returns.perReturn.toFixed(2)} per return`
+      + ` + $${list.returns.additionalItemRate.toFixed(2)} per additional returned item`,
+    )
+  }
+  if (list.palletBuild) {
+    lines.push(`Pallet build: $${list.palletBuild.perPallet.toFixed(2)} per pallet built (shrink wrap included)`)
+  }
   if (list.materials) lines.push(`Materials: cost + ${list.materials.markupPct}%`)
   if (list.peak) {
     lines.push(
