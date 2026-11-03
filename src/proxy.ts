@@ -56,6 +56,13 @@ export function partnerLandingFor(
 }
 
 export async function proxy(request: NextRequest) {
+  // A preview with no Supabase credentials cannot build an auth client.
+  // Letting that throw turns every tab into a middleware 500. The page
+  // then renders its own "not connected" notice.
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    return NextResponse.next({ request })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
