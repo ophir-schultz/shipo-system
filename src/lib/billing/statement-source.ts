@@ -3,7 +3,7 @@ import { readAllPages, type PageResult } from '@/lib/db/page'
 import { priceOf } from '@/lib/billing/unpriced'
 import { shipmentIdFromChargeKey } from '@/lib/billing/statement-detail'
 import type { StatementChargeRow } from '@/lib/billing/statement-charges'
-import { pricePick } from '@/lib/pricing/engine'
+import { money, pricePick } from '@/lib/pricing/engine'
 import { parsePriceList } from '@/lib/pricing/parse-price-list'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import type { PriceListDocument, SkuQty } from '@/lib/pricing/types'
@@ -56,6 +56,30 @@ export interface PickOrder {
   lines: SkuQty[]
 }
 
+function baseCharge(
+  order: PickOrder,
+  over: Partial<StatementChargeRow>,
+): StatementChargeRow {
+  return {
+    charge_type: 'pick',
+    label: 'Pick & pack',
+    quantity: null,
+    unit_rate: null,
+    amount: null,
+    is_estimate: false,
+    charge_date: order.chargeDate,
+    order_id: order.orderId,
+    charge_key: `pickpack:${order.orderId}`,
+    ...over,
+  }
+}
+
+/**
+ * Order pick is two rates: one charge per order, then each item past the
+ * included count. One combined row hid that (39 items, rate "see amount").
+ * The two labels group across the period, so the statement reads as orders
+ * times the order rate, and extra items times the additional rate.
+ */
 export function pickPackRows(
   orders: readonly PickOrder[],
   list: PriceListDocument | null,
@@ -64,20 +88,41 @@ export function pickPackRows(
   const rows: StatementChargeRow[] = []
   for (const order of orders) {
     if (order.lines.length === 0) continue
+    const tier = list.orderPick
+    if (tier && !list.devicePick && !list.accessoryPick) {
+      let items = 0
+      let bad = false
+      for (const line of order.lines) {
+        if (!Number.isFinite(line.qty)) { bad = true; break }
+        items += line.qty
+      }
+      if (bad || !Number.isInteger(items) || items <= 0) continue
+      rows.push(baseCharge(order, {
+        label: 'Pick & pack',
+        quantity: 1,
+        unit_rate: tier.orderRate,
+        amount: tier.orderRate,
+        charge_key: `pickpack:${order.orderId}`,
+      }))
+      const extra = Math.max(0, items - tier.includedItems)
+      if (extra > 0) {
+        rows.push(baseCharge(order, {
+          label: 'Additional items',
+          quantity: extra,
+          unit_rate: tier.additionalRate,
+          amount: money(extra * tier.additionalRate),
+          charge_key: `pickpack-extra:${order.orderId}`,
+        }))
+      }
+      continue
+    }
     const priced = pricePick(list, order.lines)
     if (priced.amount === null) continue
     const items = order.lines.reduce((sum, line) => sum + line.qty, 0)
-    rows.push({
-      charge_type: 'pick',
-      label: 'Pick & pack',
+    rows.push(baseCharge(order, {
       quantity: items,
-      unit_rate: null,
       amount: priced.amount,
-      is_estimate: false,
-      charge_date: order.chargeDate,
-      order_id: order.orderId,
-      charge_key: `pickpack:${order.orderId}`,
-    })
+    }))
   }
   return rows
 }
