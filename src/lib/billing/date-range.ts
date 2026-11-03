@@ -1,4 +1,4 @@
-import { easternToday } from '@/lib/ledger/eastern-day'
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
 
 // Which rows are inside the period a screen claims to be showing.
 //
@@ -78,7 +78,7 @@ export function filterByDate<T>(
     // the day is the one in New York, not the UTC date in front of the T.
     // 2026-11-01T03:30Z is still 31 Oct in the warehouse.
     const day = typeof raw === 'string'
-      ? (raw.includes('T') ? easternToday(new Date(raw)) : raw.slice(0, 10))
+      ? easternCalendarDay(raw) || null
       : null
 
     if (day === null) {

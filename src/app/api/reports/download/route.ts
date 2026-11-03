@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
-import { easternAddDays, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
 import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 // `priceOf` is no longer imported here. The profit-loss branch was its only
 // consumer in this file, and that branch now goes through profit-rollup, which
@@ -165,7 +165,7 @@ export async function GET(req: Request) {
     rows = (data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
-      'Ship Date': s.ship_date,
+      'Ship Date': easternCalendarDay(s.ship_date),
       'Carrier': s.carrier,
       'Service': s.service,
       'Tracking': s.tracking_number,
@@ -329,7 +329,7 @@ export async function GET(req: Request) {
     rows = (data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
-      'Ship Date': s.ship_date,
+      'Ship Date': easternCalendarDay(s.ship_date),
       'Carrier': s.carrier,
       'Service': s.service,
       'Recipient': s.recipient_name,

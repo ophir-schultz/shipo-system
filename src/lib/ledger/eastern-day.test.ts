@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   easternAddDays,
+  easternCalendarDay,
   easternMidnightIso,
   easternMonthStart,
   easternToday,
@@ -29,6 +30,15 @@ describe('eastern calendar', () => {
     // September is EDT, UTC-4. November is EST, UTC-5.
     expect(easternMidnightIso('2026-09-29')).toBe('2026-09-29T04:00:00.000Z')
     expect(easternMidnightIso('2026-11-03')).toBe('2026-11-03T05:00:00.000Z')
+  })
+
+  it('reads a timestamptz as the New York calendar day', () => {
+    // 2026-10-27 03:30Z is still 2026-10-26 in New York (EDT, UTC-4).
+    expect(easternCalendarDay('2026-10-27T03:30:00.000Z')).toBe('2026-10-26')
+    // 2026-11-03 03:30Z is still 2026-11-02 in New York (EST, UTC-5).
+    expect(easternCalendarDay('2026-11-03T03:30:00.000Z')).toBe('2026-11-02')
+    expect(easternCalendarDay('2026-11-02')).toBe('2026-11-02')
+    expect(easternCalendarDay(null)).toBe('')
   })
 
   it('adds calendar days without using the server timezone', () => {
