@@ -21,6 +21,13 @@ describe('staff profit period', () => {
     expect(profitInstants(period.from, period.to).start).toBe('2026-11-02T05:00:00.000Z')
   })
 
+  it('uses the dates the operator picked even when the grain is still week', () => {
+    const period = profitPeriod({
+      grain: 'week', today: '2026-11-03', from: '2026-10-26', to: '2026-11-01',
+    })
+    expect(period).toEqual({ from: '2026-10-26', to: '2026-11-01', error: null })
+  })
+
   it('keeps a custom range and refuses a backwards one', () => {
     expect(profitPeriod({ grain: 'custom', today: '2026-11-03', from: '2026-10-01', to: '2026-10-03' }).from)
       .toBe('2026-10-01')

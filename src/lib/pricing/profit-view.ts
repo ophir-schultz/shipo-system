@@ -24,11 +24,18 @@ export function profitPeriod(input: {
   from: string
   to: string
 }): { from: string; to: string; error: string | null } {
-  if (input.grain === 'custom') {
-    if (!ISO.test(input.from) || !ISO.test(input.to) || input.from > input.to) {
+  const from = input.from.trim()
+  const to = input.to.trim()
+  // The form always sends grain and the two date fields. A week left on the
+  // default while the operator typed Oct 26–Nov 1 was answering "this week"
+  // and ignoring the dates, so the same orders came back as 5 or as 15
+  // depending on which control they had touched last. Dates that were typed
+  // win. Grain is only the period when both date fields are empty.
+  if (from !== '' || to !== '' || input.grain === 'custom') {
+    if (!ISO.test(from) || !ISO.test(to) || from > to) {
       return { from: '', to: '', error: 'A custom range needs two dates, with from on or before to.' }
     }
-    return { from: input.from, to: input.to, error: null }
+    return { from, to, error: null }
   }
   if (input.grain !== 'day' && input.grain !== 'week' && input.grain !== 'month') {
     return { from: '', to: '', error: 'Period must be day, week, month, or custom.' }
