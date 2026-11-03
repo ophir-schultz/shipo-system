@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyZonePrices, hasPricedPick, lineQty, pickPackRows } from './statement-source'
+import { applyZonePrices, hasPricedPick, lineQty, pickPackRows, shippingChargesFromShipments } from './statement-source'
 import { buildStatement } from './statement'
 import { rateText } from './statement-view'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
@@ -75,5 +75,39 @@ describe('statement pick & pack', () => {
     expect(lineQty(4, 2)).toBe(2)
     expect(lineQty(4, 0)).toBe(4)
     expect(lineQty(null, null)).toBeNull()
+  })
+})
+
+describe('statement shipping when the ledger has no charges', () => {
+  it('prices each live shipment from client_rate and drops a voided label', () => {
+    const rows = shippingChargesFromShipments([
+      {
+        shipstation_shipment_id: 11,
+        order_number: 'A-1',
+        ship_date: '2026-10-27T02:30:00.000Z',
+        client_rate: 18.5,
+      },
+      {
+        shipstation_shipment_id: 12,
+        order_number: 'A-2',
+        ship_date: '2026-10-28',
+        client_rate: 33.31,
+        raw_data: { voided: true },
+      },
+      {
+        shipstation_shipment_id: 13,
+        order_number: 'A-3',
+        ship_date: '2026-10-29',
+        client_rate: null,
+      },
+    ], new Map([['A-1', 'order-1']]))
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({
+      amount: 18.5,
+      charge_date: '2026-10-26',
+      order_id: 'order-1',
+      charge_key: 'shipment:11',
+    })
+    expect(rows[1].amount).toBeNull()
   })
 })
