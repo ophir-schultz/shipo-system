@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
+import { easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import BillingView from '@/components/billing/BillingView'
 
@@ -49,9 +50,8 @@ import BillingView from '@/components/billing/BillingView'
 export const dynamic = 'force-dynamic'
 
 async function getBillingData() {
-  const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-  const today = now.toISOString().split('T')[0]
+  const today = easternToday()
+  const monthStart = easternMonthStart(today)
 
   const [clientsRes, shipmentsRes, warehouseRes, adjustmentsRes, billsRes] = await Promise.all([
     supabaseAdmin.from('clients').select('id, name').eq('active', true).order('name'),

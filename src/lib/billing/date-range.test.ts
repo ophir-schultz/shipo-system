@@ -87,6 +87,12 @@ describe('filterByDate', () => {
     expect(r.rows.map(x => x.id)).toEqual(['a'])
   })
 
+  it('places a timestamptz on the Eastern calendar day', () => {
+    // 2026-11-01T03:30Z is 31 Oct 23:30 in New York (EDT). The UTC date is November.
+    const r = filterByDate([row('a', '2026-11-01T03:30:00Z')], 'ship_date', '2026-10-01', '2026-10-31')
+    expect(r.rows.map(x => x.id)).toEqual(['a'])
+  })
+
   describe('an undated row', () => {
     it('is dropped when a bound is set, and counted', () => {
       // THE FIX. ReportsTabs kept this row in every range it was ever asked
