@@ -76,6 +76,49 @@ export function shippingChargesFromShipments(
   return charges
 }
 
+export interface PickCardRow {
+  service_type?: string | null
+  rate?: unknown
+  effective_from?: string | null
+  effective_to?: string | null
+}
+
+/** The one live pick_pack / pick_n_pack rate, or null when the card does not say. */
+export function pickRateOnCard(rows: readonly PickCardRow[], onDate: string): number | null {
+  const amounts = new Set<number>()
+  for (const row of rows) {
+    const service = row.service_type?.trim()
+    if (service !== 'pick_pack' && service !== 'pick_n_pack') continue
+    const from = typeof row.effective_from === 'string' ? row.effective_from.slice(0, 10) : ''
+    const to = typeof row.effective_to === 'string' ? row.effective_to.slice(0, 10) : ''
+    if (from && onDate && from > onDate) continue
+    if (to && onDate && to < onDate) continue
+    const rate = priceOf(row.rate)
+    if (rate === null || rate <= 0) continue
+    amounts.add(rate)
+  }
+  if (amounts.size !== 1) return null
+  return [...amounts][0]
+}
+
+/** One pick & pack line per order, at the rate-card price. */
+export function pickRowsFromCard(
+  orders: readonly { orderId: string; chargeDate: string }[],
+  rate: number,
+): StatementChargeRow[] {
+  return orders.map((order) => ({
+    charge_type: 'pick',
+    label: 'Pick & pack',
+    quantity: 1,
+    unit_rate: rate,
+    amount: money(rate),
+    is_estimate: false,
+    charge_date: order.chargeDate,
+    order_id: order.orderId,
+    charge_key: `pick:card:${order.orderId}`,
+  }))
+}
+
 export function hasPricedPick(charges: readonly StatementChargeRow[]): boolean {
   return charges.some((charge) =>
     (charge.charge_type === 'pick' || charge.charge_type === 'pack')
@@ -323,11 +366,28 @@ export async function priceStatementCharges(
   }
 
   const list = await priceListFor(clientId, clientName)
-  const picks = pickPackRows([...linesByOrder.entries()].map(([orderId, lines]) => ({
+  let picks = pickPackRows([...linesByOrder.entries()].map(([orderId, lines]) => ({
     orderId,
     chargeDate: dateByOrder.get(orderId) ?? next[0]?.charge_date ?? '',
     lines,
   })), list)
+  // Orcam's price list already produced a pick. A client without one (Suteka's
+  // pick_n_pack at $1.20 per order) is priced from the warehouse rate card.
+  if (!hasPricedPick(picks)) {
+    const card = await supabaseAdmin
+      .from('client_warehouse_rates')
+      .select('*')
+      .eq('client_id', clientId)
+    if (card.error) return { charges: next, error: card.error }
+    const onDate = [...dateByOrder.values()].sort()[0] ?? range?.from ?? ''
+    const rate = pickRateOnCard((card.data ?? []) as PickCardRow[], onDate)
+    if (rate !== null) {
+      picks = pickRowsFromCard(orderIds.map((orderId) => ({
+        orderId,
+        chargeDate: dateByOrder.get(orderId) ?? onDate,
+      })), rate)
+    }
+  }
   next = [...next, ...picks]
   return { charges: next, error: null }
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { applyZonePrices, hasPricedPick, lineQty, pickPackRows, shippingChargesFromShipments } from './statement-source'
+import {
+  applyZonePrices, hasPricedPick, lineQty, pickPackRows, pickRateOnCard, pickRowsFromCard,
+  shippingChargesFromShipments,
+} from './statement-source'
 import { buildStatement } from './statement'
 import { rateText } from './statement-view'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
@@ -109,5 +112,25 @@ describe('statement shipping when the ledger has no charges', () => {
       charge_key: 'shipment:11',
     })
     expect(rows[1].amount).toBeNull()
+  })
+})
+
+describe('pick & pack from the warehouse rate card', () => {
+  it('uses the one live pick_n_pack rate and ignores a superseded line', () => {
+    const rate = pickRateOnCard([
+      { service_type: 'pick_n_pack', rate: 1.2, effective_from: '2026-01-01' },
+      { service_type: 'pick_n_pack', rate: 0.9, effective_to: '2025-12-31' },
+      { service_type: 'storage', rate: 25 },
+    ], '2026-10-26')
+    expect(rate).toBe(1.2)
+    const rows = pickRowsFromCard([{ orderId: 'o1', chargeDate: '2026-10-26' }], rate ?? 0)
+    expect(rows[0]).toMatchObject({ label: 'Pick & pack', amount: 1.2, quantity: 1 })
+  })
+
+  it('does not guess when two live pick rates disagree', () => {
+    expect(pickRateOnCard([
+      { service_type: 'pick_pack', rate: 0.5 },
+      { service_type: 'pick_n_pack', rate: 1.2 },
+    ], '2026-10-26')).toBeNull()
   })
 })
