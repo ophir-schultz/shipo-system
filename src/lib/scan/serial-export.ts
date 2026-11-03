@@ -18,7 +18,7 @@ export const SERIAL_EXPORT_COLUMNS = [
   'Zenventory response',
 ] as const
 
-export const SERIAL_STATUSES = ['sent', 'failed', 'skipped', 'unconfirmed', 'scan incomplete'] as const
+export const SERIAL_STATUSES = ['sent', 'failed', 'skipped', 'unconfirmed', 'scan incomplete', 'pending-tracking'] as const
 
 export interface SerialFilters {
   clientId: string

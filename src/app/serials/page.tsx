@@ -73,7 +73,7 @@ export default async function SerialsPage({
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Serial history</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          Every serial that was scanned, with the order, the client, who scanned it, the tracking number when a label already exists, and whether it reached Zenventory. A pick does not wait for a tracking number and does not write one back to Zenventory. Nayax receives the serials from Zenventory through its existing API connection. Stored scans are kept.
+          Every serial that was scanned, with the order, the client, who scanned it, the tracking number, and whether it reached Zenventory. A pick waits until the shipment has a tracking number and stays pending-tracking until then. The pick does not write a tracking number back to Zenventory. Nayax receives the serials from Zenventory through its existing API connection. Stored scans are kept.
         </p>
       </div>
 
