@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applyZonePrices, hasPricedPick, lineQty, pickPackRows } from './statement-source'
+import { buildStatement } from './statement'
+import { rateText } from './statement-view'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import type { StatementChargeRow } from './statement-charges'
 
@@ -39,17 +41,34 @@ describe('statement shipping uses the zone-matrix price', () => {
 describe('statement pick & pack', () => {
   const orcam = loadRepoPriceList('Orcam').list
 
-  it('prices Orcam as $0.50 for the first four items and $0.10 after', () => {
+  it('splits an Orcam order into the order rate and the extra items', () => {
     const rows = pickPackRows([{
       orderId: 'o1',
       chargeDate: '2026-10-26',
       lines: [{ sku: 'A', qty: 6 }],
     }], orcam)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].label).toBe('Pick & pack')
-    expect(rows[0].quantity).toBe(6)
-    expect(rows[0].amount).toBe(0.7)
-    expect(rows[0].charge_key).toBe('pickpack:o1')
+    expect(rows.map((row) => [row.label, row.quantity, row.unit_rate, row.amount])).toEqual([
+      ['Pick & pack', 1, 0.5, 0.5],
+      ['Additional items', 2, 0.1, 0.2],
+    ])
+  })
+
+  it('groups a period into orders times $0.50 and extra items times $0.10', () => {
+    const rows = pickPackRows([
+      { orderId: 'o1', chargeDate: '2026-10-26', lines: [{ sku: 'A', qty: 6 }] },
+      { orderId: 'o2', chargeDate: '2026-10-27', lines: [{ sku: 'B', qty: 4 }] },
+    ], orcam)
+    const statement = buildStatement(rows, { from: '2026-10-26', to: '2026-11-01' })
+    const lines = statement.lines.map((line) => ({
+      label: line.label,
+      quantity: line.quantity,
+      rate: rateText(line),
+      amount: line.sum.total,
+    }))
+    expect(lines).toEqual([
+      { label: 'Additional items', quantity: 2, rate: '$0.1000', amount: 0.2 },
+      { label: 'Pick & pack', quantity: 2, rate: '$0.5000', amount: 1 },
+    ])
   })
 
   it('uses the picked quantity when one was recorded', () => {
