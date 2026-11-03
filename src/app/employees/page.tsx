@@ -1,6 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import type { User } from '@supabase/supabase-js'
 import EmployeesClient from './EmployeesClient'
 import MfaSetup from '@/components/auth/MfaSetup'
+import ViewUnreadable from '@/components/ui/ViewUnreadable'
 
 // Without this line Next prerendered this page at build time, so the staff list
 // was the list as of the last deploy: an employee added through this screen did
@@ -13,17 +15,47 @@ import MfaSetup from '@/components/auth/MfaSetup'
 // HTML file on disk rather than rendering them per authenticated request.
 export const dynamic = 'force-dynamic'
 
-export default async function EmployeesPage() {
-  const { data: users } = await supabaseAdmin.auth.admin.listUsers()
+// listUsers defaults to one page. A failed call used to fall through to
+// `users?.users ?? []`, and the header then said "0 users with access".
+const PER_PAGE = 1000
 
-  const employees = (users?.users ?? []).map(u => ({
-    id: u.id,
-    email: u.email ?? '',
-    name: (u.user_metadata?.full_name as string) ?? '',
-    role: (u.user_metadata?.role as string) ?? 'employee',
-    created_at: u.created_at,
-    last_sign_in: u.last_sign_in_at ?? null,
-  }))
+export default async function EmployeesPage() {
+  const employees: Array<{
+    id: string
+    email: string
+    name: string
+    role: string
+    created_at: string
+    last_sign_in: string | null
+  }> = []
+  let page = 1
+  for (;;) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: PER_PAGE })
+    if (error) {
+      return (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-2xl font-bold text-[#0B1220]">Employees</h2>
+            <p className="text-[#4B4F58] text-sm mt-1">Staff accounts</p>
+          </div>
+          <ViewUnreadable message={`auth.users: ${error.message}`} />
+        </div>
+      )
+    }
+    const batch: User[] = data?.users ?? []
+    for (const u of batch) {
+      employees.push({
+        id: u.id,
+        email: u.email ?? '',
+        name: (u.user_metadata?.full_name as string) ?? '',
+        role: (u.user_metadata?.role as string) ?? 'employee',
+        created_at: u.created_at,
+        last_sign_in: u.last_sign_in_at ?? null,
+      })
+    }
+    if (batch.length < PER_PAGE) break
+    page += 1
+  }
 
   return (
     <div className="space-y-6">
