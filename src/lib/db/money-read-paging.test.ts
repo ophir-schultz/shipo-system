@@ -56,9 +56,9 @@ const ROOT = join(__dirname, '..', '..')
  * arrives with no error the day the table crosses it.
  */
 const MONEY_READS: Array<[file: string, tables: string[]]> = [
-<<<<<<< HEAD
   ['app/dashboard/page.tsx', ['shipments', 'warehouse_daily_log', 'manual_charges', 'rate_adjustments']],
   ['app/adjustments/page.tsx', ['rate_adjustments']],
+  ['app/shipments/page.tsx', ['shipments', 'clients']],
   // warehouse_daily_log, inbound_shipments and referral_payouts are summed
   // into Net Profit on this page. clients is paged too: an unpaged read of
   // it is the same silent cap, and campaign attribution is built from it.
@@ -70,11 +70,6 @@ const MONEY_READS: Array<[file: string, tables: string[]]> = [
   ['app/client-report/page.tsx', ['client_billing_lines', 'clients']],
   ['app/order-pnl/page.tsx', ['shipments']],
   ['app/api/client-reports/download/route.ts', ['client_billing_lines']],
-=======
-  ['app/dashboard/page.tsx', ['shipments']],
-  ['app/shipments/page.tsx', ['shipments', 'clients']],
-  ['app/pnl/page.tsx', ['shipments']],
->>>>>>> origin/cursor/shipments-paging-4d1b
   ['app/losses/page.tsx', ['shipments']],
   ['app/referrals/page.tsx', ['fba_invoices', 'referral_payouts']],
   ['app/api/agent/monitor/route.ts', ['shipments']],
