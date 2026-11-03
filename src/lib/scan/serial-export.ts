@@ -15,12 +15,9 @@ export const SERIAL_EXPORT_COLUMNS = [
   'Zenventory status',
   'Zenventory sent at',
   'Zenventory response',
-  'Nayax status',
-  'Nayax sent at',
-  'Nayax response',
 ] as const
 
-export const SERIAL_STATUSES = ['sent', 'failed', 'skipped', 'not_configured'] as const
+export const SERIAL_STATUSES = ['sent', 'failed', 'skipped', 'unconfirmed', 'scan incomplete'] as const
 
 export interface SerialFilters {
   clientId: string
@@ -43,9 +40,6 @@ export interface SerialHistoryRow {
   zenventoryStatus: string
   zenventorySentAt: string
   zenventoryResponse: string
-  nayaxStatus: string
-  nayaxSentAt: string
-  nayaxResponse: string
 }
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/
@@ -77,7 +71,6 @@ export type SerialFilterStep =
   | { op: 'eq'; column: string; value: string }
   | { op: 'gte'; column: string; value: string }
   | { op: 'lte'; column: string; value: string }
-  | { op: 'or'; value: string }
 
 export function serialFilterSteps(filters: SerialFilters): SerialFilterStep[] {
   const steps: SerialFilterStep[] = []
@@ -86,12 +79,7 @@ export function serialFilterSteps(filters: SerialFilters): SerialFilterStep[] {
   if (filters.serial) steps.push({ op: 'eq', column: 'serial', value: filters.serial })
   if (filters.dateFrom) steps.push({ op: 'gte', column: 'scan_events.scanned_at', value: `${filters.dateFrom}T00:00:00.000Z` })
   if (filters.dateTo) steps.push({ op: 'lte', column: 'scan_events.scanned_at', value: `${filters.dateTo}T23:59:59.999Z` })
-  if (filters.status) {
-    steps.push({
-      op: 'or',
-      value: `zenventory_status.eq.${filters.status},nayax_status.eq.${filters.status}`,
-    })
-  }
+  if (filters.status) steps.push({ op: 'eq', column: 'zenventory_status', value: filters.status })
   return steps
 }
 
@@ -105,8 +93,7 @@ export interface FilterableQuery {
 export function applySerialFilters<Q extends FilterableQuery>(query: Q, filters: SerialFilters): Q {
   let next = query
   for (const step of serialFilterSteps(filters)) {
-    if (step.op === 'or') next = next.or(step.value)
-    else next = next[step.op](step.column, step.value)
+    next = next[step.op](step.column, step.value)
   }
   return next
 }
@@ -127,9 +114,6 @@ export interface RawSerialJoin {
   zenventory_status?: string | null
   zenventory_sent_at?: string | null
   zenventory_response?: string | null
-  nayax_status?: string | null
-  nayax_sent_at?: string | null
-  nayax_response?: string | null
   scan_events: {
     client_id?: string | null
     order_ref?: string | null
@@ -162,9 +146,6 @@ export function mapSerialRow(raw: RawSerialJoin): SerialHistoryRow {
     zenventoryStatus: text(raw.zenventory_status),
     zenventorySentAt: text(raw.zenventory_sent_at),
     zenventoryResponse: text(raw.zenventory_response),
-    nayaxStatus: text(raw.nayax_status),
-    nayaxSentAt: text(raw.nayax_sent_at),
-    nayaxResponse: text(raw.nayax_response),
   }
 }
 
@@ -180,9 +161,6 @@ export function serialCells(row: SerialHistoryRow): string[] {
     row.zenventoryStatus,
     row.zenventorySentAt,
     row.zenventoryResponse,
-    row.nayaxStatus,
-    row.nayaxSentAt,
-    row.nayaxResponse,
   ]
 }
 

@@ -8,17 +8,25 @@
 // write. The body below is the documented pick line. It has no price
 // field, and customerprice read off the line is never copied in.
 //
-// A job that is already done is not looked up again. A line whose
-// pickedquantity is already above zero is not picked again: whether that
-// PUT appends or replaces has not been observed, and a second call can
-// draw the same units down twice. A line is sent only when the scanned
-// serial count equals the allocated quantity, so a half-scanned carton
-// does not close the job.
+// Deduction is against that customer order. There is no inventory
+// adjustment. A scan with no order is refused. Nothing is picked until
+// every serialized line on the order has its full quantity scanned, and
+// then each of those lines is one pick. A line already showing a picked
+// quantity is not picked again.
 //
-// Nayax has no serial receiver in this system. Unless NAYAX_SERIAL_WEBHOOK_URL
-// is set, the Nayax step records not_configured and does not call out.
+// After a 2xx pick, the order is read back. API 2.0
+// GET /customer-orders/{id}?includePickedItemMetadata=true is the read
+// that can include the picked serials. The legacy pick GET is the
+// fallback. The queue is marked done only when that read-back confirms
+// the line.
+//
+// Nayax is not called. It receives serials from Zenventory through the
+// API connection that already exists.
 
-export const NAYAX_SERIAL_WEBHOOK_URL = 'NAYAX_SERIAL_WEBHOOK_URL'
+export const SCAN_INCOMPLETE = 'scan incomplete'
+
+export const NAYAX_VIA_ZENVENTORY =
+  'Nayax receives serials from Zenventory through its existing API connection. This system does not send serials to Nayax.'
 
 export interface HttpResult {
   status: number
@@ -42,20 +50,20 @@ export interface PushSerialRef {
   serial: string
 }
 
-export interface DeliverJobInput {
-  job: {
-    id: string
-    clientId: string
-    orderRef: string
-    sku: string
-    status: string
-    serials: string[]
-    serialRows?: PushSerialRef[]
-  }
+export interface OrderJob {
+  id: string
+  clientId: string
+  orderRef: string
+  sku: string
+  status: string
+  serials: string[]
+  serialRows?: PushSerialRef[]
+}
+
+export interface DeliverOrderInput {
+  jobs: OrderJob[]
   credentials: ClientZenventoryCredentials
   transport: ZenventoryTransport
-  nayaxUrl: string | null
-  nayaxPost: (url: string, body: unknown) => Promise<HttpResult>
   now: string
 }
 
@@ -65,15 +73,12 @@ export interface SerialDeliveryUpdate {
   zenventoryStatus: string | null
   zenventorySentAt: string | null
   zenventoryResponse: string | null
-  nayaxStatus: string | null
-  nayaxSentAt: string | null
-  nayaxResponse: string | null
 }
 
 export interface DeliveryLogEntry {
   scannedSerialId: string | null
   serial: string
-  channel: 'zenventory' | 'nayax'
+  channel: 'zenventory'
   status: string
   responseStatus: number | null
   responseBody: string | null
@@ -227,13 +232,6 @@ export function pickLinesIn(body: unknown): ParsedPickLine[] {
   return lines
 }
 
-function matchSku(lines: ParsedPickLine[], sku: string): ParsedPickLine[] {
-  const want = sku.trim()
-  const exact = lines.filter((line) => line.sku === want)
-  if (exact.length > 0) return exact
-  return lines.filter((line) => line.sku.toLowerCase() === want.toLowerCase())
-}
-
 export function pickBody(line: ParsedPickLine, serials: string[]): PickBodyLine[] {
   return [{
     customerorderitemid: line.customerorderitemid,
@@ -245,15 +243,27 @@ export function pickBody(line: ParsedPickLine, serials: string[]): PickBodyLine[
   }]
 }
 
-function serialRefs(job: DeliverJobInput['job']): PushSerialRef[] {
+
+function serialRefs(job: OrderJob): PushSerialRef[] {
   if (job.serialRows && job.serialRows.length > 0) return job.serialRows
   return job.serials.map((serial) => ({ id: '', serial }))
+}
+
+function uniqueSerials(serials: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const serial of serials) {
+    const trimmed = serial.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    out.push(trimmed)
+  }
+  return out
 }
 
 function updates(
   refs: PushSerialRef[],
   zenventory: { status: string; sentAt: string | null; response: string },
-  nayax: { status: string; sentAt: string | null; response: string } | null,
 ): SerialDeliveryUpdate[] {
   return refs.map((ref) => ({
     scannedSerialId: ref.id,
@@ -261,15 +271,11 @@ function updates(
     zenventoryStatus: zenventory.status,
     zenventorySentAt: zenventory.sentAt,
     zenventoryResponse: zenventory.response,
-    nayaxStatus: nayax?.status ?? null,
-    nayaxSentAt: nayax?.sentAt ?? null,
-    nayaxResponse: nayax?.response ?? null,
   }))
 }
 
 function logs(
   refs: PushSerialRef[],
-  channel: 'zenventory' | 'nayax',
   status: string,
   responseStatus: number | null,
   responseBody: string,
@@ -277,58 +283,64 @@ function logs(
   return refs.map((ref) => ({
     scannedSerialId: ref.id || null,
     serial: ref.serial,
-    channel,
+    channel: 'zenventory',
     status,
     responseStatus,
     responseBody,
   }))
 }
 
-function failed(
-  refs: PushSerialRef[],
-  error: string,
-  extras?: Partial<PushOutcome>,
+function outcomeFor(
+  job: OrderJob,
+  patch: Partial<PushOutcome> & Pick<PushOutcome, 'action' | 'mutate' | 'queueStatus' | 'error'>,
 ): PushOutcome {
+  const refs = serialRefs(job)
+  const status = patch.serials?.[0]?.zenventoryStatus
+    ?? (patch.error === SCAN_INCOMPLETE ? SCAN_INCOMPLETE : 'failed')
+  const response = patch.responseBody ?? patch.error ?? ''
   return {
-    action: 'failed',
-    mutate: true,
-    queueStatus: 'failed',
-    attemptsIncrement: true,
-    requestPayload: extras?.requestPayload ?? null,
-    responseStatus: extras?.responseStatus ?? null,
-    responseBody: extras?.responseBody ?? null,
-    error,
-    serials: extras?.serials ?? updates(refs, { status: 'failed', sentAt: null, response: error }, null),
-    log: extras?.log ?? logs(refs, 'zenventory', 'failed', extras?.responseStatus ?? null, error),
+    action: patch.action,
+    mutate: patch.mutate,
+    queueStatus: patch.queueStatus,
+    attemptsIncrement: patch.attemptsIncrement ?? false,
+    requestPayload: patch.requestPayload ?? null,
+    responseStatus: patch.responseStatus ?? null,
+    responseBody: patch.responseBody ?? null,
+    error: patch.error,
+    serials: patch.serials ?? (patch.mutate && patch.action !== 'skipped'
+      ? updates(refs, { status, sentAt: null, response })
+      : []),
+    log: patch.log ?? [],
   }
 }
 
-function usableUrl(url: string | null): string | null {
-  if (blank(url)) return null
-  const trimmed = url!.trim()
-  if (!/^https?:\/\//i.test(trimmed)) return null
-  return trimmed
+/** The only write this module performs: the legacy pick on a customer order. */
+export function customerOrderPickPath(orderId: string): string {
+  if (!/^[0-9]+$/.test(orderId)) {
+    throw new Error(`Zenventory order id "${orderId}" is not a numeric id`)
+  }
+  return `/customerorders/${orderId}/items/pick`
 }
 
 async function resolveOrder(
-  input: DeliverJobInput,
+  transport: ZenventoryTransport,
+  credentials: ClientZenventoryCredentials,
+  orderRef: string,
 ): Promise<{ order: ResolvedOrder | null; error: string | null }> {
-  const { credentials, transport, job } = input
   const hasV2 = !blank(credentials.apiKey) && !blank(credentials.apiSecret)
-  // A 2.0 key that answers 401 is a known Nayax case: the legacy SecureKey
-  // still lists the order. A failed 2.0 lookup falls through to that key
-  // instead of stopping the pick.
+  // A 2.0 key that answers 401 is a known case: the legacy SecureKey still
+  // lists the order. A failed 2.0 lookup falls through to that key.
   if (hasV2) {
     try {
       const listed = await transport.getV2('/customer-orders', {
-        orderNumber: job.orderRef,
+        orderNumber: orderRef,
         orderNumberConditional: 'matches',
         perPage: '100',
         page: '1',
       }, { apiKey: credentials.apiKey!.trim(), apiSecret: credentials.apiSecret!.trim() })
       if (listed.status >= 200 && listed.status < 300) {
-        const matched = matchOrder(ordersIn(listed.body), job.orderRef)
-        if (matched === 'many') return { order: null, error: `More than one Zenventory order matches ${job.orderRef}` }
+        const matched = matchOrder(ordersIn(listed.body), orderRef)
+        if (matched === 'many') return { order: null, error: `More than one Zenventory order matches ${orderRef}` }
         if (matched) return { order: matched, error: null }
       }
     } catch (err) {
@@ -338,216 +350,394 @@ async function resolveOrder(
     }
   }
   if (blank(credentials.secureKey)) {
-    return { order: null, error: `No Zenventory order matched ${job.orderRef}` }
+    return { order: null, error: `No Zenventory order matched ${orderRef}` }
   }
   const listed = await transport.getLegacy('/customerorders', {}, credentials.secureKey!.trim())
   if (listed.status < 200 || listed.status >= 300) {
     return { order: null, error: `Legacy order list returned HTTP ${listed.status}` }
   }
-  const matched = matchOrder(ordersIn(listed.body), job.orderRef)
-  if (matched === 'many') return { order: null, error: `More than one Zenventory order matches ${job.orderRef}` }
-  if (!matched) return { order: null, error: `No Zenventory order matched ${job.orderRef}` }
+  const matched = matchOrder(ordersIn(listed.body), orderRef)
+  if (matched === 'many') return { order: null, error: `More than one Zenventory order matches ${orderRef}` }
+  if (!matched) return { order: null, error: `No Zenventory order matched ${orderRef}` }
   return { order: matched, error: null }
 }
 
-async function notifyNayax(
-  input: DeliverJobInput,
-  refs: PushSerialRef[],
-): Promise<{ nayax: { status: string; sentAt: string | null; response: string }; log: DeliveryLogEntry[] }> {
-  const url = usableUrl(input.nayaxUrl)
-  if (!url) {
-    const response = 'Nayax serial delivery is not configured'
-    return {
-      nayax: { status: 'not_configured', sentAt: null, response },
-      log: logs(refs, 'nayax', 'not_configured', null, response),
+function orderItems(body: unknown): Record<string, unknown>[] {
+  const found: Record<string, unknown>[] = []
+  const take = (value: unknown) => {
+    if (!Array.isArray(value)) return
+    for (const item of value) {
+      const record = asRecord(item)
+      if (record) found.push(record)
     }
   }
-  const body = {
-    clientId: input.job.clientId,
-    orderRef: input.job.orderRef,
-    sku: input.job.sku,
-    serials: input.job.serials,
+  take(body)
+  const record = asRecord(body)
+  if (!record) return found
+  take(record.items)
+  for (const key of ['customerOrders', 'customerorders', 'orders']) {
+    const list = record[key]
+    if (!Array.isArray(list)) continue
+    for (const order of list) take(asRecord(order)?.items)
   }
-  try {
-    const sent = await input.nayaxPost(url, body)
-    const text = responseText(sent.body)
-    if (sent.status >= 200 && sent.status < 300) {
-      return {
-        nayax: { status: 'sent', sentAt: input.now, response: text },
-        log: logs(refs, 'nayax', 'sent', sent.status, text),
-      }
+  return found
+}
+
+function itemSku(item: Record<string, unknown>): string | null {
+  const direct = firstString(item, ['sku'])
+  if (direct) return direct
+  const master = asRecord(item.itemmaster) ?? asRecord(item.item)
+  return master ? firstString(master, ['sku']) : null
+}
+
+function itemPicked(item: Record<string, unknown>): number | null {
+  return numberOrNull(item.pickedQuantity) ?? numberOrNull(item.pickedquantity)
+}
+
+function collectSerialText(value: unknown, into: string[]) {
+  if (typeof value === 'string') return
+  if (Array.isArray(value)) {
+    for (const item of value) collectSerialText(item, into)
+    return
+  }
+  const record = asRecord(value)
+  if (!record) return
+  for (const [key, child] of Object.entries(record)) {
+    if (key.toLowerCase() === 'serial' || key.toLowerCase() === 'serialnumber') {
+      if (typeof child === 'string' && child.trim()) into.push(child.trim())
+      continue
     }
-    return {
-      nayax: { status: 'failed', sentAt: input.now, response: text },
-      log: logs(refs, 'nayax', 'failed', sent.status, text),
-    }
-  } catch (err) {
-    const text = err instanceof Error ? err.message : String(err)
-    return {
-      nayax: { status: 'failed', sentAt: input.now, response: text },
-      log: logs(refs, 'nayax', 'failed', null, text),
-    }
+    collectSerialText(child, into)
   }
 }
 
-/**
- * One job. Does not touch the database. The caller persists `outcome`
- * only when `mutate` is true, and only marks the queue done after the
- * HTTP pick itself returned 2xx.
- */
-export async function deliverJob(input: DeliverJobInput): Promise<PushOutcome> {
-  const refs = serialRefs(input.job)
-  if (input.job.status === 'done') {
-    return {
-      action: 'skipped',
-      mutate: false,
-      queueStatus: null,
-      attemptsIncrement: false,
-      requestPayload: null,
-      responseStatus: null,
-      responseBody: null,
-      error: null,
-      serials: [],
-      log: [],
-    }
-  }
-  if (input.job.serials.length === 0) {
-    return {
-      action: 'waiting',
-      mutate: true,
-      queueStatus: 'pending',
-      attemptsIncrement: false,
-      requestPayload: null,
-      responseStatus: null,
-      responseBody: null,
-      error: 'No serials are stored for this line yet',
-      serials: [],
-      log: [],
-    }
-  }
+export interface ReadBack {
+  serials: string[] | null
+  pickedQuantity: number | null
+}
 
+/** Serials and picked quantity for one SKU on a customer-order read-back. */
+export function readBackForSku(body: unknown, sku: string): ReadBack {
+  const want = sku.trim().toLowerCase()
+  const items = orderItems(body).filter((item) => (itemSku(item) ?? '').trim().toLowerCase() === want)
+  if (items.length === 0) return { serials: null, pickedQuantity: null }
+  const serials: string[] = []
+  let sawList = false
+  let picked: number | null = null
+  for (const item of items) {
+    const qty = itemPicked(item)
+    if (qty != null) picked = (picked ?? 0) + qty
+    const fields = item.additionalFields ?? item.additionalfields ?? item.serials ?? item.pickedSerialNumbers
+    if (fields != null) {
+      sawList = true
+      collectSerialText(fields, serials)
+    }
+  }
+  return { serials: sawList ? serials : null, pickedQuantity: picked }
+}
+
+export function confirmReadBack(body: unknown, sku: string, sent: string[]): { ok: boolean; detail: string } {
+  const read = readBackForSku(body, sku)
+  if (read.serials) {
+    const have = new Set(read.serials.map((serial) => serial.toLowerCase()))
+    const missing = sent.filter((serial) => !have.has(serial.toLowerCase()))
+    if (missing.length === 0) return { ok: true, detail: 'Read-back lists these serials on the customer order.' }
+    return { ok: false, detail: `Read-back is missing ${missing.join(', ')}.` }
+  }
+  if (read.pickedQuantity != null && read.pickedQuantity >= sent.length) {
+    return {
+      ok: true,
+      detail: `Read-back picked quantity is ${read.pickedQuantity}. The order payload did not include the serial list.`,
+    }
+  }
+  return { ok: false, detail: 'Read-back did not show these serials on the customer order.' }
+}
+
+/**
+ * One customer order. Picks each serialized line only after every
+ * serialized line on that order is fully scanned. Does not touch the
+ * database and does not call any inventory-adjustment endpoint.
+ */
+export async function deliverOrder(input: DeliverOrderInput): Promise<PushOutcome[]> {
+  const byId = new Map<string, PushOutcome>()
+  const put = (job: OrderJob, patch: Partial<PushOutcome> & Pick<PushOutcome, 'action' | 'mutate' | 'queueStatus' | 'error'>) => {
+    byId.set(job.id, outcomeFor(job, patch))
+  }
+  const finish = () => input.jobs.map((job) => byId.get(job.id) ?? outcomeFor(job, {
+    action: 'failed',
+    mutate: true,
+    queueStatus: 'failed',
+    error: 'The order was not processed.',
+  }))
+
+  for (const job of input.jobs) {
+    if (job.status === 'done') {
+      put(job, { action: 'skipped', mutate: false, queueStatus: null, error: null, serials: [] })
+    }
+  }
+  const active = input.jobs.filter((job) => job.status !== 'done')
+  for (const job of active.filter((row) => blank(row.orderRef))) {
+    const response = 'This scan is not linked to an order, so nothing was deducted.'
+    put(job, {
+      action: 'failed',
+      mutate: true,
+      queueStatus: 'failed',
+      error: response,
+      responseBody: response,
+      serials: updates(serialRefs(job), { status: 'failed', sentAt: null, response }),
+      log: logs(serialRefs(job), 'failed', null, response),
+    })
+  }
+  const linked = active.filter((job) => !blank(job.orderRef))
+  if (linked.length === 0) return finish()
+
+  const orderRef = linked[0].orderRef.trim()
+  if (linked.some((job) => job.orderRef.trim() !== orderRef || job.clientId !== linked[0].clientId)) {
+    for (const job of linked) {
+      put(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        error: 'These scans are not one customer order, so nothing was deducted.',
+      })
+    }
+    return finish()
+  }
   if (blank(input.credentials.secureKey)) {
-    return failed(refs, 'Legacy SecureKey is not stored for this client, so the pick was not sent')
+    for (const job of linked) {
+      put(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        attemptsIncrement: true,
+        error: 'Legacy SecureKey is not stored for this client, so the pick was not sent',
+      })
+    }
+    return finish()
   }
 
   let order: ResolvedOrder
   try {
-    const resolved = await resolveOrder(input)
-    if (resolved.error || !resolved.order) return failed(refs, resolved.error ?? 'No Zenventory order matched')
+    const resolved = await resolveOrder(input.transport, input.credentials, orderRef)
+    if (resolved.error || !resolved.order) {
+      for (const job of linked) {
+        put(job, {
+          action: 'failed',
+          mutate: true,
+          queueStatus: 'failed',
+          attemptsIncrement: true,
+          error: resolved.error ?? 'No Zenventory order matched',
+        })
+      }
+      return finish()
+    }
     order = resolved.order
   } catch (err) {
-    return failed(refs, err instanceof Error ? err.message : String(err))
+    const error = err instanceof Error ? err.message : String(err)
+    for (const job of linked) put(job, { action: 'failed', mutate: true, queueStatus: 'failed', attemptsIncrement: true, error })
+    return finish()
   }
-  if (!/^[0-9]+$/.test(order.id)) {
-    return failed(refs, `Zenventory order id "${order.id}" is not a numeric id, so the pick was not sent`)
+
+  let pickPath: string
+  try {
+    pickPath = customerOrderPickPath(order.id)
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    for (const job of linked) put(job, { action: 'failed', mutate: true, queueStatus: 'failed', error })
+    return finish()
   }
 
   let lines: ParsedPickLine[]
   try {
-    const listed = await input.transport.getLegacy(
-      `/customerorders/${order.id}/items/pick`,
-      {},
-      input.credentials.secureKey!.trim(),
-    )
+    const listed = await input.transport.getLegacy(pickPath, {}, input.credentials.secureKey!.trim())
     if (listed.status < 200 || listed.status >= 300) {
-      return failed(refs, `Pick line lookup returned HTTP ${listed.status}`, {
-        responseStatus: listed.status,
-        responseBody: responseText(listed.body),
+      for (const job of linked) {
+        put(job, {
+          action: 'failed',
+          mutate: true,
+          queueStatus: 'failed',
+          attemptsIncrement: true,
+          responseStatus: listed.status,
+          responseBody: responseText(listed.body),
+          error: `Pick line lookup returned HTTP ${listed.status}`,
+        })
+      }
+      return finish()
+    }
+    lines = pickLinesIn(listed.body)
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    for (const job of linked) put(job, { action: 'failed', mutate: true, queueStatus: 'failed', attemptsIncrement: true, error })
+    return finish()
+  }
+
+  const serialized = lines.filter((line) => line.serialized && (line.allocatedquantity ?? 0) > 0)
+  const bySku = new Map<string, ParsedPickLine[]>()
+  for (const line of serialized) {
+    const key = line.sku.trim().toLowerCase()
+    bySku.set(key, [...(bySku.get(key) ?? []), line])
+  }
+  if ([...bySku.values()].some((group) => group.length > 1)) {
+    for (const job of linked) {
+      put(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        error: 'A SKU is on more than one pick line, so no pick was sent.',
       })
     }
-    lines = matchSku(pickLinesIn(listed.body), input.job.sku)
-  } catch (err) {
-    return failed(refs, err instanceof Error ? err.message : String(err))
+    return finish()
   }
 
-  if (lines.length === 0) {
-    return failed(refs, `No pick line for SKU ${input.job.sku} on order ${input.job.orderRef}`)
+  const jobsBySku = new Map<string, OrderJob[]>()
+  for (const job of linked) {
+    const key = job.sku.trim().toLowerCase()
+    jobsBySku.set(key, [...(jobsBySku.get(key) ?? []), job])
   }
-  if (lines.length > 1) {
-    return failed(refs, `SKU ${input.job.sku} is on ${lines.length} pick lines; no pick was sent`)
+  const incomplete = serialized.some((line) => {
+    if (line.pickedquantity >= (line.allocatedquantity ?? 0)) return false
+    const scanned = uniqueSerials((jobsBySku.get(line.sku.trim().toLowerCase()) ?? []).flatMap((job) => job.serials))
+    return scanned.length !== line.allocatedquantity
+  })
+  const partial = serialized.some((line) => line.pickedquantity > 0 && line.pickedquantity < (line.allocatedquantity ?? 0))
+  if (partial || incomplete) {
+    const error = partial
+      ? 'A serialized line is already partly picked on this customer order, so nothing was sent.'
+      : SCAN_INCOMPLETE
+    for (const job of linked) {
+      put(job, { action: 'waiting', mutate: true, queueStatus: 'pending', error, responseBody: error })
+    }
+    return finish()
   }
-  const line = lines[0]
-  if (line.pickedquantity > 0) {
-    const response = `pickedquantity is ${line.pickedquantity}; no second pick was sent`
-    return {
-      action: 'failed',
-      mutate: true,
-      queueStatus: 'failed',
-      attemptsIncrement: false,
-      requestPayload: null,
-      responseStatus: null,
-      responseBody: response,
-      error: response,
-      serials: updates(refs, { status: 'skipped', sentAt: null, response }, null),
-      log: logs(refs, 'zenventory', 'skipped', null, response),
+
+  const accepted = new Map<string, { body: PickBodyLine[]; status: number; text: string }>()
+  for (const job of linked) {
+    const line = bySku.get(job.sku.trim().toLowerCase())?.[0]
+    if (!line) {
+      put(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        error: `SKU ${job.sku} is not a serialized line on customer order ${orderRef}, so nothing was deducted.`,
+      })
+      continue
+    }
+    if (line.pickedquantity > 0) {
+      const response = `pickedquantity is ${line.pickedquantity}; no second pick was sent`
+      put(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        error: response,
+        responseBody: response,
+        serials: updates(serialRefs(job), { status: 'skipped', sentAt: null, response }),
+        log: logs(serialRefs(job), 'skipped', null, response),
+      })
+      continue
+    }
+    if (line.locationid == null) {
+      put(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        error: `SKU ${job.sku} has no location on the pick line`,
+      })
+      continue
+    }
+    const serials = uniqueSerials(job.serials)
+    const body = pickBody(line, serials)
+    if (priceKeys(body).length > 0) {
+      put(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        requestPayload: body,
+        error: 'Pick body contained a price field and was not sent',
+      })
+      continue
+    }
+    try {
+      const picked = await input.transport.putLegacy(pickPath, body, input.credentials.secureKey!.trim())
+      const text = responseText(picked.body)
+      if (picked.status < 200 || picked.status >= 300) {
+        put(job, {
+          action: 'failed',
+          mutate: true,
+          queueStatus: 'failed',
+          attemptsIncrement: true,
+          requestPayload: body,
+          responseStatus: picked.status,
+          responseBody: text,
+          error: `Pick returned HTTP ${picked.status}`,
+        })
+        continue
+      }
+      accepted.set(job.id, { body, status: picked.status, text })
+    } catch (err) {
+      put(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        attemptsIncrement: true,
+        requestPayload: body,
+        error: err instanceof Error ? err.message : String(err),
+      })
     }
   }
-  if (!line.serialized) {
-    return failed(refs, `SKU ${input.job.sku} is not serialized on the pick line`)
-  }
-  if (line.locationid == null) {
-    return failed(refs, `SKU ${input.job.sku} has no location on the pick line`)
-  }
-  if (line.allocatedquantity == null) {
-    return failed(refs, `SKU ${input.job.sku} has no allocated quantity, so the pick was not sent`)
-  }
-  if (input.job.serials.length !== line.allocatedquantity) {
-    return {
-      action: 'waiting',
-      mutate: true,
-      queueStatus: 'pending',
-      attemptsIncrement: false,
-      requestPayload: null,
-      responseStatus: null,
-      responseBody: null,
-      error: `Waiting for the full line: ${input.job.serials.length} of ${line.allocatedquantity} serials are scanned`,
-      serials: [],
-      log: [],
+
+  let readBody: unknown = null
+  let readError = 'Order read-back did not return a body.'
+  if (accepted.size > 0) {
+    try {
+      const hasV2 = !blank(input.credentials.apiKey) && !blank(input.credentials.apiSecret)
+      let read: HttpResult | null = null
+      if (hasV2) {
+        read = await input.transport.getV2(`/customer-orders/${order.id}`, {
+          includePickedItemMetadata: 'true',
+        }, { apiKey: input.credentials.apiKey!.trim(), apiSecret: input.credentials.apiSecret!.trim() })
+        if (read.status < 200 || read.status >= 300) read = null
+      }
+      if (!read) read = await input.transport.getLegacy(pickPath, {}, input.credentials.secureKey!.trim())
+      if (read.status < 200 || read.status >= 300) readError = `Order read-back returned HTTP ${read.status}`
+      else readBody = read.body
+    } catch (err) {
+      readError = err instanceof Error ? err.message : String(err)
     }
   }
 
-  const body = pickBody(line, input.job.serials)
-  if (priceKeys(body).length > 0) {
-    return failed(refs, 'Pick body contained a price field and was not sent', { requestPayload: body })
+  for (const job of linked) {
+    const picked = accepted.get(job.id)
+    if (!picked) continue
+    const serials = uniqueSerials(job.serials)
+    const confirmed = readBody
+      ? confirmReadBack(readBody, job.sku, serials)
+      : { ok: false, detail: readError }
+    const response = `${picked.text} ${confirmed.detail}`.trim()
+    if (confirmed.ok) {
+      put(job, {
+        action: 'sent',
+        mutate: true,
+        queueStatus: 'done',
+        requestPayload: picked.body,
+        responseStatus: picked.status,
+        responseBody: response,
+        error: null,
+        serials: updates(serialRefs(job), { status: 'sent', sentAt: input.now, response }),
+        log: logs(serialRefs(job), 'sent', picked.status, response),
+      })
+    } else {
+      put(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        requestPayload: picked.body,
+        responseStatus: picked.status,
+        responseBody: response,
+        error: confirmed.detail,
+        serials: updates(serialRefs(job), { status: 'unconfirmed', sentAt: input.now, response }),
+        log: logs(serialRefs(job), 'failed', picked.status, response),
+      })
+    }
   }
-
-  let picked: HttpResult
-  try {
-    picked = await input.transport.putLegacy(
-      `/customerorders/${order.id}/items/pick`,
-      body,
-      input.credentials.secureKey!.trim(),
-    )
-  } catch (err) {
-    return failed(refs, err instanceof Error ? err.message : String(err), { requestPayload: body })
-  }
-  const text = responseText(picked.body)
-  if (picked.status < 200 || picked.status >= 300) {
-    return failed(refs, `Pick returned HTTP ${picked.status}`, {
-      requestPayload: body,
-      responseStatus: picked.status,
-      responseBody: text,
-    })
-  }
-
-  const nayax = await notifyNayax(input, refs)
-  return {
-    action: 'sent',
-    mutate: true,
-    queueStatus: 'done',
-    attemptsIncrement: false,
-    requestPayload: body,
-    responseStatus: picked.status,
-    responseBody: text,
-    error: nayax.nayax.status === 'failed' ? `Nayax delivery failed: ${nayax.nayax.response}` : null,
-    serials: updates(
-      refs,
-      { status: 'sent', sentAt: input.now, response: text },
-      nayax.nayax,
-    ),
-    log: [
-      ...logs(refs, 'zenventory', 'sent', picked.status, text),
-      ...nayax.log,
-    ],
-  }
+  return finish()
 }

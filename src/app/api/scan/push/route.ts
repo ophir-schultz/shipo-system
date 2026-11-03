@@ -7,8 +7,8 @@ import {
   pushPayload,
   pushQueueMode,
   type PushJobPlan,
-  NAYAX_SERIAL_WEBHOOK_URL,
 } from '@/lib/scan/push-queue'
+import { NAYAX_VIA_ZENVENTORY, SCAN_INCOMPLETE } from '@/lib/scan/zenventory-pick'
 import { createSupabasePushStore } from '@/lib/scan/push-store'
 import { runPush, type RunnableJob } from '@/lib/scan/run-push'
 import { createZenventoryTransport } from '@/lib/scan/zenventory-transport'
@@ -91,8 +91,8 @@ async function loadPlans(): Promise<{ plans: PushJobPlan[]; error: string | null
 
 function describe(plans: PushJobPlan[], mode: string) {
   const message = mode === 'execute'
-    ? livePushRefusal()
-    : `Dry run. ${plans.length} job${plans.length === 1 ? '' : 's'} would be pushed. Nothing was sent and nothing was updated.`
+    ? `${livePushRefusal()} A pick is one line on the customer order, and only after that order is fully scanned. Until then it stays ${SCAN_INCOMPLETE}. ${NAYAX_VIA_ZENVENTORY}`
+    : `Dry run. ${plans.length} job${plans.length === 1 ? '' : 's'} are waiting. Nothing is sent until every serialized line on the customer order is scanned, then one pick per line. Until then the order stays ${SCAN_INCOMPLETE}. Nothing was sent and nothing was updated. ${NAYAX_VIA_ZENVENTORY}`
   return {
     enabled: true,
     mode,
@@ -197,16 +197,6 @@ export async function POST() {
     jobs,
     store: createSupabasePushStore(),
     transport: createZenventoryTransport(),
-    nayaxUrl: process.env[NAYAX_SERIAL_WEBHOOK_URL] ?? null,
-    nayaxPost: async (url, body) => {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const text = await res.text()
-      return { status: res.status, body: text.slice(0, 2000) }
-    },
     now: new Date().toISOString(),
   })
 
@@ -216,8 +206,10 @@ export async function POST() {
     mode,
     wrote,
     jobs: results,
-    message: wrote
-      ? 'The pick ran. Queue rows were updated only for jobs that finished, and a job is marked done only after Zenventory accepted it.'
-      : 'Nothing was marked done.',
+    message: results.some((result) => result.error === SCAN_INCOMPLETE)
+      ? `${SCAN_INCOMPLETE}. ${NAYAX_VIA_ZENVENTORY}`
+      : wrote
+        ? `The customer-order pick ran. A line is marked done only after Zenventory's read-back confirms it. ${NAYAX_VIA_ZENVENTORY}`
+        : `Nothing was marked done. ${NAYAX_VIA_ZENVENTORY}`,
   })
 }

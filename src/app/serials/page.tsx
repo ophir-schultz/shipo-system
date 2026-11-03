@@ -15,7 +15,7 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-const SELECT_WITH_STATUS = 'id, serial, zenventory_status, zenventory_sent_at, zenventory_response, nayax_status, nayax_sent_at, nayax_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
+const SELECT_WITH_STATUS = 'id, serial, zenventory_status, zenventory_sent_at, zenventory_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
 
 interface ClientOption {
   id: string
@@ -67,7 +67,7 @@ export default async function SerialsPage({
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Serial history</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          Every serial that was scanned, with the order, the client, who scanned it, and the Zenventory and Nayax send status. Stored scans are kept.
+          Every serial that was scanned, with the order, the client, who scanned it, and whether it reached Zenventory. A pick waits until that customer order is fully scanned. Nayax receives the serials from Zenventory through its existing API connection. Stored scans are kept.
         </p>
       </div>
 
@@ -154,7 +154,7 @@ function SerialHistory({
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs text-[#6B7A8D]">
             <tr>
-              {['Scanned at', 'Client', 'Order', 'SKU', 'Serial', 'Scanned by', 'Zenventory', 'Nayax'].map((heading) => (
+              {['Scanned at', 'Client', 'Order', 'SKU', 'Serial', 'Scanned by', 'Zenventory'].map((heading) => (
                 <th key={heading} className="px-3 py-2 font-medium">{heading}</th>
               ))}
             </tr>
@@ -162,7 +162,7 @@ function SerialHistory({
           <tbody>
             {showRows && data.rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-[#4B4F58]">No scanned serials match these filters.</td>
+                <td colSpan={7} className="px-3 py-6 text-[#4B4F58]">No scanned serials match these filters.</td>
               </tr>
             )}
             {showRows && data.rows.map((row) => (
@@ -174,7 +174,6 @@ function SerialHistory({
                 <td className="px-3 py-2 font-mono">{row.serial}</td>
                 <td className="px-3 py-2 font-mono text-xs">{row.scannedBy}</td>
                 <td className="px-3 py-2" title={row.zenventoryResponse}>{row.zenventoryStatus}</td>
-                <td className="px-3 py-2" title={row.nayaxResponse}>{row.nayaxStatus}</td>
               </tr>
             ))}
           </tbody>

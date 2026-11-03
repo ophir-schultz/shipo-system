@@ -15,7 +15,7 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-const SELECT = 'id, serial, zenventory_status, zenventory_sent_at, zenventory_response, nayax_status, nayax_sent_at, nayax_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
+const SELECT = 'id, serial, zenventory_status, zenventory_sent_at, zenventory_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
 
 export async function GET(req: Request) {
   const denied = await requireStaff()

@@ -8,7 +8,6 @@
 
 export const ZENVENTORY_PUSH_ENABLED = 'ZENVENTORY_PUSH_ENABLED'
 export const ZENVENTORY_PUSH_EXECUTE = 'ZENVENTORY_PUSH_EXECUTE'
-export { NAYAX_SERIAL_WEBHOOK_URL } from './zenventory-pick'
 
 export type PushQueueMode = 'disabled' | 'dry-run' | 'execute'
 

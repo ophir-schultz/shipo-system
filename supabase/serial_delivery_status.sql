@@ -4,8 +4,12 @@
 --
 -- scanned_serials already keeps the serial, and scan_events keeps
 -- the order, the client, the SKU, the scan time and who scanned.
--- What those rows cannot answer is whether that serial was sent
--- to Zenventory or to Nayax, when, and what came back.
+-- These columns record whether that serial reached Zenventory,
+-- when, and what the order read-back said.
+--
+-- Nayax is not stored here. Nayax receives serials from Zenventory
+-- through the API connection that already exists. This system does
+-- not send serials to Nayax.
 --
 -- The columns are the latest answer, so the screen can filter.
 -- serial_delivery_log is the history. The app only inserts into
@@ -15,9 +19,6 @@
 alter table scanned_serials add column if not exists zenventory_status text;
 alter table scanned_serials add column if not exists zenventory_sent_at timestamptz;
 alter table scanned_serials add column if not exists zenventory_response text;
-alter table scanned_serials add column if not exists nayax_status text;
-alter table scanned_serials add column if not exists nayax_sent_at timestamptz;
-alter table scanned_serials add column if not exists nayax_response text;
 
 create table if not exists serial_delivery_log (
   id                  uuid primary key default uuid_generate_v4(),
@@ -26,8 +27,8 @@ create table if not exists serial_delivery_log (
   order_ref           text,
   sku                 text,
   serial              text not null,
-  channel             text not null check (channel in ('zenventory', 'nayax')),
-  status              text not null check (status in ('sent', 'failed', 'skipped', 'not_configured')),
+  channel             text not null check (channel in ('zenventory')),
+  status              text not null check (status in ('sent', 'failed', 'skipped')),
   response_status     integer,
   response_body       text,
   recorded_at         timestamptz not null default now()

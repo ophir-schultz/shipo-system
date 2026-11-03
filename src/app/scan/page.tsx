@@ -183,7 +183,7 @@ export default function ScanPage() {
         </p>
         <p className="text-sm mt-2">
           <a href="/serials" className="text-[#1A73E8]">Serial history</a>
-          <span className="text-[#6B7A8D]"> keeps every scanned serial, with its Zenventory and Nayax status.</span>
+          <span className="text-[#6B7A8D]"> keeps every scanned serial. A pick is sent on the customer order once that order is fully scanned. Nayax receives the serials from Zenventory through its existing API connection.</span>
         </p>
         {queueNote && (
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">

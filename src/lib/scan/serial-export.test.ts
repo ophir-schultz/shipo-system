@@ -15,9 +15,6 @@ describe('serial history export', () => {
     zenventory_status: 'sent',
     zenventory_sent_at: '2026-11-03T12:00:00.000Z',
     zenventory_response: '[]',
-    nayax_status: 'not_configured',
-    nayax_sent_at: null,
-    nayax_response: 'Nayax serial delivery is not configured',
     scan_events: {
       client_id: 'c1',
       order_ref: 'SO1',
@@ -28,7 +25,7 @@ describe('serial history export', () => {
     },
   })
 
-  it('keeps the scan, the order and both delivery statuses', () => {
+  it('keeps the scan, the order and the Zenventory status', () => {
     expect(row).toMatchObject({
       clientName: 'Nayax',
       clientId: 'c1',
@@ -37,7 +34,6 @@ describe('serial history export', () => {
       serial: 'ABC',
       scannedBy: 'user-1',
       zenventoryStatus: 'sent',
-      nayaxStatus: 'not_configured',
     })
   })
 
@@ -45,11 +41,12 @@ describe('serial history export', () => {
     const csv = serialsToCsv([row])
     expect(csv.split('\n')[0]).toContain('Serial')
     expect(csv).toContain('ABC')
-    expect(csv).toContain('not_configured')
+    expect(csv).toContain('sent')
+    expect(csv).not.toContain('Nayax status')
     const book = XLSX.read(serialsToXlsx([row]))
     const grid = XLSX.utils.sheet_to_json<(string | number)[]>(book.Sheets.Serials, { header: 1 })
     expect(grid[0]).toContain('Zenventory status')
-    expect(grid[0]).toContain('Nayax response')
+    expect(grid[0]).not.toContain('Nayax response')
     expect(grid[1]).toContain('ABC')
   })
 
@@ -69,7 +66,7 @@ describe('serial history export', () => {
       { op: 'eq', column: 'serial', value: 'ABC' },
       { op: 'gte', column: 'scan_events.scanned_at', value: '2026-11-01T00:00:00.000Z' },
       { op: 'lte', column: 'scan_events.scanned_at', value: '2026-11-03T23:59:59.999Z' },
-      { op: 'or', value: 'zenventory_status.eq.sent,nayax_status.eq.sent' },
+      { op: 'eq', column: 'zenventory_status', value: 'sent' },
     ])
   })
 

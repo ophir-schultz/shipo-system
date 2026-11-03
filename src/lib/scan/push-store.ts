@@ -62,9 +62,6 @@ async function saveOutcome(job: RunnableJob, outcome: PushOutcome): Promise<{ er
         zenventory_status: serial.zenventoryStatus,
         zenventory_sent_at: serial.zenventorySentAt,
         zenventory_response: serial.zenventoryResponse,
-        nayax_status: serial.nayaxStatus,
-        nayax_sent_at: serial.nayaxSentAt,
-        nayax_response: serial.nayaxResponse,
       })
       .eq('id', serial.scannedSerialId)
     if (res.error) {
