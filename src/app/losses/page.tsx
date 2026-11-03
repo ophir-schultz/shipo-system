@@ -62,12 +62,16 @@ interface LossTotalsRow {
 
 async function getLossData() {
   const [lossRes, allRes] = await Promise.all([
-    supabaseAdmin
+    // PAGED. `.limit(2000)` still stopped at PostgREST's silent 1,000-row cap,
+    // so the loss table could omit every loss past the first thousand and
+    // the count above it still looked finished. `id` breaks profit_loss ties.
+    readAllPages((from, to) => supabaseAdmin
       .from('shipments')
       .select('id, order_number, ship_date, carrier, service, weight, billed_weight, actual_cost, client_rate, profit_loss, zone, recipient_state, client_id, clients(name)')
       .eq('is_loss', true)
       .order('profit_loss', { ascending: true })
-      .limit(2000),
+      .order('id')
+      .range(from, to)),
     // PAGED. The denominator for every proportion on this page: "N of M
     // shipments are losses" means nothing if M is the first 1000 rows of 1823
     // and nothing on screen says so. PostgREST caps a select at `db-max-rows`

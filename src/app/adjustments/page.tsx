@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import AdjustmentsClient from '@/components/adjustments/AdjustmentsClient'
 
@@ -29,17 +30,22 @@ export const dynamic = 'force-dynamic'
 
 async function getAdjustments() {
   const [pendingRes, allRes] = await Promise.all([
-    supabaseAdmin
+    readAllPages((from, to) => supabaseAdmin
       .from('rate_adjustments')
       .select('*, clients(name)')
       .eq('status', 'pending')
-      .order('adjustment_amount', { ascending: false }),
-    supabaseAdmin
+      .order('adjustment_amount', { ascending: false })
+      .order('id')
+      .range(from, to)),
+    // PAGED. The previous `.limit(100)` hid every resolved adjustment past
+    // the newest hundred, and an unpaged read would still stop at 1,000.
+    readAllPages((from, to) => supabaseAdmin
       .from('rate_adjustments')
       .select('*, clients(name)')
       .neq('status', 'pending')
       .order('adjustment_date', { ascending: false })
-      .limit(100),
+      .order('id')
+      .range(from, to)),
   ])
   const pending = read('rate_adjustments (pending)', pendingRes)
   const resolved = read('rate_adjustments (resolved)', allRes)

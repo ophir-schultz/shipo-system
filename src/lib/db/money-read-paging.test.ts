@@ -56,14 +56,21 @@ const ROOT = join(__dirname, '..', '..')
  * arrives with no error the day the table crosses it.
  */
 const MONEY_READS: Array<[file: string, tables: string[]]> = [
-  ['app/dashboard/page.tsx', ['shipments']],
+  ['app/dashboard/page.tsx', ['shipments', 'warehouse_daily_log', 'manual_charges', 'rate_adjustments', 'clients']],
+  ['app/adjustments/page.tsx', ['rate_adjustments']],
+  ['app/referrals/page.tsx', ['referral_partners', 'clients', 'fba_invoices', 'referral_payouts', 'partner_client_claims']],
+  ['app/billing/page.tsx', ['clients']],
+  ['app/reports/page.tsx', ['clients']],
+  ['app/statements/page.tsx', ['clients']],
+  ['app/clients/page.tsx', ['clients']],
+  ['app/quotes/page.tsx', ['rate_sheets']],
   // warehouse_daily_log, inbound_shipments and referral_payouts are summed
   // into Net Profit on this page. clients is paged too: an unpaged read of
   // it is the same silent cap, and campaign attribution is built from it.
   // `.limit(500)` and `.limit(200)` used to sit on inbound and payouts.
   // Those caps are not a top-N — they shortened a total — so they are not
   // an allowed bound here.
-  ['app/pnl/page.tsx', ['shipments', 'warehouse_daily_log', 'inbound_shipments', 'referral_payouts', 'clients']],
+  ['app/pnl/page.tsx', ['shipments', 'warehouse_daily_log', 'inbound_shipments', 'referral_payouts', 'clients', 'campaigns']],
   ['components/pnl/PartnerPayouts.tsx', ['referral_payouts']],
   ['app/client-report/page.tsx', ['client_billing_lines', 'clients']],
   ['app/order-pnl/page.tsx', ['shipments']],

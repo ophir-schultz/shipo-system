@@ -1,6 +1,8 @@
+import type { User } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/supabase'
 import EmployeesClient from './EmployeesClient'
 import MfaSetup from '@/components/auth/MfaSetup'
+import ViewUnreadable from '@/components/ui/ViewUnreadable'
 
 // Without this line Next prerendered this page at build time, so the staff list
 // was the list as of the last deploy: an employee added through this screen did
@@ -14,9 +16,22 @@ import MfaSetup from '@/components/auth/MfaSetup'
 export const dynamic = 'force-dynamic'
 
 export default async function EmployeesPage() {
-  const { data: users } = await supabaseAdmin.auth.admin.listUsers()
+  // listUsers stops at one page (1,000) unless asked again. A failed call used
+  // to look like a staff list of nobody.
+  const users: User[] = []
+  let listError: string | null = null
+  for (let page = 1; page < 50; page++) {
+    const res = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 })
+    if (res.error) {
+      listError = res.error.message
+      break
+    }
+    const batch = res.data?.users ?? []
+    users.push(...batch)
+    if (batch.length < 1000) break
+  }
 
-  const employees = (users?.users ?? []).map(u => ({
+  const employees = users.map(u => ({
     id: u.id,
     email: u.email ?? '',
     name: (u.user_metadata?.full_name as string) ?? '',
@@ -29,9 +44,13 @@ export default async function EmployeesPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Employees</h2>
-        <p className="text-[#4B4F58] text-sm mt-1">{employees.length} user{employees.length !== 1 ? 's' : ''} with access</p>
+        <p className="text-[#4B4F58] text-sm mt-1">
+          {listError ? 'Staff count unknown — the user list could not be read' : `${employees.length} user${employees.length !== 1 ? 's' : ''} with access`}
+        </p>
       </div>
-      <EmployeesClient employees={employees} />
+      {listError
+        ? <ViewUnreadable message={`auth.users: ${listError}`} />
+        : <EmployeesClient employees={employees} />}
 
       <div>
         <h3 className="text-lg font-semibold text-[#0B1220] mb-3">My Security</h3>

@@ -45,19 +45,23 @@ async function getClient(id: string) {
 }
 
 async function getShippingRates(clientId: string) {
-  return read('client_shipping_rates', await supabaseAdmin
+  return read('client_shipping_rates', await readAllPages((from, to) => supabaseAdmin
     .from('client_shipping_rates')
     .select('*')
     .eq('client_id', clientId)
-    .order('carrier'))
+    .order('carrier')
+    .order('id')
+    .range(from, to)))
 }
 
 async function getWarehouseRates(clientId: string) {
-  return read('client_warehouse_rates', await supabaseAdmin
+  return read('client_warehouse_rates', await readAllPages((from, to) => supabaseAdmin
     .from('client_warehouse_rates')
     .select('*')
     .eq('client_id', clientId)
-    .order('service_type'))
+    .order('service_type')
+    .order('id')
+    .range(from, to)))
 }
 
 async function getPriceLists(clientId: string) {

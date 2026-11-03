@@ -117,9 +117,11 @@ async function getPnlData() {
         .order('received_date', { ascending: false })
         .order('id')
         .range(from, to)),
-    supabaseAdmin
+    readAllPages((from, to) => supabaseAdmin
       .from('campaigns')
-      .select('id, name, channel, status, start_date, monthly_cost, one_time_cost, notes'),
+      .select('id, name, channel, status, start_date, monthly_cost, one_time_cost, notes')
+      .order('id')
+      .range(from, to)),
     // PAGED. Nine clients today does not make an unpaged read safe: the cap
     // is silent the day the table crosses it, and this read decides which
     // clients exist for campaign attribution.
