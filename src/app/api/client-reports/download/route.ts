@@ -11,6 +11,8 @@ import {
   type BillingLineRecord,
   type ReportApproval,
 } from '@/lib/pricing/client-report'
+import { withStoredSerials, type RawScanSerial } from '@/lib/pricing/report-serials'
+import { isMigrationMissing } from '@/lib/db/read'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,7 +70,21 @@ export async function GET(req: Request) {
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  const rows = (data ?? []).map(billingLineToReportRow)
+
+  const scans = await readAllPages<RawScanSerial>((from, to) => supabaseAdmin
+    .from('scanned_serials')
+    .select('serial, position, scan_events!inner(client_id, order_ref, sku)')
+    .eq('scan_events.client_id', clientId)
+    .order('id')
+    .range(from, to))
+  if (scans.error && !isMigrationMissing(scans)) {
+    return NextResponse.json({ error: scans.error.message }, { status: 500 })
+  }
+
+  const rows = withStoredSerials(
+    (data ?? []).map((line) => billingLineToReportRow({ ...line, client_id: clientId })),
+    scans.error ? [] : (scans.data ?? []),
+  )
   const filename = `client-report-${dateFrom}-${dateTo}.${format === 'csv' ? 'csv' : 'xlsx'}`
 
   if (format === 'csv') {

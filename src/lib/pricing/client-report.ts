@@ -147,15 +147,25 @@ export async function reportToPdf(rows: ClientReportRow[], title: string): Promi
   }
   drawHeader()
   for (const row of rows) {
-    if (y > 200) {
+    const cells = reportCells(row)
+    const serialLines = (cells[7] ?? '').split('\n').filter((serial) => serial !== '')
+    const rowHeight = Math.max(5, serialLines.length * 3.2)
+    if (y + rowHeight > 200) {
       doc.addPage()
       y = 12
       drawHeader()
     }
-    reportCells(row).forEach((cell, i) => {
+    cells.forEach((cell, i) => {
+      if (i === 7) {
+        const lines = serialLines.length > 0 ? serialLines : ['']
+        lines.forEach((serial, index) => {
+          doc.text(serial, 8 + i * colW, y + index * 3.2, { maxWidth: colW - 1 })
+        })
+        return
+      }
       doc.text(cell.replace(/\n/g, ' ').slice(0, 40), 8 + i * colW, y, { maxWidth: colW - 1 })
     })
-    y += 5
+    y += rowHeight
   }
   if (rows.length === 0) doc.text('No orders in this range.', 8, y)
   return Buffer.from(doc.output('arraybuffer'))

@@ -16,6 +16,7 @@ const nav = [
   { href: '/scan', label: 'Serialization Scan', icon: '🔢' },
   { href: '/billing', label: 'Billing', icon: '💰' },
   { href: '/client-report', label: 'Client Report', icon: '📑' },
+  { href: '/serial-report', label: 'Serial Report', icon: '🔎' },
   { href: '/order-pnl', label: 'Order P&L', icon: '📈' },
   { href: '/statements', label: 'Statements', icon: '🧾' },
   { href: '/referrals', label: 'Referral Payouts', icon: '🤝' },

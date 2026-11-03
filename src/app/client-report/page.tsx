@@ -4,6 +4,7 @@ import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ClientReportView from '@/components/client-report/ClientReportView'
 import { billingLineToReportRow, type BillingLineRecord } from '@/lib/pricing/client-report'
+import { withStoredSerials, type RawScanSerial } from '@/lib/pricing/report-serials'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,7 +14,7 @@ interface ClientOption {
 }
 
 async function getReportData() {
-  const [linesRes, clientsRes] = await Promise.all([
+  const [linesRes, clientsRes, scansRes] = await Promise.all([
     readAllPages<BillingLineRecord & { client_id: string | null }>((from, to) =>
       supabaseAdmin
         .from('client_billing_lines')
@@ -27,17 +28,29 @@ async function getReportData() {
         .select('id, name')
         .order('id')
         .range(from, to)),
+    readAllPages<RawScanSerial>((from, to) =>
+      supabaseAdmin
+        .from('scanned_serials')
+        .select('serial, position, scan_events!inner(client_id, order_ref, sku)')
+        .order('id')
+        .range(from, to)),
   ])
 
   const linesMissing = isMigrationMissing(linesRes)
+  const scansMissing = isMigrationMissing(scansRes)
   const linesRead = read('client_billing_lines', linesRes)
   const clientsRead = read('clients', clientsRes)
-  const unreadable = readErrors(linesMissing ? null : linesRead, clientsRead)
+  const scansRead = read('scanned_serials', scansRes)
+  const unreadable = readErrors(linesMissing ? null : linesRead, clientsRead, scansMissing ? null : scansRead)
 
   return {
     linesMissing,
+    scansMissing,
     page: loaded(unreadable, () => ({
-      rows: (linesMissing ? [] : linesRead.rows).map((line) => billingLineToReportRow(line)),
+      rows: withStoredSerials(
+        (linesMissing ? [] : linesRead.rows).map((line) => billingLineToReportRow(line)),
+        scansMissing ? [] : scansRead.rows,
+      ),
       clients: clientsRead.rows,
     })),
   }
@@ -73,6 +86,14 @@ export default async function ClientReportPage() {
           <p className="text-amber-700 text-sm font-medium">Billing-line table is not in the database yet</p>
           <p className="text-yellow-500/80 text-xs mt-1">
             Run <span className="font-mono">supabase/client_price_lists.sql</span> before importing a workbook. Nothing is shown as an empty report.
+          </p>
+        </div>
+      )}
+      {res.scansMissing && (
+        <div className="rounded-xl p-4 border border-amber-200 bg-amber-50">
+          <p className="text-amber-700 text-sm font-medium">Scanned serials are not in the database yet</p>
+          <p className="text-amber-700 text-xs mt-1">
+            Run <span className="font-mono">supabase/serialization_scans.sql</span>. Until then the SERIAL column shows only what was stored on the billing line.
           </p>
         </div>
       )}
