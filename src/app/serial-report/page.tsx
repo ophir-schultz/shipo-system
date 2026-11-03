@@ -76,7 +76,7 @@ export default async function SerialReportPage({
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Serial history report</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          Stored scans for a date range and a client. Excel, CSV and PDF stay in the system. Nothing here is emailed.
+          Stored scans for a date range and a client, with the Zenventory send status. Nayax receives those serials from Zenventory through its existing API connection. Excel, CSV and PDF stay in the system. Nothing here is emailed.
         </p>
       </div>
       {parsed.error && (
@@ -94,7 +94,7 @@ export default async function SerialReportPage({
         <div className="rounded-xl p-4 border border-amber-200 bg-amber-50">
           <p className="text-amber-800 text-sm font-medium">Send status is not in the database yet</p>
           <p className="text-amber-700 text-xs mt-1">
-            Run supabase/serial_delivery_status.sql. The scan, order and client are shown. Zenventory and Nayax status stays blank until that file is applied.
+            Run supabase/serial_delivery_status.sql. The scan, order and client are shown. Zenventory status stays blank until that file is applied.
           </p>
         </div>
       )}
@@ -171,7 +171,7 @@ function SerialReportBody({
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs text-[#6B7A8D]">
             <tr>
-              {['Scanned at', 'Client', 'Order', 'SKU', 'Serial', 'Scanned by', 'Zenventory', 'Nayax'].map((heading) => (
+              {['Scanned at', 'Client', 'Order', 'SKU', 'Serial', 'Scanned by', 'Zenventory'].map((heading) => (
                 <th key={heading} className="px-3 py-2 font-medium">{heading}</th>
               ))}
             </tr>
@@ -179,7 +179,7 @@ function SerialReportBody({
           <tbody>
             {showRows && rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-[#4B4F58]">No scanned serials in this range.</td>
+                <td colSpan={7} className="px-3 py-6 text-[#4B4F58]">No scanned serials in this range.</td>
               </tr>
             )}
             {showRows && rows.map((row) => (
@@ -191,7 +191,6 @@ function SerialReportBody({
                 <td className="px-3 py-2 font-mono whitespace-pre">{row.serial}</td>
                 <td className="px-3 py-2 font-mono text-xs">{row.scannedBy}</td>
                 <td className="px-3 py-2" title={row.zenventoryResponse}>{row.zenventoryStatus}</td>
-                <td className="px-3 py-2" title={row.nayaxResponse}>{row.nayaxStatus}</td>
               </tr>
             ))}
           </tbody>

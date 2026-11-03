@@ -14,9 +14,6 @@ export const SERIAL_REPORT_COLUMNS = [
   'Zenventory status',
   'Zenventory sent at',
   'Zenventory response',
-  'Nayax status',
-  'Nayax sent at',
-  'Nayax response',
 ] as const
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/
@@ -63,9 +60,6 @@ export interface SerialReportRow {
   zenventoryStatus: string
   zenventorySentAt: string
   zenventoryResponse: string
-  nayaxStatus: string
-  nayaxSentAt: string
-  nayaxResponse: string
 }
 
 export interface RawSerialReport {
@@ -74,9 +68,6 @@ export interface RawSerialReport {
   zenventory_status?: string | null
   zenventory_sent_at?: string | null
   zenventory_response?: string | null
-  nayax_status?: string | null
-  nayax_sent_at?: string | null
-  nayax_response?: string | null
   scan_events: {
     client_id?: string | null
     order_ref?: string | null
@@ -119,9 +110,6 @@ export function mapSerialReportRow(raw: RawSerialReport): SerialReportRow {
     zenventoryStatus: text(raw.zenventory_status),
     zenventorySentAt: text(raw.zenventory_sent_at),
     zenventoryResponse: text(raw.zenventory_response),
-    nayaxStatus: text(raw.nayax_status),
-    nayaxSentAt: text(raw.nayax_sent_at),
-    nayaxResponse: text(raw.nayax_response),
   }
 }
 
@@ -137,9 +125,6 @@ export function serialReportCells(row: SerialReportRow): string[] {
     row.zenventoryStatus,
     row.zenventorySentAt,
     row.zenventoryResponse,
-    row.nayaxStatus,
-    row.nayaxSentAt,
-    row.nayaxResponse,
   ]
 }
 
@@ -228,7 +213,7 @@ export function applySerialReportFilters<Q extends FilterableQuery>(query: Q, fi
 }
 
 export const SERIAL_REPORT_SELECT =
-  'id, serial, zenventory_status, zenventory_sent_at, zenventory_response, nayax_status, nayax_sent_at, nayax_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
+  'id, serial, zenventory_status, zenventory_sent_at, zenventory_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
 
 export const SERIAL_REPORT_SELECT_BASE =
   'id, serial, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
@@ -236,5 +221,5 @@ export const SERIAL_REPORT_SELECT_BASE =
 export function serialColumnsMissing(error: { code?: string; message?: string } | null | undefined): boolean {
   if (!error) return false
   if (error.code === '42703' || error.code === 'PGRST204') return true
-  return /zenventory_status|nayax_status/.test(error.message ?? '')
+  return /zenventory_status/.test(error.message ?? '')
 }

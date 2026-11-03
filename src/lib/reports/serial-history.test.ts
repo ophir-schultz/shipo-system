@@ -14,9 +14,6 @@ const row = mapSerialReportRow({
   zenventory_status: 'sent',
   zenventory_sent_at: '2026-11-03T12:00:00.000Z',
   zenventory_response: '[]',
-  nayax_status: 'not_configured',
-  nayax_sent_at: null,
-  nayax_response: 'Nayax serial delivery is not configured',
   scan_events: {
     client_id: 'c1',
     order_ref: 'SO1',
@@ -43,11 +40,13 @@ describe('serial history report', () => {
     const csv = serialReportToCsv([row])
     expect(csv).toContain('AAA')
     expect(csv).toContain('SO1')
-    expect(csv).toContain('not_configured')
+    expect(csv).toContain('sent')
+    expect(csv).not.toContain('Nayax status')
     const book = XLSX.read(serialReportToXlsx([row]), { type: 'buffer' })
     const grid = XLSX.utils.sheet_to_json<string[]>(book.Sheets.Serials, { header: 1 })
     expect(grid[0]).toContain('Serial')
-    expect(grid[0]).toContain('Nayax status')
+    expect(grid[0]).toContain('Zenventory status')
+    expect(grid[0]).not.toContain('Nayax status')
     expect(grid[1]).toContain('AAA')
   })
 
