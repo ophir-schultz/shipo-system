@@ -12,6 +12,7 @@ import {
   rateText, periodLabel, coverageNote, estimateNote,
 } from '@/lib/billing/statement-view'
 import { totalOrUnknown, unpricedNote } from '@/lib/billing/unpriced'
+import { priceStatementCharges } from '@/lib/billing/statement-source'
 
 // One client's statement as JSON, for the Statement tab on /reports.
 //
@@ -134,7 +135,10 @@ export async function GET(req: Request) {
   const earliestRows = earliestRes.data ?? []
   const earliest = earliestRows.length === 0 ? null : earliestRows[0].charge_date
 
-  const statement = buildStatement(chargesRes.data ?? [], range)
+  const priced = await priceStatementCharges(clientId, client.row.name, chargesRes.data ?? [])
+  if (priced.error) return unreadable('shipment prices', priced.error.message)
+
+  const statement = buildStatement(priced.charges, range)
 
   return NextResponse.json({
     client: { id: client.row.id, name: client.row.name },

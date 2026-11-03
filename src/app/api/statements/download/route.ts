@@ -18,6 +18,7 @@ import {
   factsByShipmentId, buildShipmentLines, unmatchedParcelNote,
 } from '@/lib/billing/statement-detail'
 import { priceOf, totalOrUnknown, unpricedNote, UNPRICED_CELL } from '@/lib/billing/unpriced'
+import { priceStatementCharges } from '@/lib/billing/statement-source'
 
 // The statement as a spreadsheet, built from the same read the screen uses.
 //
@@ -184,7 +185,9 @@ export async function GET(req: Request) {
     return unreadable("the client's earliest charge", earliestRes.error.message)
   }
 
-  const charges = chargesRes.data ?? []
+  const priced = await priceStatementCharges(clientId, name, chargesRes.data ?? [])
+  if (priced.error) return unreadable('shipment prices', priced.error.message)
+  const charges = priced.charges
   const earliest = (earliestRes.data ?? []).length === 0
     ? null
     : (earliestRes.data ?? [])[0].charge_date
@@ -193,12 +196,9 @@ export async function GET(req: Request) {
 
   // ---- The two lookups that turn the detail into something checkable ----
   //
-  // Driven by the charges that were just read, not by a date window of their
-  // own, which is why they cannot widen or narrow the period the file is headed
-  // with. Both are reads of FACTS -- an order number, a carrier, a tracking
-  // number -- and neither contributes an amount: every figure in this workbook
-  // still comes from `order_charges`. See statement-detail.ts for why
-  // `shipments.client_rate` is not safe to put beside it.
+  // Driven by the charges that were just priced, not by a date window of their
+  // own. Shipping amounts on those charges are the zone-matrix client price
+  // (shipments.client_rate). Carrier cost and margin stay off this file.
   //
   // Only shipping charges are asked about. A pick line has no parcel, and
   // `charge_key` namespaces other than `shipment:<id>` are deliberately not

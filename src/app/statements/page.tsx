@@ -4,6 +4,7 @@ import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import {
   readStatementCharges, readEarliestChargeDate,
 } from '@/lib/billing/statement-charges'
+import { priceStatementCharges } from '@/lib/billing/statement-source'
 import {
   periodRange, buildStatement, statementTotal, statementToday,
   GRAINS, GRAIN_LABELS,
@@ -16,7 +17,7 @@ import {
   formatPrice, unpricedNote, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 
-// What one client has made in a period, priced off their own rate card.
+// What one client has been billed in a period. Shipping uses the same zone-matrix price as Profit. Pick and pack come from the client's price list when the ledger did not already price them.
 //
 // This does NOT touch `bills` and does not run the weekly bill generator. It is
 // a live read of `order_charges` -- the ledger's already-priced output -- so the
@@ -78,7 +79,7 @@ async function getClients() {
  * while that read failed would put the confident reading of an ambiguous figure
  * on a document headed for a client.
  */
-async function getStatement(clientId: string, grain: Grain) {
+async function getStatement(clientId: string, clientName: string, grain: Grain) {
   const range = periodRange(grain, statementToday())
 
   const [chargesRes, earliestRes] = await Promise.all([
@@ -88,10 +89,14 @@ async function getStatement(clientId: string, grain: Grain) {
 
   const charges = read('charges for this period', chargesRes)
   const earliest = read("the client's earliest charge", earliestRes)
+  const priced = await priceStatementCharges(clientId, clientName, charges.rows ?? [])
+  const priceError = priced.error
+    ? `shipment prices could not be read (${priced.error.message})`
+    : null
 
-  return loaded(readErrors(charges, earliest), () => ({
+  return loaded(readErrors(charges, earliest) ?? priceError, () => ({
     range,
-    statement: buildStatement(charges.rows, range),
+    statement: buildStatement(priced.charges, range),
     // An explicit length check, and NOT `rows[0]?.charge_date ?? null`.
     // `noUncheckedIndexedAccess` is off in this project, so `rows[0]` is typed
     // as always present: the `?.` and the `?? null` are both read as dead code
@@ -250,7 +255,7 @@ export default async function StatementsPage(
 async function StatementSection(
   { clientId, name, grain }: { clientId: string; name: string; grain: Grain },
 ) {
-  const page = await getStatement(clientId, grain)
+  const page = await getStatement(clientId, name, grain)
   if (!page.ok) return <ViewUnreadable message={page.error} />
   const data: LoadedData<typeof page> = page.data
 

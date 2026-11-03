@@ -17,6 +17,7 @@ const CLIENT_FACING = [
   'src/app/statements/page.tsx',
   'src/app/api/statements/download/route.ts',
   'src/app/api/statements/data/route.ts',
+  'src/lib/billing/statement-source.ts',
   'src/lib/pricing/client-report.ts',
   'src/app/api/client-reports/download/route.ts',
   'src/app/client-report/page.tsx',
