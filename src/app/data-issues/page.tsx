@@ -2,8 +2,8 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
-import { easternCalendarDay } from '@/lib/ledger/eastern-day'
-import { issueLabel, shipmentIssue, type DataIssueKind } from '@/lib/billing/data-issues'
+import { easternCalendarDay, easternToday } from '@/lib/ledger/eastern-day'
+import { ambiguousPickCards, issueLabel, shipmentIssue, type DataIssueKind } from '@/lib/billing/data-issues'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,29 +18,56 @@ interface IssueRow {
   clients: { name: string | null } | { name: string | null }[] | null
 }
 
-function clientName(value: IssueRow['clients']): string {
+interface RateRow {
+  client_id: string | null
+  service_type: string | null
+  rate: number | string | null
+  effective_from: string | null
+  effective_to: string | null
+  clients: { name: string | null } | { name: string | null }[] | null
+}
+
+function clientName(value: IssueRow['clients'] | RateRow['clients']): string {
   if (!value) return ''
   const name = Array.isArray(value) ? value[0]?.name : value.name
   return name ?? ''
 }
 
 async function getIssues() {
-  const res = await readAllPages<IssueRow>((from, to) =>
-    supabaseAdmin
-      .from('shipments')
-      .select('id, order_number, ship_date, tracking_number, client_id, client_rate, raw_data, clients(name)')
-      .or('client_id.is.null,client_rate.is.null')
-      .order('ship_date', { ascending: false })
-      .order('id')
-      .range(from, to))
-  const readResult = read('shipments (data issues)', res)
-  return loaded(readErrors(readResult), () => {
+  const [shipmentsRes, ratesRes] = await Promise.all([
+    readAllPages<IssueRow>((from, to) =>
+      supabaseAdmin
+        .from('shipments')
+        .select('id, order_number, ship_date, tracking_number, client_id, client_rate, raw_data, clients(name)')
+        .or('client_id.is.null,client_rate.is.null')
+        .order('ship_date', { ascending: false })
+        .order('id')
+        .range(from, to)),
+    readAllPages<RateRow>((from, to) =>
+      supabaseAdmin
+        .from('client_warehouse_rates')
+        .select('client_id, service_type, rate, effective_from, effective_to, clients(name)')
+        .order('client_id')
+        .order('id')
+        .range(from, to)),
+  ])
+  const shipments = read('shipments (data issues)', shipmentsRes)
+  const rates = read('warehouse rate cards', ratesRes)
+  return loaded(readErrors(shipments, rates), () => {
     const issues: Array<IssueRow & { kind: DataIssueKind }> = []
-    for (const row of readResult.rows) {
+    for (const row of shipments.rows) {
       const kind = shipmentIssue(row)
       if (kind) issues.push({ ...row, kind })
     }
-    return { issues }
+    const pickCards = ambiguousPickCards(rates.rows.map((row) => ({
+      client_id: row.client_id,
+      client_name: clientName(row.clients),
+      service_type: row.service_type,
+      rate: row.rate,
+      effective_from: row.effective_from,
+      effective_to: row.effective_to,
+    })), easternToday())
+    return { issues, pickCards }
   })
 }
 
@@ -52,13 +79,37 @@ export default async function DataIssuesPage() {
         <h2 className="text-2xl font-bold text-[#0B1220]">Data issues</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
           {page.ok
-            ? `${page.data.issues.length} shipments that cannot be billed: no client, or a client with no price. Voided labels are left off.`
+            ? `${page.data.issues.length} shipments that cannot be billed, and ${page.data.pickCards.length} rate cards with more than one live pick rate. Voided labels are left off.`
             : 'This list could not be read.'}
         </p>
       </div>
-      {!page.ok ? <ViewUnreadable message={page.error} /> : page.data.issues.length === 0 ? (
-        <p className="text-sm text-[#4B4F58]">No open issues.</p>
-      ) : (
+      {!page.ok ? <ViewUnreadable message={page.error} /> : (
+        <>
+          {page.data.pickCards.length === 0 ? (
+            <p className="text-sm text-[#4B4F58]">No rate card has two live pick rates.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+              <table className="min-w-full text-sm">
+                <thead className="bg-[#F4F6F8] text-left text-[#4B4F58]">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">Client</th>
+                    <th className="px-4 py-2.5 font-medium">Pick & pack</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {page.data.pickCards.map((card) => (
+                    <tr key={card.clientId} className="border-t border-slate-100">
+                      <td className="px-4 py-2.5 text-[#0B1220]">{card.clientName}</td>
+                      <td className="px-4 py-2.5">{card.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {page.data.issues.length === 0 ? (
+            <p className="text-sm text-[#4B4F58]">No shipments are missing a client or a price.</p>
+          ) : (
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-[#F4F6F8] text-left text-[#4B4F58]">
@@ -83,6 +134,8 @@ export default async function DataIssuesPage() {
             </tbody>
           </table>
         </div>
+          )}
+        </>
       )}
     </div>
   )

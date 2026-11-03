@@ -108,6 +108,7 @@ type Body = {
   counted?: number
   estimated?: number
   notes?: string[]
+  pickPack?: { billed: boolean; reason: string }
 }
 
 const body = (res: Response): Promise<Body> => res.json() as Promise<Body>
@@ -130,6 +131,7 @@ describe('GET /api/statements/data', () => {
     // label) and the grouping is what the client is shown.
     expect(b.lines?.map(l => l.label).sort())
       .toEqual(['Peak', 'Pick - single', 'Shipping'])
+    expect(b.pickPack?.reason).toContain('ledger')
   })
 
   it('leaves an UNKNOWN amount null rather than summing it as zero', async () => {
@@ -234,7 +236,7 @@ describe('GET /api/statements/data', () => {
     // The other side of the doctrine, and the reason the two tests above are
     // not satisfied by returning null whenever a total looks suspicious.
     // `counted === 0` is a real $0.00: nothing was billed, and that is known.
-    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [] })
+    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [], shipments: [] })
     const b = await body(await GET(url()))
     expect(b.total).toBe(0)
     expect(b.counted).toBe(0)
@@ -244,7 +246,7 @@ describe('GET /api/statements/data', () => {
     // A $0.00 total means either "nothing was billed" or "we have no record",
     // and only the earliest-charge read can tell them apart. Without the note
     // the screen shows the confident reading of an ambiguous figure.
-    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [] })
+    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [], shipments: [] })
     const b = await body(await GET(url()))
     expect(b.lines).toEqual([])
     expect(b.notes?.some(n => /no charges for this client on any date/i.test(n)))
@@ -376,7 +378,7 @@ describe('GET /api/statements/data: refusals', () => {
     // The negative control, and the reason the two refusals above mean
     // anything: a handler that refused on every empty result would pass both
     // and fail here. An empty period is a real answer.
-    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [] })
+    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [], shipments: [] })
     const res = await GET(url())
     expect(res.ok).toBe(true)
     const b = await body(res)
