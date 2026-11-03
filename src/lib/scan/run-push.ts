@@ -108,15 +108,16 @@ export async function runPush(input: {
 
     const creds = await input.store.credentials(claimed[0].clientId)
     if (creds.error || !creds.credentials) {
+      const notConfigured = (creds.error ?? '').includes('not configured')
       for (const job of claimed) {
         const outcome: PushOutcome = {
-          action: 'failed',
+          action: notConfigured ? 'waiting' : 'failed',
           mutate: true,
-          queueStatus: 'failed',
-          attemptsIncrement: true,
+          queueStatus: notConfigured ? 'pending' : 'failed',
+          attemptsIncrement: !notConfigured,
           requestPayload: null,
           responseStatus: null,
-          responseBody: null,
+          responseBody: creds.error,
           error: creds.error ?? 'Client credentials could not be read',
           serials: [],
           log: [],
@@ -124,10 +125,10 @@ export async function runPush(input: {
         const saved = await input.store.save(job, outcome)
         results.push({
           jobId: job.id,
-          action: 'failed',
+          action: outcome.action,
           error: outcome.error,
           saveError: saved.error,
-          queueStatus: 'failed',
+          queueStatus: outcome.queueStatus,
         })
       }
       continue

@@ -1,12 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { readZenventoryClientCredentials } from '@/lib/zenventory/client-env'
 import type { PushOutcome } from './zenventory-pick'
 import type { PushStore, RunnableJob } from './run-push'
-
-function clean(value: string | null | undefined): string | null {
-  if (value == null) return null
-  const trimmed = value.trim()
-  return trimmed === '' ? null : trimmed
-}
 
 /**
  * Persists a delivery only after deliverJob returns. The queue is marked
@@ -30,17 +25,19 @@ export function createSupabasePushStore(): PushStore {
     async credentials(clientId) {
       const res = await supabaseAdmin
         .from('clients')
-        .select('zenventory_api_key, zenventory_api_secret, zenventory_secure_key')
+        .select('id, name')
         .eq('id', clientId)
         .limit(1)
       if (res.error) return { credentials: null, error: res.error.message }
       const row = res.data?.[0]
       if (!row) return { credentials: null, error: 'Client was not found' }
+      const read = readZenventoryClientCredentials(row.name ?? '', process.env, { requireSecure: true })
+      if (!read.ok) return { credentials: null, error: read.notice }
       return {
         credentials: {
-          apiKey: clean(row.zenventory_api_key),
-          apiSecret: clean(row.zenventory_api_secret),
-          secureKey: clean(row.zenventory_secure_key),
+          apiKey: read.credentials.apiKey,
+          apiSecret: read.credentials.apiSecret,
+          secureKey: read.credentials.secureKey,
         },
         error: null,
       }
