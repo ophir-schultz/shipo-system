@@ -126,11 +126,16 @@ export async function GET() {
     by: JSON.stringify(['referrerHostname']),
     limit: '5',
   })
-  if (!pages.ok || !sources.ok) {
-    const failed = !pages.ok ? pages : sources
+  if (!pages.ok) {
     return NextResponse.json(empty(
       now,
-      `Web Analytics breakdown failed for ${PROJECT_NAME} (HTTP ${failed.status}).`,
+      `Web Analytics breakdown failed for ${PROJECT_NAME} (HTTP ${pages.status}).`,
+    ))
+  }
+  if (!sources.ok) {
+    return NextResponse.json(empty(
+      now,
+      `Web Analytics breakdown failed for ${PROJECT_NAME} (HTTP ${sources.status}).`,
     ))
   }
 
@@ -167,11 +172,12 @@ export async function GET() {
       }))
     : []
 
-  const siteNote = !domains.ok
-    ? `Could not list domains for ${PROJECT_NAME} (HTTP ${domains.status}).`
-    : siteAttached
-      ? ''
-      : `${PROJECT_NAME} does not have shipousa.com attached, so these figures are not that site's traffic.`
+  let siteNote = ''
+  if (!domains.ok) {
+    siteNote = `Could not list domains for ${PROJECT_NAME} (HTTP ${domains.status}).`
+  } else if (!siteAttached) {
+    siteNote = `${PROJECT_NAME} does not have shipousa.com attached, so these figures are not that site's traffic.`
+  }
 
   return NextResponse.json({
     connected: true,
