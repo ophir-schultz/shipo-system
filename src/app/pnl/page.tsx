@@ -9,6 +9,7 @@ import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 
 export const dynamic = 'force-dynamic'
@@ -19,6 +20,7 @@ interface PnlShipmentRow {
   client_rate: number | null
   actual_cost: number | null
   profit_loss: number | null
+  raw_data?: unknown
   clients: { name: string } | { name: string }[] | null
 }
 
@@ -94,7 +96,7 @@ async function getPnlData() {
     readAllPages<PnlShipmentRow>((from, to) =>
       supabaseAdmin
         .from('shipments')
-        .select('client_id, client_rate, actual_cost, profit_loss, clients(name)')
+        .select('client_id, client_rate, actual_cost, profit_loss, raw_data, clients(name)')
         .order('id').range(from, to)),
     // PAGED. Same defect as shipments above: PostgREST stops at db-max-rows
     // (1000) and reports nothing, and this total is warehouse revenue. A
@@ -233,7 +235,7 @@ async function getPnlData() {
     // of their costs could be read, and then said so again in the next
     // sentence; one of the two had to be the dash.
     const unassignedCostTally = pricedTally()
-    for (const s of shipments) {
+    for (const s of withoutVoided(shipments)) {
       if (!s.client_id) {
         unassignedCount++
         unassignedCostTally.take(s.actual_cost)

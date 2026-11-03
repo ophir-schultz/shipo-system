@@ -4,6 +4,7 @@ import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import OrderPnlView from '@/components/pnl/OrderPnlView'
 import { rollupOrders, type ShipmentMoney } from '@/lib/pricing/order-profit'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +16,7 @@ interface ShipmentRow {
   tracking_number: string | null
   client_rate: number | string | null
   actual_cost: number | string | null
+  raw_data?: unknown
   clients: { name: string } | { name: string }[] | null
 }
 
@@ -36,14 +38,14 @@ async function getOrderPnl() {
   const shipmentsRes = await readAllPages<ShipmentRow>((from, to) =>
     supabaseAdmin
       .from('shipments')
-      .select('id, client_id, order_number, ship_date, tracking_number, client_rate, actual_cost, clients(name)')
+      .select('id, client_id, order_number, ship_date, tracking_number, client_rate, actual_cost, raw_data, clients(name)')
       .order('ship_date', { ascending: false })
       .order('id')
       .range(from, to))
 
   const shipmentsRead = read('shipments', shipmentsRes)
   return loaded(readErrors(shipmentsRead), () => {
-    const rows: ShipmentMoney[] = shipmentsRead.rows.map((row) => ({
+    const rows: ShipmentMoney[] = withoutVoided(shipmentsRead.rows).map((row) => ({
       id: row.id,
       clientId: row.client_id,
       clientName: clientName(row.clients),

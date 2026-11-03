@@ -8,6 +8,7 @@ import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 
 // Read at REQUEST time, never at build time. Without this the App Router
 // prerenders this page during `next build`. The 2026-10-21 preview build
@@ -65,7 +66,7 @@ async function getLossData() {
   const [lossRes, allRes] = await Promise.all([
     readAllPages((from, to) => supabaseAdmin
       .from('shipments')
-      .select('id, order_number, ship_date, carrier, service, weight, billed_weight, actual_cost, client_rate, profit_loss, zone, recipient_state, client_id, clients(name)')
+      .select('id, order_number, ship_date, carrier, service, weight, billed_weight, actual_cost, client_rate, profit_loss, zone, recipient_state, client_id, clients(name), raw_data')
       .eq('is_loss', true)
       .order('profit_loss', { ascending: true })
       .order('id')
@@ -79,7 +80,7 @@ async function getLossData() {
     readAllPages<LossTotalsRow>((from, to) =>
       supabaseAdmin
         .from('shipments')
-        .select('actual_cost, client_rate, profit_loss, is_loss')
+        .select('actual_cost, client_rate, profit_loss, is_loss, raw_data')
         .not('client_id', 'is', null)
         .order('id').range(from, to)),
   ])
@@ -92,8 +93,8 @@ async function getLossData() {
   // byWeight breakdowns reading "no losses" should not exist in the program at
   // all, not even for long enough to be discarded.
   return loaded(unreadable, () => {
-    const losses = lossRead.rows
-    const all = allRead.rows
+    const losses = withoutVoided(lossRead.rows)
+    const all = withoutVoided(allRead.rows)
 
     const totalShipments = all.length
     // ONE reconciliation, not three sums. The previous version summed

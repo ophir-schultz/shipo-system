@@ -6,6 +6,7 @@ import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 import { easternToday } from '@/lib/ledger/eastern-day'
 import { profitInstants, profitPeriod, profitRows, type ProfitLevel } from '@/lib/pricing/profit-view'
 import type { ShipmentMoney } from '@/lib/pricing/order-profit'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,6 +21,7 @@ interface ShipmentRow {
   tracking_number: string | null
   client_rate: number | null
   actual_cost: number | null
+  raw_data?: unknown
   clients: { name: string | null } | { name: string | null }[] | null
 }
 
@@ -35,7 +37,7 @@ export async function loadProfitShipments(from: string, to: string): Promise<{
   const window = profitInstants(from, to)
   const loaded = await readAllPages<ShipmentRow>((start, end) => supabaseAdmin
     .from('shipments')
-    .select('id, client_id, order_number, ship_date, tracking_number, client_rate, actual_cost, clients(name)')
+    .select('id, client_id, order_number, ship_date, tracking_number, client_rate, actual_cost, raw_data, clients(name)')
     .gte('ship_date', window.start)
     .lt('ship_date', window.end)
     .order('ship_date')
@@ -43,7 +45,7 @@ export async function loadProfitShipments(from: string, to: string): Promise<{
     .range(start, end))
   if (loaded.error) return { rows: [], error: loaded.error.message }
   return {
-    rows: (loaded.data ?? []).map((row) => ({
+    rows: withoutVoided(loaded.data ?? []).map((row) => ({
       id: row.id,
       clientId: row.client_id,
       clientName: clientName(row.clients),

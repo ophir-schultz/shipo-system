@@ -4,6 +4,7 @@ import { priceOf } from '@/lib/billing/unpriced'
 import { shipmentIdFromChargeKey } from '@/lib/billing/statement-detail'
 import type { StatementChargeRow } from '@/lib/billing/statement-charges'
 import { money, pricePick } from '@/lib/pricing/engine'
+import { isVoidedShipment } from '@/lib/billing/voided-shipment'
 import { parsePriceList } from '@/lib/pricing/parse-price-list'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import type { PriceListDocument, SkuQty } from '@/lib/pricing/types'
@@ -175,24 +176,34 @@ export async function priceStatementCharges(
   }))]
 
   const rates = new Map<string, number | null>()
+  const voidedIds = new Set<string>()
   if (shipmentIds.length > 0) {
     const priced = await readChunked(shipmentIds, (chunk) => readAllPages((from, to) =>
       supabaseAdmin
         .from('shipments')
-        .select('shipstation_shipment_id, client_rate')
+        .select('shipstation_shipment_id, client_rate, raw_data')
         .in('shipstation_shipment_id', chunk)
         .order('shipstation_shipment_id')
         .order('id')
         .range(from, to)))
     if (priced.error) return { charges, error: priced.error }
     for (const row of priced.data ?? []) {
-      const record = row as { shipstation_shipment_id: number | string | null; client_rate: unknown }
+      const record = row as { shipstation_shipment_id: number | string | null; client_rate: unknown; raw_data?: unknown }
       if (record.shipstation_shipment_id === null) continue
-      rates.set(String(record.shipstation_shipment_id), priceOf(record.client_rate))
+      const id = String(record.shipstation_shipment_id)
+      if (isVoidedShipment(record.raw_data)) {
+        voidedIds.add(id)
+        continue
+      }
+      rates.set(id, priceOf(record.client_rate))
     }
   }
 
-  let next = applyZonePrices(charges, rates)
+  let next = applyZonePrices(charges.filter((charge) => {
+    if (charge.charge_type !== 'shipping') return true
+    const id = shipmentIdFromChargeKey(charge.charge_key)
+    return id === null || !voidedIds.has(id)
+  }), rates)
   if (hasPricedPick(next)) return { charges: next, error: null }
 
   const orderIds = [...new Set(next.flatMap((charge) => charge.order_id === null ? [] : [charge.order_id]))]

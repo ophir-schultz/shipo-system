@@ -6,6 +6,7 @@ import {
   unpricedNote, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 import { billableWarehouse } from '@/lib/billing/warehouse-card-lines'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 import {
   reconcile, combineReconciled, reconciledOrUnknown, marginPct, exclusionNote,
   excludedCount, invoiceableRevenue, otherIncome,
@@ -219,21 +220,21 @@ async function getDashboardData() {
     // code having changed. See the header of src/lib/db/page.ts.
     readAllPages<ShipmentTotalsRow>((from, to) =>
       supabaseAdmin.from('shipments')
-        .select('actual_cost, client_rate, profit_loss, is_loss')
+        .select('actual_cost, client_rate, profit_loss, is_loss, raw_data')
         .order('id').range(from, to)),
     // NOT paged, deliberately: this is the worst-50 list, and `.limit(50)` is
     // the answer rather than a truncation of it.
     supabaseAdmin.from('shipments')
-      .select('order_number, client_id, actual_cost, client_rate, profit_loss, clients(name), ship_date, carrier, service, tracking_number')
+      .select('order_number, client_id, actual_cost, client_rate, profit_loss, clients(name), ship_date, carrier, service, tracking_number, raw_data')
       .eq('is_loss', true).order('profit_loss', { ascending: true }).limit(50),
     readAllPages<PeriodRow>((from, to) =>
-      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, raw_data')
         .gte('ship_date', weekInstant).order('id').range(from, to)),
     readAllPages<PeriodRow>((from, to) =>
-      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, raw_data')
         .gte('ship_date', monthInstant).order('id').range(from, to)),
     readAllPages<PeriodRow>((from, to) =>
-      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, raw_data')
         .gte('ship_date', yearInstant).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
       .select('id, order_number, adjustment_amount, reason, adjustment_date, client_id, clients(name)')
@@ -251,7 +252,7 @@ async function getDashboardData() {
     // and that is precisely why it is paged now rather than when it breaks.
     readAllPages<ClientMonthRow>((from, to) =>
       supabaseAdmin.from('shipments')
-        .select('client_id, actual_cost, client_rate, profit_loss, is_loss, clients(name)')
+        .select('client_id, actual_cost, client_rate, profit_loss, is_loss, clients(name), raw_data')
         .gte('ship_date', monthInstant).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
       .select('client_id, total, notes').gte('log_date', monthStart).order('id').range(from, to)),
@@ -277,6 +278,12 @@ async function getDashboardData() {
   const clientShipments = read('shipments (per client)', clientShipmentsRes)
   const clientWarehouse = read('warehouse_daily_log (per client)', clientWarehouseRes)
   const clientAdj = read('rate_adjustments (per client)', clientAdjRes)
+  allShipments.rows = withoutVoided(allShipments.rows)
+  lossShipments.rows = withoutVoided(lossShipments.rows)
+  weekShipments.rows = withoutVoided(weekShipments.rows)
+  monthShipments.rows = withoutVoided(monthShipments.rows)
+  yearShipments.rows = withoutVoided(yearShipments.rows)
+  clientShipments.rows = withoutVoided(clientShipments.rows)
 
   // One period's figures, or the reason they are UNKNOWN.
   //

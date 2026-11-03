@@ -3,6 +3,7 @@ import { read, readErrors, loaded } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ShipmentsTable from '@/components/shipments/ShipmentsTable'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 
 // The subtitle on this page is a claim, not a label: "0 total shipments from
 // ShipStation" is a sentence about the sync, and the reasonable response to it
@@ -39,7 +40,7 @@ async function getData() {
   const clients = read('clients', clientsRes)
 
   return loaded(readErrors(shipments, clients), () => ({
-    shipments: shipments.rows,
+    shipments: withoutVoided(shipments.rows),
     clients: clients.rows,
   }))
 }
