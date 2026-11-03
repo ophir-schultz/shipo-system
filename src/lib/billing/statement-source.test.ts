@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyZonePrices, hasPricedPick, lineQty, pickPackRows, pickRateOnCard, pickRowsFromCard,
-  shippingChargesFromShipments,
+  applyZonePrices, hasPricedPick, isPickPackService, lineQty, pickPackRows, pickRateOnCard,
+  pickRowsFromCard, shippingChargesFromShipments,
 } from './statement-source'
 import { buildStatement } from './statement'
 import { rateText } from './statement-view'
@@ -131,6 +131,60 @@ describe('pick & pack from the warehouse rate card', () => {
     expect(pickRateOnCard([
       { service_type: 'pick_pack', rate: 0.5 },
       { service_type: 'pick_n_pack', rate: 1.2 },
+    ], '2026-10-26')).toBeNull()
+  })
+
+  // schema.sql and public/templates/warehouse-rates-template.csv only name
+  // pick_pack. Nayax's seed is charge_type 'pick' with service_type null.
+  // warehouse_rate_card_copy_2026_10.sql never writes the live service_type
+  // strings. Suteka and SitnStand are the lines the retest named. Creative
+  // Pea and Kivema have a pick line under one of the other spellings that
+  // retest listed; the dollar amount here is the rate on that row.
+  it.each([
+    ['Suteka', 'pick_n_pack', 1.2],
+    ['SitnStand', 'orders_(picks_n_pack)', 2],
+    ['Creative Pea', 'picks', 1.5],
+    ['Creative Pea', 'pick_n_pack_(per_order)', 1.5],
+    ['Kivema', 'orders_(pick_n_pack)', 1.5],
+    ['Kivema', 'picks', 1.5],
+  ])('%s is billed from %s', (_client, service, rate) => {
+    expect(pickRateOnCard([
+      { service_type: service, rate },
+      { service_type: 'storage', rate: 25 },
+      { service_type: 'additional_item', rate: 0.2 },
+      { service_type: 'inbound_pallet_handling', rate: 7 },
+    ], '2026-10-26')).toBe(rate)
+  })
+
+  it.each([
+    'pick_pack',
+    'pick_n_pack',
+    'orders_(picks_n_pack)',
+    'orders_(pick_n_pack)',
+    'picks',
+    'pick',
+    'pick_n_pack_(per_order)',
+    'Pick & pack',
+    'picks and pack',
+  ])('treats %s as pick & pack', (service) => {
+    expect(isPickPackService(service)).toBe(true)
+  })
+
+  it('does not treat the rest of the card as pick & pack', () => {
+    for (const service of [
+      'storage',
+      'additional_item',
+      'inbound_pallet_handling',
+      'special_tasks_(kitting,_bundling,_counting,_repackaging,_labelling)',
+      'loose_case',
+      null,
+      '',
+    ]) {
+      expect(isPickPackService(service)).toBe(false)
+    }
+    expect(pickRateOnCard([
+      { service_type: null, rate: 0.32 },
+      { service_type: 'additional_item', rate: 0.2 },
     ], '2026-10-26')).toBeNull()
   })
 })

@@ -83,12 +83,34 @@ export interface PickCardRow {
   effective_to?: string | null
 }
 
-/** The one live pick_pack / pick_n_pack rate, or null when the card does not say. */
+/**
+ * A warehouse-card service_type that is the per-order pick & pack line.
+ *
+ * The cards do not share one name. The template and schema comment say
+ * `pick_pack`. Suteka's line is `pick_n_pack`. SitnStand's is
+ * `orders_(picks_n_pack)`. Other cards use `picks` or a pick_n_pack variant
+ * (`orders_(pick_n_pack)`, `pick_n_pack_(per_order)`). Parentheses and spaces
+ * are punctuation, not a different service. Storage, additional items, and
+ * Nayax's structured charge_type `pick` (service_type null) are not this line.
+ */
+export function isPickPackService(serviceType: string | null | undefined): boolean {
+  if (!serviceType) return false
+  const name = serviceType.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  if (!name) return false
+  if (name === 'pick' || name === 'picks' || name === 'pick_pack' || name === 'pick_n_pack' || name === 'picks_n_pack') {
+    return true
+  }
+  return /(^|_)picks?_n_pack($|_)/.test(name)
+    || /(^|_)picks?_and_pack($|_)/.test(name)
+    || /(^|_)pick_pack($|_)/.test(name)
+    || /(^|_)picks($|_)/.test(name)
+}
+
+/** The one live pick & pack rate, or null when the card does not say. */
 export function pickRateOnCard(rows: readonly PickCardRow[], onDate: string): number | null {
   const amounts = new Set<number>()
   for (const row of rows) {
-    const service = row.service_type?.trim()
-    if (service !== 'pick_pack' && service !== 'pick_n_pack') continue
+    if (!isPickPackService(row.service_type)) continue
     const from = typeof row.effective_from === 'string' ? row.effective_from.slice(0, 10) : ''
     const to = typeof row.effective_to === 'string' ? row.effective_to.slice(0, 10) : ''
     if (from && onDate && from > onDate) continue
@@ -371,8 +393,8 @@ export async function priceStatementCharges(
     chargeDate: dateByOrder.get(orderId) ?? next[0]?.charge_date ?? '',
     lines,
   })), list)
-  // Orcam's price list already produced a pick. A client without one (Suteka's
-  // pick_n_pack at $1.20 per order) is priced from the warehouse rate card.
+  // Orcam's price list already produced a pick. A client without one is priced
+  // from the warehouse rate card, whatever that card calls the pick line.
   if (!hasPricedPick(picks)) {
     const card = await supabaseAdmin
       .from('client_warehouse_rates')
