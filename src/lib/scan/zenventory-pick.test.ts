@@ -118,6 +118,7 @@ describe('customer order pick', () => {
       credentials: { apiKey: 'k', apiSecret: 's', secureKey: 'secure' },
       transport: sent.transport,
       now: NOW,
+      shipmentTracking: ['1Z999'],
     })
     expect(outcome.action).toBe('waiting')
     expect(outcome.error).toBe(SCAN_INCOMPLETE)
@@ -143,6 +144,7 @@ describe('customer order pick', () => {
       credentials: { apiKey: 'k', apiSecret: 's', secureKey: 'secure' },
       transport: sent.transport,
       now: NOW,
+      shipmentTracking: ['1Z999'],
     })
     expect(sent.puts.map((put) => put.path)).toEqual([
       '/customerorders/99/items/pick',
@@ -163,6 +165,7 @@ describe('customer order pick', () => {
       credentials: { apiKey: 'k', apiSecret: 's', secureKey: 'secure' },
       transport: sent.transport,
       now: NOW,
+      shipmentTracking: ['1Z999'],
     })
     expect(sent.puts).toEqual([])
     expect(outcome.serials[0].zenventoryStatus).toBe('skipped')
@@ -177,6 +180,7 @@ describe('customer order pick', () => {
       credentials: { apiKey: 'k', apiSecret: 's', secureKey: 'secure' },
       transport: sent.transport,
       now: NOW,
+      shipmentTracking: ['1Z999'],
     })
     expect(sent.puts).toHaveLength(1)
     expect(outcome.queueStatus).toBe('failed')
@@ -187,6 +191,27 @@ describe('customer order pick', () => {
     const result = confirmReadBack({ items: [{ sku: 'R1', pickedQuantity: 2, additionalFields: null }] }, 'R1', ['AAA', 'BBB'])
     expect(result.ok).toBe(true)
     expect(result.detail).toContain('picked quantity')
+  })
+
+  it('stays pending-tracking and does not call Zenventory until ShipStation has a label', async () => {
+    let calls = 0
+    const transport: ZenventoryTransport = {
+      async getV2() { calls += 1; return { status: 200, body: [{ id: 99, orderNumber: 'SO1', trackingNumber: '1Z-FROM-ZENVENTORY' }] } },
+      async getLegacy() { calls += 1; return { status: 200, body: [line('R1', 10, 2)] } },
+      async putLegacy() { calls += 1; return { status: 200, body: [] } },
+    }
+    const [outcome] = await deliverOrder({
+      jobs: [job()],
+      credentials: { apiKey: 'k', apiSecret: 's', secureKey: 'secure' },
+      transport,
+      now: NOW,
+      shipmentTracking: ['  '],
+    })
+    expect(calls).toBe(0)
+    expect(outcome.action).toBe('waiting')
+    expect(outcome.queueStatus).toBe('pending')
+    expect(outcome.serials[0].zenventoryStatus).toBe('pending-tracking')
+    expect(outcome.serials[0].trackingNumber).toBe('')
   })
 
   it('records a label number from our shipments and still does not send it on the pick', async () => {

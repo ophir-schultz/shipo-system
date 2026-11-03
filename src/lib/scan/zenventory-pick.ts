@@ -24,6 +24,7 @@
 // API connection that already exists.
 
 export const SCAN_INCOMPLETE = 'scan incomplete'
+export const PENDING_TRACKING = 'pending-tracking'
 
 export const NAYAX_VIA_ZENVENTORY =
   'Nayax receives serials from Zenventory through its existing API connection. This system does not send serials to Nayax.'
@@ -341,7 +342,7 @@ function outcomeFor(
 ): PushOutcome {
   const refs = serialRefs(job)
   const status = patch.serials?.[0]?.zenventoryStatus
-    ?? (patch.error === SCAN_INCOMPLETE ? SCAN_INCOMPLETE : 'failed')
+    ?? (patch.error === SCAN_INCOMPLETE || patch.error === PENDING_TRACKING ? patch.error : 'failed')
   const response = patch.responseBody ?? patch.error ?? ''
   return {
     action: patch.action,
@@ -509,9 +510,9 @@ export async function deliverOrder(input: DeliverOrderInput): Promise<PushOutcom
   const put = (job: OrderJob, patch: Partial<PushOutcome> & Pick<PushOutcome, 'action' | 'mutate' | 'queueStatus' | 'error'>) => {
     byId.set(job.id, outcomeFor(job, patch))
   }
-  // Tracking is recorded, not waited on. A label often does not exist yet
-  // when the cartons are scanned, and holding the pick would leave the
-  // units in inventory. The pick body itself never carries a tracking number.
+  // The pick waits for shipments.tracking_number, written by the ShipStation
+  // sync. A tracking number on the Zenventory payload does not unlock it.
+  // The pick body itself never carries a tracking number.
   const finish = () => {
     const tracking = joinTracking(seenTracking)
     return input.jobs.map((job) => {
@@ -561,6 +562,18 @@ export async function deliverOrder(input: DeliverOrderInput): Promise<PushOutcom
         mutate: true,
         queueStatus: 'failed',
         error: 'These scans are not one customer order, so nothing was deducted.',
+      })
+    }
+    return finish()
+  }
+  if (joinTracking(input.shipmentTracking ?? []) === '') {
+    for (const job of linked) {
+      put(job, {
+        action: 'waiting',
+        mutate: true,
+        queueStatus: 'pending',
+        error: PENDING_TRACKING,
+        responseBody: 'Waiting for a tracking number from the ShipStation sync. The pick was not sent.',
       })
     }
     return finish()
