@@ -7,7 +7,9 @@ import WarehouseRatesUpload from '@/components/billing/WarehouseRatesUpload'
 import DeleteClientButton from '@/components/clients/DeleteClientButton'
 import ZenventoryCredentials from '@/components/clients/ZenventoryCredentials'
 import OriginZipEditor from '@/components/clients/OriginZipEditor'
+import PriceListUpload from '@/components/billing/PriceListUpload'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
+import { parsePriceList, summarizePriceList } from '@/lib/pricing/parse-price-list'
 import { rateCellLabel } from '@/lib/billing/warehouse-rate-card'
 import { read, readOne } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
@@ -56,6 +58,18 @@ async function getWarehouseRates(clientId: string) {
     .select('*')
     .eq('client_id', clientId)
     .order('service_type'))
+}
+
+async function getPriceLists(clientId: string) {
+  // Latest uploads only. This is a history list, not a total: `.limit(20)`
+  // is the twenty most recent documents, and billing reads the newest one.
+  return read('client_price_lists', await supabaseAdmin
+    .from('client_price_lists')
+    .select('id, name, source_filename, created_at, document')
+    .eq('client_id', clientId)
+    .order('created_at', { ascending: false })
+    .order('id')
+    .limit(20))
 }
 
 async function getZoneRates(clientId: string) {
@@ -128,10 +142,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   }
   if (!client) notFound()
 
-  const [shippingRates, warehouseRates, zoneRates] = await Promise.all([
+  const [shippingRates, warehouseRates, zoneRates, priceLists] = await Promise.all([
     getShippingRates(id),
     getWarehouseRates(id),
     getZoneRates(id),
+    getPriceLists(id),
   ])
 
   // Group zone rates into matrices keyed by carrier/service. Built from
@@ -359,6 +374,56 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
               })}
             </tbody>
           </table>
+        )}
+      </div>
+
+      {/* Per-client price list. Added beside the warehouse card above.
+          Uploading here does not change that card or anything in Zenventory. */}
+      <div className="bg-white rounded-xl p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="text-lg font-semibold text-[#0B1220]">Pricing engine price list</h3>
+            <p className="text-[#4B4F58] text-sm mt-0.5">
+              Pick, box material, shipping zones, receiving, storage, labour, materials markup and peak. Upload a JSON file. A new upload is kept alongside older ones.
+            </p>
+          </div>
+          <PriceListUpload clientId={id} />
+        </div>
+        {priceLists.error ? (
+          <ViewUnreadable message={priceLists.error} />
+        ) : priceLists.rows.length === 0 ? (
+          <div className="text-center py-10 border-2 border-dashed border-[#E2E8F0] rounded-lg">
+            <p className="text-[#6B7A8D] mb-2">No price list uploaded yet</p>
+            <p className="text-[#6B7A8D] text-sm">The Nayax list is price-lists/nayax.json in the repo</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {priceLists.rows.map((row: { id: string; name: string; source_filename: string | null; created_at: string; document: unknown }, index: number) => {
+              const parsed = parsePriceList(row.document)
+              const summary = parsed.ok ? summarizePriceList(parsed.list) : []
+              return (
+                <div key={row.id} className="border border-[#E2E8F0] rounded-lg p-4">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="font-medium text-[#0B1220]">
+                      {row.name}
+                      {index === 0 && <span className="ml-2 text-xs text-emerald-700">current</span>}
+                    </p>
+                    <p className="text-xs text-[#6B7A8D]">
+                      {row.source_filename ? `${row.source_filename} · ` : ''}
+                      {row.created_at?.slice(0, 10)}
+                    </p>
+                  </div>
+                  {parsed.ok ? (
+                    <ul className="mt-2 text-sm text-[#4B4F58] space-y-1">
+                      {summary.map((line) => <li key={line}>{line}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-sm text-red-700">This upload does not parse: {parsed.error}</p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>

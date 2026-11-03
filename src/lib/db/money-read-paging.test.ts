@@ -50,13 +50,24 @@ const ROOT = join(__dirname, '..', '..')
  * cells, so an unpaged read showed two thirds of a rate card as though it were
  * the card, on the screen you open to ask whether a weight is covered.
  *
- * Tables too small to reach the cap are deliberately absent: `clients` is 9
- * rows and `client_store_ids` about 10, and listing them would be ceremony
- * rather than protection.
+ * Tables too small to reach the cap are deliberately absent from the
+ * general list: `client_store_ids` is about 10 rows. `clients` is on the
+ * P&L page anyway, because that read is part of a money total and the cap
+ * arrives with no error the day the table crosses it.
  */
 const MONEY_READS: Array<[file: string, tables: string[]]> = [
   ['app/dashboard/page.tsx', ['shipments']],
-  ['app/pnl/page.tsx', ['shipments']],
+  // warehouse_daily_log, inbound_shipments and referral_payouts are summed
+  // into Net Profit on this page. clients is paged too: an unpaged read of
+  // it is the same silent cap, and campaign attribution is built from it.
+  // `.limit(500)` and `.limit(200)` used to sit on inbound and payouts.
+  // Those caps are not a top-N — they shortened a total — so they are not
+  // an allowed bound here.
+  ['app/pnl/page.tsx', ['shipments', 'warehouse_daily_log', 'inbound_shipments', 'referral_payouts', 'clients']],
+  ['components/pnl/PartnerPayouts.tsx', ['referral_payouts']],
+  ['app/client-report/page.tsx', ['client_billing_lines', 'clients']],
+  ['app/order-pnl/page.tsx', ['shipments']],
+  ['app/api/client-reports/download/route.ts', ['client_billing_lines']],
   ['app/losses/page.tsx', ['shipments']],
   ['app/api/agent/monitor/route.ts', ['shipments']],
   // Not a total -- a rate card. Truncation here reads as "that band is not in

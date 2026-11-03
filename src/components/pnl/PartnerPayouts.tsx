@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { readAllPages } from '@/lib/db/page'
 import {
   computeOwed,
   summarize,
@@ -82,7 +83,13 @@ interface PartnerBlock {
   partner: ReferralPartner
   ledger: PartnerLedger
   payouts: PayoutRecord[]
-  totals: ReturnType<typeof summarize>
+  /**
+   * Null when referral_payouts could not be read. Paid must not be rendered
+   * as $0 in that case: an empty array is what a partner who has never been
+   * paid looks like, and a failed read used to take that shape.
+   */
+  totals: ReturnType<typeof summarize> | null
+  payoutsReadFailed: string | null
   chargesByClientMonth: Map<string, ChargeRow[]>
   chargesTruncated: boolean
   chargesFailed: boolean
@@ -111,13 +118,26 @@ export default async function PartnerPayouts() {
     partners.map(async (partner) => {
       const [ledger, payoutsRes] = await Promise.all([
         loadPartnerLedger(partner.id),
-        supabaseAdmin
-          .from('referral_payouts')
-          .select('id, dedupe_key, status, amount, approved_at, paid_at')
-          .eq('referral_partner_id', partner.id),
+        // PAGED. No `.limit` here, but PostgREST still stops an unpaged
+        // select at db-max-rows and returns error: null. A partner past
+        // that cap would show the first thousand payouts as the whole
+        // ledger, and anything paid after that would read as still owed.
+        readAllPages<PayoutRecord>((from, to) =>
+          supabaseAdmin
+            .from('referral_payouts')
+            .select('id, dedupe_key, status, amount, approved_at, paid_at')
+            .eq('referral_partner_id', partner.id)
+            .order('id')
+            .range(from, to)),
       ])
 
-      const payouts = (payoutsRes.data ?? []) as PayoutRecord[]
+      // A failed read is not an empty ledger. Passing [] into computeOwed
+      // marks every line unpaid, and the Paid figure becomes $0.00 — the
+      // screen then says we have paid this partner nothing.
+      const payoutsReadFailed = payoutsRes.error
+        ? `referral_payouts: ${payoutsRes.error.message}`
+        : null
+      const payouts = payoutsReadFailed ? [] : ((payoutsRes.data ?? []) as PayoutRecord[])
       const charges = await loadCharges(ledger.clients.map((c) => c.id))
 
       const chargesByClientMonth = new Map<string, ChargeRow[]>()
@@ -132,13 +152,16 @@ export default async function PartnerPayouts() {
       // computeOwed derives is per-client. It was not safe while the launch
       // offer existed — places were ranked globally — but that offer was
       // withdrawn 2026-10-12 and the opt-out is gone with it.
-      const lines = computeOwed([partner], ledger.clients, ledger.invoices, payouts)
+      const lines = payoutsReadFailed
+        ? []
+        : computeOwed([partner], ledger.clients, ledger.invoices, payouts)
 
       return {
         partner,
         ledger,
         payouts,
-        totals: summarize(lines),
+        totals: payoutsReadFailed ? null : summarize(lines),
+        payoutsReadFailed,
         chargesByClientMonth,
         chargesTruncated: charges.truncated,
         chargesFailed: charges.failed,
@@ -233,12 +256,30 @@ function PartnerSection({ block }: { block: PartnerBlock }) {
           </span>
         </div>
         <div className="flex gap-5 text-xs">
-          <Figure label="Owed" value={fmt(totals.owed)} tone="text-[#0B1220]" />
-          <Figure label="In review" value={fmt(totals.pending)} tone="text-amber-700" />
-          <Figure label="Approved" value={fmt(totals.approved)} tone="text-[#1A73E8]" />
-          <Figure label="Paid" value={fmt(totals.paid)} tone="text-emerald-700" />
+          {totals === null ? (
+            <>
+              <Figure label="Owed" value="—" tone="text-[#6B7A8D]" />
+              <Figure label="In review" value="—" tone="text-[#6B7A8D]" />
+              <Figure label="Approved" value="—" tone="text-[#6B7A8D]" />
+              <Figure label="Paid" value="—" tone="text-[#6B7A8D]" />
+            </>
+          ) : (
+            <>
+              <Figure label="Owed" value={fmt(totals.owed)} tone="text-[#0B1220]" />
+              <Figure label="In review" value={fmt(totals.pending)} tone="text-amber-700" />
+              <Figure label="Approved" value={fmt(totals.approved)} tone="text-[#1A73E8]" />
+              <Figure label="Paid" value={fmt(totals.paid)} tone="text-emerald-700" />
+            </>
+          )}
         </div>
       </div>
+
+      {block.payoutsReadFailed && (
+        <p className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
+          ⚠ {block.payoutsReadFailed}. Paid is not $0 — the payout ledger did not
+          answer, so owed, in review, approved and paid are withheld.
+        </p>
+      )}
 
       {ledger.clients.length === 0 ? (
         <p className="px-4 py-4 text-sm text-[#6B7A8D]">No clients linked to this partner.</p>
