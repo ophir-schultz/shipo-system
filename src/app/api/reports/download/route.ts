@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
+import { easternAddDays, easternMidnightIso } from '@/lib/ledger/eastern-day'
 // `priceOf` is no longer imported here. The profit-loss branch was its only
 // consumer in this file, and that branch now goes through profit-rollup, which
 // calls priceOf itself on every column before any arithmetic. The per-shipment
@@ -154,8 +155,8 @@ export async function GET(req: Request) {
       let q = supabaseAdmin
         .from('shipments')
         .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, recipient_city, recipient_state, weight, actual_cost, client_rate, profit_loss, is_loss, source')
-        .gte('ship_date', dateFrom!)
-        .lte('ship_date', dateTo!)
+        .gte('ship_date', easternMidnightIso(dateFrom!))
+        .lt('ship_date', easternMidnightIso(easternAddDays(dateTo!, 1)))
       if (clientId) q = q.eq('client_id', clientId)
       return q.order('ship_date', { ascending: false }).order('id').range(from, to)
     })
@@ -187,8 +188,8 @@ export async function GET(req: Request) {
         // `client_id` is NEW here and is the point of the rewrite below: this
         // branch used to roll up by `clients.name`, which is not a key.
         .select('client_id, clients(name), ship_date, actual_cost, client_rate, profit_loss, is_loss')
-        .gte('ship_date', dateFrom!)
-        .lte('ship_date', dateTo!)
+        .gte('ship_date', easternMidnightIso(dateFrom!))
+        .lt('ship_date', easternMidnightIso(easternAddDays(dateTo!, 1)))
       if (clientId) q = q.eq('client_id', clientId)
       // This branch does not order its OUTPUT -- it rolls every row up by
       // client -- but it still has to order its INPUT, or paging it is
@@ -318,8 +319,8 @@ export async function GET(req: Request) {
         .from('shipments')
         .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, actual_cost, client_rate, profit_loss')
         .eq('is_loss', true)
-        .gte('ship_date', dateFrom!)
-        .lte('ship_date', dateTo!)
+        .gte('ship_date', easternMidnightIso(dateFrom!))
+        .lt('ship_date', easternMidnightIso(easternAddDays(dateTo!, 1)))
       if (clientId) q = q.eq('client_id', clientId)
       return q.order('profit_loss', { ascending: true }).order('id').range(from, to)
     })

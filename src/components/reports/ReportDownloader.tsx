@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { showError, showSuccess } from '@/components/ui/Toast'
+import { easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
 
 const colors: Record<string, string> = {
   blue: 'border-blue-200 bg-blue-50',
@@ -15,12 +16,8 @@ const colors: Record<string, string> = {
 export default function ReportDownloader({ report, clients }: { report: any; clients: any[] }) {
   const [loading, setLoading] = useState(false)
   const [clientId, setClientId] = useState('')
-  const [dateFrom, setDateFrom] = useState(() => {
-    const d = new Date()
-    d.setDate(1)
-    return d.toISOString().split('T')[0]
-  })
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [dateFrom, setDateFrom] = useState(() => easternMonthStart(easternToday()))
+  const [dateTo, setDateTo] = useState(() => easternToday())
 
   async function handleDownload() {
     setLoading(true)
