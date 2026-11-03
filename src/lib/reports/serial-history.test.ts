@@ -38,6 +38,7 @@ describe('serial history report', () => {
 
   it('writes the serial, the order and the send status to CSV and Excel', () => {
     const csv = serialReportToCsv([row])
+    expect(csv).toContain('Tracking')
     expect(csv).toContain('AAA')
     expect(csv).toContain('SO1')
     expect(csv).toContain('sent')

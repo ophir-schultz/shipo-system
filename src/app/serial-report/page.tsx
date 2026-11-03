@@ -4,6 +4,7 @@ import { readAllPages, type PageResult } from '@/lib/db/page'
 import { isMigrationMissing, read, readErrors, loaded } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import {
+  applyReportTracking,
   applySerialReportFilters,
   mapSerialReportRow,
   parseSerialReportFilters,
@@ -14,6 +15,7 @@ import {
   type SerialReportFilters,
   type SerialReportRow,
 } from '@/lib/reports/serial-history'
+import { shipmentTrackingByOrder } from '@/lib/scan/shipment-tracking'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,10 +65,14 @@ export default async function SerialReportPage({
   }
   const tableMissing = isMigrationMissing(serialRes)
 
+  const trackingRes = parsed.error || tableMissing
+    ? { byOrder: {}, error: null }
+    : await shipmentTrackingByOrder()
   const serialRead = read('scanned_serials', tableMissing ? { data: [], error: null } : serialRes)
   const clientsRead = read('clients', clientsRes)
-  const page = loaded(readErrors(serialRead, clientsRead), () => ({
-    rows: serialRead.rows.map(mapSerialReportRow),
+  const trackingRead = { rows: [], error: trackingRes.error ? `shipments: ${trackingRes.error}` : null }
+  const page = loaded(readErrors(serialRead, clientsRead, trackingRead), () => ({
+    rows: applyReportTracking(serialRead.rows.map(mapSerialReportRow), trackingRes.byOrder),
     clients: clientsRead.rows,
   }))
 
@@ -76,7 +82,7 @@ export default async function SerialReportPage({
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Serial history report</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          Stored scans for a date range and a client, with the Zenventory send status. Nayax receives those serials from Zenventory through its existing API connection. Excel, CSV and PDF stay in the system. Nothing here is emailed.
+          Stored scans for a date range and a client, with the Zenventory send status and the tracking number when a label exists. The pick does not write that number back to Zenventory. Nayax receives the serials from Zenventory through its existing API connection. Excel, CSV and PDF stay in the system. Nothing here is emailed.
         </p>
       </div>
       {parsed.error && (
@@ -171,7 +177,7 @@ function SerialReportBody({
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs text-[#6B7A8D]">
             <tr>
-              {['Scanned at', 'Client', 'Order', 'SKU', 'Serial', 'Scanned by', 'Zenventory'].map((heading) => (
+              {['Scanned at', 'Client', 'Order', 'Tracking', 'SKU', 'Serial', 'Scanned by', 'Zenventory'].map((heading) => (
                 <th key={heading} className="px-3 py-2 font-medium">{heading}</th>
               ))}
             </tr>
@@ -179,7 +185,7 @@ function SerialReportBody({
           <tbody>
             {showRows && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-[#4B4F58]">No scanned serials in this range.</td>
+                <td colSpan={8} className="px-3 py-6 text-[#4B4F58]">No scanned serials in this range.</td>
               </tr>
             )}
             {showRows && rows.map((row) => (
@@ -187,6 +193,7 @@ function SerialReportBody({
                 <td className="px-3 py-2 whitespace-nowrap">{row.scannedAt ? row.scannedAt.slice(0, 16).replace('T', ' ') : ''}</td>
                 <td className="px-3 py-2">{row.clientName || row.clientId}</td>
                 <td className="px-3 py-2">{row.orderRef}</td>
+                <td className="px-3 py-2 font-mono whitespace-pre">{row.trackingNumber}</td>
                 <td className="px-3 py-2">{row.sku}</td>
                 <td className="px-3 py-2 font-mono whitespace-pre">{row.serial}</td>
                 <td className="px-3 py-2 font-mono text-xs">{row.scannedBy}</td>

@@ -8,6 +8,7 @@ export const SERIAL_REPORT_COLUMNS = [
   'Client',
   'Client id',
   'Order',
+  'Tracking',
   'SKU',
   'Serial',
   'Scanned by',
@@ -54,6 +55,7 @@ export interface SerialReportRow {
   clientName: string
   clientId: string
   orderRef: string
+  trackingNumber: string
   sku: string
   serial: string
   scannedBy: string
@@ -68,6 +70,7 @@ export interface RawSerialReport {
   zenventory_status?: string | null
   zenventory_sent_at?: string | null
   zenventory_response?: string | null
+  tracking_number?: string | null
   scan_events: {
     client_id?: string | null
     order_ref?: string | null
@@ -104,6 +107,7 @@ export function mapSerialReportRow(raw: RawSerialReport): SerialReportRow {
     clientName: text(client?.name),
     clientId: text(event?.client_id),
     orderRef: text(event?.order_ref),
+    trackingNumber: text(raw.tracking_number),
     sku: text(event?.sku),
     serial: text(raw.serial),
     scannedBy: text(event?.scanned_by),
@@ -119,6 +123,7 @@ export function serialReportCells(row: SerialReportRow): string[] {
     row.clientName,
     row.clientId,
     row.orderRef,
+    row.trackingNumber,
     row.sku,
     row.serial,
     row.scannedBy,
@@ -213,10 +218,23 @@ export function applySerialReportFilters<Q extends FilterableQuery>(query: Q, fi
 }
 
 export const SERIAL_REPORT_SELECT =
-  'id, serial, zenventory_status, zenventory_sent_at, zenventory_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
+  'id, serial, tracking_number, zenventory_status, zenventory_sent_at, zenventory_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
 
 export const SERIAL_REPORT_SELECT_BASE =
-  'id, serial, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
+  'id, serial, tracking_number, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
+
+/** A stored tracking number wins. A blank one is filled from the shipment row for that order. */
+export function applyReportTracking(
+  rows: SerialReportRow[],
+  byOrder: Record<string, string[]>,
+): SerialReportRow[] {
+  return rows.map((row) => {
+    if (row.trackingNumber.trim()) return row
+    const numbers = (byOrder[row.orderRef] ?? []).map((number) => number.trim()).filter((number) => number !== '')
+    if (numbers.length === 0) return row
+    return { ...row, trackingNumber: [...new Set(numbers)].join('\n') }
+  })
+}
 
 export function serialColumnsMissing(error: { code?: string; message?: string } | null | undefined): boolean {
   if (!error) return false

@@ -20,6 +20,11 @@ alter table scanned_serials add column if not exists zenventory_status text;
 alter table scanned_serials add column if not exists zenventory_sent_at timestamptz;
 alter table scanned_serials add column if not exists zenventory_response text;
 
+-- The label number copied from our shipments row (ShipStation) or from
+-- the Zenventory order payload when that payload already has one.
+-- The pick does not write this back to Zenventory.
+alter table scanned_serials add column if not exists tracking_number text;
+
 create table if not exists serial_delivery_log (
   id                  uuid primary key default uuid_generate_v4(),
   scanned_serial_id   uuid references scanned_serials(id),

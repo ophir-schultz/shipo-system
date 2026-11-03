@@ -5,6 +5,7 @@ import { readAllPages, type PageResult } from '@/lib/db/page'
 import { isMigrationMissing } from '@/lib/db/read'
 import {
   applySerialReportFilters,
+  applyReportTracking,
   mapSerialReportRow,
   parseSerialReportFilters,
   SERIAL_REPORT_SELECT,
@@ -15,6 +16,7 @@ import {
   serialReportToXlsx,
   type RawSerialReport,
 } from '@/lib/reports/serial-history'
+import { shipmentTrackingByOrder } from '@/lib/scan/shipment-tracking'
 
 export const dynamic = 'force-dynamic'
 
@@ -55,7 +57,9 @@ export async function GET(req: Request) {
     }, { status: missing ? 409 : 500 })
   }
 
-  const rows = (loaded.data ?? []).map(mapSerialReportRow)
+  const tracking = await shipmentTrackingByOrder()
+  if (tracking.error) return NextResponse.json({ error: tracking.error }, { status: 500 })
+  const rows = applyReportTracking((loaded.data ?? []).map(mapSerialReportRow), tracking.byOrder)
   const filename = `serial-report-${parsed.filters.dateFrom || 'all'}-${parsed.filters.dateTo || 'all'}`
   if (format === 'csv') {
     return new NextResponse(serialReportToCsv(rows), {
