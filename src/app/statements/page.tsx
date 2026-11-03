@@ -197,12 +197,26 @@ export default async function StatementsPage(
         </button>
 
         {selected !== null && (
-          <a
-            href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}`}
-            className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
-          >
-            Download Excel
-          </a>
+          <>
+            <a
+              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}&format=csv`}
+              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
+            >
+              Download CSV
+            </a>
+            <a
+              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}`}
+              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
+            >
+              Download Excel
+            </a>
+            <a
+              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}&format=pdf`}
+              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
+            >
+              Download PDF
+            </a>
+          </>
         )}
       </form>
 

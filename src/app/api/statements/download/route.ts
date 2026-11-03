@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
+import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 import { supabaseAdmin } from '@/lib/supabase'
 import { requireStaff } from '@/lib/require-staff'
 import { readOne } from '@/lib/db/read'
@@ -350,13 +351,36 @@ export async function GET(req: Request) {
     XLSX.utils.book_append_sheet(wb, ws, sheetName)
   }
 
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const format = new URL(req.url).searchParams.get('format') ?? 'xlsx'
+  if (format !== 'xlsx' && format !== 'csv' && format !== 'pdf') {
+    return NextResponse.json({ error: 'format must be xlsx, csv or pdf' }, { status: 400 })
+  }
+  const stem = `statement-${slug || 'client'}-${range.from}-to-${range.to}`
+  if (format === 'csv') {
+    return new NextResponse(recordsToCsv(summary), {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${stem}.csv"`,
+      },
+    })
+  }
+  if (format === 'pdf') {
+    const pdf = await recordsToPdf(summary, `Statement ${name} ${range.from} to ${range.to}`)
+    return new NextResponse(new Uint8Array(pdf), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${stem}.pdf"`,
+      },
+    })
+  }
+
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
   // The filename carries the client and the actual dates, not the grain word.
   // 'statement-week.xlsx' sitting in a downloads folder beside last week's copy
   // is two files with one name and no way to tell which period either covers.
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-  const filename = `statement-${slug || 'client'}-${range.from}-to-${range.to}.xlsx`
+  const filename = `${stem}.xlsx`
 
   return new NextResponse(buf, {
     headers: {
