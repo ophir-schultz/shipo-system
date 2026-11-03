@@ -49,6 +49,7 @@ export default function ScanPage() {
   // rather than as still loading. `clients.length === 0` cannot tell those
   // apart, and the dropdown said "Select a client…" for both.
   const [loaded, setLoaded] = useState(false)
+  const [queueNote, setQueueNote] = useState('')
 
   useEffect(() => {
     let live = true
@@ -71,6 +72,13 @@ export default function ScanPage() {
       // A network failure is a failure, not a client list with nobody on it.
       // This used to be `.catch(() => setClients([]))`.
       .catch((e) => { if (live) setLoadError(String(e)) })
+    fetch('/api/scan/push')
+      .then(async (r) => {
+        const body = await r.json().catch(() => null) as { message?: string; mode?: string } | null
+        if (!live || !body?.message) return
+        setQueueNote(body.mode ? `${body.mode}: ${body.message}` : body.message)
+      })
+      .catch(() => { if (live) setQueueNote('') })
     return () => { live = false }
   }, [])
 
@@ -173,6 +181,11 @@ export default function ScanPage() {
           Scan a box label to pull out the serials inside it, or scan loose units one at a
           time. Submitting records the work and bills it.
         </p>
+        {queueNote && (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {queueNote}
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
