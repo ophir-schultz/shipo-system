@@ -1,15 +1,14 @@
 // Whether the serialization push queue is allowed to run.
 //
 // Off unless ZENVENTORY_PUSH_ENABLED is exactly "true". Even then the
-// default is a dry run: the route may read the queue and describe the
-// serials it would send, and it does not call Zenventory and does not
-// update a row. ZENVENTORY_PUSH_EXECUTE must also be exactly "true"
-// before a live push is even considered, and this build still refuses
-// the live call — no confirmed serial-write endpoint is wired, so a
-// flag cannot be turned into an inventory write by accident.
+// default is a dry run: GET and POST may read the queue and describe
+// the serials, and they do not call Zenventory and do not update a row.
+// ZENVENTORY_PUSH_EXECUTE must also be exactly "true", and only POST
+// /api/scan/push sends the legacy pick. GET never writes.
 
 export const ZENVENTORY_PUSH_ENABLED = 'ZENVENTORY_PUSH_ENABLED'
 export const ZENVENTORY_PUSH_EXECUTE = 'ZENVENTORY_PUSH_EXECUTE'
+export { NAYAX_SERIAL_WEBHOOK_URL } from './zenventory-pick'
 
 export type PushQueueMode = 'disabled' | 'dry-run' | 'execute'
 
@@ -37,11 +36,11 @@ export function pushPayload(job: PushJobPlan): { orderRef: string; sku: string; 
 }
 
 /**
- * Live Zenventory writes stay closed. Returning this instead of calling
- * the API is the guard: execute mode can be requested, and it still
- * changes nothing.
+ * Shown by GET even when execute is armed. GET never sends the pick.
+ * POST /api/scan/push is the call that does, and only when both flags
+ * are exactly "true".
  */
 export function livePushRefusal(): string {
-  return 'Live Zenventory push is not performed. No request was sent and no queue row was updated. '
-    + 'A confirmed serial-write endpoint is not wired in this build.'
+  return 'This request did not send serials and did not update the queue. '
+    + 'POST /api/scan/push sends the legacy Zenventory pick when ZENVENTORY_PUSH_ENABLED and ZENVENTORY_PUSH_EXECUTE are both true.'
 }

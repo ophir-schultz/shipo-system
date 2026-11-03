@@ -181,6 +181,10 @@ export default function ScanPage() {
           Scan a box label to pull out the serials inside it, or scan loose units one at a
           time. Submitting records the work and bills it.
         </p>
+        <p className="text-sm mt-2">
+          <a href="/serials" className="text-[#1A73E8]">Serial history</a>
+          <span className="text-[#6B7A8D]"> keeps every scanned serial, with its Zenventory and Nayax status.</span>
+        </p>
         {queueNote && (
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {queueNote}

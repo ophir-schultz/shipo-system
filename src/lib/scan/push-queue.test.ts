@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { livePushRefusal, pushPayload, pushQueueMode } from './push-queue'
 
@@ -32,6 +34,17 @@ describe('pushQueueMode', () => {
       serials: ['111', '222'],
     })
     expect(payload).toEqual({ orderRef: 'SO1', sku: 'R1', serials: ['111', '222'] })
-    expect(livePushRefusal()).toContain('No request was sent')
+    expect(livePushRefusal()).toContain('did not send serials')
+    expect(livePushRefusal()).toContain('POST /api/scan/push')
+  })
+})
+
+describe('push route', () => {
+  it('keeps GET from sending and keeps a disabled POST off the queue', () => {
+    const src = readFileSync(join(__dirname, '../../app/api/scan/push/route.ts'), 'utf8')
+    const getFn = src.slice(src.indexOf('export async function GET'), src.indexOf('async function serialRowsFor'))
+    expect(getFn).not.toContain('runPush')
+    expect(src).toContain("if (mode === 'disabled')")
+    expect(src).toContain('createZenventoryTransport')
   })
 })
