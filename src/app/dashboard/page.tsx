@@ -182,9 +182,9 @@ function buildClientBreakdown(clients: any[], shipments: any[], warehouse: any[]
 export const dynamic = 'force-dynamic'
 
 async function getDashboardData() {
-  // Eastern calendar, not the UTC clock the server runs on. Week still
-  // starts Sunday, which is what this screen has always used. Statements
-  // start the week on Monday; that difference is left as it was.
+  // Eastern calendar, not the UTC clock the server runs on. The week
+  // opens Monday at 12:00 AM America/New_York, the same week statements use.
+  // weekInstant is that Monday's Eastern midnight for timestamptz columns.
   const today = easternToday()
   const weekStart = easternWeekStart(today)
   const monthStart = easternMonthStart(today)

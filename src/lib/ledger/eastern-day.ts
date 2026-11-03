@@ -18,11 +18,17 @@ export function easternYearStart(date: string): string {
   return `${date.slice(0, 4)}-01-01`
 }
 
-/** Sunday that begins the Eastern week containing `date`. Dashboard weeks start Sunday. */
+/**
+ * Monday that begins the Eastern week containing `date`.
+ * The week opens at 12:00 AM America/New_York on that Monday.
+ * Callers that filter a timestamptz use easternMidnightIso on this date.
+ */
 export function easternWeekStart(date: string): string {
   const [y, m, d] = date.split('-').map(Number)
   const utc = new Date(Date.UTC(y, m - 1, d))
-  utc.setUTCDate(utc.getUTCDate() - utc.getUTCDay())
+  const dow = utc.getUTCDay()
+  const back = dow === 0 ? 6 : dow - 1
+  utc.setUTCDate(utc.getUTCDate() - back)
   return utc.toISOString().slice(0, 10)
 }
 
