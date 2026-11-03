@@ -29,6 +29,7 @@ const h = vi.hoisted(() => ({
   syncClientAssignments: vi.fn(),
   sendEmail: vi.fn(),
   requireStaffOrCron: vi.fn(),
+  requireStaff: vi.fn(),
   recalculateShipments: vi.fn(),
   recalculateCharges: vi.fn(),
   loadChargeInputs: vi.fn(),
@@ -41,7 +42,10 @@ vi.mock('@/lib/supabase', () => ({
 vi.mock('@/lib/sync/shipstation', () => ({ syncShipments: h.syncShipments }))
 vi.mock('@/lib/sync/zenventory', () => ({ syncClientAssignments: h.syncClientAssignments }))
 vi.mock('@/lib/email', () => ({ sendEmail: h.sendEmail }))
-vi.mock('@/lib/require-staff', () => ({ requireStaffOrCron: h.requireStaffOrCron }))
+vi.mock('@/lib/require-staff', () => ({
+  requireStaffOrCron: h.requireStaffOrCron,
+  requireStaff: h.requireStaff,
+}))
 vi.mock('@/lib/billing/recalculate', () => ({ recalculateShipments: h.recalculateShipments }))
 // recalculateCharges is stubbed, but CHARGE_CRON_HOURS_UTC comes through REAL.
 // The handler interpolates its length into the undelivered-report message, so a
@@ -59,7 +63,7 @@ vi.mock('@/lib/ledger/persist-storage-charges', () => ({
   persistStorageCharges: h.persistStorageCharges,
 }))
 
-const { GET } = await import('@/app/api/agent/monitor/route')
+const { GET, POST } = await import('@/app/api/agent/monitor/route')
 
 /** A sync result with nothing wrong with it. Spread and override per test. */
 const cleanClientResult = {
@@ -82,7 +86,7 @@ interface MonitorBody {
 
 const run = async (clientResult: Record<string, unknown>): Promise<MonitorBody> => {
   h.syncClientAssignments.mockResolvedValue(clientResult)
-  const res = await GET(new Request('https://shipo.test/api/agent/monitor'))
+  const res = await POST(new Request('https://shipo.test/api/agent/monitor', { method: 'POST' }))
   return res.json() as Promise<MonitorBody>
 }
 
@@ -93,6 +97,7 @@ beforeEach(() => {
   h.db = createFakeSupabase({ shipments: [], rate_adjustments: [], order_items: [] })
 
   h.requireStaffOrCron.mockReset().mockResolvedValue(null)
+  h.requireStaff.mockReset().mockResolvedValue(null)
   h.syncShipments.mockReset().mockResolvedValue({
     created: 0, updated: 0, adjustments: 0, refunds: 0,
     errors: 0, unknownCarrier: 0, blankOrderNumber: 0,
@@ -715,10 +720,24 @@ describe('GET /api/agent/monitor: a charge run that wrote nothing', () => {
 // The cron is the only unattended caller and a non-2xx is the only thing it
 // surfaces, so the status code is the signal being asserted here -- not just
 // the body. `run` discards the Response, hence runRaw.
+describe('GET /api/agent/monitor is read-only', () => {
+  it('does not sync ShipStation, map Zenventory clients, or recalculate', async () => {
+    const res = await GET(new Request('https://shipo.test/api/agent/monitor'))
+    expect(res.status).toBe(200)
+    expect(h.syncShipments).not.toHaveBeenCalled()
+    expect(h.syncClientAssignments).not.toHaveBeenCalled()
+    expect(h.recalculateShipments).not.toHaveBeenCalled()
+    expect(h.recalculateCharges).not.toHaveBeenCalled()
+    expect(h.persistStorageCharges).not.toHaveBeenCalled()
+    const body = await res.json() as MonitorBody
+    expect(body.log.join('\n')).toContain('POST /api/agent/monitor')
+  })
+})
+
 describe('GET /api/agent/monitor: the alert could not be delivered', () => {
   const runRaw = async (clientResult: Record<string, unknown>) => {
     h.syncClientAssignments.mockResolvedValue(clientResult)
-    const res = await GET(new Request('https://shipo.test/api/agent/monitor'))
+    const res = await POST(new Request('https://shipo.test/api/agent/monitor', { method: 'POST' }))
     return { res, body: (await res.json()) as MonitorBody }
   }
 
@@ -806,7 +825,7 @@ describe('GET /api/agent/monitor: the alert could not be delivered', () => {
 describe('GET /api/agent/monitor: the report is switched off', () => {
   const runRaw = async (clientResult: Record<string, unknown>) => {
     h.syncClientAssignments.mockResolvedValue(clientResult)
-    const res = await GET(new Request('https://shipo.test/api/agent/monitor'))
+    const res = await POST(new Request('https://shipo.test/api/agent/monitor', { method: 'POST' }))
     return { res, body: (await res.json()) as MonitorBody }
   }
 
