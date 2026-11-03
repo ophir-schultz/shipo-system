@@ -5,7 +5,7 @@ import {
   formatPrice, formatSignedPrice, isPriced, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 import { exclusionNote, reconcile, reconciledOrUnknown } from '@/lib/billing/profit-rollup'
-import { easternAddDays, easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
+import { easternAddDays, easternCalendarDay, easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
 
 // The rate and profit columns are nullable: recalculate.ts writes null when
 // the rate card does not cover a shipment. `?? 0` printed those as "$0.00",
@@ -26,10 +26,7 @@ const QUICK_RANGES = [
 ]
 
 function shipDay(value: string | null | undefined): string {
-  if (!value) return ''
-  if (!value.includes('T')) return value.slice(0, 10)
-  const at = new Date(value)
-  return Number.isNaN(at.getTime()) ? value.slice(0, 10) : easternToday(at)
+  return easternCalendarDay(value)
 }
 
 function getQuickRange(days: number) {
@@ -243,7 +240,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                 <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                   <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                   <td className="px-4 py-2.5 font-medium text-sm">{s.clients?.name ?? <span className="text-[#6B7A8D]">Unassigned</span>}</td>
-                  <td className="px-4 py-2.5 text-[#4B4F58] text-xs whitespace-nowrap">{s.ship_date ? new Date(s.ship_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' }) : '—'}</td>
+                  <td className="px-4 py-2.5 text-[#4B4F58] text-xs whitespace-nowrap">{shipDay(s.ship_date) || '—'}</td>
                   <td className="px-4 py-2.5 text-[#3A4658] text-xs whitespace-nowrap">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-[#6B7A8D]">{s.tracking_number ?? '—'}</td>
                   <td className="px-4 py-2.5 text-right text-xs text-[#3A4658]">

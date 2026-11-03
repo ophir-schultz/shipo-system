@@ -34,10 +34,18 @@ describe('staff profit rows', () => {
     const rows = profitRows('shipment', [row(), row({
       id: 's2', orderNumber: 'SO2', clientRate: 10, actualCost: null,
     })])
+    expect(rows[0].Date).toBe('2026-11-03')
     expect(rows[0]['Price ($)']).toBe('20.00')
     expect(rows[0]['ShipStation cost ($)']).toBe('8.00')
     expect(rows[0]['Profit ($)']).toBe('12.00')
     expect(rows[1]['Profit ($)']).toBe('')
+  })
+
+  it('prints the New York day when UTC has already rolled', () => {
+    const rows = profitRows('shipment', [row({ shipDate: '2026-11-03T03:30:00.000Z' })])
+    expect(rows[0].Date).toBe('2026-11-02')
+    const orders = profitRows('order', [row({ shipDate: '2026-10-27T03:30:00.000Z', orderNumber: '45058' })])
+    expect(orders[0].Date).toBe('2026-10-26')
   })
 
   it('rolls an order and a client from the same shipments', () => {

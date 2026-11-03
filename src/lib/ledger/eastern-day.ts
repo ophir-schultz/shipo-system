@@ -10,6 +10,26 @@ export function easternToday(at: Date = new Date()): string {
   return warehouseParts(at, WAREHOUSE_TZ).date
 }
 
+/**
+ * The America/New_York calendar day of a stored date.
+ *
+ * A date column is already that day. A timestamptz is an instant, and the
+ * day is New York's, not the UTC date in front of the T. 2026-11-03T03:30Z
+ * is still November 2 in the warehouse. Every screen that prints or filters
+ * a ship date uses this, so a statement, a shipment row and a profit row
+ * cannot name two days for one label.
+ */
+export function easternCalendarDay(value: string | Date | null | undefined): string {
+  if (value == null || value === '') return ''
+  if (typeof value !== 'string') {
+    return Number.isNaN(value.getTime()) ? '' : easternToday(value)
+  }
+  const trimmed = value.trim()
+  if (!trimmed.includes('T')) return trimmed.slice(0, 10)
+  const at = new Date(trimmed)
+  return Number.isNaN(at.getTime()) ? trimmed.slice(0, 10) : easternToday(at)
+}
+
 export function easternMonthStart(date: string): string {
   return `${date.slice(0, 7)}-01`
 }

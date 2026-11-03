@@ -12,6 +12,7 @@ import {
 import { read, readErrors, type Read } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import {
+  easternCalendarDay,
   easternMidnightIso,
   easternMonthStart,
   easternToday,
@@ -558,7 +559,7 @@ export default async function DashboardPage() {
                       <td className="px-4 py-2 font-mono text-[#3A4658]">{a.order_number}</td>
                       <td className="px-2 py-2 text-[#3A4658]">{a.clients?.name ?? '—'}</td>
                       <td className="px-2 py-2 text-[#4B4F58]">{a.reason ?? 'Carrier reweigh'}</td>
-                      <td className="px-2 py-2 text-[#4B4F58]">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
+                      <td className="px-2 py-2 text-[#4B4F58]">{easternCalendarDay(a.adjustment_date) || '—'}</td>
                       {/* `adjustment_amount` stays on the plain coercion by
                           standing decision: nothing in this codebase writes
                           null to that column, so dashing it would be a guess

@@ -1,5 +1,5 @@
 import { periodRange } from '@/lib/billing/statement'
-import { easternAddDays, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
 import { money } from './engine'
 import {
   rollupClients,
@@ -56,7 +56,7 @@ function lineProfit(price: number | null, cost: number | null): number | null {
 
 export function shipmentProfitRows(rows: ShipmentMoney[]): Array<Record<string, string>> {
   return rows.map((row) => ({
-    Date: row.shipDate?.slice(0, 10) ?? '',
+    Date: easternCalendarDay(row.shipDate),
     Client: row.clientName ?? '',
     Order: row.orderNumber,
     Tracking: row.trackingNumber ?? '',
@@ -68,7 +68,7 @@ export function shipmentProfitRows(rows: ShipmentMoney[]): Array<Record<string, 
 
 export function orderProfitRows(orders: OrderProfit[]): Array<Record<string, string>> {
   return orders.map((order) => ({
-    Date: order.shipDate ?? '',
+    Date: easternCalendarDay(order.shipDate),
     Client: order.clientName,
     Order: order.orderNumber,
     Shipments: String(order.shipments),

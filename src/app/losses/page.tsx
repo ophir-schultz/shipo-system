@@ -7,6 +7,7 @@ import { billedOz, weightBracket } from '@/lib/billing/weight-bracket'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
 
 // Read at REQUEST time, never at build time. Without this the App Router
 // prerenders this page during `next build`. The 2026-10-21 preview build
@@ -514,7 +515,7 @@ export default async function LossesPage() {
                 <tbody>
                   {d.losses.map((s: any) => (
                     <tr key={s.id} className="border-b border-[#E2E8F0]/30 hover:bg-red-50">
-                      <td className="py-2 pr-3 text-[#4B4F58]">{s.ship_date?.split('T')[0] ?? '—'}</td>
+                      <td className="py-2 pr-3 text-[#4B4F58]">{easternCalendarDay(s.ship_date) || '—'}</td>
                       <td className="py-2 pr-3 font-mono text-[#3A4658]">{s.order_number}</td>
                       <td className="py-2 pr-3 text-[#3A4658]">{(s.clients as any)?.name ?? <span className="text-[#6B7A8D] italic">unassigned</span>}</td>
                       <td className="py-2 pr-3 text-[#4B4F58]">{s.carrier} · {s.service}</td>

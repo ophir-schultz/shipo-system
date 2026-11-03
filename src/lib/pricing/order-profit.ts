@@ -5,6 +5,7 @@
 // A missing rate or a missing cost is null. It is not zero, and it is not
 // dropped into a sum that then looks finished.
 
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
 import { money } from './engine'
 
 export interface ShipmentMoney {
@@ -77,6 +78,7 @@ export function rollupOrders(rows: ShipmentMoney[]): OrderProfit[] {
       }
     }
     const clientPrice = priceKnown ? money(priceCents / 100) : null
+    const day = easternCalendarDay(shipDate)
     const shipstationCost = costKnown ? money(costCents / 100) : null
     const first = shipments[0]
     orders.push({
@@ -84,7 +86,7 @@ export function rollupOrders(rows: ShipmentMoney[]): OrderProfit[] {
       orderNumber: first.orderNumber,
       clientId: first.clientId,
       clientName: first.clientName ?? 'Unassigned',
-      shipDate: shipDate?.slice(0, 10) ?? null,
+      shipDate: day || null,
       shipments: shipments.length,
       clientPrice,
       shipstationCost,
