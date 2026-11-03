@@ -214,7 +214,7 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
     window.print()
   }
 
-  async function handleDownload() {
+  async function handleDownload(format: 'xlsx' | 'csv' | 'pdf' = 'xlsx') {
     // Resolved BEFORE setDownloading, so a tab with no spreadsheet cannot
     // leave the button stuck in its '⏳…' state. The old code set the flag
     // first and read the map second, and the map returning undefined still
@@ -230,7 +230,7 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
       return
     }
     setDownloading(true)
-    const params = new URLSearchParams({ type: reportType, dateFrom, dateTo, ...(clientId ? { clientId } : {}) })
+    const params = new URLSearchParams({ type: reportType, dateFrom, dateTo, format, ...(clientId ? { clientId } : {}) })
     try {
       const res = await fetch(`/api/reports/download?${params}`)
       if (!res.ok) {
@@ -241,7 +241,7 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${reportType}-${dateFrom}-${dateTo}.xlsx`
+      a.download = `${reportType}-${dateFrom}-${dateTo}.${format}`
       a.click()
       URL.revokeObjectURL(url)
       showSuccess('Report downloaded')
@@ -309,15 +309,25 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
             whatever is on screen regardless of which exports exist.
           */}
           {reportTypeForTab(activeTab) !== null && (
-            <button onClick={handleDownload} disabled={downloading}
-              className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] bg-[#EEF3FA] hover:bg-[#DDE6F2] disabled:opacity-50 transition">
-              {downloading ? '⏳…' : '↓ Excel'}
-            </button>
+            <>
+              <button onClick={() => handleDownload('csv')} disabled={downloading}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] bg-[#EEF3FA] hover:bg-[#DDE6F2] disabled:opacity-50 transition">
+                {downloading ? '⏳…' : '↓ CSV'}
+              </button>
+              <button onClick={() => handleDownload('xlsx')} disabled={downloading}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] bg-[#EEF3FA] hover:bg-[#DDE6F2] disabled:opacity-50 transition">
+                {downloading ? '⏳…' : '↓ Excel'}
+              </button>
+              <button onClick={() => handleDownload('pdf')} disabled={downloading}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition"
+                style={{ background: '#1A73E8' }}>
+                {downloading ? '⏳…' : '↓ PDF'}
+              </button>
+            </>
           )}
           <button onClick={handlePrintPDF} disabled={downloading}
-            className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] disabled:opacity-50 transition"
-            style={{ background: '#1A73E8' }}>
-            ↓ PDF
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] disabled:opacity-50 transition border border-[#CBD5E1]">
+            Print
           </button>
         </div>
       </div>
