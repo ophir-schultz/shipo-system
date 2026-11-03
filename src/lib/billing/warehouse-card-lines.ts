@@ -120,6 +120,20 @@ export function rateTextOf(row: RateCardRow): string {
   return ''
 }
 
+/**
+ * The unit the charge calculator prices with.
+ *
+ * Structured rows leave `unit` at the column default `per_unit`
+ * (ledger_05_seed_nayax.sql). `rate_type` is what the calculator reads:
+ * devanning is `flat`, a pallet line is `per_pallet`.
+ */
+export function displayUnit(row: RateCardRow): string | null {
+  const rateType = row.rate_type?.trim()
+  if (rateType) return rateType
+  const unit = row.unit?.trim()
+  return unit || null
+}
+
 function labelOf(row: RateCardRow, key: string): string {
   const label = row.label?.trim()
   if (label) return label
@@ -159,7 +173,7 @@ export function cardLines(card: readonly RateCardRow[], date: string): CardLine[
       label: labelOf(row, key),
       rate: priceOf(row.rate) ?? (pricing === 'entered' ? percentOf(row) : null),
       rateText: rateTextOf(row),
-      unit: row.unit?.trim() ? row.unit.trim() : null,
+      unit: displayUnit(row),
       pricing,
       automatic,
       automaticReason: automatic ? reasonFor(row) : null,
