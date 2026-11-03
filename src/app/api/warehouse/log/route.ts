@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/require-staff'
+import { readAllPages } from '@/lib/db/page'
 import { cents } from '@/lib/ledger/calculate-charges'
 import { priceServiceLine, type WarehouseRateRow } from '@/lib/billing/warehouse-log-rate'
 
@@ -179,11 +180,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'date is required' }, { status: 400 })
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await readAllPages((from, to) => supabaseAdmin
     .from('warehouse_daily_log')
     .select('*, clients(name)')
     .eq('log_date', date)
     .order('created_at', { ascending: false })
+    .order('id')
+    .range(from, to))
 
   // The error was discarded, so a failed read rendered as "no entries today"
   // -- and the page hides the whole table when the list is empty, so a day's
