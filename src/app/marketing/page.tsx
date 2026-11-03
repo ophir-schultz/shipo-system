@@ -142,6 +142,7 @@ export default function MarketingDashboard() {
   const [website, setWebsite] = useState<WebsiteData | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchData = async () => {
     try {
@@ -149,8 +150,14 @@ export default function MarketingDashboard() {
         fetch('/api/marketing', { cache: 'no-store' }),
         fetch('/api/website', { cache: 'no-store' }),
       ])
-      const marketingJson = await marketingRes.json()
-      setData(marketingJson)
+      if (!marketingRes.ok) {
+        const body = await marketingRes.json().catch(() => null) as { error?: string } | null
+        setData(null)
+        setError(body?.error || `Marketing data could not be read (HTTP ${marketingRes.status}).`)
+        return
+      }
+      setError(null)
+      setData(await marketingRes.json())
       if (!websiteRes.ok) {
         setWebsite({
           connected: false,
@@ -168,7 +175,8 @@ export default function MarketingDashboard() {
       }
       setLastRefresh(new Date())
     } catch (e) {
-      console.error(e)
+      setData(null)
+      setError(e instanceof Error ? e.message : 'Marketing data could not be read.')
     } finally {
       setLoading(false)
     }
@@ -186,9 +194,16 @@ export default function MarketingDashboard() {
     </div>
   )
 
-  if (!data) return (
+  if (error || !data) return (
     <div style={{ background: '#FFFFFF', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ color: '#ff4444', fontSize: 18 }}>Could not load marketing data</div>
+      <div style={{ textAlign: 'center', maxWidth: 420 }}>
+        <div style={{ color: '#b91c1c', fontSize: 18 }}>Marketing data could not be read</div>
+        <p style={{ color: '#4B4F58', fontSize: 14, marginTop: 8 }}>{error || 'The marketing service did not return a dashboard.'}</p>
+        <button type="button" onClick={() => { setLoading(true); setError(null); fetchData() }}
+          style={{ marginTop: 16, background: '#1A73E8', color: 'white', border: 0, borderRadius: 8, padding: '8px 16px', fontWeight: 600 }}>
+          Try again
+        </button>
+      </div>
     </div>
   )
 
