@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { readAllPages, type PageResult } from '@/lib/db/page'
 import { priceOf, type Money } from '@/lib/billing/unpriced'
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
 
 // The two lookups that turn a statement from a total into a document a client
 // can CHECK.
@@ -246,7 +247,7 @@ export function buildShipmentLines(
       // (calculate-charges.ts:384-385) -- but only charge_date is what the
       // period was filtered on, so only it is guaranteed to fall inside the
       // period this sheet is headed with.
-      ship_date: charge.charge_date,
+      ship_date: easternCalendarDay(charge.charge_date),
       order_number: charge.order_id === null
         ? ''
         : orderNumbers.get(charge.order_id) ?? '',

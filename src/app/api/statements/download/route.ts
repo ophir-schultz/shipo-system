@@ -19,6 +19,7 @@ import {
 } from '@/lib/billing/statement-detail'
 import { priceOf, totalOrUnknown, unpricedNote, UNPRICED_CELL } from '@/lib/billing/unpriced'
 import { priceStatementCharges } from '@/lib/billing/statement-source'
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
 
 // The statement as a spreadsheet, built from the same read the screen uses.
 //
@@ -295,7 +296,7 @@ export async function GET(req: Request) {
   // charge missing from the sheet is a charge missing from the explanation of a
   // total it is still inside.
   const detail = charges.map(c => ({
-    'Date': c.charge_date,
+    'Date': easternCalendarDay(c.charge_date),
     'Order': c.order_id === null ? '' : orderNumbers.get(c.order_id) ?? '',
     'Charge': c.charge_type,
     'Line': c.label,
