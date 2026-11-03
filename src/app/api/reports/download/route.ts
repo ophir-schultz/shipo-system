@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
 import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 // `priceOf` is no longer imported here. The profit-loss branch was its only
 // consumer in this file, and that branch now goes through profit-rollup, which
@@ -155,14 +156,14 @@ export async function GET(req: Request) {
     const { data, error } = await readAllPages((from, to) => {
       let q = supabaseAdmin
         .from('shipments')
-        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, recipient_city, recipient_state, weight, actual_cost, client_rate, profit_loss, is_loss, source')
+        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, recipient_city, recipient_state, weight, actual_cost, client_rate, profit_loss, is_loss, source, raw_data')
         .gte('ship_date', easternMidnightIso(dateFrom!))
         .lt('ship_date', easternMidnightIso(easternAddDays(dateTo!, 1)))
       if (clientId) q = q.eq('client_id', clientId)
       return q.order('ship_date', { ascending: false }).order('id').range(from, to)
     })
     if (error) return unreadable('shipments', error.message)
-    rows = (data ?? []).map((s: any) => ({
+    rows = withoutVoided(data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
       'Ship Date': easternCalendarDay(s.ship_date),
@@ -188,7 +189,7 @@ export async function GET(req: Request) {
         .from('shipments')
         // `client_id` is NEW here and is the point of the rewrite below: this
         // branch used to roll up by `clients.name`, which is not a key.
-        .select('client_id, clients(name), ship_date, actual_cost, client_rate, profit_loss, is_loss')
+        .select('client_id, clients(name), ship_date, actual_cost, client_rate, profit_loss, is_loss, raw_data')
         .gte('ship_date', easternMidnightIso(dateFrom!))
         .lt('ship_date', easternMidnightIso(easternAddDays(dateTo!, 1)))
       if (clientId) q = q.eq('client_id', clientId)
@@ -230,7 +231,7 @@ export async function GET(req: Request) {
     // construction. Rows it cannot reconcile are counted into three named
     // columns rather than being absorbed at 0.
     const groups = new Map<string, { name: string | null; rows: typeof data }>()
-    for (const s of data ?? []) {
+    for (const s of withoutVoided(data ?? [])) {
       // The empty string is the bucket for rows with no client. A real key, so
       // it cannot collide with a uuid and cannot be read as a client's name.
       const key = typeof s.client_id === 'string' ? s.client_id : ''
@@ -318,7 +319,7 @@ export async function GET(req: Request) {
     const { data, error } = await readAllPages((from, to) => {
       let q = supabaseAdmin
         .from('shipments')
-        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, actual_cost, client_rate, profit_loss')
+        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, actual_cost, client_rate, profit_loss, raw_data')
         .eq('is_loss', true)
         .gte('ship_date', easternMidnightIso(dateFrom!))
         .lt('ship_date', easternMidnightIso(easternAddDays(dateTo!, 1)))
@@ -326,7 +327,7 @@ export async function GET(req: Request) {
       return q.order('profit_loss', { ascending: true }).order('id').range(from, to)
     })
     if (error) return unreadable('shipments (losses)', error.message)
-    rows = (data ?? []).map((s: any) => ({
+    rows = withoutVoided(data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
       'Ship Date': easternCalendarDay(s.ship_date),
