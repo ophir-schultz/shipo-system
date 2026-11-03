@@ -25,6 +25,18 @@ describe('staff password login still covers the new pages', () => {
     expect(route).toContain('signInWithPassword')
   })
 
+  it('logs the Supabase auth error without the password or keys', () => {
+    const route = readFileSync(join(__dirname, '../app/api/auth/login/route.ts'), 'utf8')
+    const logStart = route.indexOf("console.error('[auth/login] sign-in failed'")
+    const log = route.slice(logStart, route.indexOf('})', logStart) + 2)
+    expect(log).toContain('signInError.message')
+    expect(log).toContain('signInError.status')
+    expect(log).not.toContain('password')
+    expect(log).not.toContain('process.env')
+    expect(log).not.toContain('signInError)')
+    expect(route).toContain("error: 'Invalid email or password.'")
+  })
+
   it('runs the staff proxy on the new pages and not on the partner portal', () => {
     for (const path of STAFF_PAGES) expect(guarded(path)).toBe(true)
     expect(guarded('/partner')).toBe(false)
