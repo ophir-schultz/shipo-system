@@ -9,7 +9,9 @@ import {
   priceMaterials,
   pricePeak,
   pricePick,
+  pricePalletBuild,
   priceReceiving,
+  priceReturns,
   priceShipping,
   priceStorage,
   splitPick,
@@ -70,6 +72,18 @@ describe('pricePick', () => {
       { sku: 'D600005S10', qty: 8 },
     ])
     expect(priced.amount).toBe(1.5)
+  })
+
+  it('bills an order pick as one charge up to the included items, then per extra item', () => {
+    const card = list({
+      devicePick: null,
+      accessoryPick: null,
+      orderPick: { includedItems: 4, orderRate: 0.5, additionalRate: 0.1 },
+    })
+    expect(pricePick(card, [{ sku: 'A', qty: 4 }]).amount).toBe(0.5)
+    expect(pricePick(card, [{ sku: 'A', qty: 5 }]).amount).toBe(0.6)
+    expect(priceReturns(card, 1, 1).amount).toBeNull()
+    expect(pricePalletBuild(card, 1).amount).toBeNull()
   })
 
   it('bills accessories per unit and does not give them the carton rate', () => {

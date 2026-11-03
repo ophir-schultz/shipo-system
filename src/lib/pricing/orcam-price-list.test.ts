@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { pricePick, priceShipping } from './engine'
-import { parsePriceList, withShippingReference } from './parse-price-list'
+import { priceLabour, priceOrderPick, pricePalletBuild, pricePick, priceReturns, priceShipping } from './engine'
+import { parsePriceList, summarizePriceList, withShippingReference } from './parse-price-list'
 import { loadRepoPriceList } from './repo-price-lists'
 
 const orcamRaw = readFileSync(join(process.cwd(), 'price-lists/orcam.json'), 'utf8')
@@ -33,16 +33,36 @@ describe('Orcam price list', () => {
     expect(fromOrcam.amount).not.toBeNull()
   })
 
-  it('does not invent device, labour, storage or materials rates', () => {
-    expect(orcam.list?.devicePick).toBeNull()
-    expect(orcam.list?.accessoryPick).toBeNull()
-    expect(orcam.list?.storage).toBeNull()
-    expect(orcam.list?.labour).toBeNull()
+  it('prices the confirmed order pick, labour, returns and pallet build', () => {
+    const list = orcam.list!
+    expect(list.devicePick).toBeNull()
+    expect(list.accessoryPick).toBeNull()
+    expect(list.storage).toBeNull()
+    expect(list.materials).toBeNull()
+    expect(list.orderPick).toEqual({ includedItems: 4, orderRate: 0.5, additionalRate: 0.1 })
+    expect(pricePick(list, [{ sku: 'A', qty: 4 }]).amount).toBe(0.5)
+    expect(priceOrderPick(list, [{ sku: 'A', qty: 1 }, { sku: 'B', qty: 5 }]).amount).toBe(0.7)
+    expect(list.labour).toEqual({ perHour: 48 })
+    expect(priceLabour(list, 2).amount).toBe(96)
+    expect(priceReturns(list, 1, 0).amount).toBe(3.5)
+    expect(priceReturns(list, 1, 2).amount).toBe(4.5)
+    expect(priceReturns(list, 2, 1).amount).toBe(7.5)
+    expect(list.palletBuild).toEqual({ perPallet: 15 })
+    expect(pricePalletBuild(list, 3).amount).toBe(45)
+    expect(summarizePriceList(list).some((line) => line.startsWith('Pallet build:'))).toBe(true)
+    expect(orcamRaw).not.toContain('shrink wrap')
+    expect(pricePalletBuild(list, 0).amount).toBe(0)
+    expect(priceReturns(list, 0, 2).amount).toBeNull()
+    expect(pricePick(list, []).amount).toBe(0)
+  })
+
+  it('leaves packing materials and the rack off the engine fields', () => {
     expect(orcam.list?.materials).toBeNull()
-    expect(pricePick(orcam.list!, [{ sku: 'R1', qty: 1 }]).amount).toBeNull()
-    expect(orcam.list?.services.find((row) => row.name.startsWith('Pick and pack, up to'))?.amount).toBe(0.5)
-    expect(orcam.list?.services.find((row) => row.name.includes('additional'))?.amount).toBe(0.1)
-    expect(orcam.list?.ambiguous.length).toBeGreaterThan(0)
+    expect(orcam.list?.storage).toBeNull()
+    expect(orcam.list?.services.find((row) => row.name === 'Packing materials')?.basis).toBe('prices of the materials +15%')
+    expect(orcam.list?.services.find((row) => row.name.includes('rack'))?.amount).toBe(60)
+    expect(orcam.list?.ambiguous.map((row) => row.source).join('\n')).toContain('Packing materials')
+    expect(orcam.list?.ambiguous.map((row) => row.source).join('\n')).toContain('Rack')
   })
 
   it('refuses a reference that also embeds cells', () => {
