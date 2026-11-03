@@ -5,6 +5,7 @@ import {
   formatPrice, formatSignedPrice, priceOf, sumPriced, combinePriced,
   unpricedNote, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
+import { billableWarehouse } from '@/lib/billing/warehouse-card-lines'
 import {
   reconcile, combineReconciled, reconciledOrUnknown, marginPct, exclusionNote,
   excludedCount, invoiceableRevenue, otherIncome,
@@ -130,7 +131,7 @@ function buildClientBreakdown(clients: any[], shipments: any[], warehouse: any[]
     const ca = adjustments.filter(a => a.client_id === client.id)
     const rollup = reconcile(cs)
     const known = reconciledOrUnknown(rollup)
-    const warehouseRev = sumPriced(cw, 'total')
+    const warehouseRev = sumPriced(billableWarehouse(cw), 'total')
     const pendingAdj = sumPriced(ca, 'adjustment_amount')
     const lossCount = cs.filter(s => s.is_loss).length
     return {
@@ -238,9 +239,9 @@ async function getDashboardData() {
       .select('id, order_number, adjustment_amount, reason, adjustment_date, client_id, clients(name)')
       .eq('status', 'pending').order('adjustment_amount', { ascending: false }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
-      .select('total').gte('log_date', weekStart).order('id').range(from, to)),
+      .select('total, notes').gte('log_date', weekStart).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
-      .select('total').gte('log_date', monthStart).order('id').range(from, to)),
+      .select('total, notes').gte('log_date', monthStart).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('manual_charges')
       .select('amount').eq('approved', true).gte('charge_date', weekStart).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('manual_charges')
@@ -253,7 +254,7 @@ async function getDashboardData() {
         .select('client_id, actual_cost, client_rate, profit_loss, is_loss, clients(name)')
         .gte('ship_date', monthInstant).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
-      .select('client_id, total').gte('log_date', monthStart).order('id').range(from, to)),
+      .select('client_id, total, notes').gte('log_date', monthStart).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
       .select('client_id, adjustment_amount').eq('status', 'pending').order('id').range(from, to)),
   ])

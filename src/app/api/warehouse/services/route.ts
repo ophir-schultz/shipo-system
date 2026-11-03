@@ -12,7 +12,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/require-staff'
-import { pricedServices } from '@/lib/billing/warehouse-priced-services'
+import { cardLines, type RateCardRow } from '@/lib/billing/warehouse-card-lines'
 import type { WarehouseRateRow } from '@/lib/billing/warehouse-log-rate'
 
 type CardRow = WarehouseRateRow & { client_id: string }
@@ -75,12 +75,22 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     date,
-    clients: (clients ?? []).map((c) => ({
-      id: c.id,
-      name: c.name,
-      // A client with no rows at all gets [] -- which pricedServices reports
-      // as 'no-card', the state four of the nine active clients are in.
-      ...pricedServices(byClient.get(c.id) ?? [], date),
-    })),
+    clients: (clients ?? []).map((c) => {
+      const card = (byClient.get(c.id) ?? []) as RateCardRow[]
+      const lines = cardLines(card, date)
+      const state = card.length === 0
+        ? 'no-card'
+        : lines.length === 0
+          ? 'none-priced'
+          : 'priced'
+      return {
+        id: c.id,
+        name: c.name,
+        state,
+        lines,
+        services: [],
+        structuredCount: 0,
+      }
+    }),
   })
 }

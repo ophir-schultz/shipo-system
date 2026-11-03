@@ -7,6 +7,7 @@ import {
 // that the subtraction survives the trip through the exact two functions the
 // dashboard calls, so a local toFixed here would test nothing.
 import { formatPrice, formatSignedPrice } from '@/lib/billing/unpriced'
+import { AUTOMATIC_NOTE } from '@/lib/billing/warehouse-card-lines'
 
 // A shipment row, written as the three money columns only, because those are
 // the only three this module reads.
@@ -535,5 +536,13 @@ describe('otherIncome', () => {
     // since both columns hold money. Named parameters make that unexpressible;
     // this pins it.
     expect(otherIncome([{ amount: 999, total: 1 }], [{ total: 999, amount: 2 }]).total).toBe(3)
+  })
+
+  it('does not count a recorded-only automatic warehouse line as unpriced', () => {
+    const s = otherIncome([
+      { total: 12, notes: 'boxes' },
+      { total: null, notes: AUTOMATIC_NOTE },
+    ], [])
+    expect(s).toEqual({ total: 12, unpriced: 0, counted: 1 })
   })
 })
