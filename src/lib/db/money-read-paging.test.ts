@@ -56,6 +56,7 @@ const ROOT = join(__dirname, '..', '..')
  */
 const MONEY_READS: Array<[file: string, tables: string[]]> = [
   ['app/dashboard/page.tsx', ['shipments']],
+  ['app/shipments/page.tsx', ['shipments', 'clients']],
   ['app/pnl/page.tsx', ['shipments']],
   ['app/losses/page.tsx', ['shipments']],
   ['app/api/agent/monitor/route.ts', ['shipments']],
