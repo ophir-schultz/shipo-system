@@ -49,19 +49,12 @@ console.log(`         SQL editor: https://supabase.com/dashboard/project/${ref}/
 // exist. So "referral_partners is EMPTY" can only be asserted by a reader
 // that bypasses RLS, and that had been assumed rather than checked.
 //
-// A Supabase key is a JWT; the middle segment is base64url JSON carrying a
-// `role` claim. Decoding it is not reading a secret out -- only the role name
-// is printed, never the token, and the signature is neither verified nor
-// shown. The point is that the script states its own authority instead of
-// leaving the reader to infer it from a variable name, since
-// SUPABASE_SERVICE_KEY is a name, not a guarantee of what is in it.
-let role = 'unknown'
-try {
-  const seg = key.split('.')[1]
-  role = JSON.parse(Buffer.from(seg, 'base64url').toString()).role ?? 'absent'
-} catch {
-  role = 'unparseable (not a JWT?)'
-}
+// A legacy Supabase key is a JWT whose middle segment carries `role`.
+// The new sb_secret_ key is not a JWT and still bypasses RLS. Only the
+// role name is printed, never the key.
+import { supabaseKeyRole } from './supabase-key-role.mjs'
+
+const role = supabaseKeyRole(key)
 console.log(`reader   role=${role}`)
 if (role !== 'service_role') {
   console.log('         !! NOT service_role. Row COUNTS from this key are not evidence:')

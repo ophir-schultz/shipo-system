@@ -36,10 +36,9 @@ const MAX = 5          // MAX_CODES_PER_WINDOW
 const WINDOW_MIN = 15  // RATE_WINDOW_MINUTES
 const EMAIL = 'ophir+portaltest@shipousa.com'
 
-let role = 'unknown'
-try {
-  role = JSON.parse(Buffer.from(key.split('.')[1], 'base64url').toString()).role ?? 'absent'
-} catch { role = 'unparseable' }
+import { supabaseKeyRole } from './supabase-key-role.mjs'
+
+const role = supabaseKeyRole(key)
 if (role !== 'service_role') {
   // RLS would hide rows from a weaker key, and a budget that reads "5 free"
   // because rows are invisible is worse than no answer: it sends me spending.
