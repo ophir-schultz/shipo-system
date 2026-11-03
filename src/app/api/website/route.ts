@@ -1,120 +1,188 @@
 import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/require-staff'
 
-const VERCEL_TOKEN = process.env.VERCEL_TOKEN
-const VERCEL_PROJECT = 'shipo-website1'
-const VERCEL_TEAM = process.env.VERCEL_TEAM_ID || ''
+// The public site is shipousa.com. The only website project on the team is
+// shipo-website1. The old route called /v1/web/insights/stats/*, which is not
+// a Web Analytics endpoint, treated every non-200 as empty data, and still
+// answered connected: true with zeros. The query API is
+// /v1/query/web-analytics/visits/*. A failed lookup now stays disconnected
+// and the log records the HTTP status, never the token.
 
-async function fetchVercelAnalytics(endpoint: string) {
-  const base = 'https://vercel.com/api'
-  const teamQuery = VERCEL_TEAM ? `&teamId=${VERCEL_TEAM}` : ''
-  const res = await fetch(`${base}${endpoint}${teamQuery}`, {
-    headers: {
-      Authorization: `Bearer ${VERCEL_TOKEN}`,
-      'Content-Type': 'application/json',
-    },
+const API = 'https://api.vercel.com'
+const PROJECT_NAME = 'shipo-website1'
+const SITE_HOSTS = ['shipousa.com', 'www.shipousa.com']
+
+type Upstream = { ok: true; body: unknown } | { ok: false; status: number; path: string }
+
+function empty(now: string, message: string) {
+  return {
+    connected: false,
+    message,
+    project: PROJECT_NAME,
+    visitors: { total: 0, today: 0, thisWeek: 0, thisMonth: 0 },
+    pageviews: { total: 0, today: 0 },
+    topPages: [] as { path: string; views: number; visitors: number }[],
+    topSources: [] as { source: string; visitors: number }[],
+    recentDeployments: [] as { url: string; state: string; createdAt: string; commitMessage: string }[],
+    conversionEvents: { bookACall: 0, emailClicks: 0, pricingViews: 0 },
+    lastUpdated: now,
+  }
+}
+
+async function vercelGet(path: string, query: Record<string, string> = {}): Promise<Upstream> {
+  const url = new URL(path, API)
+  const team = process.env.VERCEL_TEAM_ID
+  if (team) url.searchParams.set('teamId', team)
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value)
+  const token = process.env.VERCEL_TOKEN
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
     next: { revalidate: 300 },
   })
-  if (!res.ok) return null
-  return res.json()
+  if (!res.ok) {
+    console.error('[website] Vercel request failed', { path, status: res.status })
+    return { ok: false, status: res.status, path }
+  }
+  return { ok: true, body: await res.json() }
+}
+
+function record(body: unknown): Record<string, unknown> | null {
+  return body !== null && typeof body === 'object' ? body as Record<string, unknown> : null
+}
+
+function rowsOf(body: unknown): Record<string, unknown>[] {
+  const root = record(body)
+  const data = root?.data
+  if (!Array.isArray(data)) return []
+  return data.filter((row): row is Record<string, unknown> => row !== null && typeof row === 'object')
+}
+
+function numberOf(row: Record<string, unknown>): number {
+  for (const key of ['total', 'count', 'visits', 'pageviews', 'devices']) {
+    const value = row[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return 0
 }
 
 export async function GET() {
   const denied = await requireStaff()
   if (denied) return denied
 
-  const now = new Date()
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-  const from = thirtyDaysAgo.toISOString().split('T')[0]
-  const to = now.toISOString().split('T')[0]
-
-  // If no token, return placeholder data
-  if (!VERCEL_TOKEN) {
-    return NextResponse.json({
-      connected: false,
-      message: 'VERCEL_TOKEN not configured',
-      visitors: { total: 0, today: 0, thisWeek: 0, thisMonth: 0 },
-      pageviews: { total: 0, today: 0 },
-      topPages: [],
-      topSources: [],
-      recentDeployments: [],
-      conversionEvents: { bookACall: 0, emailClicks: 0, pricingViews: 0 },
-      lastUpdated: now.toISOString(),
-    })
+  const now = new Date().toISOString()
+  if (!process.env.VERCEL_TOKEN) {
+    return NextResponse.json(empty(now, 'VERCEL_TOKEN is not set on this deployment.'))
+  }
+  if (!process.env.VERCEL_TEAM_ID) {
+    return NextResponse.json(empty(now, 'VERCEL_TEAM_ID is not set, so the website project cannot be looked up on the team.'))
   }
 
-  try {
-    // Get project info
-    const projectsRes = await fetchVercelAnalytics(`/v9/projects?search=${VERCEL_PROJECT}`)
-    const project = projectsRes?.projects?.[0]
-    const projectId = project?.id
-
-    // Get recent deployments
-    const deploymentsRes = projectId
-      ? await fetchVercelAnalytics(`/v6/deployments?projectId=${projectId}&limit=5`)
-      : null
-
-    const deployments = deploymentsRes?.deployments?.map((d: { url: string; state: string; createdAt: number; meta?: { githubCommitMessage?: string } }) => ({
-      url: d.url,
-      state: d.state,
-      createdAt: new Date(d.createdAt).toISOString(),
-      commitMessage: d.meta?.githubCommitMessage || 'Manual deploy',
-    })) || []
-
-    // Get analytics — Vercel Analytics API v1
-    const analyticsBase = projectId
-      ? `/v1/web/insights/stats/path?projectId=${projectId}&from=${from}&to=${to}&limit=10`
-      : null
-
-    const topPagesRes = analyticsBase ? await fetchVercelAnalytics(analyticsBase) : null
-    const topPages = topPagesRes?.data?.map((p: { key: string; total: number; devices?: number }) => ({
-      path: p.key,
-      views: p.total,
-      visitors: p.devices || 0,
-    })) || []
-
-    // Visitors overview
-    const visitorsRes = projectId
-      ? await fetchVercelAnalytics(`/v1/web/insights/stats/visitors?projectId=${projectId}&from=${from}&to=${to}`)
-      : null
-    const totalVisitors = visitorsRes?.data?.reduce((sum: number, d: { total: number }) => sum + d.total, 0) || 0
-
-    // Referrers
-    const referrersRes = projectId
-      ? await fetchVercelAnalytics(`/v1/web/insights/stats/referrer?projectId=${projectId}&from=${from}&to=${to}&limit=5`)
-      : null
-    const topSources = referrersRes?.data?.map((r: { key: string; total: number }) => ({
-      source: r.key || 'Direct',
-      visitors: r.total,
-    })) || []
-
-    return NextResponse.json({
-      connected: true,
-      visitors: {
-        total: totalVisitors,
-        today: 0,
-        thisWeek: 0,
-        thisMonth: totalVisitors,
-      },
-      pageviews: { total: topPages.reduce((s: number, p: { views: number }) => s + p.views, 0), today: 0 },
-      topPages,
-      topSources,
-      recentDeployments: deployments,
-      conversionEvents: { bookACall: 0, emailClicks: 0, pricingViews: 0 },
-      lastUpdated: now.toISOString(),
-    })
-  } catch (e) {
-    console.error('Vercel analytics error:', e)
-    return NextResponse.json({
-      connected: false,
-      message: 'Error fetching analytics — check VERCEL_TOKEN',
-      visitors: { total: 0, today: 0, thisWeek: 0, thisMonth: 0 },
-      pageviews: { total: 0, today: 0 },
-      topPages: [],
-      topSources: [],
-      recentDeployments: [],
-      conversionEvents: { bookACall: 0, emailClicks: 0, pricingViews: 0 },
-      lastUpdated: now.toISOString(),
-    })
+  const project = await vercelGet(`/v9/projects/${PROJECT_NAME}`)
+  if (!project.ok) {
+    const why = project.status === 404
+      ? `No Vercel project named ${PROJECT_NAME}.`
+      : `Could not read Vercel project ${PROJECT_NAME} (HTTP ${project.status}).`
+    return NextResponse.json(empty(now, why))
   }
+
+  const domains = await vercelGet(`/v9/projects/${PROJECT_NAME}/domains`)
+  const domainList = domains.ok && Array.isArray(record(domains.body)?.domains)
+    ? record(domains.body)?.domains as { name?: string }[]
+    : []
+  const hosts = new Set(domainList.map((row) => row.name ?? '').filter(Boolean))
+  const siteAttached = SITE_HOSTS.some((host) => hosts.has(host))
+
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  const until = now
+  const projectId = String(record(project.body)?.id ?? '')
+  if (!projectId) {
+    return NextResponse.json(empty(now, `Vercel project ${PROJECT_NAME} did not include an id.`))
+  }
+
+  const visits = await vercelGet('/v1/query/web-analytics/visits/count', {
+    projectId, since, until,
+  })
+  if (!visits.ok) {
+    const scope = visits.status === 401 || visits.status === 403
+      ? ' The token cannot read Web Analytics for this team.'
+      : ''
+    return NextResponse.json(empty(
+      now,
+      `Web Analytics lookup failed for ${PROJECT_NAME} (HTTP ${visits.status}).${scope}`,
+    ))
+  }
+
+  const pages = await vercelGet('/v1/query/web-analytics/visits/aggregate', {
+    projectId,
+    since,
+    until,
+    by: JSON.stringify(['requestPath']),
+    limit: '10',
+  })
+  const sources = await vercelGet('/v1/query/web-analytics/visits/aggregate', {
+    projectId,
+    since,
+    until,
+    by: JSON.stringify(['referrerHostname']),
+    limit: '5',
+  })
+  if (!pages.ok || !sources.ok) {
+    const failed = !pages.ok ? pages : sources
+    return NextResponse.json(empty(
+      now,
+      `Web Analytics breakdown failed for ${PROJECT_NAME} (HTTP ${failed.status}).`,
+    ))
+  }
+
+  const visitBody = record(visits.body)
+  const totalVisitors = typeof visitBody?.total === 'number'
+    ? visitBody.total
+    : typeof visitBody?.count === 'number'
+      ? visitBody.count
+      : numberOf(visitBody ?? {})
+
+  const topPages = rowsOf(pages.body).map((row) => ({
+    path: String(row.requestPath ?? row.key ?? ''),
+    views: numberOf(row),
+    visitors: typeof row.devices === 'number' ? row.devices : numberOf(row),
+  })).filter((row) => row.path !== '')
+
+  const topSources = rowsOf(sources.body).map((row) => ({
+    source: String(row.referrerHostname ?? row.key ?? 'Direct') || 'Direct',
+    visitors: numberOf(row),
+  }))
+
+  const deployments = await vercelGet('/v6/deployments', { projectId, limit: '5' })
+  const recentDeployments = deployments.ok
+    ? ((record(deployments.body)?.deployments as {
+        url?: string
+        state?: string
+        createdAt?: number
+        meta?: { githubCommitMessage?: string }
+      }[] | undefined) ?? []).map((item) => ({
+        url: item.url ?? '',
+        state: item.state ?? '',
+        createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : '',
+        commitMessage: item.meta?.githubCommitMessage || 'Manual deploy',
+      }))
+    : []
+
+  const siteNote = !domains.ok
+    ? `Could not list domains for ${PROJECT_NAME} (HTTP ${domains.status}).`
+    : siteAttached
+      ? ''
+      : `${PROJECT_NAME} does not have shipousa.com attached, so these figures are not that site's traffic.`
+
+  return NextResponse.json({
+    connected: true,
+    message: siteNote.trim(),
+    project: PROJECT_NAME,
+    visitors: { total: totalVisitors, today: 0, thisWeek: 0, thisMonth: totalVisitors },
+    pageviews: { total: topPages.reduce((sum, page) => sum + page.views, 0), today: 0 },
+    topPages,
+    topSources,
+    recentDeployments,
+    conversionEvents: { bookACall: 0, emailClicks: 0, pricingViews: 0 },
+    lastUpdated: now,
+  })
 }
