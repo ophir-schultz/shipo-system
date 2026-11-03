@@ -27,6 +27,7 @@ interface VideoState {
 interface WebsiteData {
   connected: boolean
   message?: string
+  project?: string
   visitors: { total: number; today: number; thisWeek: number; thisMonth: number }
   pageviews: { total: number; today: number }
   topPages: { path: string; views: number; visitors: number }[]
@@ -458,7 +459,7 @@ export default function MarketingDashboard() {
                 : <span style={{ background: '#ffaa4422', color: '#ffaa44', fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 700 }}>SETUP NEEDED</span>
               }
             </div>
-            <a href="https://vercel.com/shipo/shipo-website1/analytics" target="_blank" rel="noopener noreferrer"
+            <a href={`https://vercel.com/shipo/${website?.project || 'shipo-website1'}/analytics`} target="_blank" rel="noopener noreferrer"
               style={{ background: '#1A73E822', color: '#1A73E8', fontSize: 12, padding: '6px 14px', borderRadius: 8, textDecoration: 'none', fontWeight: 600 }}>
               Open in Vercel →
             </a>
