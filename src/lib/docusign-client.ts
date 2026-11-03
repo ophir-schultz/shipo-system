@@ -69,6 +69,19 @@ export function docusignConfigMissing(env: Env): string[] {
   return DOCUSIGN_ENV_VARS.filter((name) => !present(env[name]))
 }
 
+/** Names only. Values are never returned. Used by the staff and partner banners. */
+export const DOCUSIGN_SETUP_VARS = [
+  ...DOCUSIGN_ENV_VARS,
+  'DOCUSIGN_CONNECT_SECRET',
+  'ACCOUNTANT_W9_EMAIL',
+  'ACCOUNTANT_W9_NAME',
+  'NEXT_PUBLIC_SITE_URL',
+] as const
+
+export function missingDocusignSetup(env: Env): string[] {
+  return DOCUSIGN_SETUP_VARS.filter((name) => !present(env[name]))
+}
+
 /**
  * The configuration, or null if ANY part of it is absent.
  *
