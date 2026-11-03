@@ -2,6 +2,7 @@ import {
   priceOf, sumPriced, combinePriced, totalOrUnknown,
   type Money, type PricedSum,
 } from '@/lib/billing/unpriced'
+import { easternAddDays, easternWeekStart } from '@/lib/ledger/eastern-day'
 import { warehouseParts } from '@/lib/ledger/pick-date'
 
 // What a client is owed for a period, assembled from the charges the ledger
@@ -167,20 +168,17 @@ const DAY_MS = 86_400_000
 /**
  * The calendar period of `grain` that contains `today`.
  *
- * Weeks run Monday to Sunday. Not a preference: `getUTCDay()` calls Sunday 0,
- * and taking that as the start would split every working week across two
- * statements.
+ * Weeks run Monday 12:00 AM America/New_York through Sunday.
+ * easternWeekStart is the same Monday the dashboard uses.
  */
 export function periodRange(grain: Grain, today: string): DateRange {
-  const { y, m, ms } = parseDay(today)
+  const { y, m } = parseDay(today)
 
   if (grain === 'day') return { from: today, to: today }
 
   if (grain === 'week') {
-    // Sunday (0) is 6 days from Monday, every other day is `dow - 1`.
-    const dow = new Date(ms).getUTCDay()
-    const start = ms - ((dow + 6) % 7) * DAY_MS
-    return { from: fmt(start), to: fmt(start + 6 * DAY_MS) }
+    const start = easternWeekStart(today)
+    return { from: start, to: easternAddDays(start, 6) }
   }
 
   if (grain === 'month') {

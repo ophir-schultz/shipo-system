@@ -17,9 +17,12 @@ describe('eastern calendar', () => {
     expect(easternYearStart(easternToday(at))).toBe('2026-01-01')
   })
 
-  it('starts the dashboard week on Sunday', () => {
-    // 2026-09-29 is a Tuesday.
-    expect(easternWeekStart('2026-09-29')).toBe('2026-09-27')
+  it('starts the week on Monday at Eastern midnight', () => {
+    // 2026-09-29 is a Tuesday. Sunday belongs to the week that opened the Monday before.
+    expect(easternWeekStart('2026-09-28')).toBe('2026-09-28')
+    expect(easternWeekStart('2026-09-29')).toBe('2026-09-28')
+    expect(easternWeekStart('2026-09-27')).toBe('2026-09-21')
+    expect(easternMidnightIso(easternWeekStart('2026-11-03'))).toBe('2026-11-02T05:00:00.000Z')
   })
 
   it('places midnight on the Eastern offset, including winter', () => {
