@@ -95,14 +95,22 @@ describe('client-facing documents hide Shipo profit and cost', () => {
   })
 
   it('keeps profit screens behind staff login and the statement download staff-gated', () => {
-    for (const path of ['/reports', '/order-pnl', '/pnl', '/dashboard', '/losses', '/billing', '/statements']) {
+    for (const path of ['/reports', '/order-pnl', '/pnl', '/profit', '/dashboard', '/losses', '/billing', '/statements']) {
       expect(guarded(path), path).toBe(true)
     }
     const statementDownload = readFileSync(join(ROOT, 'src/app/api/statements/download/route.ts'), 'utf8')
     const reportDownload = readFileSync(join(ROOT, 'src/app/api/reports/download/route.ts'), 'utf8')
+    const profitDownload = readFileSync(join(ROOT, 'src/app/api/profit/download/route.ts'), 'utf8')
     expect(statementDownload).toContain('requireStaff()')
     expect(reportDownload).toContain('requireStaff()')
+    expect(profitDownload).toContain('requireStaff()')
     expect(codeOnly(statementDownload).toLowerCase()).not.toContain('profit_loss')
+    expect(codeOnly(profitDownload)).toContain('actual_cost')
     expect(reportDownload).toContain('profit_loss')
+    for (const file of CLIENT_FACING) {
+      const code = codeOnly(readFileSync(join(ROOT, file), 'utf8'))
+      expect(code, file).not.toContain('/api/profit')
+      expect(code, file).not.toContain("'/profit'")
+    }
   })
 })

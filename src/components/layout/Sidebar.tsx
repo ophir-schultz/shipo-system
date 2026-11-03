@@ -19,6 +19,7 @@ const nav = [
   { href: '/client-report', label: 'Client Report', icon: '📑' },
   { href: '/serial-report', label: 'Serial Report', icon: '🔎' },
   { href: '/order-pnl', label: 'Order P&L', icon: '📈' },
+  { href: '/profit', label: 'Profit', icon: '💵' },
   { href: '/statements', label: 'Statements', icon: '🧾' },
   { href: '/referrals', label: 'Referral Payouts', icon: '🤝' },
   // Lives at /quotes, not /rate-sheets: that segment is excluded from the
