@@ -29,8 +29,8 @@ describe('rateText', () => {
     expect(rateText({ unit_rate: 0, rates: 1 })).toBe('$0.0000')
   })
 
-  it('says "at cost" when the line has no rate-card rate at all', () => {
-    expect(rateText({ unit_rate: null, rates: 0 })).toBe('at cost')
+  it('points at the amount when the line has no single rate', () => {
+    expect(rateText({ unit_rate: null, rates: 0 })).toBe('see amount')
   })
 
   it('says how many rates when the rate changed inside the period', () => {
@@ -68,7 +68,7 @@ describe('rateText', () => {
     expect(rateText(two.lines[0])).toBe('2 rates')
 
     const none = buildStatement([charge({ unit_rate: null })], range)
-    expect(rateText(none.lines[0])).toBe('at cost')
+    expect(rateText(none.lines[0])).toBe('see amount')
   })
 })
 

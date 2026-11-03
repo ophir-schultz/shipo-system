@@ -72,6 +72,21 @@ export interface ShippingSchedule {
   divideBy: number
 }
 
+/** A service the list states in words. The engine does not price from these. */
+export interface PriceListService {
+  name: string
+  /** Unit as written, e.g. "per pallet". */
+  basis: string
+  /** Null when the list states a rule and not a dollar amount. */
+  amount: number | null
+}
+
+/** A line that was not turned into a rate, with the reason it was left alone. */
+export interface PriceListAmbiguity {
+  source: string
+  reason: string
+}
+
 export interface PriceListDocument {
   name: string
   clientName: string
@@ -84,10 +99,18 @@ export interface PriceListDocument {
   labour: { perHour: number } | null
   materials: { markupPct: number } | null
   peak: PeakSurcharge | null
+  /**
+   * Name of another client's list whose shipping card this list uses.
+   * The cells stay on that list. Resolving copies the object reference,
+   * not the numbers, into `shipping`.
+   */
+  shippingSameAs: string | null
   shipping: {
     schedules: ShippingSchedule[]
     cells: ShippingCell[]
   } | null
+  services: PriceListService[]
+  ambiguous: PriceListAmbiguity[]
 }
 
 export interface SkuQty {

@@ -4,7 +4,9 @@
 import type {
   BoxRate,
   PeakBasis,
+  PriceListAmbiguity,
   PriceListDocument,
+  PriceListService,
   ShippingCell,
   ShippingSchedule,
 } from './types'
@@ -172,7 +174,17 @@ export function parsePriceList(input: unknown): ParsedPriceList {
     peak = { pct, fromMonthDay, toMonthDay, appliesTo }
   }
 
+  const shippingSameAs = input.shippingSameAs == null || input.shippingSameAs === ''
+    ? null
+    : str(input.shippingSameAs)
+  if (input.shippingSameAs != null && input.shippingSameAs !== '' && !shippingSameAs) {
+    return { ok: false, error: 'shippingSameAs must name a client' }
+  }
+
   let shipping: PriceListDocument['shipping'] = null
+  if (shippingSameAs && input.shipping != null) {
+    return { ok: false, error: 'shipping references another card, so it cannot also embed cells' }
+  }
   if (input.shipping != null) {
     if (!isObject(input.shipping)) return { ok: false, error: 'shipping must be an object' }
     if (!Array.isArray(input.shipping.schedules) || input.shipping.schedules.length === 0) {
@@ -208,6 +220,35 @@ export function parsePriceList(input: unknown): ParsedPriceList {
     shipping = { schedules, cells }
   }
 
+  const services: PriceListService[] = []
+  if (input.services != null) {
+    if (!Array.isArray(input.services)) return { ok: false, error: 'services must be a list' }
+    for (const row of input.services) {
+      if (!isObject(row)) return { ok: false, error: 'each service needs a name and a basis' }
+      const serviceName = str(row.name)
+      const basis = str(row.basis)
+      if (!serviceName || !basis) return { ok: false, error: 'each service needs a name and a basis' }
+      let amount: number | null = null
+      if (row.amount != null) {
+        amount = num(row.amount)
+        if (amount === null || amount < 0) return { ok: false, error: `service ${serviceName} has no amount` }
+      }
+      services.push({ name: serviceName, basis, amount })
+    }
+  }
+
+  const ambiguous: PriceListAmbiguity[] = []
+  if (input.ambiguous != null) {
+    if (!Array.isArray(input.ambiguous)) return { ok: false, error: 'ambiguous must be a list' }
+    for (const row of input.ambiguous) {
+      if (!isObject(row)) return { ok: false, error: 'each ambiguous line needs a source and a reason' }
+      const source = str(row.source)
+      const reason = str(row.reason)
+      if (!source || !reason) return { ok: false, error: 'each ambiguous line needs a source and a reason' }
+      ambiguous.push({ source, reason })
+    }
+  }
+
   return {
     ok: true,
     list: {
@@ -222,9 +263,31 @@ export function parsePriceList(input: unknown): ParsedPriceList {
       labour,
       materials,
       peak,
+      shippingSameAs,
       shipping,
+      services,
+      ambiguous,
     },
   }
+}
+
+/**
+ * Point `list.shipping` at another list's card.
+ *
+ * The assignment is the same object, so a later edit of the source card
+ * is the edit Orcam prices from. Nothing here copies a rate into a new cell.
+ */
+export function withShippingReference(
+  list: PriceListDocument,
+  catalogs: Record<string, PriceListDocument>,
+): ParsedPriceList {
+  if (!list.shippingSameAs) return { ok: true, list }
+  const source = catalogs[list.shippingSameAs]
+  if (!source) return { ok: false, error: `no price list named ${list.shippingSameAs}` }
+  if (!source.shipping || source.shipping.cells.length === 0) {
+    return { ok: false, error: `${list.shippingSameAs} has no shipping card to reference` }
+  }
+  return { ok: true, list: { ...list, shipping: source.shipping } }
 }
 
 /** One-line description of a list, for the client page. Rates come from the document. */
@@ -257,10 +320,23 @@ export function summarizePriceList(list: PriceListDocument): string[] {
       + ` on ${list.peak.appliesTo.join(', ')}`,
     )
   }
-  if (list.shipping) {
+  if (list.shippingSameAs && list.shipping) {
+    lines.push(
+      `Shipping: ${list.shippingSameAs}'s card, ${list.shipping.cells.length} zone cells, referenced`,
+    )
+  } else if (list.shippingSameAs) {
+    lines.push(`Shipping: same card as ${list.shippingSameAs}`)
+  } else if (list.shipping) {
     lines.push(
       `Shipping: ${list.shipping.cells.length} zone cells, ${list.shipping.schedules.length} schedule(s)`,
     )
+  }
+  for (const service of list.services) {
+    const amount = service.amount === null ? 'no dollar amount' : `$${service.amount.toFixed(2)}`
+    lines.push(`Service: ${service.name} — ${amount} ${service.basis}`)
+  }
+  for (const row of list.ambiguous) {
+    lines.push(`Not applied: ${row.source}`)
   }
   return lines
 }

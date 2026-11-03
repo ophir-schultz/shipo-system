@@ -21,19 +21,22 @@ import { isGrain, type DateRange, type Grain, type StatementLine } from '@/lib/b
  * The three non-numeric answers are deliberately different sentences, because
  * they are three different facts and a shared dash would merge them:
  *
- *   'at cost'   the line has no rate-card rate by design -- at-cost freight is
- *               billed at whatever the carrier charged.
+ *   'see amount' the line has no single rate to print. The amount column is
+ *                the charge. The statement does not say the charge is our cost.
  *   'N rates'   the rate changed inside the period, so no single number is
  *               true of the whole line. Says how many rather than picking one.
  *   the dash    we hold a rate for some rows and could not read it. Unknown,
  *               and it uses the same dash as every other unknown figure in the
  *               app so it reads as one.
  */
+/** Rate column when the line has no single rate. Not a disclosure of our cost. */
+export const PASS_THROUGH_RATE = 'see amount'
+
 export function rateText(line: Pick<StatementLine, 'unit_rate' | 'rates'>): string {
   if (line.unit_rate !== null) {
     return `$${line.unit_rate.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
   }
-  if (line.rates === 0) return 'at cost'
+  if (line.rates === 0) return PASS_THROUGH_RATE
   if (line.rates > 1) return `${line.rates} rates`
   // rates === 1 with a null unit_rate cannot happen -- buildStatement sets the
   // rate exactly when the count is 1 -- so this is the unreachable arm, and it

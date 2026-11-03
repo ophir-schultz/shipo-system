@@ -10,6 +10,7 @@ import OriginZipEditor from '@/components/clients/OriginZipEditor'
 import PriceListUpload from '@/components/billing/PriceListUpload'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
 import { parsePriceList, summarizePriceList } from '@/lib/pricing/parse-price-list'
+import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import { rateCellLabel } from '@/lib/billing/warehouse-rate-card'
 import { read, readOne } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
@@ -154,6 +155,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // failed -- hence the three-way render below keyed on zoneRates.error, not on
   // the matrix count alone.
   const zoneMatrices = buildZoneMatrices(zoneRates.rows)
+  const repoPriceList = loadRepoPriceList(typeof client.name === 'string' ? client.name : '')
 
   return (
     <div className="space-y-8">
@@ -392,10 +394,29 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         {priceLists.error ? (
           <ViewUnreadable message={priceLists.error} />
         ) : priceLists.rows.length === 0 ? (
-          <div className="text-center py-10 border-2 border-dashed border-[#E2E8F0] rounded-lg">
-            <p className="text-[#6B7A8D] mb-2">No price list uploaded yet</p>
-            <p className="text-[#6B7A8D] text-sm">The Nayax list is price-lists/nayax.json in the repo</p>
-          </div>
+          repoPriceList.list ? (
+            <div className="border border-[#E2E8F0] rounded-lg p-4">
+              <p className="font-medium text-[#0B1220]">
+                {repoPriceList.list.name}
+                <span className="ml-2 text-xs text-emerald-700">repo list</span>
+              </p>
+              <p className="text-xs text-[#6B7A8D] mt-1">
+                No upload yet. This is price-lists/{repoPriceList.list.clientName.toLowerCase()}.json. An upload is kept beside it and does not replace the file.
+              </p>
+              <ul className="mt-2 text-sm text-[#4B4F58] space-y-1">
+                {summarizePriceList(repoPriceList.list).map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            </div>
+          ) : (
+            <div className="text-center py-10 border-2 border-dashed border-[#E2E8F0] rounded-lg">
+              <p className="text-[#6B7A8D] mb-2">No price list uploaded yet</p>
+              {repoPriceList.error ? (
+                <p className="text-sm text-red-700">{repoPriceList.error}</p>
+              ) : (
+                <p className="text-[#6B7A8D] text-sm">Upload a JSON file for this client</p>
+              )}
+            </div>
+          )
         ) : (
           <div className="space-y-4">
             {priceLists.rows.map((row: { id: string; name: string; source_filename: string | null; created_at: string; document: unknown }, index: number) => {
