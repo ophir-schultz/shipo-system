@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { computeOwed, summarize, REFERRAL_TERMS } from '@/lib/referrals'
 import type { ReferralPartner, ReferredClient, FbaInvoice, PayoutRecord } from '@/lib/referrals'
 import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ReferralsManager from '@/components/referrals/ReferralsManager'
 import ClaimsQueue from '@/components/referrals/ClaimsQueue'
@@ -57,28 +58,36 @@ interface QueuePartnerRow {
 
 async function getData() {
   const [partnersRes, clientsRes, invoicesRes, payoutsRes, claimsRes] = await Promise.all([
-    supabaseAdmin
+    readAllPages((from, to) => supabaseAdmin
       .from('referral_partners')
       .select(
         'id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at, portal_last_seen_at, portal_invited_at, agreement_status, agreement_signed_at, w9_received_at, tax_status, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue, founding_partner',
       )
-      .order('created_at', { ascending: false }),
-    supabaseAdmin
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(from, to)),
+    readAllPages((from, to) => supabaseAdmin
       .from('clients')
       .select(
         'id, name, active, referral_partner_id, referral_signup_date, referral_first_payment_date, founding_bonus_seq',
       )
-      .order('name'),
-    supabaseAdmin
+      .order('name')
+      .order('id')
+      .range(from, to)),
+    readAllPages((from, to) => supabaseAdmin
       .from('fba_invoices')
       .select(
         'id, client_id, period, amount, units_shipped, orders_shipped, cost_freight, cost_materials, cost_storage, cost_processing, notes',
       )
-      .order('period', { ascending: false }),
-    supabaseAdmin
+      .order('period', { ascending: false })
+      .order('id')
+      .range(from, to)),
+    readAllPages((from, to) => supabaseAdmin
       .from('referral_payouts')
       .select('id, dedupe_key, status, amount, approved_at, paid_at, kind, period, client_id, referral_partner_id')
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(from, to)),
     // The claims queue (§3.4). Its own read, deliberately NOT folded into
     // the four above: those four feed computeOwed and are gated together,
     // because a wrong amount owed is worse than no screen. A claim is not
@@ -88,7 +97,7 @@ async function getData() {
     //
     // `decision_note` is selected because STAFF may see it (§3.3 forbids
     // it on the PARTNER surface only). Columns named, never '*'.
-    supabaseAdmin
+    readAllPages((from, to) => supabaseAdmin
       .from('partner_client_claims')
       .select(
         // `over_cap` marks a claim that arrived past the partner's daily
@@ -101,7 +110,9 @@ async function getData() {
         // is most of them.
         'id, referral_partner_id, company_name, website, contact_name, contact_email, note, status, client_id, decided_by, decided_at, decision_note, over_cap, batch_id, created_at',
       )
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(from, to)),
   ])
 
   // `referral_partners` and `fba_invoices` are the two tables the migration

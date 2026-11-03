@@ -70,6 +70,7 @@ const MONEY_READS: Array<[file: string, tables: string[]]> = [
   ['app/order-pnl/page.tsx', ['shipments']],
   ['app/api/client-reports/download/route.ts', ['client_billing_lines']],
   ['app/losses/page.tsx', ['shipments']],
+  ['app/referrals/page.tsx', ['fba_invoices', 'referral_payouts']],
   ['app/api/agent/monitor/route.ts', ['shipments']],
   // Not a total -- a rate card. Truncation here reads as "that band is not in
   // the agreement", which is the same conclusion as a genuine gap.
