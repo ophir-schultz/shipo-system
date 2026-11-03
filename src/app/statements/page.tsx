@@ -139,7 +139,7 @@ function Amount({ sum }: { sum: Statement['sum'] }) {
     return (
       <span
         className="text-orange-500"
-        title="Every charge on this line is billed at cost and the carrier has not reported yet. This is UNKNOWN, not zero."
+        title="This amount is not known yet. It is not zero."
       >
         unknown
       </span>
@@ -343,7 +343,7 @@ function StatementTable(
                   {total === null ? (
                     <span
                       className="text-orange-500"
-                      title="Every charge in this period is billed at cost and no carrier has reported yet. The total is UNKNOWN, not zero."
+                      title="This total is not known yet. It is not zero."
                     >
                       unknown
                     </span>
@@ -360,7 +360,7 @@ function StatementTable(
       {(coverage !== '' || unpriced !== '' || estimated !== '') && (
         <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-700">
           {coverage !== '' && <li>{coverage}</li>}
-          {unpriced !== '' && <li>{unpriced} — billed at cost, awaiting the carrier.</li>}
+          {unpriced !== '' && <li>{unpriced}.</li>}
           {estimated !== '' && <li>{estimated}.</li>}
         </ul>
       )}

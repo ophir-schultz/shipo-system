@@ -737,7 +737,7 @@ type StatementLineDTO = {
   charge_type: string
   label: string
   quantity: number | null
-  /** Already rendered: '$0.3500', 'at cost', '3 rates', or the unknown dash. */
+  /** Already rendered: '$0.3500', 'see amount', '3 rates', or the unknown dash. */
   rate: string
   amount: number | null
   unpriced: number

@@ -161,11 +161,11 @@ describe('GET /api/statements/data', () => {
     const b = await body(await GET(url()))
     // One shared rate across the rows on a line -> the number, four decimals.
     expect(b.lines?.find(l => l.label === 'Pick - single')?.rate).toBe('$0.3500')
-    // No rate on any row -> 'at cost'. The freight line's priced row DOES
+    // No rate on any row -> 'see amount'. The freight line's priced row DOES
     // carry 10.50, so this line has exactly one rate and prints it.
     expect(b.lines?.find(l => l.label === 'Shipping')?.rate).toBe('$10.5000')
     // The surcharge has no rate at all.
-    expect(b.lines?.find(l => l.label === 'Peak')?.rate).toBe('at cost')
+    expect(b.lines?.find(l => l.label === 'Peak')?.rate).toBe('see amount')
   })
 
   it('carries a quantity of null, not 0, for a line that has none', async () => {

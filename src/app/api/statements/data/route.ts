@@ -145,7 +145,7 @@ export async function GET(req: Request) {
       charge_type: line.charge_type,
       label: line.label,
       quantity: line.quantity,
-      // The rendered string and not the raw rate, because 'at cost', 'N rates'
+      // The rendered string and not the raw rate, because 'see amount', 'N rates'
       // and the unknown dash are three different sentences and rateText is
       // where the difference between them is tested.
       rate: rateText(line),

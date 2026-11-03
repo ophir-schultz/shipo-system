@@ -472,7 +472,7 @@ describe('buildStatement', () => {
     it('is null with a count of 0 when no row carries a rate', () => {
       // An at-cost freight line is billed at whatever the carrier charged, so
       // there is no rate-card rate to show. Distinct from the case above: the
-      // screen says "at cost" rather than "2 rates".
+      // screen says "see amount" rather than "2 rates".
       const s = buildStatement([charge({ charge_type: 'shipping', label: 'Freight, at cost', unit_rate: null })], RANGE)
       expect(s.lines[0].unit_rate).toBeNull()
       expect(s.lines[0].rates).toBe(0)
