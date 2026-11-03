@@ -9,6 +9,7 @@ import {
 import { exclusionNote, reconcile, reconciledOrUnknown } from '@/lib/billing/profit-rollup'
 import { filterByDate, undatedNote } from '@/lib/billing/date-range'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { billableWarehouse, isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 
 // `client_rate` and `warehouse_daily_log.total` are nullable: recalculate.ts
 // and the daily-log route write null when they cannot read a rate, instead of
@@ -190,7 +191,7 @@ export default function BillingView({ data }: { data: BillingData }) {
   // less than the lines it claimed to cover, with nothing saying so.
   const shippingRevenueSum = sumPriced(shipments, 'client_rate')
   const shippingCostSum = sumPriced(shipments, 'actual_cost')
-  const warehouseSum = sumPriced(warehouse, 'total')
+  const warehouseSum = sumPriced(billableWarehouse(warehouse), 'total')
   const shippingRevenue = shippingRevenueSum.total
   const shippingCost = shippingCostSum.total
   const warehouseTotal = warehouseSum.total
@@ -446,9 +447,14 @@ export default function BillingView({ data }: { data: BillingData }) {
                         <td className="px-4 py-2.5 text-[#3A4658] capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                         <td className="px-4 py-2.5 text-right">{w.quantity}</td>
                         <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(w.rate)}</td>
-                        <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-emerald-700' : 'text-amber-700'}`}
-                            title={isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day — it is NOT in the total to bill'}>
-                          {formatPrice(w.total)}
+                        <td className={`px-4 py-2.5 text-right font-semibold ${
+                          isRecordedOnlyNote(w.notes) ? 'text-[#1A73E8]'
+                            : isPriced(w.total) ? 'text-emerald-700' : 'text-amber-700'
+                        }`}
+                            title={isRecordedOnlyNote(w.notes)
+                              ? 'Recorded only. Billed by the automatic charge, not from this log.'
+                              : isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day — it is NOT in the total to bill'}>
+                          {isRecordedOnlyNote(w.notes) ? 'Recorded' : formatPrice(w.total)}
                         </td>
                         <td className="px-4 py-2.5 text-[#6B7A8D] text-xs">{w.notes ?? '—'}</td>
                       </tr>

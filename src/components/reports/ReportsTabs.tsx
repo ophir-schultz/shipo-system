@@ -12,6 +12,7 @@ import {
 import { embedOne, type Embed } from '@/lib/db/read'
 import { scopeRows, undatedNote, unattributedNote, type Scoped } from '@/lib/billing/date-range'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { billableWarehouse, isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 import {
   REPORT_TABS, reportTabById, reportTypeForTab, tabRequiresClient,
 } from '@/lib/billing/report-types'
@@ -1320,7 +1321,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBil
 function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportWarehouseLine>) {
   const period = filterRows(rows, clientId, dateFrom, dateTo, 'log_date')
   const filtered = period.rows
-  const revenueSum = sumPriced(filtered, 'total')
+  const revenueSum = sumPriced(billableWarehouse(filtered), 'total')
   const totalRevenue = revenueSum.total
 
   return (
@@ -1366,9 +1367,14 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportW
                 <td className="px-4 py-2.5 text-[#3A4658] capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                 <td className="px-4 py-2.5 text-right">{w.quantity}</td>
                 <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(w.rate)}</td>
-                <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-emerald-700' : 'text-amber-700'}`}
-                    title={isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day'}>
-                  {formatPrice(w.total)}
+                <td className={`px-4 py-2.5 text-right font-semibold ${
+                  isRecordedOnlyNote(w.notes) ? 'text-[#1A73E8]'
+                    : isPriced(w.total) ? 'text-emerald-700' : 'text-amber-700'
+                }`}
+                    title={isRecordedOnlyNote(w.notes)
+                      ? 'Recorded only. Billed by the automatic charge, not from this log.'
+                      : isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day'}>
+                  {isRecordedOnlyNote(w.notes) ? 'Recorded' : formatPrice(w.total)}
                 </td>
                 <td className="px-4 py-2.5 text-[#6B7A8D] text-xs">{w.notes ?? '—'}</td>
               </tr>

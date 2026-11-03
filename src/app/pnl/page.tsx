@@ -8,6 +8,7 @@ import { pnlFigures, campaignFigures, attributedRevenue } from '@/lib/billing/ma
 import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
+import { isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 
 export const dynamic = 'force-dynamic'
@@ -25,6 +26,7 @@ interface PnlShipmentRow {
 interface PnlWarehouseRow {
   client_id: string | null
   total: number | null
+  notes: string | null
 }
 
 interface PnlInboundRow {
@@ -100,7 +102,7 @@ async function getPnlData() {
     readAllPages<PnlWarehouseRow>((from, to) =>
       supabaseAdmin
         .from('warehouse_daily_log')
-        .select('client_id, total')
+        .select('client_id, total, notes')
         .order('id')
         .range(from, to)),
     // The three tables campaigns_pnl.sql creates: may legitimately not exist
@@ -249,8 +251,9 @@ async function getPnlData() {
     }
     for (const w of warehouse) {
       const a = ensure(w.client_id, 'Unassigned')
-      // warehouse_daily_log.total is nullable for the same reason: the daily-log
-      // route writes null for a line whose rate is not on the card.
+      // A recorded-only automatic line is already on the order charge.
+      // Counting its null total here would flag work that was billed.
+      if (isRecordedOnlyNote(w.notes)) continue
       a.whRev.take(w.total)
     }
     for (const i of inbound) {
