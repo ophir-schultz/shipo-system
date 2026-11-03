@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyZonePrices, hasPricedPick, isPickPackService, lineQty, pickPackRows, pickRateOnCard,
-  pickRowsFromCard, shippingChargesFromShipments,
+  applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty, pickOrdersFromShipments,
+  pickPackRows, pickRateOnCard, pickRowsFromCard, shippingChargesFromShipments,
 } from './statement-source'
 import { buildStatement } from './statement'
 import { rateText } from './statement-view'
@@ -168,6 +168,51 @@ describe('pick & pack from the warehouse rate card', () => {
     'picks and pack',
   ])('treats %s as pick & pack', (service) => {
     expect(isPickPackService(service)).toBe(true)
+  })
+
+  it('bills Creative Pea from the one live line and ignores a rate that ended that day', () => {
+    const decision = decidePickRate([
+      { service_type: 'orders_(picks_n_pack)', rate: 1.2, effective_from: '2026-10-26' },
+      { service_type: 'pick_n_pack', rate: 1.75, effective_to: '2026-10-26' },
+      { service_type: 'storage', rate: 25 },
+    ], '2026-10-26')
+    expect(decision.billed).toBe(true)
+    expect(decision.rate).toBe(1.2)
+    expect(decision.reason).toContain('orders_(picks_n_pack)')
+  })
+
+  it('keeps Kivema skipped and names both live rates', () => {
+    const decision = decidePickRate([
+      { service_type: 'orders_(picks_n_pack)', rate: 1.2 },
+      { service_type: 'pick_n_pack', rate: 1.75 },
+    ], '2026-10-26')
+    expect(decision.billed).toBe(false)
+    expect(decision.rate).toBeNull()
+    expect(decision.reason).toContain('more than one live rate')
+    expect(decision.reason).toContain('orders_(picks_n_pack) $1.20')
+    expect(decision.reason).toContain('pick_n_pack $1.75')
+  })
+
+  it('says when the only pick line is outside the statement date', () => {
+    const decision = decidePickRate([
+      { service_type: 'orders_(picks_n_pack)', rate: 1.2, effective_from: '2026-11-02' },
+    ], '2026-10-26')
+    expect(decision.billed).toBe(false)
+    expect(decision.reason).toContain('not in effect on 2026-10-26')
+    expect(decision.reason).toContain('$1.20')
+  })
+
+  it('bills Creative Pea per order number when the orders join misses', () => {
+    const orders = pickOrdersFromShipments([
+      { shipstation_shipment_id: 1, order_number: 'CP-1', ship_date: '2026-10-27', client_rate: 10 },
+      { shipstation_shipment_id: 2, order_number: 'CP-1', ship_date: '2026-10-28', client_rate: 11 },
+      { shipstation_shipment_id: 3, order_number: 'CP-2', ship_date: '2026-10-28', client_rate: 12 },
+    ], new Map())
+    expect(orders).toHaveLength(2)
+    expect(orders.every((order) => order.orderId === null)).toBe(true)
+    const rows = pickRowsFromCard(orders, 1.2)
+    expect(rows.map((row) => row.amount)).toEqual([1.2, 1.2])
+    expect(new Set(rows.map((row) => row.charge_key)).size).toBe(2)
   })
 
   it('does not treat the rest of the card as pick & pack', () => {

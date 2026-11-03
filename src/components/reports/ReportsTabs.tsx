@@ -758,6 +758,7 @@ type StatementDTO = {
   counted: number
   estimated: number
   notes: string[]
+  pickPack?: { billed: boolean; reason: string }
 }
 
 /**
@@ -945,6 +946,9 @@ function StatementLines({ data }: { data: StatementDTO }) {
       <>
         <Empty msg={`No charges recorded for ${data.client.name ?? 'this client'} in ${data.period}.`} />
         <StatementNotes notes={data.notes} />
+        {data.pickPack?.reason ? (
+          <p className="text-sm text-[#4B4F58] mt-3">{data.pickPack.reason}</p>
+        ) : null}
       </>
     )
   }
@@ -1005,6 +1009,9 @@ function StatementLines({ data }: { data: StatementDTO }) {
         </table>
       </div>
       <StatementNotes notes={data.notes} />
+      {data.pickPack?.reason ? (
+        <p className="text-sm text-[#4B4F58] mt-3">{data.pickPack.reason}</p>
+      ) : null}
     </>
   )
 }

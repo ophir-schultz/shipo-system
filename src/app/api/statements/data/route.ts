@@ -173,5 +173,9 @@ export async function GET(req: Request) {
       unpricedNote(statement.sum.unpriced, 'charge'),
       estimateNote(statement.estimated),
     ].filter(n => n !== ''),
+    // Staff only. This route is behind requireStaff. It says why pick & pack
+    // was billed or skipped (two live rates, the effective window, or the
+    // orders join). It is not on the spreadsheet a client receives.
+    pickPack: priced.pickPack,
   })
 }
