@@ -149,12 +149,23 @@ export default function MarketingDashboard() {
         fetch('/api/marketing', { cache: 'no-store' }),
         fetch('/api/website', { cache: 'no-store' }),
       ])
-      const [marketingJson, websiteJson] = await Promise.all([
-        marketingRes.json(),
-        websiteRes.json(),
-      ])
+      const marketingJson = await marketingRes.json()
       setData(marketingJson)
-      setWebsite(websiteJson)
+      if (!websiteRes.ok) {
+        setWebsite({
+          connected: false,
+          message: 'VERCEL_TOKEN not configured',
+          visitors: { total: 0, today: 0, thisWeek: 0, thisMonth: 0 },
+          pageviews: { total: 0, today: 0 },
+          topPages: [],
+          topSources: [],
+          recentDeployments: [],
+          conversionEvents: { bookACall: 0, emailClicks: 0, pricingViews: 0 },
+          lastUpdated: new Date().toISOString(),
+        })
+      } else {
+        setWebsite(await websiteRes.json())
+      }
       setLastRefresh(new Date())
     } catch (e) {
       console.error(e)
@@ -428,7 +439,7 @@ export default function MarketingDashboard() {
           {!website?.connected && (
             <div style={{ background: '#FFFBEB', border: '1px solid #ffaa4444', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
               <div style={{ fontSize: 13, color: '#ffaa44', fontWeight: 600, marginBottom: 6 }}>
-                {website?.message || 'Add VERCEL_TOKEN to see live traffic data'}
+                {website?.message || 'VERCEL_TOKEN not configured'}
               </div>
               <div style={{ fontSize: 12, color: '#667799' }}>
                 Go to Vercel → Settings → Tokens → Create → add as VERCEL_TOKEN in shipo-system environment variables
@@ -436,6 +447,7 @@ export default function MarketingDashboard() {
             </div>
           )}
 
+          {website?.connected && (<>
           {/* Visitor Stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
             {[
@@ -519,6 +531,7 @@ export default function MarketingDashboard() {
               ))}
             </div>
           </div>
+          </>)}
         </div>
 
         {/* Footer */}
