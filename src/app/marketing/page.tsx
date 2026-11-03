@@ -462,6 +462,10 @@ export default function MarketingDashboard() {
             </div>
           )}
 
+          {website?.connected && website.message && (
+            <p style={{ fontSize: 13, color: '#4B4F58', marginTop: -12, marginBottom: 16 }}>{website.message}</p>
+          )}
+
           {website?.connected && (<>
           {/* Visitor Stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
