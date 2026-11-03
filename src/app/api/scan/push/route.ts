@@ -9,6 +9,7 @@ import {
   type PushJobPlan,
 } from '@/lib/scan/push-queue'
 import { NAYAX_VIA_ZENVENTORY, SCAN_INCOMPLETE } from '@/lib/scan/zenventory-pick'
+import { shipmentTrackingByOrder } from '@/lib/scan/shipment-tracking'
 import { createSupabasePushStore } from '@/lib/scan/push-store'
 import { runPush, type RunnableJob } from '@/lib/scan/run-push'
 import { createZenventoryTransport } from '@/lib/scan/zenventory-transport'
@@ -193,11 +194,17 @@ export async function POST() {
     }
   })
 
+  const tracking = await shipmentTrackingByOrder()
+  if (tracking.error) {
+    return NextResponse.json({ enabled: true, mode, wrote: false, error: tracking.error }, { status: 500 })
+  }
+
   const results = await runPush({
     jobs,
     store: createSupabasePushStore(),
     transport: createZenventoryTransport(),
     now: new Date().toISOString(),
+    shipmentTracking: tracking.byOrder,
   })
 
   const wrote = results.some((result) => result.queueStatus != null && result.saveError == null)

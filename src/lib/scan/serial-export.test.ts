@@ -39,6 +39,7 @@ describe('serial history export', () => {
 
   it('writes the same columns to CSV and Excel', () => {
     const csv = serialsToCsv([row])
+    expect(csv.split('\n')[0]).toContain('Tracking')
     expect(csv.split('\n')[0]).toContain('Serial')
     expect(csv).toContain('ABC')
     expect(csv).toContain('sent')

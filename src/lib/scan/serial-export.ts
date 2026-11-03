@@ -9,6 +9,7 @@ export const SERIAL_EXPORT_COLUMNS = [
   'Client',
   'Client id',
   'Order',
+  'Tracking',
   'SKU',
   'Serial',
   'Scanned by',
@@ -34,6 +35,7 @@ export interface SerialHistoryRow {
   clientName: string
   clientId: string
   orderRef: string
+  trackingNumber: string
   sku: string
   serial: string
   scannedBy: string
@@ -114,6 +116,7 @@ export interface RawSerialJoin {
   zenventory_status?: string | null
   zenventory_sent_at?: string | null
   zenventory_response?: string | null
+  tracking_number?: string | null
   scan_events: {
     client_id?: string | null
     order_ref?: string | null
@@ -131,6 +134,19 @@ export interface RawSerialJoin {
   }> | null
 }
 
+/** Stored tracking wins. A blank snapshot is filled from the shipment rows for that order. */
+export function applyShipmentTracking(
+  rows: SerialHistoryRow[],
+  byOrder: Record<string, string[]>,
+): SerialHistoryRow[] {
+  return rows.map((row) => {
+    if (row.trackingNumber.trim()) return row
+    const numbers = (byOrder[row.orderRef] ?? []).map((number) => number.trim()).filter((number) => number !== '')
+    if (numbers.length === 0) return row
+    return { ...row, trackingNumber: [...new Set(numbers)].join('\n') }
+  })
+}
+
 export function mapSerialRow(raw: RawSerialJoin): SerialHistoryRow {
   const event = one(raw.scan_events)
   const client = one(event?.clients ?? null)
@@ -140,6 +156,7 @@ export function mapSerialRow(raw: RawSerialJoin): SerialHistoryRow {
     clientName: text(client?.name),
     clientId: text(event?.client_id),
     orderRef: text(event?.order_ref),
+    trackingNumber: text(raw.tracking_number),
     sku: text(event?.sku),
     serial: text(raw.serial),
     scannedBy: text(event?.scanned_by),
@@ -155,6 +172,7 @@ export function serialCells(row: SerialHistoryRow): string[] {
     row.clientName,
     row.clientId,
     row.orderRef,
+    row.trackingNumber,
     row.sku,
     row.serial,
     row.scannedBy,

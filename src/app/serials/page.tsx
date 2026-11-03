@@ -5,6 +5,7 @@ import { isMigrationMissing, read, readErrors, loaded } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import {
   applySerialFilters,
+  applyShipmentTracking,
   mapSerialRow,
   parseSerialFilters,
   SERIAL_SCHEMA_MESSAGE,
@@ -12,10 +13,11 @@ import {
   type RawSerialJoin,
   type SerialHistoryRow,
 } from '@/lib/scan/serial-export'
+import { shipmentTrackingByOrder } from '@/lib/scan/shipment-tracking'
 
 export const dynamic = 'force-dynamic'
 
-const SELECT_WITH_STATUS = 'id, serial, zenventory_status, zenventory_sent_at, zenventory_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
+const SELECT_WITH_STATUS = 'id, serial, tracking_number, zenventory_status, zenventory_sent_at, zenventory_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
 
 interface ClientOption {
   id: string
@@ -54,10 +56,14 @@ export default async function SerialsPage({
 
   const serialRes = parsed.error ? { data: [], error: null } : await loadSerials(parsed.filters)
   const schemaMissing = isMigrationMissing(serialRes)
+  const trackingRes = parsed.error || schemaMissing
+    ? { byOrder: {}, error: null }
+    : await shipmentTrackingByOrder()
   const serialRead = read('scanned_serials', schemaMissing ? { data: [], error: null } : serialRes)
   const clientsRead = read('clients', clientsRes)
-  const page = loaded(readErrors(serialRead, clientsRead), () => ({
-    rows: serialRead.rows.map(mapSerialRow),
+  const trackingRead = { rows: [], error: trackingRes.error ? `shipments: ${trackingRes.error}` : null }
+  const page = loaded(readErrors(serialRead, clientsRead, trackingRead), () => ({
+    rows: applyShipmentTracking(serialRead.rows.map(mapSerialRow), trackingRes.byOrder),
     clients: clientsRead.rows,
   }))
 
@@ -67,7 +73,7 @@ export default async function SerialsPage({
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Serial history</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          Every serial that was scanned, with the order, the client, who scanned it, and whether it reached Zenventory. A pick waits until that customer order is fully scanned. Nayax receives the serials from Zenventory through its existing API connection. Stored scans are kept.
+          Every serial that was scanned, with the order, the client, who scanned it, the tracking number when a label already exists, and whether it reached Zenventory. A pick does not wait for a tracking number and does not write one back to Zenventory. Nayax receives the serials from Zenventory through its existing API connection. Stored scans are kept.
         </p>
       </div>
 
@@ -154,7 +160,7 @@ function SerialHistory({
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs text-[#6B7A8D]">
             <tr>
-              {['Scanned at', 'Client', 'Order', 'SKU', 'Serial', 'Scanned by', 'Zenventory'].map((heading) => (
+              {['Scanned at', 'Client', 'Order', 'Tracking', 'SKU', 'Serial', 'Scanned by', 'Zenventory'].map((heading) => (
                 <th key={heading} className="px-3 py-2 font-medium">{heading}</th>
               ))}
             </tr>
@@ -162,7 +168,7 @@ function SerialHistory({
           <tbody>
             {showRows && data.rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-[#4B4F58]">No scanned serials match these filters.</td>
+                <td colSpan={8} className="px-3 py-6 text-[#4B4F58]">No scanned serials match these filters.</td>
               </tr>
             )}
             {showRows && data.rows.map((row) => (
@@ -170,6 +176,7 @@ function SerialHistory({
                 <td className="px-3 py-2 whitespace-nowrap">{row.scannedAt ? row.scannedAt.slice(0, 16).replace('T', ' ') : ''}</td>
                 <td className="px-3 py-2">{row.clientName || row.clientId}</td>
                 <td className="px-3 py-2">{row.orderRef}</td>
+                <td className="px-3 py-2 font-mono whitespace-pre">{row.trackingNumber}</td>
                 <td className="px-3 py-2">{row.sku}</td>
                 <td className="px-3 py-2 font-mono">{row.serial}</td>
                 <td className="px-3 py-2 font-mono text-xs">{row.scannedBy}</td>

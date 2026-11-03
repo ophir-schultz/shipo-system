@@ -65,6 +65,8 @@ export interface DeliverOrderInput {
   credentials: ClientZenventoryCredentials
   transport: ZenventoryTransport
   now: string
+  /** Tracking already stored on our shipments rows for this order. Not sent to Zenventory. */
+  shipmentTracking?: string[]
 }
 
 export interface SerialDeliveryUpdate {
@@ -73,6 +75,8 @@ export interface SerialDeliveryUpdate {
   zenventoryStatus: string | null
   zenventorySentAt: string | null
   zenventoryResponse: string | null
+  /** Blank when neither Zenventory nor our shipment row had a label number yet. */
+  trackingNumber: string
 }
 
 export interface DeliveryLogEntry {
@@ -264,6 +268,7 @@ function uniqueSerials(serials: string[]): string[] {
 function updates(
   refs: PushSerialRef[],
   zenventory: { status: string; sentAt: string | null; response: string },
+  trackingNumber = '',
 ): SerialDeliveryUpdate[] {
   return refs.map((ref) => ({
     scannedSerialId: ref.id,
@@ -271,7 +276,47 @@ function updates(
     zenventoryStatus: zenventory.status,
     zenventorySentAt: zenventory.sentAt,
     zenventoryResponse: zenventory.response,
+    trackingNumber,
   }))
+}
+
+const TRACKING_KEY = /^(trackingnumbers?)$/i
+
+/** Label numbers found on a Zenventory order or shipment payload. Serials are not tracking. */
+export function trackingNumbersIn(body: unknown): string[] {
+  const found: string[] = []
+  const walk = (value: unknown) => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item)
+      return
+    }
+    const record = asRecord(value)
+    if (!record) return
+    for (const [key, child] of Object.entries(record)) {
+      const folded = key.toLowerCase().replace(/_/g, '')
+      if (TRACKING_KEY.test(folded)) {
+        if (typeof child === 'string' && child.trim()) found.push(child.trim())
+        else if (Array.isArray(child)) {
+          for (const item of child) {
+            if (typeof item === 'string' && item.trim()) found.push(item.trim())
+            else {
+              const row = asRecord(item)
+              const number = row ? firstString(row, ['trackingNumber', 'tracking_number', 'number']) : null
+              if (number) found.push(number)
+            }
+          }
+        }
+        continue
+      }
+      walk(child)
+    }
+  }
+  walk(body)
+  return uniqueSerials(found)
+}
+
+export function joinTracking(numbers: string[]): string {
+  return uniqueSerials(numbers.filter((number) => number.trim() !== '')).join('\n')
 }
 
 function logs(
@@ -326,7 +371,7 @@ async function resolveOrder(
   transport: ZenventoryTransport,
   credentials: ClientZenventoryCredentials,
   orderRef: string,
-): Promise<{ order: ResolvedOrder | null; error: string | null }> {
+): Promise<{ order: ResolvedOrder | null; error: string | null; tracking: string[] }> {
   const hasV2 = !blank(credentials.apiKey) && !blank(credentials.apiSecret)
   // A 2.0 key that answers 401 is a known case: the legacy SecureKey still
   // lists the order. A failed 2.0 lookup falls through to that key.
@@ -340,26 +385,26 @@ async function resolveOrder(
       }, { apiKey: credentials.apiKey!.trim(), apiSecret: credentials.apiSecret!.trim() })
       if (listed.status >= 200 && listed.status < 300) {
         const matched = matchOrder(ordersIn(listed.body), orderRef)
-        if (matched === 'many') return { order: null, error: `More than one Zenventory order matches ${orderRef}` }
-        if (matched) return { order: matched, error: null }
+        if (matched === 'many') return { order: null, error: `More than one Zenventory order matches ${orderRef}`, tracking: [] }
+        if (matched) return { order: matched, error: null, tracking: trackingNumbersIn(listed.body) }
       }
     } catch (err) {
       if (blank(credentials.secureKey)) {
-        return { order: null, error: err instanceof Error ? err.message : String(err) }
+        return { order: null, error: err instanceof Error ? err.message : String(err), tracking: [] }
       }
     }
   }
   if (blank(credentials.secureKey)) {
-    return { order: null, error: `No Zenventory order matched ${orderRef}` }
+    return { order: null, error: `No Zenventory order matched ${orderRef}`, tracking: [] }
   }
   const listed = await transport.getLegacy('/customerorders', {}, credentials.secureKey!.trim())
   if (listed.status < 200 || listed.status >= 300) {
-    return { order: null, error: `Legacy order list returned HTTP ${listed.status}` }
+    return { order: null, error: `Legacy order list returned HTTP ${listed.status}`, tracking: [] }
   }
   const matched = matchOrder(ordersIn(listed.body), orderRef)
-  if (matched === 'many') return { order: null, error: `More than one Zenventory order matches ${orderRef}` }
-  if (!matched) return { order: null, error: `No Zenventory order matched ${orderRef}` }
-  return { order: matched, error: null }
+  if (matched === 'many') return { order: null, error: `More than one Zenventory order matches ${orderRef}`, tracking: [] }
+  if (!matched) return { order: null, error: `No Zenventory order matched ${orderRef}`, tracking: [] }
+  return { order: matched, error: null, tracking: trackingNumbersIn(listed.body) }
 }
 
 function orderItems(body: unknown): Record<string, unknown>[] {
@@ -459,16 +504,33 @@ export function confirmReadBack(body: unknown, sku: string, sent: string[]): { o
  * database and does not call any inventory-adjustment endpoint.
  */
 export async function deliverOrder(input: DeliverOrderInput): Promise<PushOutcome[]> {
+  const seenTracking = [...(input.shipmentTracking ?? [])]
   const byId = new Map<string, PushOutcome>()
   const put = (job: OrderJob, patch: Partial<PushOutcome> & Pick<PushOutcome, 'action' | 'mutate' | 'queueStatus' | 'error'>) => {
     byId.set(job.id, outcomeFor(job, patch))
   }
-  const finish = () => input.jobs.map((job) => byId.get(job.id) ?? outcomeFor(job, {
-    action: 'failed',
-    mutate: true,
-    queueStatus: 'failed',
-    error: 'The order was not processed.',
-  }))
+  // Tracking is recorded, not waited on. A label often does not exist yet
+  // when the cartons are scanned, and holding the pick would leave the
+  // units in inventory. The pick body itself never carries a tracking number.
+  const finish = () => {
+    const tracking = joinTracking(seenTracking)
+    return input.jobs.map((job) => {
+      const outcome = byId.get(job.id) ?? outcomeFor(job, {
+        action: 'failed',
+        mutate: true,
+        queueStatus: 'failed',
+        error: 'The order was not processed.',
+      })
+      if (!tracking) return outcome
+      return {
+        ...outcome,
+        serials: outcome.serials.map((serial) => ({
+          ...serial,
+          trackingNumber: serial.trackingNumber || tracking,
+        })),
+      }
+    })
+  }
 
   for (const job of input.jobs) {
     if (job.status === 'done') {
@@ -519,6 +581,7 @@ export async function deliverOrder(input: DeliverOrderInput): Promise<PushOutcom
   let order: ResolvedOrder
   try {
     const resolved = await resolveOrder(input.transport, input.credentials, orderRef)
+    seenTracking.push(...resolved.tracking)
     if (resolved.error || !resolved.order) {
       for (const job of linked) {
         put(job, {
@@ -699,7 +762,10 @@ export async function deliverOrder(input: DeliverOrderInput): Promise<PushOutcom
       }
       if (!read) read = await input.transport.getLegacy(pickPath, {}, input.credentials.secureKey!.trim())
       if (read.status < 200 || read.status >= 300) readError = `Order read-back returned HTTP ${read.status}`
-      else readBody = read.body
+      else {
+        readBody = read.body
+        seenTracking.push(...trackingNumbersIn(read.body))
+      }
     } catch (err) {
       readError = err instanceof Error ? err.message : String(err)
     }

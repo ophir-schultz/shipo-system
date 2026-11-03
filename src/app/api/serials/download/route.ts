@@ -5,6 +5,7 @@ import { readAllPages } from '@/lib/db/page'
 import { isMigrationMissing } from '@/lib/db/read'
 import {
   applySerialFilters,
+  applyShipmentTracking,
   mapSerialRow,
   parseSerialFilters,
   SERIAL_SCHEMA_MESSAGE,
@@ -12,10 +13,11 @@ import {
   serialsToXlsx,
   type RawSerialJoin,
 } from '@/lib/scan/serial-export'
+import { shipmentTrackingByOrder } from '@/lib/scan/shipment-tracking'
 
 export const dynamic = 'force-dynamic'
 
-const SELECT = 'id, serial, zenventory_status, zenventory_sent_at, zenventory_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
+const SELECT = 'id, serial, tracking_number, zenventory_status, zenventory_sent_at, zenventory_response, scan_events!inner(client_id, order_ref, sku, scanned_at, scanned_by, clients(name))'
 
 export async function GET(req: Request) {
   const denied = await requireStaff()
@@ -43,7 +45,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: message }, { status: isMigrationMissing(loaded) ? 409 : 500 })
   }
 
-  const rows = (loaded.data ?? []).map(mapSerialRow)
+  const tracking = await shipmentTrackingByOrder()
+  if (tracking.error) return NextResponse.json({ error: tracking.error }, { status: 500 })
+  const rows = applyShipmentTracking((loaded.data ?? []).map(mapSerialRow), tracking.byOrder)
   if (format === 'csv') {
     return new NextResponse(serialsToCsv(rows), {
       headers: {

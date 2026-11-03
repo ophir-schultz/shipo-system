@@ -5,10 +5,12 @@ import {
   confirmReadBack,
   customerOrderPickPath,
   deliverOrder,
+  joinTracking,
   pickBody,
   pickLinesIn,
   priceKeys,
   SCAN_INCOMPLETE,
+  trackingNumbersIn,
   type HttpResult,
   type OrderJob,
   type ZenventoryTransport,
@@ -185,6 +187,31 @@ describe('customer order pick', () => {
     const result = confirmReadBack({ items: [{ sku: 'R1', pickedQuantity: 2, additionalFields: null }] }, 'R1', ['AAA', 'BBB'])
     expect(result.ok).toBe(true)
     expect(result.detail).toContain('picked quantity')
+  })
+
+  it('records a label number from our shipments and still does not send it on the pick', async () => {
+    const sent = harness()
+    const [outcome] = await deliverOrder({
+      jobs: [job()],
+      credentials: { apiKey: 'k', apiSecret: 's', secureKey: 'secure' },
+      transport: sent.transport,
+      now: NOW,
+      shipmentTracking: ['1Z999'],
+    })
+    expect(outcome.action).toBe('sent')
+    expect(outcome.serials[0].trackingNumber).toBe('1Z999')
+    expect(JSON.stringify(sent.puts[0].body)).not.toContain('1Z999')
+    expect(JSON.stringify(sent.puts[0].body)).not.toContain('tracking')
+  })
+
+  it('reads a tracking number off an order payload and ignores serials', () => {
+    expect(trackingNumbersIn({
+      orderNumber: 'SO1',
+      trackingNumber: '1Z111',
+      items: [{ sku: 'R1', pickedSerialNumbers: [{ serial: 'AAA' }] }],
+    })).toEqual(['1Z111'])
+    expect(trackingNumbersIn({ id: 99, orderNumber: 'SO1', shipVia: 'ups' })).toEqual([])
+    expect(joinTracking(['1Z111', '1Z111', '1Z222'])).toBe('1Z111\n1Z222')
   })
 
   it('does not mention a Nayax webhook or an inventory adjustment', () => {

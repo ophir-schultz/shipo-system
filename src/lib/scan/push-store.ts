@@ -56,13 +56,21 @@ async function saveOutcome(job: RunnableJob, outcome: PushOutcome): Promise<{ er
   let serialError: string | null = null
   for (const serial of outcome.serials) {
     if (!serial.scannedSerialId) continue
+    const fields: {
+      zenventory_status: string | null
+      zenventory_sent_at: string | null
+      zenventory_response: string | null
+      tracking_number?: string
+    } = {
+      zenventory_status: serial.zenventoryStatus,
+      zenventory_sent_at: serial.zenventorySentAt,
+      zenventory_response: serial.zenventoryResponse,
+    }
+    // A blank snapshot must not wipe a tracking number stored earlier.
+    if (serial.trackingNumber) fields.tracking_number = serial.trackingNumber
     const res = await supabaseAdmin
       .from('scanned_serials')
-      .update({
-        zenventory_status: serial.zenventoryStatus,
-        zenventory_sent_at: serial.zenventorySentAt,
-        zenventory_response: serial.zenventoryResponse,
-      })
+      .update(fields)
       .eq('id', serial.scannedSerialId)
     if (res.error) {
       serialError = res.error.message

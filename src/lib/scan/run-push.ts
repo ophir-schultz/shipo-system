@@ -41,6 +41,8 @@ export async function runPush(input: {
   store: PushStore
   transport: ZenventoryTransport
   now: string
+  /** Label numbers already on our shipments rows, keyed by order ref. Not sent to Zenventory. */
+  shipmentTracking?: Record<string, string[]>
 }): Promise<PushRunResult[]> {
   const results: PushRunResult[] = []
   const open: RunnableJob[] = []
@@ -138,6 +140,7 @@ export async function runPush(input: {
         credentials: creds.credentials,
         transport: input.transport,
         now: input.now,
+        shipmentTracking: input.shipmentTracking?.[claimed[0].orderRef.trim()] ?? [],
       })
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
