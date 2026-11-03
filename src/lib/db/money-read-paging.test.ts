@@ -57,6 +57,7 @@ const ROOT = join(__dirname, '..', '..')
  */
 const MONEY_READS: Array<[file: string, tables: string[]]> = [
   ['app/dashboard/page.tsx', ['shipments']],
+  ['app/adjustments/page.tsx', ['rate_adjustments']],
   // warehouse_daily_log, inbound_shipments and referral_payouts are summed
   // into Net Profit on this page. clients is paged too: an unpaged read of
   // it is the same silent cap, and campaign attribution is built from it.

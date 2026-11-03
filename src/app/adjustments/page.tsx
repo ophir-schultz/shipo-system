@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import AdjustmentsClient from '@/components/adjustments/AdjustmentsClient'
 
@@ -22,6 +23,10 @@ export const dynamic = 'force-dynamic'
 // 14 billed" invites a different conclusion from "0 pending, 0 billed", and
 // neither is one this page is entitled to draw from a read it did not get.
 //
+// The resolved list used to stop at 100 rows. The Billed and Waived cards
+// are sums of that list, so the headline was the first 100, not the table.
+// Pending had no limit, which is the silent 1,000-row cap. Both are paged.
+//
 // `adjustment_amount ?? 0` is left alone on purpose. Nothing writes null to
 // that column, and the same judgement is already written down in ReportsTabs:
 // changing it would be a guess dressed up as a fix. The defect here is the
@@ -29,17 +34,20 @@ export const dynamic = 'force-dynamic'
 
 async function getAdjustments() {
   const [pendingRes, allRes] = await Promise.all([
-    supabaseAdmin
+    readAllPages((from, to) => supabaseAdmin
       .from('rate_adjustments')
       .select('*, clients(name)')
       .eq('status', 'pending')
-      .order('adjustment_amount', { ascending: false }),
-    supabaseAdmin
+      .order('adjustment_amount', { ascending: false })
+      .order('id')
+      .range(from, to)),
+    readAllPages((from, to) => supabaseAdmin
       .from('rate_adjustments')
       .select('*, clients(name)')
       .neq('status', 'pending')
       .order('adjustment_date', { ascending: false })
-      .limit(100),
+      .order('id')
+      .range(from, to)),
   ])
   const pending = read('rate_adjustments (pending)', pendingRes)
   const resolved = read('rate_adjustments (resolved)', allRes)
