@@ -186,7 +186,7 @@ export async function GET(req: Request) {
     return unreadable("the client's earliest charge", earliestRes.error.message)
   }
 
-  const priced = await priceStatementCharges(clientId, name, chargesRes.data ?? [])
+  const priced = await priceStatementCharges(clientId, name, chargesRes.data ?? [], range)
   if (priced.error) return unreadable('shipment prices', priced.error.message)
   const charges = priced.charges
   const earliest = (earliestRes.data ?? []).length === 0
