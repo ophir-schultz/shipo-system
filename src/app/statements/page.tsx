@@ -89,7 +89,7 @@ async function getStatement(clientId: string, clientName: string, grain: Grain) 
 
   const charges = read('charges for this period', chargesRes)
   const earliest = read("the client's earliest charge", earliestRes)
-  const priced = await priceStatementCharges(clientId, clientName, charges.rows ?? [])
+  const priced = await priceStatementCharges(clientId, clientName, charges.rows ?? [], range)
   const priceError = priced.error
     ? `shipment prices could not be read (${priced.error.message})`
     : null

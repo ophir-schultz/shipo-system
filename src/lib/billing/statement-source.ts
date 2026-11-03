@@ -5,6 +5,8 @@ import { shipmentIdFromChargeKey } from '@/lib/billing/statement-detail'
 import type { StatementChargeRow } from '@/lib/billing/statement-charges'
 import { money, pricePick } from '@/lib/pricing/engine'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
+import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import type { DateRange } from '@/lib/billing/statement'
 import { parsePriceList } from '@/lib/pricing/parse-price-list'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import type { PriceListDocument, SkuQty } from '@/lib/pricing/types'
@@ -34,6 +36,44 @@ export function applyZonePrices(
     if (rate === null || rate === undefined) return charge
     return { ...charge, amount: rate, unit_rate: rate }
   })
+}
+
+export interface ShipmentForStatement {
+  shipstation_shipment_id: number | string | null
+  order_number: string | null
+  ship_date: string | null
+  client_rate: unknown
+  raw_data?: unknown
+}
+
+/**
+ * Shipping lines from the same rows Profit reads, for a client whose ledger
+ * has no shipping charges in the period. A voided label is omitted. A parcel
+ * with no zone price stays unpriced rather than becoming $0.
+ */
+export function shippingChargesFromShipments(
+  rows: readonly ShipmentForStatement[],
+  orderIdByNumber: ReadonlyMap<string, string> = new Map(),
+): StatementChargeRow[] {
+  const charges: StatementChargeRow[] = []
+  for (const row of rows) {
+    if (isVoidedShipment(row.raw_data)) continue
+    if (row.shipstation_shipment_id === null || row.shipstation_shipment_id === '') continue
+    const rate = priceOf(row.client_rate)
+    const orderNumber = row.order_number?.trim() ?? ''
+    charges.push({
+      charge_type: 'shipping',
+      label: 'Shipping',
+      quantity: 1,
+      unit_rate: rate,
+      amount: rate,
+      is_estimate: false,
+      charge_date: easternCalendarDay(row.ship_date),
+      order_id: orderNumber === '' ? null : orderIdByNumber.get(orderNumber) ?? null,
+      charge_key: `shipment:${row.shipstation_shipment_id}`,
+    })
+  }
+  return charges
 }
 
 export function hasPricedPick(charges: readonly StatementChargeRow[]): boolean {
@@ -168,6 +208,7 @@ export async function priceStatementCharges(
   clientId: string,
   clientName: string,
   charges: StatementChargeRow[],
+  range?: DateRange,
 ): Promise<{ charges: StatementChargeRow[]; error: { message: string } | null }> {
   const shipmentIds = [...new Set(charges.flatMap((charge) => {
     if (charge.charge_type !== 'shipping') return []
@@ -204,6 +245,45 @@ export async function priceStatementCharges(
     const id = shipmentIdFromChargeKey(charge.charge_key)
     return id === null || !voidedIds.has(id)
   }), rates)
+
+  if (range && !next.some((charge) => charge.charge_type === 'shipping')) {
+    const shipped = await readAllPages((from, to) =>
+      supabaseAdmin
+        .from('shipments')
+        .select('shipstation_shipment_id, order_number, ship_date, client_rate, raw_data')
+        .eq('client_id', clientId)
+        .gte('ship_date', easternMidnightIso(range.from))
+        .lt('ship_date', easternMidnightIso(easternAddDays(range.to, 1)))
+        .order('ship_date')
+        .order('id')
+        .range(from, to))
+    if (shipped.error) return { charges: next, error: shipped.error }
+    const rows = (shipped.data ?? []) as ShipmentForStatement[]
+    const numbers = [...new Set(rows.flatMap((row) => {
+      const number = row.order_number?.trim() ?? ''
+      return number === '' ? [] : [number]
+    }))]
+    const orderIdByNumber = new Map<string, string>()
+    if (numbers.length > 0) {
+      const orders = await readChunked(numbers, (chunk) => readAllPages((from, to) =>
+        supabaseAdmin
+          .from('orders')
+          .select('id, order_number')
+          .eq('client_id', clientId)
+          .in('order_number', chunk)
+          .order('order_number')
+          .order('id')
+          .range(from, to)))
+      if (orders.error) return { charges: next, error: orders.error }
+      for (const row of orders.data ?? []) {
+        const record = row as { id: string | null; order_number: string | null }
+        if (!record.id || !record.order_number || orderIdByNumber.has(record.order_number)) continue
+        orderIdByNumber.set(record.order_number, record.id)
+      }
+    }
+    next = [...next, ...shippingChargesFromShipments(rows, orderIdByNumber)]
+  }
+
   if (hasPricedPick(next)) return { charges: next, error: null }
 
   const orderIds = [...new Set(next.flatMap((charge) => charge.order_id === null ? [] : [charge.order_id]))]
