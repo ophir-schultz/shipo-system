@@ -189,7 +189,7 @@ async function getDashboardData() {
     weekManualRes, monthManualRes, billsRes,
     clientShipmentsRes, clientWarehouseRes, clientAdjRes,
   ] = await Promise.all([
-    supabaseAdmin.from('clients').select('id, name, active').eq('active', true),
+    readAllPages((from, to) => supabaseAdmin.from('clients').select('id, name, active').eq('active', true).order('id').range(from, to)),
     // PAGED, all four of the period reads below, and the reason is measured
     // rather than precautionary. PostgREST caps a select at `db-max-rows`
     // (1000) and reports the cap NOWHERE -- a 200, `error: null`, and a
@@ -221,13 +221,13 @@ async function getDashboardData() {
     readAllPages<PeriodRow>((from, to) =>
       supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
         .gte('ship_date', yearStart.toISOString()).order('id').range(from, to)),
-    supabaseAdmin.from('rate_adjustments')
+    readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
       .select('id, order_number, adjustment_amount, reason, adjustment_date, client_id, clients(name)')
-      .eq('status', 'pending').order('adjustment_amount', { ascending: false }),
-    supabaseAdmin.from('warehouse_daily_log').select('total').gte('log_date', weekStart.toISOString().split('T')[0]),
-    supabaseAdmin.from('warehouse_daily_log').select('total').gte('log_date', monthStart.toISOString().split('T')[0]),
-    supabaseAdmin.from('manual_charges').select('amount').eq('approved', true).gte('charge_date', weekStart.toISOString().split('T')[0]),
-    supabaseAdmin.from('manual_charges').select('amount').eq('approved', true).gte('charge_date', monthStart.toISOString().split('T')[0]),
+      .eq('status', 'pending').order('adjustment_amount', { ascending: false }).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log').select('total').gte('log_date', weekStart.toISOString().split('T')[0]).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log').select('total').gte('log_date', monthStart.toISOString().split('T')[0]).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('manual_charges').select('amount').eq('approved', true).gte('charge_date', weekStart.toISOString().split('T')[0]).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('manual_charges').select('amount').eq('approved', true).gte('charge_date', monthStart.toISOString().split('T')[0]).order('id').range(from, to)),
     supabaseAdmin.from('bills').select('grand_total, status, week_start, week_end, client_id, clients(name)').order('week_start', { ascending: false }).limit(10),
     // The per-client table. 617 rows this month, so under the cap today --
     // and that is precisely why it is paged now rather than when it breaks.
@@ -235,8 +235,8 @@ async function getDashboardData() {
       supabaseAdmin.from('shipments')
         .select('client_id, actual_cost, client_rate, profit_loss, is_loss, clients(name)')
         .gte('ship_date', monthStart.toISOString()).order('id').range(from, to)),
-    supabaseAdmin.from('warehouse_daily_log').select('client_id, total').gte('log_date', monthStart.toISOString().split('T')[0]),
-    supabaseAdmin.from('rate_adjustments').select('client_id, adjustment_amount').eq('status', 'pending'),
+    readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log').select('client_id, total').gte('log_date', monthStart.toISOString().split('T')[0]).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('rate_adjustments').select('client_id, adjustment_amount').eq('status', 'pending').order('id').range(from, to)),
   ])
 
   // Named per read, not per table: four of these hit `shipments` with

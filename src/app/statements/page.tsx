@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import {
   readStatementCharges, readEarliestChargeDate,
@@ -60,11 +61,13 @@ export const dynamic = 'force-dynamic'
 interface ClientRow { id: string; name: string }
 
 async function getClients() {
-  const res = await supabaseAdmin
+  const res = await readAllPages((from, to) => supabaseAdmin
     .from('clients')
     .select('id, name')
     .eq('active', true)
     .order('name')
+    .order('id')
+    .range(from, to))
   const clients = read('clients', res)
   return loaded(readErrors(clients), () => clients.rows as ClientRow[])
 }

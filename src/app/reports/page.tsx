@@ -90,7 +90,7 @@ async function getReportData() {
   const today = now.toISOString().split('T')[0]
 
   const [clientsRes, shipmentsRes, lossRes, adjustmentsRes, billsRes, warehouseRes] = await Promise.all([
-    supabaseAdmin.from('clients').select('id, name').eq('active', true).order('name'),
+    readAllPages((from, to) => supabaseAdmin.from('clients').select('id, name').eq('active', true).order('name').order('id').range(from, to)),
     // `id` is selected to be a React key and nothing else. `order_number` is
     // NOT unique -- ledger_03_charges.sql:8 says so in as many words:
     // multi-package orders, reships and return labels share one. Keying table
