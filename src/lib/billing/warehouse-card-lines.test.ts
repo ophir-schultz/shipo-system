@@ -4,6 +4,7 @@ import {
   ENTERED_NOTE,
   billableWarehouse,
   cardLines,
+  displayUnit,
   isAutomaticPair,
   priceLogLine,
   type RateCardRow,
@@ -84,6 +85,14 @@ describe('cardLines', () => {
     expect(lines.map((line) => line.key)).toEqual(['special_task'])
     expect(lines[0].problem).toContain('2 rate lines')
     expect(lines[0].automatic).toBe(false)
+  })
+})
+
+describe('displayUnit', () => {
+  it('uses rate_type, not the per_unit column default', () => {
+    expect(displayUnit(row({ rate_type: 'flat', unit: 'per_unit', variant: 'devan_20ft' }))).toBe('flat')
+    expect(displayUnit(row({ rate_type: 'per_pallet', unit: 'per_unit', variant: 'pallet' }))).toBe('per_pallet')
+    expect(displayUnit(row({ rate_type: null, unit: 'per_hour' }))).toBe('per_hour')
   })
 })
 
