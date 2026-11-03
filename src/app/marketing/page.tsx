@@ -37,6 +37,8 @@ interface WebsiteData {
 }
 
 interface MarketingState {
+  connected?: boolean
+  message?: string
   lastUpdated: string
   linkedin: {
     postsGenerated: number
@@ -191,6 +193,17 @@ export default function MarketingDashboard() {
   if (loading) return (
     <div style={{ background: '#FFFFFF', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ color: '#1A73E8', fontSize: 18 }}>Loading marketing dashboard...</div>
+    </div>
+  )
+
+  if (data && data.connected === false) return (
+    <div style={{ background: '#FFFFFF', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center', maxWidth: 460, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 32 }}>
+        <div style={{ color: '#1A73E8', fontSize: 18, fontWeight: 700 }}>Marketing data source not connected</div>
+        <p style={{ color: '#4B4F58', fontSize: 14, marginTop: 8, lineHeight: 1.5 }}>
+          {data.message || 'marketing data source not connected'}. The dashboard will fill in once that source is available. Nothing else on this screen is failing.
+        </p>
+      </div>
     </div>
   )
 
