@@ -4,6 +4,7 @@ import type { ReferralPartner, ReferredClient, FbaInvoice, PayoutRecord } from '
 import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ReferralsManager from '@/components/referrals/ReferralsManager'
+import DocusignNotice from '@/components/partner/DocusignNotice'
 import ClaimsQueue from '@/components/referrals/ClaimsQueue'
 
 export const dynamic = 'force-dynamic'
@@ -162,6 +163,7 @@ export default async function ReferralsPage() {
 
   return (
     <div className="space-y-6">
+      <DocusignNotice audience="staff" />
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Referral Payouts</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
