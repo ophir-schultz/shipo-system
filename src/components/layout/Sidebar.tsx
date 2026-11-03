@@ -14,6 +14,7 @@ const nav = [
   { href: '/adjustments', label: 'Adjustments', icon: '⚠️' },
   { href: '/warehouse', label: 'Warehouse Log', icon: '📦' },
   { href: '/scan', label: 'Serialization Scan', icon: '🔢' },
+  { href: '/serials', label: 'Serial History', icon: '🔎' },
   { href: '/billing', label: 'Billing', icon: '💰' },
   { href: '/client-report', label: 'Client Report', icon: '📑' },
   { href: '/serial-report', label: 'Serial Report', icon: '🔎' },

@@ -6,6 +6,7 @@ import ZoneChartUpload from '@/components/billing/ZoneChartUpload'
 import WarehouseRatesUpload from '@/components/billing/WarehouseRatesUpload'
 import DeleteClientButton from '@/components/clients/DeleteClientButton'
 import ZenventoryCredentials from '@/components/clients/ZenventoryCredentials'
+import { readZenventoryClientCredentials, zenventoryEnvNames, zenventorySlug } from '@/lib/zenventory/client-env'
 import OriginZipEditor from '@/components/clients/OriginZipEditor'
 import PriceListUpload from '@/components/billing/PriceListUpload'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
@@ -155,7 +156,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   // failed -- hence the three-way render below keyed on zoneRates.error, not on
   // the matrix count alone.
   const zoneMatrices = buildZoneMatrices(zoneRates.rows)
-  const repoPriceList = loadRepoPriceList(typeof client.name === 'string' ? client.name : '')
+  const clientName = typeof client.name === 'string' ? client.name : ''
+  const repoPriceList = loadRepoPriceList(clientName)
+  const zenventory = readZenventoryClientCredentials(clientName, process.env, { requireSecure: true })
+  const zenventorySlugName = zenventorySlug(clientName)
+  const zenventoryVars = zenventorySlugName ? zenventoryEnvNames(zenventorySlugName) : null
 
   return (
     <div className="space-y-8">
@@ -175,9 +180,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       {/* Zenventory */}
       <ZenventoryCredentials
         clientId={id}
-        apiKey={client.zenventory_api_key}
-        apiSecret={client.zenventory_api_secret}
-        secureKey={client.zenventory_secure_key}
+        configured={zenventory.ok}
+        notice={zenventory.ok ? null : zenventory.notice}
+        keyVar={zenventoryVars?.key ?? null}
+        secretVar={zenventoryVars?.secret ?? null}
+        secureVar={zenventoryVars?.secure ?? null}
       />
 
       {/* Shipping Rates */}
