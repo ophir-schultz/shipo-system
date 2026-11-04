@@ -14,7 +14,7 @@ function guarded(path: string): boolean {
   return new RegExp(`^${MATCHER}$`).test(path)
 }
 
-const STAFF_PAGES = ['/dashboard', '/pnl', '/client-report', '/order-pnl', '/profit', '/clients', '/data-issues']
+const STAFF_PAGES = ['/dashboard', '/pnl', '/client-report', '/order-pnl', '/profit', '/clients', '/data-issues', '/rate-check']
 
 describe('staff password login still covers the new pages', () => {
   it('keeps Supabase password sign-in on /login', () => {
