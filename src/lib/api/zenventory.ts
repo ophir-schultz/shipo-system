@@ -40,7 +40,7 @@ function extractError(err: unknown): string {
 export async function getCustomerOrders(
   apiKey: string,
   apiSecret: string,
-  params?: { page?: number; perPage?: number; modifiedSince?: string }
+  params?: { page?: number; perPage?: number; modifiedSince?: string; orderedSince?: string }
 ) {
   const c = makeClient(apiKey, apiSecret)
   try {
@@ -55,7 +55,27 @@ export async function getCustomerOrders(
         ...(params?.modifiedSince
           ? { modifiedDate: params.modifiedSince, modifiedDateConditional: 'on_or_after' }
           : {}),
+        ...(params?.orderedSince
+          ? { orderedDate: params.orderedSince, orderedDateConditional: 'on_or_after' }
+          : {}),
       },
+    })
+    return res.data
+  } catch (err) {
+    throw new Error(`Zenventory API error: ${extractError(err)}`)
+  }
+}
+
+/** One read of GET /inventory. The count is meta.count when Zenventory sends it. */
+export async function getInventory(
+  apiKey: string,
+  apiSecret: string,
+  params?: { page?: number; perPage?: number },
+) {
+  const c = makeClient(apiKey, apiSecret)
+  try {
+    const res = await c.get('/inventory', {
+      params: { page: params?.page ?? 1, perPage: params?.perPage ?? 1 },
     })
     return res.data
   } catch (err) {
