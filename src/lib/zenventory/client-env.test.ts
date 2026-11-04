@@ -33,7 +33,7 @@ describe('per-client Zenventory env credentials', () => {
     expect(zenventoryEnvNames('TIMESYSTEMS').secret).toBe('ZEN_TIMESYSTEMS_SECRET')
   })
 
-  it('reads ZEN_KEY and ZEN_SECRET and does not require the secure key', () => {
+  it('reads ZEN_KEY and ZEN_SECRET and uses the secret as the secure value', () => {
     const read = readZenventoryClientCredentials('Orcam', {
       ZEN_ORCAM_KEY: 'key',
       ZEN_ORCAM_SECRET: 'secret',
@@ -42,7 +42,7 @@ describe('per-client Zenventory env credentials', () => {
     if (!read.ok) return
     expect(read.credentials.apiKey).toBe('key')
     expect(read.credentials.apiSecret).toBe('secret')
-    expect(read.credentials.secureKey).toBeNull()
+    expect(read.credentials.secureKey).toBe('secret')
   })
 
   it('falls back to the old ZENVENTORY_ names when the new ones are unset', () => {
@@ -77,19 +77,42 @@ describe('per-client Zenventory env credentials', () => {
     expect(read.notice).toContain('not configured')
     expect(read.notice).toContain('ZEN_ORCAM_KEY (or ZENVENTORY_KEY_ORCAM)')
     expect(read.notice).toContain('ZEN_ORCAM_SECRET (or ZENVENTORY_SECRET_ORCAM)')
-    expect(read.notice).not.toContain('SECURE')
+    expect(read.notice).toContain('pick push uses the secret')
+    expect(read.notice).toContain('ZEN_ORCAM_SECURE')
+    expect(read.notice).toContain('ZENVENTORY_SECURE_ORCAM')
   })
 
-  it('requires the secure key only for the pick push, and says the key and secret are present', () => {
+  it('counts the pick push as configured from the secret when no secure variable is set', () => {
     const read = readZenventoryClientCredentials('Kivema', {
       ZEN_KIVEMA_KEY: 'key',
       ZEN_KIVEMA_SECRET: 'secret',
     }, { requireSecure: true })
-    expect(read.ok).toBe(false)
-    if (read.ok) return
-    expect(read.notice).toContain('pick push is not configured')
-    expect(read.notice).toContain('ZEN_KIVEMA_SECURE (or ZENVENTORY_SECURE_KIVEMA)')
-    expect(read.notice).toContain('The key and secret are present')
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.credentials.secureKey).toBe('secret')
+  })
+
+  it('uses the old secret name when neither secure variable nor the new secret is set', () => {
+    const read = readZenventoryClientCredentials('Suteka', {
+      ZENVENTORY_KEY_SUTEKA: 'old-key',
+      ZENVENTORY_SECRET_SUTEKA: 'old-secret',
+    }, { requireSecure: true })
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.credentials.apiSecret).toBe('old-secret')
+    expect(read.credentials.secureKey).toBe('old-secret')
+  })
+
+  it('prefers a dedicated secure variable over the secret', () => {
+    const read = readZenventoryClientCredentials('Nayax', {
+      ZEN_NAYAX_KEY: 'key',
+      ZEN_NAYAX_SECRET: 'secret',
+      ZEN_NAYAX_SECURE: 'dedicated',
+    }, { requireSecure: true })
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.credentials.secureKey).toBe('dedicated')
+    expect(read.credentials.apiSecret).toBe('secret')
   })
 
   it('accepts the secure key from the old name on the pick push', () => {
