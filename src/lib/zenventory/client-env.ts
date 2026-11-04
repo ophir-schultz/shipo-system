@@ -47,7 +47,11 @@ export interface ZenventoryEnvCredentials {
   slug: string
   apiKey: string
   apiSecret: string
-  /** Legacy pick key. Null when it was not required and not set. */
+  /**
+   * Value sent as the legacy SecureKey. A ZEN_SECURE or ZENVENTORY_SECURE
+   * variable wins. Otherwise this is the secret: Zenventory uses the same
+   * value for both. Null only when the secret itself is missing.
+   */
   secureKey: string | null
 }
 
@@ -73,10 +77,11 @@ function readEither(
  * Key and secret for this client's Zenventory account.
  *
  * `ZEN_${slug}_KEY` is read first, then `ZENVENTORY_KEY_${slug}`. The same
- * order applies to SECRET and SECURE. Sync and the client page are configured
- * with key and secret alone. The pick push passes `requireSecure` and is the
- * only caller that needs the secure key. A missing variable is named in the
- * notice. The value is not.
+ * order applies to SECRET. SECURE is `ZEN_${slug}_SECURE`, then
+ * `ZENVENTORY_SECURE_${slug}`, then the secret (`ZEN_${slug}_SECRET`, then
+ * `ZENVENTORY_SECRET_${slug}`). The pick push is configured once the key and
+ * secret are present. A missing variable is named in the notice. The value
+ * is not.
  */
 export function readZenventoryClientCredentials(
   clientName: string,
@@ -94,17 +99,18 @@ export function readZenventoryClientCredentials(
   const names = zenventoryEnvNames(slug)
   const apiKey = readEither(env, names.key, names.legacyKey)
   const apiSecret = readEither(env, names.secret, names.legacySecret)
-  const secureKey = readEither(env, names.secure, names.legacySecure)
+  const dedicatedSecure = readEither(env, names.secure, names.legacySecure)
+  // Zenventory's secure value is the secret unless a secure variable is set.
+  const secureKey = dedicatedSecure.value ?? apiSecret.value
   const missing: string[] = []
   if (!apiKey.value) missing.push(apiKey.label)
   if (!apiSecret.value) missing.push(apiSecret.label)
-  if (options.requireSecure && !secureKey.value) missing.push(secureKey.label)
-  if (missing.length > 0 || !apiKey.value || !apiSecret.value) {
-    const onlySecure = Boolean(apiKey.value && apiSecret.value)
-    const notice = onlySecure
-      ? `${label} Zenventory pick push is not configured. Missing ${missing.join(', ')}. The key and secret are present.`
-      : `${label} Zenventory is ${ZENVENTORY_NOT_CONFIGURED}. Missing ${missing.join(', ')}.`
-    return { ok: false, notice }
+  if (missing.length > 0 || !apiKey.value || !apiSecret.value || (options.requireSecure && !secureKey)) {
+    return {
+      ok: false,
+      notice: `${label} Zenventory is ${ZENVENTORY_NOT_CONFIGURED}. Missing ${missing.join(', ')}. `
+        + `The pick push uses the secret when no ${names.secure} or ${names.legacySecure} is set.`,
+    }
   }
   return {
     ok: true,
@@ -112,7 +118,7 @@ export function readZenventoryClientCredentials(
       slug,
       apiKey: apiKey.value,
       apiSecret: apiSecret.value,
-      secureKey: secureKey.value,
+      secureKey,
     },
   }
 }
