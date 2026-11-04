@@ -11,6 +11,7 @@ export default function ZenventoryCredentials({
   clientId,
   configured,
   notice,
+  pickNotice,
   keyVar,
   secretVar,
   secureVar,
@@ -18,6 +19,7 @@ export default function ZenventoryCredentials({
   clientId: string
   configured: boolean
   notice: string | null
+  pickNotice?: string | null
   keyVar: string | null
   secretVar: string | null
   secureVar: string | null
@@ -66,7 +68,10 @@ export default function ZenventoryCredentials({
       )}
 
       {configured ? (
-        <p className="text-sm text-emerald-700">Configured. The key and secret are not shown.</p>
+        <div className="space-y-2 text-sm">
+          <p className="text-emerald-700">Configured. The key and secret are not shown.</p>
+          {pickNotice && <p className="text-yellow-700">{pickNotice}</p>}
+        </div>
       ) : (
         <div className="space-y-2 text-sm">
           <p className="text-yellow-700">{notice}</p>
