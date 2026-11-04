@@ -158,9 +158,11 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const zoneMatrices = buildZoneMatrices(zoneRates.rows)
   const clientName = typeof client.name === 'string' ? client.name : ''
   const repoPriceList = loadRepoPriceList(clientName)
-  const zenventory = readZenventoryClientCredentials(clientName, process.env, { requireSecure: true })
+  const zenventory = readZenventoryClientCredentials(clientName)
+  const pickPush = readZenventoryClientCredentials(clientName, process.env, { requireSecure: true })
   const zenventorySlugName = zenventorySlug(clientName)
   const zenventoryVars = zenventorySlugName ? zenventoryEnvNames(zenventorySlugName) : null
+  const pickNotice = zenventory.ok && !pickPush.ok ? pickPush.notice : null
 
   return (
     <div className="space-y-8">
@@ -182,6 +184,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         clientId={id}
         configured={zenventory.ok}
         notice={zenventory.ok ? null : zenventory.notice}
+        pickNotice={pickNotice}
         keyVar={zenventoryVars?.key ?? null}
         secretVar={zenventoryVars?.secret ?? null}
         secureVar={zenventoryVars?.secure ?? null}

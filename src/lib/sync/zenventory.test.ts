@@ -23,21 +23,25 @@ const { syncClientAssignments } = await import('@/lib/sync/zenventory')
 
 const SLUGS: Record<string, string> = {
   Nayax: 'NAYAX',
-  'Creative Pea': 'CREATIVE_PEA',
+  'Creative Pea': 'CREATIVEPEA',
 }
 
 function clearZenventoryEnv() {
   for (const slug of Object.values(SLUGS)) {
+    delete process.env[`ZEN_${slug}_KEY`]
+    delete process.env[`ZEN_${slug}_SECRET`]
+    delete process.env[`ZEN_${slug}_SECURE`]
     delete process.env[`ZENVENTORY_KEY_${slug}`]
     delete process.env[`ZENVENTORY_SECRET_${slug}`]
+    delete process.env[`ZENVENTORY_SECURE_${slug}`]
   }
 }
 
 const client = (id: string, name: string) => {
   const slug = SLUGS[name]
   if (slug) {
-    process.env[`ZENVENTORY_KEY_${slug}`] = `key-${id}`
-    process.env[`ZENVENTORY_SECRET_${slug}`] = `secret-${id}`
+    process.env[`ZEN_${slug}_KEY`] = `key-${id}`
+    process.env[`ZEN_${slug}_SECRET`] = `secret-${id}`
   }
   return { id, name, active: true }
 }
