@@ -14,6 +14,7 @@ import {
   type LedgerMonth,
   type PartnerLedger,
 } from '@/lib/partner-ledger'
+import { PNL_PARTNER_MONEY_SOURCE } from '@/lib/partner-money-source'
 
 // What we owe each referral partner, and every charge behind it.
 //
@@ -224,9 +225,7 @@ function Shell({ children, note }: { children?: React.ReactNode; note?: string }
     <div className="bg-white rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-[#0B1220]">Partner Payout Detail</h3>
-        <span className="text-xs text-[#4B4F58]">
-          Every client, every month, every charge — from the ledger
-        </span>
+        <span className="text-xs text-[#4B4F58] max-w-xl text-right">{PNL_PARTNER_MONEY_SOURCE}</span>
       </div>
       {note ? <p className="text-[#6B7A8D] text-sm">{note}</p> : children}
     </div>

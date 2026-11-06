@@ -79,15 +79,11 @@ function firstName(name?: string | null): string {
 const SECTIONS: Array<{ title: string; body: string }> = [
   {
     title: 'What you have earned',
-    body: 'Month by month, with the one-time bonus and the monthly share listed separately so you can see where each figure came from.',
-  },
-  {
-    title: 'How this is calculated',
-    body: 'The full working: the one-time $300, the 5% of net profit for 12 months, and exactly what Shipo counts as net profit.',
+    body: 'Your commission and any sign-up bonus, listed by month as amounts owed, approved, or paid.',
   },
   {
     title: 'Clients you referred',
-    body: 'Everyone confirmed as yours, and the month their clock started.',
+    body: 'Everyone confirmed as yours, and where each referral stands.',
   },
   {
     title: "Clients you've told us about",
@@ -95,7 +91,7 @@ const SECTIONS: Array<{ title: string; body: string }> = [
   },
   {
     title: 'Order activity and FBA prep activity',
-    body: 'The shipping and prep volume behind the numbers, so a month is never just a total you have to take on trust.',
+    body: 'Order and prep counts for the clients linked to you. Counts only.',
   },
   {
     title: 'Your account',
@@ -162,9 +158,9 @@ export function buildPartnerGuideEmail(partner: GuideCandidate, origin: string):
             <td style="padding:28px 24px 0">
               <p style="margin:0 0 14px;font-size:15px">Hi ${who},</p>
               <p style="margin:0 0 14px;font-size:15px;line-height:23px">
-                Your Shipo partner dashboard is open. It shows what you have earned, the clients
-                credited to you, and the working behind every figure. Here is how to reach it and
-                what you will find.
+                Your Shipo partner dashboard is open. It shows your commission amounts, the clients
+                credited to you, and their activity counts. Here is how to reach it and what you
+                will find.
               </p>
             </td>
           </tr>
@@ -224,10 +220,10 @@ export function buildPartnerGuideEmail(partner: GuideCandidate, origin: string):
           <tr>
             <td style="padding:22px 24px 0">
               <div style="font-size:13px;line-height:20px;color:${MUTED}">
-                One thing worth setting expectations on: a month only becomes payable once Shipo has
-                finished billing it. Until then your dashboard marks it provisional and shows no
-                amount owed. Early months can sit that way for a while, and a client appearing with
-                no money against it yet is normal.
+                One thing worth setting expectations on: a month only becomes payable once it is
+                final. Until then your dashboard marks it not final and shows no amount owed. Early
+                months can sit that way for a while, and a client appearing with no money against
+                it yet is normal.
               </div>
             </td>
           </tr>
@@ -257,8 +253,8 @@ export function buildPartnerGuideEmail(partner: GuideCandidate, origin: string):
   const text = [
     `Hi ${firstName(partner.name)},`,
     '',
-    'Your Shipo partner dashboard is open. It shows what you have earned, the clients',
-    'credited to you, and the working behind every figure.',
+    'Your Shipo partner dashboard is open. It shows your commission amounts, the clients',
+    'credited to you, and their activity counts.',
     '',
     'YOUR DASHBOARD',
     portal,
@@ -281,9 +277,9 @@ export function buildPartnerGuideEmail(partner: GuideCandidate, origin: string):
     "you've told us about\" until it is confirmed. That wait is the process working, not",
     'a fault.',
     '',
-    'A month only becomes payable once Shipo has finished billing it. Until then your',
-    'dashboard marks it provisional and shows no amount owed. Early months can sit that',
-    'way for a while, and a client appearing with no money against it yet is normal.',
+    'A month only becomes payable once it is final. Until then your dashboard marks it not',
+    'final and shows no amount owed. Early months can sit that way for a while, and a',
+    'client appearing with no money against it yet is normal.',
     '',
     'Questions about a figure, or something that looks wrong? Reply to this email or',
     'write to Support@shipousa.com within 30 days of receiving a statement.',

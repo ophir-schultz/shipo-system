@@ -16,6 +16,7 @@ import {
   taxStatusOf,
 } from '@/lib/partner-tax-status'
 import type { OwedLine, FbaInvoice } from '@/lib/referrals'
+import { REFERRALS_MONEY_SOURCE } from '@/lib/partner-money-source'
 
 const PCT = `${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%`
 
@@ -766,7 +767,7 @@ function InvoicesPanel({
   return (
     <Section
       title="Monthly Account Figures"
-      subtitle={`Net profit = invoiced less these four direct costs. Warehouse labor is NOT deducted. ${PCT} of the result is the partner's.`}
+      subtitle={`Net profit = invoiced less these four direct costs. Warehouse labor is NOT deducted. ${PCT} of the result is the partner's. ${REFERRALS_MONEY_SOURCE}`}
     >
       <div className="mb-4 rounded-lg border border-[#E2E8F0] bg-[#F1F5FB]/40 p-4 space-y-3">
         <div className="flex flex-wrap items-end gap-3">

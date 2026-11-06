@@ -32,7 +32,8 @@
 // text, which sums to zero in the column the accountant totals.
 // ============================================================
 
-import { REFERRAL_TERMS, type PartnerStatement, type StatementClientLine, type StatementMonth } from './referrals'
+import { REFERRAL_TERMS } from './referrals'
+import type { PartnerFacingClient, PartnerFacingMonth, PartnerFacingStatement } from './partner-facing'
 import type { RosterRow } from './partner-roster'
 import { BONUS_STATE_TEXT, type BonusState } from './partner-bonus-state'
 import { ORDER_UNITS_LIMIT, fbaUnitsLabel, type FbaActivityRow, type OrderUnitsRow } from './partner-activity'
@@ -45,7 +46,7 @@ export interface ReportInput {
    * empty statement: an empty statement is a real answer ("no months
    * yet") and renders as such, while null renders the W-9 sentence.
    */
-  statement: PartnerStatement | null
+  statement: PartnerFacingStatement | null
 
   /** His clients, from the authoritative clients table — the same rows the roster table shows. */
   roster: readonly RosterRow[]
@@ -131,9 +132,9 @@ function sectionOf(title: string, header: readonly Cell[], body: readonly Cell[]
  * "Payable" beside that 0 would assert the month is settled at nothing,
  * which is the one thing it is not.
  */
-function payableLabel(line: StatementClientLine, month: StatementMonth): string {
+function payableLabel(line: PartnerFacingClient, month: PartnerFacingMonth): string {
   if (line.status === 'paid') return 'Paid'
-  if (line.provisional) return 'Still being priced'
+  if (line.provisional) return 'Not final'
   if (month.payable <= 0) return `Carried forward — under the $${REFERRAL_TERMS.MIN_PAYOUT} minimum`
   return 'Payable'
 }
@@ -149,18 +150,9 @@ export function buildPartnerReport(input: ReportInput): string {
   const lines: string[] = []
 
   // ---- 1. Monthly ----
-  const monthlyHeader: Cell[] = [
-    raw('Period'),
-    raw('Client'),
-    raw('Revenue'),
-    raw('Freight'),
-    raw('Materials'),
-    raw('Storage'),
-    raw('Processing'),
-    raw('Net profit'),
-    raw(`Your share (${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%)`),
-    raw('Payable'),
-  ]
+  // Commission and status only. Revenue, the cost buckets, net profit
+  // and the rate are not columns. They are not on the input type either.
+  const monthlyHeader: Cell[] = [raw('Period'), raw('Client'), raw('Commission'), raw('Status')]
 
   if (input.statement === null) {
     lines.push(...sectionOf('Monthly', monthlyHeader, [[WITHHELD]]))
@@ -168,18 +160,7 @@ export function buildPartnerReport(input: ReportInput): string {
     const body: Cell[][] = []
     for (const m of input.statement.months) {
       for (const l of m.clients) {
-        body.push([
-          raw(m.period),
-          l.clientName,
-          money(l.billed),
-          money(l.costs.freight),
-          money(l.costs.materials),
-          money(l.costs.storage),
-          money(l.costs.processing),
-          money(l.netProfit),
-          money(l.share),
-          payableLabel(l, m),
-        ])
+        body.push([raw(m.period), l.clientName, money(l.commission), payableLabel(l, m)])
       }
     }
     lines.push(...sectionOf('Monthly', monthlyHeader, body))

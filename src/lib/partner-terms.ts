@@ -17,13 +17,14 @@
 //      and changing the version are one act, and both are deliberate.
 //
 // Each section exists because a specific thing on the screen behind it could
-// otherwise be turned against Shipo. The statement discloses Shipo's own margin
-// on named accounts; (a) and (c) are the price of showing it.
+// otherwise be turned against Shipo. The statement shows the partner's own
+// commission amounts and referral activity. It does not show Shipo's costs
+// or margin, and the text below must not describe those as if it did.
 //
 // This is a `.ts` and not part of the component because `vitest.config.ts` has
 // `include: ['src/**/*.test.ts']` — nothing in a `.tsx` can be covered.
 
-export const PARTNER_TERMS_VERSION = '2026-10-13'
+export const PARTNER_TERMS_VERSION = '2026-11-06'
 
 export interface TermsSection {
   heading: string
@@ -34,9 +35,8 @@ export const PARTNER_TERMS_SECTIONS: ReadonlyArray<TermsSection> = [
   {
     heading: 'Confidentiality',
     body:
-      "The figures in this portal are Shipo's confidential business information " +
-      'under Section 6 of your Partner Agreement. That includes revenue, cost ' +
-      'categories, and margin on named accounts. You may use them to check your ' +
+      'The commission amounts and referral activity in this portal are confidential ' +
+      'under Section 6 of your Partner Agreement. You may use them to check your ' +
       'own commission and for nothing else. Do not disclose them, republish them, ' +
       'or use them competitively.',
   },
@@ -44,9 +44,8 @@ export const PARTNER_TERMS_SECTIONS: ReadonlyArray<TermsSection> = [
     heading: 'These figures are good-faith estimates, not an account stated',
     body:
       'Amounts shown here are our good-faith calculation at the time you look at ' +
-      'them, not a final account. Lines marked "not final" or "not priced yet" are ' +
-      'not owed, and any figure may be restated once the underlying charges are ' +
-      'priced. If you disagree with a figure, tell us in writing within 30 days of ' +
+      'them, not a final account. Lines marked "not final" are not owed, and any ' +
+      'figure may be restated once the month is final. If you disagree with a figure, tell us in writing within 30 days of ' +
       'receiving the statement it appears on. If we overpay you, we recover it by ' +
       'offsetting the amount against what we owe you later — offset only, never a ' +
       'demand that you refund money — as set out in Section 3.9 of your agreement.',
@@ -54,8 +53,8 @@ export const PARTNER_TERMS_SECTIONS: ReadonlyArray<TermsSection> = [
   {
     heading: 'No client solicitation, and no use of client data',
     body:
-      'Client names, order counts, and billing figures appear here for one reason: ' +
-      'so you can check your own commission. You may not approach these clients ' +
+      'Client names and activity counts appear here for one reason: ' +
+      'so you can see the referrals linked to you and check your own commission. You may not approach these clients ' +
       'about their fulfillment, broker them to anyone else, or build a list, a ' +
       'database, or a prospecting file from anything you see in this portal. This ' +
       'applies during the partnership and after it ends.',

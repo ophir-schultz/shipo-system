@@ -7,6 +7,9 @@ import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ReferralsManager from '@/components/referrals/ReferralsManager'
 import DocusignNotice from '@/components/partner/DocusignNotice'
 import ClaimsQueue from '@/components/referrals/ClaimsQueue'
+import UnmatchedAgreements, { type UnmatchedAgreementEvent } from '@/components/referrals/UnmatchedAgreements'
+import { UNMATCHED_EVENT_COLUMNS } from '@/lib/partner-agreement-match'
+import { REFERRALS_MONEY_SOURCE } from '@/lib/partner-money-source'
 
 export const dynamic = 'force-dynamic'
 
@@ -169,12 +172,26 @@ async function getData() {
   }
 }
 
+async function loadUnmatched(): Promise<{ events: UnmatchedAgreementEvent[]; readFailed: boolean }> {
+  // Its own read. A missing events table must not blank the payout figures,
+  // and the payload column is not selected: Connect bodies are not a staff list.
+  const res = await supabaseAdmin
+    .from('partner_agreement_events')
+    .select(UNMATCHED_EVENT_COLUMNS)
+    .is('referral_partner_id', null)
+    .order('processed_at', { ascending: false })
+    .limit(20)
+  if (res.error) return { events: [], readFailed: true }
+  return { events: (res.data ?? []) as UnmatchedAgreementEvent[], readFailed: false }
+}
+
 export default async function ReferralsPage() {
-  const d = await getData()
+  const [d, unmatched] = await Promise.all([getData(), loadUnmatched()])
 
   return (
     <div className="space-y-6">
       <DocusignNotice audience="staff" />
+      <UnmatchedAgreements events={unmatched.events} readFailed={unmatched.readFailed} />
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Referral Payouts</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
@@ -184,6 +201,7 @@ export default async function ReferralsPage() {
           <span className="text-[#3A4658]">{REFERRAL_TERMS.COMMISSION_MONTHS} months</span> from their first paid invoice. Every payout
           stays <span className="text-amber-700">pending</span> until you approve it — nothing is ever paid automatically.
         </p>
+        <p className="text-[#4B4F58] text-sm mt-2">{REFERRALS_MONEY_SOURCE}</p>
       </div>
 
       {d.migrationMissing && (

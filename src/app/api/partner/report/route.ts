@@ -8,6 +8,7 @@ import { rosterRows } from '@/lib/partner-roster'
 import { bonusStateFor, type BonusState } from '@/lib/partner-bonus-state'
 import { holdsW9 } from '@/lib/partner-w9'
 import { buildStatement, computeOwed, isoDay, type PayoutRecord, type ReferralPartner } from '@/lib/referrals'
+import { projectPartnerStatement } from '@/lib/partner-facing'
 
 export const dynamic = 'force-dynamic'
 
@@ -96,7 +97,12 @@ export async function GET() {
   // the founding-client offer existed, because places were ranked
   // globally — see the note in Statement.tsx.)
   const lines = showMoney ? computeOwed([partner as ReferralPartner], clients, invoices, payouts) : null
-  const statement = lines ? buildStatement(partner.id, clients, lines, invoices) : null
+  // Project before the serializer sees it. buildPartnerReport's input type
+  // has no cost fields; passing the full statement would be a type error
+  // and, if someone widened that type, a column.
+  const statement = lines
+    ? projectPartnerStatement(buildStatement(partner.id, clients, lines, invoices))
+    : null
 
   // Re-voiced from computeOwed's own line rather than recomputed. A
   // second qualification rule here would eventually promise a bonus the
