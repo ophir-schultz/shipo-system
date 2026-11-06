@@ -4,6 +4,7 @@ import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import {
   readStatementCharges, readEarliestChargeDate,
 } from '@/lib/billing/statement-charges'
+import { priceStatementCharges } from '@/lib/billing/statement-source'
 import {
   periodRange, buildStatement, statementTotal, statementToday,
   GRAINS, GRAIN_LABELS,
@@ -16,7 +17,7 @@ import {
   formatPrice, unpricedNote, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 
-// What one client has made in a period, priced off their own rate card.
+// What one client has been billed in a period. Shipping uses the same zone-matrix price as Profit. Pick and pack come from the client's price list when the ledger did not already price them.
 //
 // This does NOT touch `bills` and does not run the weekly bill generator. It is
 // a live read of `order_charges` -- the ledger's already-priced output -- so the
@@ -78,7 +79,7 @@ async function getClients() {
  * while that read failed would put the confident reading of an ambiguous figure
  * on a document headed for a client.
  */
-async function getStatement(clientId: string, grain: Grain) {
+async function getStatement(clientId: string, clientName: string, grain: Grain) {
   const range = periodRange(grain, statementToday())
 
   const [chargesRes, earliestRes] = await Promise.all([
@@ -88,10 +89,14 @@ async function getStatement(clientId: string, grain: Grain) {
 
   const charges = read('charges for this period', chargesRes)
   const earliest = read("the client's earliest charge", earliestRes)
+  const priced = await priceStatementCharges(clientId, clientName, charges.rows ?? [], range)
+  const priceError = priced.error
+    ? `shipment prices could not be read (${priced.error.message})`
+    : null
 
-  return loaded(readErrors(charges, earliest), () => ({
+  return loaded(readErrors(charges, earliest) ?? priceError, () => ({
     range,
-    statement: buildStatement(charges.rows, range),
+    statement: buildStatement(priced.charges, range),
     // An explicit length check, and NOT `rows[0]?.charge_date ?? null`.
     // `noUncheckedIndexedAccess` is off in this project, so `rows[0]` is typed
     // as always present: the `?.` and the `?? null` are both read as dead code
@@ -139,7 +144,7 @@ function Amount({ sum }: { sum: Statement['sum'] }) {
     return (
       <span
         className="text-orange-500"
-        title="Every charge on this line is billed at cost and the carrier has not reported yet. This is UNKNOWN, not zero."
+        title="This amount is not known yet. It is not zero."
       >
         unknown
       </span>
@@ -197,12 +202,26 @@ export default async function StatementsPage(
         </button>
 
         {selected !== null && (
-          <a
-            href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}`}
-            className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
-          >
-            Download Excel
-          </a>
+          <>
+            <a
+              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}&format=csv`}
+              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
+            >
+              Download CSV
+            </a>
+            <a
+              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}`}
+              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
+            >
+              Download Excel
+            </a>
+            <a
+              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}&format=pdf`}
+              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
+            >
+              Download PDF
+            </a>
+          </>
         )}
       </form>
 
@@ -236,7 +255,7 @@ export default async function StatementsPage(
 async function StatementSection(
   { clientId, name, grain }: { clientId: string; name: string; grain: Grain },
 ) {
-  const page = await getStatement(clientId, grain)
+  const page = await getStatement(clientId, name, grain)
   if (!page.ok) return <ViewUnreadable message={page.error} />
   const data: LoadedData<typeof page> = page.data
 
@@ -329,7 +348,7 @@ function StatementTable(
                   {total === null ? (
                     <span
                       className="text-orange-500"
-                      title="Every charge in this period is billed at cost and no carrier has reported yet. The total is UNKNOWN, not zero."
+                      title="This total is not known yet. It is not zero."
                     >
                       unknown
                     </span>
@@ -346,7 +365,7 @@ function StatementTable(
       {(coverage !== '' || unpriced !== '' || estimated !== '') && (
         <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-700">
           {coverage !== '' && <li>{coverage}</li>}
-          {unpriced !== '' && <li>{unpriced} — billed at cost, awaiting the carrier.</li>}
+          {unpriced !== '' && <li>{unpriced}.</li>}
           {estimated !== '' && <li>{estimated}.</li>}
         </ul>
       )}

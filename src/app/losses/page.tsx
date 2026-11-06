@@ -7,6 +7,8 @@ import { billedOz, weightBracket } from '@/lib/billing/weight-bracket'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 
 // Read at REQUEST time, never at build time. Without this the App Router
 // prerenders this page during `next build`. The 2026-10-21 preview build
@@ -62,12 +64,13 @@ interface LossTotalsRow {
 
 async function getLossData() {
   const [lossRes, allRes] = await Promise.all([
-    supabaseAdmin
+    readAllPages((from, to) => supabaseAdmin
       .from('shipments')
-      .select('id, order_number, ship_date, carrier, service, weight, billed_weight, actual_cost, client_rate, profit_loss, zone, recipient_state, client_id, clients(name)')
+      .select('id, order_number, ship_date, carrier, service, weight, billed_weight, actual_cost, client_rate, profit_loss, zone, recipient_state, client_id, clients(name), raw_data')
       .eq('is_loss', true)
       .order('profit_loss', { ascending: true })
-      .limit(2000),
+      .order('id')
+      .range(from, to)),
     // PAGED. The denominator for every proportion on this page: "N of M
     // shipments are losses" means nothing if M is the first 1000 rows of 1823
     // and nothing on screen says so. PostgREST caps a select at `db-max-rows`
@@ -77,7 +80,7 @@ async function getLossData() {
     readAllPages<LossTotalsRow>((from, to) =>
       supabaseAdmin
         .from('shipments')
-        .select('actual_cost, client_rate, profit_loss, is_loss')
+        .select('actual_cost, client_rate, profit_loss, is_loss, raw_data')
         .not('client_id', 'is', null)
         .order('id').range(from, to)),
   ])
@@ -90,8 +93,8 @@ async function getLossData() {
   // byWeight breakdowns reading "no losses" should not exist in the program at
   // all, not even for long enough to be discarded.
   return loaded(unreadable, () => {
-    const losses = lossRead.rows
-    const all = allRead.rows
+    const losses = withoutVoided(lossRead.rows)
+    const all = withoutVoided(allRead.rows)
 
     const totalShipments = all.length
     // ONE reconciliation, not three sums. The previous version summed
@@ -513,7 +516,7 @@ export default async function LossesPage() {
                 <tbody>
                   {d.losses.map((s: any) => (
                     <tr key={s.id} className="border-b border-[#E2E8F0]/30 hover:bg-red-50">
-                      <td className="py-2 pr-3 text-[#4B4F58]">{s.ship_date?.split('T')[0] ?? '—'}</td>
+                      <td className="py-2 pr-3 text-[#4B4F58]">{easternCalendarDay(s.ship_date) || '—'}</td>
                       <td className="py-2 pr-3 font-mono text-[#3A4658]">{s.order_number}</td>
                       <td className="py-2 pr-3 text-[#3A4658]">{(s.clients as any)?.name ?? <span className="text-[#6B7A8D] italic">unassigned</span>}</td>
                       <td className="py-2 pr-3 text-[#4B4F58]">{s.carrier} · {s.service}</td>

@@ -1,8 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/require-staff'
-import { cents } from '@/lib/ledger/calculate-charges'
-import { priceServiceLine, type WarehouseRateRow } from '@/lib/billing/warehouse-log-rate'
+import { readAllPages } from '@/lib/db/page'
+import { cardLines, priceLogLine, type RateCardRow } from '@/lib/billing/warehouse-card-lines'
+import type { WarehouseRateRow } from '@/lib/billing/warehouse-log-rate'
 
 // What this route writes ends up on five reachable surfaces:
 // dashboard/page.tsx sums `total` for the week, the month and per client, and
@@ -26,6 +27,7 @@ type LogRow = {
   service_type: string
   quantity: string | number
   notes?: string | null
+  amount: number | null
 }
 
 type CardRow = WarehouseRateRow & { client_id: string }
@@ -78,7 +80,18 @@ export async function POST(req: Request) {
           + `${JSON.stringify(row.quantity)} is not a positive number`,
       }, { status: 400 })
     }
-    rows.push({ ...(row as LogRow), quantity: qty })
+    const amountRaw = (row as { amount?: unknown }).amount
+    let amount: number | null = null
+    if (amountRaw !== undefined && amountRaw !== null && amountRaw !== '') {
+      amount = Number(amountRaw)
+      if (!Number.isFinite(amount)) {
+        return NextResponse.json({
+          error: `rows[${i}] (${row.service_type}): amount `
+            + `${JSON.stringify(amountRaw)} is not a number`,
+        }, { status: 400 })
+      }
+    }
+    rows.push({ ...(row as LogRow), quantity: qty, amount })
   }
 
   // One query for every rate card involved, instead of one `.single()` per
@@ -124,17 +137,27 @@ export async function POST(req: Request) {
   const entries = []
   const unpriced: Unpriced[] = []
 
-  for (const row of rows) {
+  for (const [i, row] of rows.entries()) {
     const quantity = row.quantity as number
-    // The whole card is handed over, not a service_type-filtered slice:
-    // priceServiceLine needs to see the other rows to tell "no price was ever
-    // agreed" from "a price was agreed in the structured shape this screen
-    // does not read", and a pre-filtered array is empty in both cases.
-    const { rate, reason } = priceServiceLine(
-      byClient.get(row.client_id) ?? [], row.service_type, date)
-
-    if (reason !== null) {
-      unpriced.push({ client_id: row.client_id, service_type: row.service_type, reason })
+    const lines = cardLines((byClient.get(row.client_id) ?? []) as RateCardRow[], date)
+    const line = lines.find((item) => item.key === row.service_type)
+    const priced = priceLogLine({
+      line,
+      quantity,
+      amount: row.amount,
+      notes: row.notes ?? null,
+    })
+    if (priced.error) {
+      return NextResponse.json({
+        error: `rows[${i}] (${row.service_type}): ${priced.error}`,
+      }, { status: 400 })
+    }
+    if (priced.unpricedReason) {
+      unpriced.push({
+        client_id: row.client_id,
+        service_type: row.service_type,
+        reason: priced.unpricedReason,
+      })
     }
 
     entries.push({
@@ -142,16 +165,12 @@ export async function POST(req: Request) {
       log_date: date,
       service_type: row.service_type,
       quantity,
-      // null, not 0. Both columns are nullable in schema.sql, the row is
-      // still written so the hours are not lost, and what is withheld is only
-      // the claim that the work was worth nothing. The page renders the line
-      // as 'unpriced' in amber and excludes it from the subtotal with a note,
-      // rather than adding a silent zero. `cents` is imported rather than
-      // reimplemented so this rounds the way every other money figure in the
-      // ledger does -- see its comment on the exact half-cent.
-      rate,
-      total: rate === null ? null : cents(rate * quantity),
-      notes: row.notes || null,
+      // null, not 0. An automatic line and an unpriced line both store null.
+      // The note is what tells them apart: the automatic note is skipped by
+      // the revenue screens, and an unpriced line is still flagged.
+      rate: priced.rate,
+      total: priced.total,
+      notes: priced.notes,
     })
   }
 
@@ -179,11 +198,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'date is required' }, { status: 400 })
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await readAllPages((from, to) => supabaseAdmin
     .from('warehouse_daily_log')
     .select('*, clients(name)')
     .eq('log_date', date)
     .order('created_at', { ascending: false })
+    .order('id')
+    .range(from, to))
 
   // The error was discarded, so a failed read rendered as "no entries today"
   // -- and the page hides the whole table when the list is empty, so a day's

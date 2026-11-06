@@ -27,6 +27,7 @@ interface VideoState {
 interface WebsiteData {
   connected: boolean
   message?: string
+  project?: string
   visitors: { total: number; today: number; thisWeek: number; thisMonth: number }
   pageviews: { total: number; today: number }
   topPages: { path: string; views: number; visitors: number }[]
@@ -37,6 +38,8 @@ interface WebsiteData {
 }
 
 interface MarketingState {
+  connected?: boolean
+  message?: string
   lastUpdated: string
   linkedin: {
     postsGenerated: number
@@ -98,6 +101,35 @@ function timeUntil(dateStr: string) {
   return `in ${days}d`
 }
 
+function WebsiteStatus({ website }: { website: WebsiteData | null }) {
+  if (!website) {
+    return <p style={{ color: '#4B4F58', fontSize: 14 }}>Loading website stats...</p>
+  }
+  if (website.connected) return null
+  return (
+    <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 28 }}>
+      <div style={{ color: '#1A73E8', fontSize: 18, fontWeight: 700 }}>Website stats not connected</div>
+      <p style={{ color: '#4B4F58', fontSize: 14, marginTop: 8, lineHeight: 1.5 }}>
+        {website.message || 'The website stats source is not connected.'}
+      </p>
+    </div>
+  )
+}
+
+function disconnectedWebsite(message: string): WebsiteData {
+  return {
+    connected: false,
+    message,
+    visitors: { total: 0, today: 0, thisWeek: 0, thisMonth: 0 },
+    pageviews: { total: 0, today: 0 },
+    topPages: [],
+    topSources: [],
+    recentDeployments: [],
+    conversionEvents: { bookACall: 0, emailClicks: 0, pricingViews: 0 },
+    lastUpdated: new Date().toISOString(),
+  }
+}
+
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
   return (
     <div style={{ background: '#E2E8F0', borderRadius: 12, padding: '24px 28px', border: '1px solid #2a3a5c' }}>
@@ -142,24 +174,47 @@ export default function MarketingDashboard() {
   const [website, setWebsite] = useState<WebsiteData | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchData = async () => {
     try {
-      const [marketingRes, websiteRes] = await Promise.all([
-        fetch('/api/marketing', { cache: 'no-store' }),
-        fetch('/api/website', { cache: 'no-store' }),
-      ])
-      const [marketingJson, websiteJson] = await Promise.all([
-        marketingRes.json(),
-        websiteRes.json(),
-      ])
-      setData(marketingJson)
-      setWebsite(websiteJson)
+      const marketingRes = await fetch('/api/marketing', { cache: 'no-store' })
+      if (!marketingRes.ok) {
+        const body = await marketingRes.json().catch(() => null) as { error?: string; message?: string; connected?: boolean } | null
+        if (body?.connected === false) {
+          setError(null)
+          setData({ connected: false, message: body.message, lastUpdated: new Date().toISOString() } as MarketingState)
+        } else {
+          setData(null)
+          setError(body?.error || body?.message || `Marketing data could not be read (HTTP ${marketingRes.status}).`)
+        }
+      } else {
+        setError(null)
+        setData(await marketingRes.json())
+      }
       setLastRefresh(new Date())
     } catch (e) {
-      console.error(e)
+      setData(null)
+      setError(e instanceof Error ? e.message : 'Marketing data could not be read.')
     } finally {
       setLoading(false)
+    }
+
+    try {
+      const websiteRes = await fetch('/api/website', { cache: 'no-store' })
+      const body = await websiteRes.json().catch(() => null) as WebsiteData | { error?: string } | null
+      if (!websiteRes.ok || !body || !('connected' in body) || body.connected === false) {
+        const message = body && 'message' in body && body.message
+          ? body.message
+          : body && 'error' in body && body.error
+            ? body.error
+            : `Website stats could not be read (HTTP ${websiteRes.status}).`
+        setWebsite(disconnectedWebsite(message))
+      } else {
+        setWebsite(body)
+      }
+    } catch (e) {
+      setWebsite(disconnectedWebsite(e instanceof Error ? e.message : 'Website stats could not be read.'))
     }
   }
 
@@ -175,9 +230,30 @@ export default function MarketingDashboard() {
     </div>
   )
 
-  if (!data) return (
+  if (data && data.connected === false) return (
+    <div style={{ background: '#FFFFFF', minHeight: '100vh', padding: '48px 24px' }}>
+      <div style={{ maxWidth: 720, margin: '0 auto', display: 'grid', gap: 20 }}>
+        <div style={{ textAlign: 'center', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 32 }}>
+          <div style={{ color: '#1A73E8', fontSize: 18, fontWeight: 700 }}>Marketing data source not connected</div>
+          <p style={{ color: '#4B4F58', fontSize: 14, marginTop: 8, lineHeight: 1.5 }}>
+            {data.message || 'marketing data source not connected'}. The dashboard will fill in once that source is available. Nothing else on this screen is failing.
+          </p>
+        </div>
+        <WebsiteStatus website={website} />
+      </div>
+    </div>
+  )
+
+  if (error || !data) return (
     <div style={{ background: '#FFFFFF', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ color: '#ff4444', fontSize: 18 }}>Could not load marketing data</div>
+      <div style={{ textAlign: 'center', maxWidth: 420 }}>
+        <div style={{ color: '#b91c1c', fontSize: 18 }}>Marketing data could not be read</div>
+        <p style={{ color: '#4B4F58', fontSize: 14, marginTop: 8 }}>{error || 'The marketing service did not return a dashboard.'}</p>
+        <button type="button" onClick={() => { setLoading(true); setError(null); fetchData() }}
+          style={{ marginTop: 16, background: '#1A73E8', color: 'white', border: 0, borderRadius: 8, padding: '8px 16px', fontWeight: 600 }}>
+          Try again
+        </button>
+      </div>
     </div>
   )
 
@@ -410,32 +486,24 @@ export default function MarketingDashboard() {
         )}
 
         {/* Website Analytics */}
+        {website?.connected === true ? (
         <div style={{ marginTop: 24, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 28 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: '#1A73E8' }}>🌐 shipousa.com — Website Analytics</h2>
-              {website?.connected
-                ? <span style={{ background: '#00ff8822', color: '#00ff88', fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 700 }}>LIVE</span>
-                : <span style={{ background: '#ffaa4422', color: '#ffaa44', fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 700 }}>SETUP NEEDED</span>
-              }
+              <span style={{ background: '#00ff8822', color: '#00ff88', fontSize: 11, padding: '3px 10px', borderRadius: 20, fontWeight: 700 }}>LIVE</span>
             </div>
-            <a href="https://vercel.com/shipo/shipo-website1/analytics" target="_blank" rel="noopener noreferrer"
+            <a href={`https://vercel.com/shipo/${website.project || 'shipo-website1'}/analytics`} target="_blank" rel="noopener noreferrer"
               style={{ background: '#1A73E822', color: '#1A73E8', fontSize: 12, padding: '6px 14px', borderRadius: 8, textDecoration: 'none', fontWeight: 600 }}>
               Open in Vercel →
             </a>
           </div>
 
-          {!website?.connected && (
-            <div style={{ background: '#FFFBEB', border: '1px solid #ffaa4444', borderRadius: 12, padding: '16px 20px', marginBottom: 24 }}>
-              <div style={{ fontSize: 13, color: '#ffaa44', fontWeight: 600, marginBottom: 6 }}>
-                {website?.message || 'Add VERCEL_TOKEN to see live traffic data'}
-              </div>
-              <div style={{ fontSize: 12, color: '#667799' }}>
-                Go to Vercel → Settings → Tokens → Create → add as VERCEL_TOKEN in shipo-system environment variables
-              </div>
-            </div>
+          {website.message && (
+            <p style={{ fontSize: 13, color: '#4B4F58', marginTop: -12, marginBottom: 16 }}>{website.message}</p>
           )}
 
+          <>
           {/* Visitor Stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
             {[
@@ -519,7 +587,13 @@ export default function MarketingDashboard() {
               ))}
             </div>
           </div>
+          </>
         </div>
+        ) : (
+          <div style={{ marginTop: 24 }}>
+            <WebsiteStatus website={website} />
+          </div>
+        )}
 
         {/* Footer */}
         <div style={{ marginTop: 24, textAlign: 'center', color: '#445566', fontSize: 12 }}>

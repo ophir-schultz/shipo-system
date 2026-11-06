@@ -45,7 +45,7 @@ describe('the statement does not reimpose the withdrawn bonus gates', () => {
     // renamed file or a bad path would otherwise read as a clean bill of
     // health.
     expect(code.length).toBeGreaterThan(1000)
-    expect(code).toContain('How this is calculated')
+    expect(code).toContain('When you are paid')
   })
 
   it('names no $500 revenue threshold', () => {

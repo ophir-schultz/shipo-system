@@ -77,6 +77,7 @@
 // "wait".
 
 import { priceOf, type Money, type PricedSum, combinePriced, sumPriced } from './unpriced'
+import { billableWarehouse } from './warehouse-card-lines'
 
 /**
  * The three money columns this module reads off a shipment.
@@ -356,7 +357,10 @@ export function otherIncome(
   manual: ReadonlyArray<object> | null | undefined,
 ): PricedSum {
   return combinePriced(
-    sumPriced(warehouse, 'total'),
+    // A recorded-only automatic line has a null total on purpose. It is
+    // already billed by the order charge, so it is not warehouse revenue
+    // and it is not an unpriced gap.
+    sumPriced(billableWarehouse(warehouse as ReadonlyArray<{ notes?: string | null }> | null | undefined), 'total'),
     sumPriced(manual, 'amount'),
   )
 }

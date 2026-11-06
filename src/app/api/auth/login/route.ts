@@ -51,6 +51,12 @@ export async function POST(req: Request) {
 
   // 3a. Failure → increment counter, lock + alert at threshold
   if (signInError) {
+    // Message and status only. The password and the Supabase keys stay out of the logs.
+    console.error('[auth/login] sign-in failed', {
+      message: signInError.message,
+      status: signInError.status,
+    })
+
     const newCount = (attempt?.failed_count ?? 0) + 1
     const willLock = newCount >= MAX_ATTEMPTS
     const lockedUntilIso = willLock ? new Date(now + LOCK_MINUTES * 60 * 1000).toISOString() : null

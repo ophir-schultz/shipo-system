@@ -11,6 +11,8 @@ import {
 } from '@/lib/billing/profit-rollup'
 import { embedOne, type Embed } from '@/lib/db/read'
 import { scopeRows, undatedNote, unattributedNote, type Scoped } from '@/lib/billing/date-range'
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { billableWarehouse, isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 import {
   REPORT_TABS, reportTabById, reportTypeForTab, tabRequiresClient,
 } from '@/lib/billing/report-types'
@@ -214,7 +216,7 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
     window.print()
   }
 
-  async function handleDownload() {
+  async function handleDownload(format: 'xlsx' | 'csv' | 'pdf' = 'xlsx') {
     // Resolved BEFORE setDownloading, so a tab with no spreadsheet cannot
     // leave the button stuck in its '⏳…' state. The old code set the flag
     // first and read the map second, and the map returning undefined still
@@ -230,7 +232,7 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
       return
     }
     setDownloading(true)
-    const params = new URLSearchParams({ type: reportType, dateFrom, dateTo, ...(clientId ? { clientId } : {}) })
+    const params = new URLSearchParams({ type: reportType, dateFrom, dateTo, format, ...(clientId ? { clientId } : {}) })
     try {
       const res = await fetch(`/api/reports/download?${params}`)
       if (!res.ok) {
@@ -241,7 +243,7 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${reportType}-${dateFrom}-${dateTo}.xlsx`
+      a.download = `${reportType}-${dateFrom}-${dateTo}.${format}`
       a.click()
       URL.revokeObjectURL(url)
       showSuccess('Report downloaded')
@@ -309,15 +311,25 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
             whatever is on screen regardless of which exports exist.
           */}
           {reportTypeForTab(activeTab) !== null && (
-            <button onClick={handleDownload} disabled={downloading}
-              className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] bg-[#EEF3FA] hover:bg-[#DDE6F2] disabled:opacity-50 transition">
-              {downloading ? '⏳…' : '↓ Excel'}
-            </button>
+            <>
+              <button onClick={() => handleDownload('csv')} disabled={downloading}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] bg-[#EEF3FA] hover:bg-[#DDE6F2] disabled:opacity-50 transition">
+                {downloading ? '⏳…' : '↓ CSV'}
+              </button>
+              <button onClick={() => handleDownload('xlsx')} disabled={downloading}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] bg-[#EEF3FA] hover:bg-[#DDE6F2] disabled:opacity-50 transition">
+                {downloading ? '⏳…' : '↓ Excel'}
+              </button>
+              <button onClick={() => handleDownload('pdf')} disabled={downloading}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 transition"
+                style={{ background: '#1A73E8' }}>
+                {downloading ? '⏳…' : '↓ PDF'}
+              </button>
+            </>
           )}
           <button onClick={handlePrintPDF} disabled={downloading}
-            className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] disabled:opacity-50 transition"
-            style={{ background: '#1A73E8' }}>
-            ↓ PDF
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-[#0B1220] disabled:opacity-50 transition border border-[#CBD5E1]">
+            Print
           </button>
         </div>
       </div>
@@ -727,7 +739,7 @@ type StatementLineDTO = {
   charge_type: string
   label: string
   quantity: number | null
-  /** Already rendered: '$0.3500', 'at cost', '3 rates', or the unknown dash. */
+  /** Already rendered: '$0.3500', 'see amount', '3 rates', or the unknown dash. */
   rate: string
   amount: number | null
   unpriced: number
@@ -746,6 +758,7 @@ type StatementDTO = {
   counted: number
   estimated: number
   notes: string[]
+  pickPack?: { billed: boolean; reason: string }
 }
 
 /**
@@ -933,6 +946,9 @@ function StatementLines({ data }: { data: StatementDTO }) {
       <>
         <Empty msg={`No charges recorded for ${data.client.name ?? 'this client'} in ${data.period}.`} />
         <StatementNotes notes={data.notes} />
+        {data.pickPack?.reason ? (
+          <p className="text-sm text-[#4B4F58] mt-3">{data.pickPack.reason}</p>
+        ) : null}
       </>
     )
   }
@@ -993,6 +1009,9 @@ function StatementLines({ data }: { data: StatementDTO }) {
         </table>
       </div>
       <StatementNotes notes={data.notes} />
+      {data.pickPack?.reason ? (
+        <p className="text-sm text-[#4B4F58] mt-3">{data.pickPack.reason}</p>
+      ) : null}
     </>
   )
 }
@@ -1098,7 +1117,7 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
               <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                 <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? <span className="text-[#6B7A8D]">—</span>}</td>
-                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
+                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{easternCalendarDay(s.ship_date) || '—'}</td>
                 <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-[#6B7A8D]">{s.tracking_number ?? '—'}</td>
                 <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
@@ -1165,7 +1184,7 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
               <tr key={s.id ?? s.order_number} className="border-b border-[#E2E8F0]/40 hover:bg-red-50">
                 <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? '—'}</td>
-                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '—'}</td>
+                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{easternCalendarDay(s.ship_date) || '—'}</td>
                 <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
                 <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-700'}`}>
@@ -1232,7 +1251,7 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<Repor
                 <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{a.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(a.clients)?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-[#3A4658] text-xs">{a.reason ?? 'Carrier reweigh'}</td>
-                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
+                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{easternCalendarDay(a.adjustment_date) || '—'}</td>
                 <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(a.original_cost)}</td>
                 <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(a.adjusted_cost)}</td>
                 <td className="px-4 py-2.5 text-right font-bold text-amber-700">{formatSignedPrice(a.adjustment_amount)}</td>
@@ -1309,7 +1328,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBil
 function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportWarehouseLine>) {
   const period = filterRows(rows, clientId, dateFrom, dateTo, 'log_date')
   const filtered = period.rows
-  const revenueSum = sumPriced(filtered, 'total')
+  const revenueSum = sumPriced(billableWarehouse(filtered), 'total')
   const totalRevenue = revenueSum.total
 
   return (
@@ -1350,14 +1369,19 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportW
           <tbody>
             {filtered.length === 0 ? <tr><td colSpan={7}><Empty msg="No warehouse activity in this range" /></td></tr> : filtered.map((w, i) => (
               <tr key={i} className="border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30">
-                <td className="px-5 py-2.5 text-[#4B4F58] text-xs">{w.log_date ? new Date(w.log_date + 'T12:00:00').toLocaleDateString() : '—'}</td>
+                <td className="px-5 py-2.5 text-[#4B4F58] text-xs">{easternCalendarDay(w.log_date) || '—'}</td>
                 <td className="px-4 py-2.5 font-medium">{embedOne(w.clients)?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-[#3A4658] capitalize">{w.service_type?.replace(/_/g, ' ') ?? '—'}</td>
                 <td className="px-4 py-2.5 text-right">{w.quantity}</td>
                 <td className="px-4 py-2.5 text-right text-[#4B4F58]">{formatPrice(w.rate)}</td>
-                <td className={`px-4 py-2.5 text-right font-semibold ${isPriced(w.total) ? 'text-emerald-700' : 'text-amber-700'}`}
-                    title={isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day'}>
-                  {formatPrice(w.total)}
+                <td className={`px-4 py-2.5 text-right font-semibold ${
+                  isRecordedOnlyNote(w.notes) ? 'text-[#1A73E8]'
+                    : isPriced(w.total) ? 'text-emerald-700' : 'text-amber-700'
+                }`}
+                    title={isRecordedOnlyNote(w.notes)
+                      ? 'Recorded only. Billed by the automatic charge, not from this log.'
+                      : isPriced(w.total) ? undefined : 'The daily log could not read a rate for this day'}>
+                  {isRecordedOnlyNote(w.notes) ? 'Recorded' : formatPrice(w.total)}
                 </td>
                 <td className="px-4 py-2.5 text-[#6B7A8D] text-xs">{w.notes ?? '—'}</td>
               </tr>

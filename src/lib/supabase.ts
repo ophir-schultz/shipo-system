@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { createLazyClient, requireEnv } from './lazy-client'
+import { supabaseServerUrl } from './supabase-url'
 
 // Both clients are built on FIRST USE, not at import.
 //
@@ -22,13 +23,18 @@ import { createLazyClient, requireEnv } from './lazy-client'
 // what makes `requireEnv`'s dynamic `env[name]` read safe. Next inlines
 // NEXT_PUBLIC_* into client bundles only for LITERAL `process.env.X`
 // expressions; a dynamic lookup would come back undefined in the browser.
+//
+// The URL is SUPABASE_URL, then NEXT_PUBLIC_SUPABASE_URL. Preview sets the
+// public name and the service-role key, and does not set SUPABASE_URL.
+// The service-role key stays in requireEnv below and is never sent to the
+// browser client.
 
 export const supabase = createLazyClient(() => createClient(
-  requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
+  supabaseServerUrl(),
   requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
 ))
 
 export const supabaseAdmin = createLazyClient(() => createClient(
-  requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
+  supabaseServerUrl(),
   requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
 ))

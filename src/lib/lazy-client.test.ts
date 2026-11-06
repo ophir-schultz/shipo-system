@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createLazyClient, requireEnv } from './lazy-client'
+import { createLazyClient, missingSupabaseEnv, requireEnv } from './lazy-client'
 
 // The bug being locked down: src/lib/supabase.ts built both Supabase clients at
 // MODULE SCOPE, from `process.env.NEXT_PUBLIC_SUPABASE_URL!`. The `!` is a
@@ -140,6 +140,26 @@ describe('createLazyClient', () => {
     expect(() => client.from).toThrow('boom')
     expect(() => client.from).toThrow('boom')
     expect(calls).toBe(2)
+  })
+})
+
+describe('missingSupabaseEnv', () => {
+  it('names every blank Supabase variable and no values', () => {
+    expect(missingSupabaseEnv({})).toEqual([
+      'SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL',
+      'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+      'SUPABASE_SERVICE_ROLE_KEY',
+    ])
+    expect(missingSupabaseEnv({
+      NEXT_PUBLIC_SUPABASE_URL: 'https://db.example',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
+      SUPABASE_SERVICE_ROLE_KEY: 'service',
+    })).toEqual([])
+    expect(missingSupabaseEnv({
+      SUPABASE_URL: 'https://db.example',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
+      SUPABASE_SERVICE_ROLE_KEY: 'service',
+    })).toEqual([])
   })
 })
 

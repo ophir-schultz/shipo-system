@@ -1,0 +1,87 @@
+{
+  "name": "Orcam",
+  "clientName": "Orcam",
+  "shippingSameAs": "Nayax",
+  "orderPick": {
+    "includedItems": 4,
+    "orderRate": 0.5,
+    "additionalRate": 0.1
+  },
+  "labour": {
+    "perHour": 48
+  },
+  "returns": {
+    "perReturn": 3.5,
+    "additionalItemRate": 0.5
+  },
+  "palletBuild": {
+    "perPallet": 15
+  },
+  "services": [
+    {
+      "name": "Packing materials",
+      "basis": "prices of the materials +15%",
+      "amount": null
+    },
+    {
+      "name": "Monthly storage, pallet, active (40 x 48 x 50\")",
+      "basis": "per pallet",
+      "amount": 25
+    },
+    {
+      "name": "Monthly storage, rack (shelving, five shelves)",
+      "basis": "per rack",
+      "amount": 60
+    },
+    {
+      "name": "Box sorting up to 30 lbs",
+      "basis": "per box",
+      "amount": 0.6
+    },
+    {
+      "name": "LTL, pallet shipped",
+      "basis": "per pallet",
+      "amount": 20
+    },
+    {
+      "name": "Sorting items",
+      "basis": "per item",
+      "amount": 0.25
+    },
+    {
+      "name": "Inbound fee (one SKU)",
+      "basis": "per pallet",
+      "amount": 0.5
+    },
+    {
+      "name": "Full container load inbound fee",
+      "basis": "per pallet",
+      "amount": 5.5
+    },
+    {
+      "name": "Inbound fee (multiple SKU)",
+      "basis": "per carton",
+      "amount": 2.25
+    },
+    {
+      "name": "Container unloading, palletizing",
+      "basis": "20' container",
+      "amount": 450
+    },
+    {
+      "name": "Container unloading, non-palletizing",
+      "basis": "40' container",
+      "amount": 650
+    }
+  ],
+  "ambiguous": [
+    {
+      "source": "Packing materials: prices of the materials +15%",
+      "reason": "The list states a markup and not a dollar price. materials.markupPct is empty so the engine does not invent a base."
+    },
+    {
+      "source": "Rack (shelving - five shelves) Per Rack $60.00 LABOR",
+      "reason": "The extract prints LABOR on the same line as the rack rate. $60.00 is stored as the rack. It is not split into a per-shelf rate."
+    }
+  ]
+}

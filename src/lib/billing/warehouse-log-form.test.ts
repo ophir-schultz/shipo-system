@@ -73,12 +73,14 @@ describe('rowsFromCard', () => {
     expect(rowsFromCard(services)).toEqual([
       {
         service_type: 'storage', label: 'Storage', quantity: '', notes: '',
-        steps: [], rate: 25, unit: 'per_pallet',
+        steps: [], rate: 25, rateText: '', pricing: 'fixed', automatic: false,
+        automaticReason: null, problem: null, amount: '', unit: 'per_pallet',
       },
       {
         service_type: 'inbound_pallet_handling',
         label: 'inbound pallet handling', quantity: '', notes: '',
-        steps: [], rate: 7, unit: 'per_pallet',
+        steps: [], rate: 7, rateText: '', pricing: 'fixed', automatic: false,
+        automaticReason: null, problem: null, amount: '', unit: 'per_pallet',
       },
     ])
   })

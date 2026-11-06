@@ -110,14 +110,18 @@ describe('both screens date-filter through the one shared predicate', () => {
 describe('the shared predicate agrees with the SQL the export actually runs', () => {
   const route = src(DOWNLOAD_ROUTE)
 
-  it('the export filters inclusively, which is what filterByDate assumes', () => {
-    // If the route ever moved to .gt/.lt, filterByDate would keep the first and
-    // last day of the range that the spreadsheet drops, and the table would
-    // overstate the period by two days with nothing saying so.
+  it('the export includes the last calendar day, which is what filterByDate assumes', () => {
+    // A plain .lt(dateTo) would drop the last day the screen still shows.
+    // ship_date is a timestamptz, so its upper bound is the next Eastern
+    // midnight, which includes the whole of dateTo. The other columns are
+    // calendar dates and stay on .lte.
     expect(route).toMatch(/\.gte\(/)
     expect(route).toMatch(/\.lte\(/)
     expect(route).not.toMatch(/\.gt\(['"](?:ship_date|adjustment_date|log_date|week_start|week_end)/)
-    expect(route).not.toMatch(/\.lt\(['"](?:ship_date|adjustment_date|log_date|week_start|week_end)/)
+    expect(route).not.toMatch(/\.lt\(['"](?:adjustment_date|log_date|week_start|week_end)/)
+    const shipUpper = route.match(/\.lt\('ship_date',\s*[^)]+\)/g) ?? []
+    expect(shipUpper.length).toBeGreaterThan(0)
+    for (const bound of shipUpper) expect(bound).toContain('easternAddDays')
   })
 
   it('still filters every nullable-date report, so undated rows are dropped there too', () => {

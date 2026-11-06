@@ -47,7 +47,7 @@ export default function AutoSync() {
     // pass used to render as a clean one.
     let attempt: MonitorAttempt
     try {
-      // Use the monitor agent — syncs + recalculates + checks for issues
+      // GET is the report. It does not sync. A staff POST runs the sync.
       const res = await fetch('/api/agent/monitor', { method: 'GET' })
       let body: unknown
       let bodyParsed = true

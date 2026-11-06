@@ -5,12 +5,22 @@ import {
   formatPrice, formatSignedPrice, priceOf, sumPriced, combinePriced,
   unpricedNote, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
+import { billableWarehouse } from '@/lib/billing/warehouse-card-lines'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 import {
   reconcile, combineReconciled, reconciledOrUnknown, marginPct, exclusionNote,
   excludedCount, invoiceableRevenue, otherIncome,
 } from '@/lib/billing/profit-rollup'
 import { read, readErrors, type Read } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
+import {
+  easternCalendarDay,
+  easternMidnightIso,
+  easternMonthStart,
+  easternToday,
+  easternWeekStart,
+  easternYearStart,
+} from '@/lib/ledger/eastern-day'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
 
 // The three shapes the paged shipment reads return. Needed explicitly because
@@ -122,7 +132,7 @@ function buildClientBreakdown(clients: any[], shipments: any[], warehouse: any[]
     const ca = adjustments.filter(a => a.client_id === client.id)
     const rollup = reconcile(cs)
     const known = reconciledOrUnknown(rollup)
-    const warehouseRev = sumPriced(cw, 'total')
+    const warehouseRev = sumPriced(billableWarehouse(cw), 'total')
     const pendingAdj = sumPriced(ca, 'adjustment_amount')
     const lossCount = cs.filter(s => s.is_loss).length
     return {
@@ -175,12 +185,16 @@ function buildClientBreakdown(clients: any[], shipments: any[], warehouse: any[]
 export const dynamic = 'force-dynamic'
 
 async function getDashboardData() {
-  const now = new Date()
-  const weekStart = new Date(now)
-  weekStart.setDate(now.getDate() - now.getDay())
-  weekStart.setHours(0, 0, 0, 0)
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const yearStart = new Date(now.getFullYear(), 0, 1)
+  // Eastern calendar, not the UTC clock the server runs on. The week
+  // opens Monday at 12:00 AM America/New_York, the same week statements use.
+  // weekInstant is that Monday's Eastern midnight for timestamptz columns.
+  const today = easternToday()
+  const weekStart = easternWeekStart(today)
+  const monthStart = easternMonthStart(today)
+  const yearStart = easternYearStart(today)
+  const weekInstant = easternMidnightIso(weekStart)
+  const monthInstant = easternMidnightIso(monthStart)
+  const yearInstant = easternMidnightIso(yearStart)
 
   const [
     clientsRes, allShipmentsRes, lossShipmentsRes,
@@ -189,7 +203,8 @@ async function getDashboardData() {
     weekManualRes, monthManualRes, billsRes,
     clientShipmentsRes, clientWarehouseRes, clientAdjRes,
   ] = await Promise.all([
-    supabaseAdmin.from('clients').select('id, name, active').eq('active', true),
+    readAllPages((from, to) => supabaseAdmin.from('clients')
+      .select('id, name, active').eq('active', true).order('name').order('id').range(from, to)),
     // PAGED, all four of the period reads below, and the reason is measured
     // rather than precautionary. PostgREST caps a select at `db-max-rows`
     // (1000) and reports the cap NOWHERE -- a 200, `error: null`, and a
@@ -205,38 +220,44 @@ async function getDashboardData() {
     // code having changed. See the header of src/lib/db/page.ts.
     readAllPages<ShipmentTotalsRow>((from, to) =>
       supabaseAdmin.from('shipments')
-        .select('actual_cost, client_rate, profit_loss, is_loss')
+        .select('actual_cost, client_rate, profit_loss, is_loss, raw_data')
         .order('id').range(from, to)),
     // NOT paged, deliberately: this is the worst-50 list, and `.limit(50)` is
     // the answer rather than a truncation of it.
     supabaseAdmin.from('shipments')
-      .select('order_number, client_id, actual_cost, client_rate, profit_loss, clients(name), ship_date, carrier, service, tracking_number')
+      .select('order_number, client_id, actual_cost, client_rate, profit_loss, clients(name), ship_date, carrier, service, tracking_number, raw_data')
       .eq('is_loss', true).order('profit_loss', { ascending: true }).limit(50),
     readAllPages<PeriodRow>((from, to) =>
-      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
-        .gte('ship_date', weekStart.toISOString()).order('id').range(from, to)),
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, raw_data')
+        .gte('ship_date', weekInstant).order('id').range(from, to)),
     readAllPages<PeriodRow>((from, to) =>
-      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
-        .gte('ship_date', monthStart.toISOString()).order('id').range(from, to)),
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, raw_data')
+        .gte('ship_date', monthInstant).order('id').range(from, to)),
     readAllPages<PeriodRow>((from, to) =>
-      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss')
-        .gte('ship_date', yearStart.toISOString()).order('id').range(from, to)),
-    supabaseAdmin.from('rate_adjustments')
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, raw_data')
+        .gte('ship_date', yearInstant).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
       .select('id, order_number, adjustment_amount, reason, adjustment_date, client_id, clients(name)')
-      .eq('status', 'pending').order('adjustment_amount', { ascending: false }),
-    supabaseAdmin.from('warehouse_daily_log').select('total').gte('log_date', weekStart.toISOString().split('T')[0]),
-    supabaseAdmin.from('warehouse_daily_log').select('total').gte('log_date', monthStart.toISOString().split('T')[0]),
-    supabaseAdmin.from('manual_charges').select('amount').eq('approved', true).gte('charge_date', weekStart.toISOString().split('T')[0]),
-    supabaseAdmin.from('manual_charges').select('amount').eq('approved', true).gte('charge_date', monthStart.toISOString().split('T')[0]),
+      .eq('status', 'pending').order('adjustment_amount', { ascending: false }).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
+      .select('total, notes').gte('log_date', weekStart).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
+      .select('total, notes').gte('log_date', monthStart).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('manual_charges')
+      .select('amount').eq('approved', true).gte('charge_date', weekStart).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('manual_charges')
+      .select('amount').eq('approved', true).gte('charge_date', monthStart).order('id').range(from, to)),
     supabaseAdmin.from('bills').select('grand_total, status, week_start, week_end, client_id, clients(name)').order('week_start', { ascending: false }).limit(10),
     // The per-client table. 617 rows this month, so under the cap today --
     // and that is precisely why it is paged now rather than when it breaks.
     readAllPages<ClientMonthRow>((from, to) =>
       supabaseAdmin.from('shipments')
-        .select('client_id, actual_cost, client_rate, profit_loss, is_loss, clients(name)')
-        .gte('ship_date', monthStart.toISOString()).order('id').range(from, to)),
-    supabaseAdmin.from('warehouse_daily_log').select('client_id, total').gte('log_date', monthStart.toISOString().split('T')[0]),
-    supabaseAdmin.from('rate_adjustments').select('client_id, adjustment_amount').eq('status', 'pending'),
+        .select('client_id, actual_cost, client_rate, profit_loss, is_loss, clients(name), raw_data')
+        .gte('ship_date', monthInstant).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
+      .select('client_id, total, notes').gte('log_date', monthStart).order('id').range(from, to)),
+    readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
+      .select('client_id, adjustment_amount').eq('status', 'pending').order('id').range(from, to)),
   ])
 
   // Named per read, not per table: four of these hit `shipments` with
@@ -257,6 +278,12 @@ async function getDashboardData() {
   const clientShipments = read('shipments (per client)', clientShipmentsRes)
   const clientWarehouse = read('warehouse_daily_log (per client)', clientWarehouseRes)
   const clientAdj = read('rate_adjustments (per client)', clientAdjRes)
+  allShipments.rows = withoutVoided(allShipments.rows)
+  lossShipments.rows = withoutVoided(lossShipments.rows)
+  weekShipments.rows = withoutVoided(weekShipments.rows)
+  monthShipments.rows = withoutVoided(monthShipments.rows)
+  yearShipments.rows = withoutVoided(yearShipments.rows)
+  clientShipments.rows = withoutVoided(clientShipments.rows)
 
   // One period's figures, or the reason they are UNKNOWN.
   //
@@ -540,7 +567,7 @@ export default async function DashboardPage() {
                       <td className="px-4 py-2 font-mono text-[#3A4658]">{a.order_number}</td>
                       <td className="px-2 py-2 text-[#3A4658]">{a.clients?.name ?? '—'}</td>
                       <td className="px-2 py-2 text-[#4B4F58]">{a.reason ?? 'Carrier reweigh'}</td>
-                      <td className="px-2 py-2 text-[#4B4F58]">{a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '—'}</td>
+                      <td className="px-2 py-2 text-[#4B4F58]">{easternCalendarDay(a.adjustment_date) || '—'}</td>
                       {/* `adjustment_amount` stays on the plain coercion by
                           standing decision: nothing in this codebase writes
                           null to that column, so dashing it would be a guess

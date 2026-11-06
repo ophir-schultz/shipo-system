@@ -69,6 +69,47 @@ export function docusignConfigMissing(env: Env): string[] {
   return DOCUSIGN_ENV_VARS.filter((name) => !present(env[name]))
 }
 
+/** Names only. Values are never returned. Used by the staff and partner banners. */
+export const DOCUSIGN_SETUP_VARS = [
+  ...DOCUSIGN_ENV_VARS,
+  'DOCUSIGN_CONNECT_SECRET',
+  'ACCOUNTANT_W9_EMAIL',
+  'ACCOUNTANT_W9_NAME',
+  'NEXT_PUBLIC_SITE_URL',
+] as const
+
+export function missingDocusignSetup(env: Env): string[] {
+  return DOCUSIGN_SETUP_VARS.filter((name) => !present(env[name]))
+}
+
+/** Names the in-portal W-9 needs besides the six API variables. Not the webhook. */
+export const DOCUSIGN_W9_VARS = ['ACCOUNTANT_W9_EMAIL', 'ACCOUNTANT_W9_NAME', 'NEXT_PUBLIC_SITE_URL'] as const
+
+export interface DocusignReadiness {
+  /** Creating an envelope or an embedded signing URL. */
+  apiMissing: string[]
+  /** True when Connect can be authenticated. Does not mean we can send. */
+  connectConfigured: boolean
+  /** Accountant copy and return URL for the W-9. */
+  w9Missing: string[]
+}
+
+/**
+ * Split the setup banner by what each variable actually blocks.
+ *
+ * Production has the Connect secret and none of the six API variables.
+ * Treating that as "the webhook is off" told staff the one path that
+ * does run was down, and told them setting the API variables would turn
+ * agreement sending on. This app still has no agreement-send route.
+ */
+export function docusignReadiness(env: Env): DocusignReadiness {
+  return {
+    apiMissing: docusignConfigMissing(env),
+    connectConfigured: present(env.DOCUSIGN_CONNECT_SECRET),
+    w9Missing: DOCUSIGN_W9_VARS.filter((name) => !present(env[name])),
+  }
+}
+
 /**
  * The configuration, or null if ANY part of it is absent.
  *

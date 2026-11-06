@@ -1,6 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
+import { easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ReportsTabs from '@/components/reports/ReportsTabs'
 
@@ -85,9 +87,8 @@ import ReportsTabs from '@/components/reports/ReportsTabs'
 export const dynamic = 'force-dynamic'
 
 async function getReportData() {
-  const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-  const today = now.toISOString().split('T')[0]
+  const today = easternToday()
+  const monthStart = easternMonthStart(today)
 
   const [clientsRes, shipmentsRes, lossRes, adjustmentsRes, billsRes, warehouseRes] = await Promise.all([
     supabaseAdmin.from('clients').select('id, name').eq('active', true).order('name'),
@@ -98,10 +99,10 @@ async function getReportData() {
     // re-render the second one's figures could land in the first one's DOM
     // node. A money table is the worst place for that.
     readAllPages((from, to) => supabaseAdmin.from('shipments')
-      .select('id, client_id, order_number, clients(name), ship_date, carrier, service, tracking_number, actual_cost, client_rate, profit_loss, is_loss')
+      .select('id, client_id, order_number, clients(name), ship_date, carrier, service, tracking_number, actual_cost, client_rate, profit_loss, is_loss, raw_data')
       .order('ship_date', { ascending: false }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('shipments')
-      .select('id, client_id, order_number, clients(name), ship_date, carrier, service, actual_cost, client_rate, profit_loss')
+      .select('id, client_id, order_number, clients(name), ship_date, carrier, service, actual_cost, client_rate, profit_loss, raw_data')
       .eq('is_loss', true)
       .order('profit_loss', { ascending: true }).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
@@ -126,8 +127,8 @@ async function getReportData() {
     readErrors(clients, shipments, lossShipments, adjustments, bills, warehouse),
     () => ({
       clients: clients.rows,
-      shipments: shipments.rows,
-      lossShipments: lossShipments.rows,
+      shipments: withoutVoided(shipments.rows),
+      lossShipments: withoutVoided(lossShipments.rows),
       adjustments: adjustments.rows,
       bills: bills.rows,
       warehouse: warehouse.rows,

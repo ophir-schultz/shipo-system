@@ -331,7 +331,7 @@ describe('GET /api/statements/download: a failed lookup is not a parcel we have 
 
     expect(res.status).toBe(502)
     const { error } = await res.json()
-    expect(error).toContain('shipment details')
+    expect(error).toContain('shipment prices')
     expect(error).toMatch(/UNKNOWN rather than zero/i)
   })
 
@@ -339,7 +339,7 @@ describe('GET /api/statements/download: a failed lookup is not a parcel we have 
     // The negative control, and the reason the two refusals above mean
     // anything: a handler that refused whenever a sheet came back empty would
     // pass both of them and fail here. An empty period is a real answer.
-    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [] })
+    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [], shipments: [] })
 
     const res = await GET(url())
     expect(res.ok).toBe(true)
@@ -360,6 +360,7 @@ describe('GET /api/statements/download: a failed lookup is not a parcel we have 
       ...structuredClone(seed()),
       order_charges: structuredClone(seed().order_charges)
         .filter(c => c.charge_type === 'pick'),
+      shipments: [],
     })
 
     const wb = await workbook(await GET(url()))
@@ -429,7 +430,7 @@ describe('GET /api/statements/download: the period can be named by grain OR by d
     // periodLabel's nullable grain, measured in the artefact. An explicit
     // 1st-to-month-end is not 'month' -- it coincides with it -- and labelling
     // it as one states how the figure was derived.
-    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [] })
+    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [], shipments: [] })
     const line = String(rowsOf(await workbook(
       await GET(datedUrl({ from: RANGE.from, to: RANGE.to })),
     ), 'Statement')[0]['Line'])

@@ -91,10 +91,12 @@ describe('rosterRows', () => {
     }
   })
 
-  it('states the standing terms by reading the constants, not by restating them', () => {
-    // A hardcoded "5%" or "12 months" here is a second copy of the deal,
-    // and the one that goes stale is the one on the partner's screen.
-    expect(ROSTER_STATE_TEXT.earning).toContain(`${REFERRAL_TERMS.COMMISSION_RATE * 100}%`)
+  it('names the window length from the constant and does not state the rate or the profit', () => {
+    // The rate and the profit definition stay in the server calculation.
+    // The roster tells the partner the referral is earning, and how far
+    // the window has run, without the inputs.
+    expect(ROSTER_STATE_TEXT.earning).not.toContain(`${REFERRAL_TERMS.COMMISSION_RATE * 100}%`)
+    expect(ROSTER_STATE_TEXT.earning.toLowerCase()).not.toContain('net profit')
     expect(ROSTER_STATE_TEXT.window_closed).toContain(`${REFERRAL_TERMS.COMMISSION_MONTHS}`)
   })
 

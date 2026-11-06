@@ -12,6 +12,7 @@ import {
   rateText, periodLabel, coverageNote, estimateNote,
 } from '@/lib/billing/statement-view'
 import { totalOrUnknown, unpricedNote } from '@/lib/billing/unpriced'
+import { priceStatementCharges } from '@/lib/billing/statement-source'
 
 // One client's statement as JSON, for the Statement tab on /reports.
 //
@@ -134,7 +135,10 @@ export async function GET(req: Request) {
   const earliestRows = earliestRes.data ?? []
   const earliest = earliestRows.length === 0 ? null : earliestRows[0].charge_date
 
-  const statement = buildStatement(chargesRes.data ?? [], range)
+  const priced = await priceStatementCharges(clientId, client.row.name, chargesRes.data ?? [], range)
+  if (priced.error) return unreadable('shipment prices', priced.error.message)
+
+  const statement = buildStatement(priced.charges, range)
 
   return NextResponse.json({
     client: { id: client.row.id, name: client.row.name },
@@ -145,7 +149,7 @@ export async function GET(req: Request) {
       charge_type: line.charge_type,
       label: line.label,
       quantity: line.quantity,
-      // The rendered string and not the raw rate, because 'at cost', 'N rates'
+      // The rendered string and not the raw rate, because 'see amount', 'N rates'
       // and the unknown dash are three different sentences and rateText is
       // where the difference between them is tested.
       rate: rateText(line),
@@ -169,5 +173,9 @@ export async function GET(req: Request) {
       unpricedNote(statement.sum.unpriced, 'charge'),
       estimateNote(statement.estimated),
     ].filter(n => n !== ''),
+    // Staff only. This route is behind requireStaff. It says why pick & pack
+    // was billed or skipped (two live rates, the effective window, or the
+    // orders join). It is not on the spreadsheet a client receives.
+    pickPack: priced.pickPack,
   })
 }

@@ -18,6 +18,7 @@ import { ENVELOPE_KIND_FIELD, completedEnvelopeStamp } from '@/lib/partner-envel
 // all. A guide is best-effort; promotion is the thing a partner's
 // access depends on. The guide must never be able to break it.
 import { sendPartnerGuide } from '@/lib/partner-guide-send'
+import { agreementLookupSteps } from '@/lib/partner-agreement-match'
 
 // ============================================================
 // DocuSign Connect listener — the step that makes onboarding
@@ -101,39 +102,34 @@ function customField(payload: ConnectPayload, name: string): string | null {
 /**
  * Find the partner this envelope belongs to.
  *
- * Order matters. `partner_id` is an envelope custom field we set when
- * sending, so it is exact and cannot be spoofed by anything the signer
- * types. Envelope id is next — also ours. Signer email is LAST and is
- * only a fallback, because a signer can change the email an envelope
- * is forwarded to, and matching on it first would let a forwarded
- * envelope attach itself to the wrong partner row.
+ * The allowed lookups live in agreementLookupSteps. Email is not one of
+ * them. The four stored production events carried no partner_id and no
+ * envelope kind; matching the signer address would have attached those
+ * completions to whoever shared the mailbox. A miss stays unmatched.
  */
 async function resolvePartner(payload: ConnectPayload, envelopeId: string) {
-  const partnerId = customField(payload, 'partner_id')
-  if (partnerId) {
-    const { data } = await supabaseAdmin
+  const steps = agreementLookupSteps({
+    partnerIdField: customField(payload, 'partner_id'),
+    envelopeId,
+  })
+
+  for (const step of steps) {
+    if (step.via === 'partner_id') {
+      const { data } = await supabaseAdmin
+        .from('referral_partners')
+        .select(SIGN_IN_EMAIL_COLUMNS)
+        .eq('id', step.partnerId)
+        .maybeSingle()
+      if (data) return data
+      continue
+    }
+
+    const { data: byEnvelope } = await supabaseAdmin
       .from('referral_partners')
       .select(SIGN_IN_EMAIL_COLUMNS)
-      .eq('id', partnerId)
+      .eq('agreement_envelope_id', step.envelopeId)
       .maybeSingle()
-    if (data) return data
-  }
-
-  const { data: byEnvelope } = await supabaseAdmin
-    .from('referral_partners')
-    .select(SIGN_IN_EMAIL_COLUMNS)
-    .eq('agreement_envelope_id', envelopeId)
-    .maybeSingle()
-  if (byEnvelope) return byEnvelope
-
-  const signerEmail = payload.data?.envelopeSummary?.recipients?.signers?.[0]?.email
-  if (signerEmail) {
-    const { data: byEmail } = await supabaseAdmin
-      .from('referral_partners')
-      .select(SIGN_IN_EMAIL_COLUMNS)
-      .ilike('email', signerEmail.trim())
-      .maybeSingle()
-    if (byEmail) return byEmail
+    if (byEnvelope) return byEnvelope
   }
 
   return null

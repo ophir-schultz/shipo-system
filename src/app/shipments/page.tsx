@@ -1,7 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ShipmentsTable from '@/components/shipments/ShipmentsTable'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 
 // The subtitle on this page is a claim, not a label: "0 total shipments from
 // ShipStation" is a sentence about the sync, and the reasonable response to it
@@ -15,23 +17,30 @@ import ShipmentsTable from '@/components/shipments/ShipmentsTable'
 
 async function getData() {
   const [shipmentsRes, clientsRes] = await Promise.all([
-    supabaseAdmin
+    // PAGED. `.limit(1000)` was the PostgREST cap written down as if it were
+    // the whole table. The subtitle on this page counts the rows it got, so
+    // a cap and a finished total are the same sentence. `id` is the unique
+    // tiebreaker: ship_date ties by the hundred.
+    readAllPages((from, to) => supabaseAdmin
       .from('shipments')
       .select('*, clients(name)')
       .order('ship_date', { ascending: false })
-      .limit(1000),
-    supabaseAdmin
+      .order('id')
+      .range(from, to)),
+    readAllPages((from, to) => supabaseAdmin
       .from('clients')
       .select('id, name')
       .eq('active', true)
-      .order('name'),
+      .order('name')
+      .order('id')
+      .range(from, to)),
   ])
 
   const shipments = read('shipments', shipmentsRes)
   const clients = read('clients', clientsRes)
 
   return loaded(readErrors(shipments, clients), () => ({
-    shipments: shipments.rows,
+    shipments: withoutVoided(shipments.rows),
     clients: clients.rows,
   }))
 }

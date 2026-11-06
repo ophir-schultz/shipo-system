@@ -3,6 +3,7 @@ import {
   DOCUSIGN_ENV_VARS,
   docusignConfig,
   docusignConfigMissing,
+  missingDocusignSetup,
   jwtClaims,
   recipientViewRequest,
   tokenFailureReason,
@@ -57,6 +58,24 @@ describe('docusignConfigMissing', () => {
       expect(docusignConfigMissing(partial)).toEqual([name])
       expect(docusignConfig(partial)).toBeNull()
     }
+  })
+})
+
+describe('missingDocusignSetup', () => {
+  it('names the extra setup variables and never returns a value', () => {
+    const missing = missingDocusignSetup({})
+    expect(missing).toContain('DOCUSIGN_CONNECT_SECRET')
+    expect(missing).toContain('ACCOUNTANT_W9_EMAIL')
+    expect(missing).toContain('ACCOUNTANT_W9_NAME')
+    expect(missing).toContain('NEXT_PUBLIC_SITE_URL')
+    expect(missing.every((name) => !name.includes('='))).toBe(true)
+    expect(missingDocusignSetup({
+      ...FULL,
+      DOCUSIGN_CONNECT_SECRET: 'secret',
+      ACCOUNTANT_W9_EMAIL: 'a@b.c',
+      ACCOUNTANT_W9_NAME: 'Books',
+      NEXT_PUBLIC_SITE_URL: 'https://example.com',
+    })).toEqual([])
   })
 })
 
