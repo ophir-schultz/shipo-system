@@ -16,7 +16,7 @@ export default function TabError({
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-[#0B1220]">
         <h2 className="text-lg font-semibold">Supabase is not connected</h2>
         <p className="mt-2 text-sm text-[#4B4F58]">
-          This tab cannot load real data until the Preview environment has these variables. Names only:
+          This tab cannot load real data until Preview has a database URL and these keys. The URL is SUPABASE_URL, or NEXT_PUBLIC_SUPABASE_URL when that server name is not set. Names only:
         </p>
         <ul className="mt-3 list-disc pl-5 font-mono text-xs text-amber-900">
           {SUPABASE_ENV_VARS.map((name) => <li key={name}>{name}</li>)}

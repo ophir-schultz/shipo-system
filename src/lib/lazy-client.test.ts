@@ -146,12 +146,17 @@ describe('createLazyClient', () => {
 describe('missingSupabaseEnv', () => {
   it('names every blank Supabase variable and no values', () => {
     expect(missingSupabaseEnv({})).toEqual([
-      'NEXT_PUBLIC_SUPABASE_URL',
+      'SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL',
       'NEXT_PUBLIC_SUPABASE_ANON_KEY',
       'SUPABASE_SERVICE_ROLE_KEY',
     ])
     expect(missingSupabaseEnv({
       NEXT_PUBLIC_SUPABASE_URL: 'https://db.example',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
+      SUPABASE_SERVICE_ROLE_KEY: 'service',
+    })).toEqual([])
+    expect(missingSupabaseEnv({
+      SUPABASE_URL: 'https://db.example',
       NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon',
       SUPABASE_SERVICE_ROLE_KEY: 'service',
     })).toEqual([])

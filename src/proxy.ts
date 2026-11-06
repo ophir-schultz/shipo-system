@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { readSupabaseServerUrl } from '@/lib/supabase-url'
 
 /**
  * The portal's session cookie, spelled here because middleware must not
@@ -59,15 +60,17 @@ export async function proxy(request: NextRequest) {
   // A preview with no Supabase credentials cannot build an auth client.
   // Letting that throw turns every tab into a middleware 500. The page
   // then renders its own "not connected" notice.
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  const supabaseUrl = readSupabaseServerUrl(process.env)
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  if (!supabaseUrl || !anonKey) {
     return NextResponse.next({ request })
   }
 
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    anonKey,
     {
       cookies: {
         getAll() {
