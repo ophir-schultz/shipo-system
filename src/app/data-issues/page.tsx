@@ -78,7 +78,7 @@ export default async function DataIssuesPage() {
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Data issues</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          A shipping charge amount comes from the warehouse rate in effect on the ship date. If no rate applies, the amount stays null. An empty flat rate, a cost-plus line missing its markup or carrier cost, and an unknown rate type also stay null. Carrier cost is not used unless the rate type is at cost or cost plus. This screen does not write those amounts.
+          A preview can copy a stored shipment price onto a null shipping charge. Of 709 null charges, 701 already have that price and 8 do not, so those 8 stay null. The preview does not write, and it does not use carrier cost. Warehouse rates explain the calculator only. Nayax and Creative Pea are not ledger orders, so their service revenue stays missing.
         </p>
         <p className="text-[#4B4F58] text-sm mt-1">
           {page.ok
