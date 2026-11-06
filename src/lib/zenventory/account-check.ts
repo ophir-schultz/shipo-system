@@ -1,3 +1,5 @@
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+
 // A read-only look at one client's Zenventory account. No sync, no writes.
 // Callers pass the key and secret in; this file never logs them and strips
 // them out of any error text before that text leaves.
@@ -27,6 +29,52 @@ export function orderStamp(order: unknown): string | null {
     return trimmed
   }
   return null
+}
+
+/**
+ * The date to store on orders.order_date.
+ *
+ * Zenventory's current customer-order payload uses `orderedDate`. Older
+ * payloads used `orderDate` or `order_date`. The first parseable one wins.
+ * Nothing here writes a row, and a missing date stays null rather than today.
+ */
+export function orderDateForImport(order: unknown): string | null {
+  const stamp = orderStamp(order)
+  if (!stamp) return null
+  const day = easternCalendarDay(stamp)
+  return day || null
+}
+
+export type ZenventoryFailureKind = 'credentials' | 'timeout' | 'other'
+
+/**
+ * A rejected key is not a timeout. Callers print the label and do not
+ * create or rotate credentials.
+ */
+export function zenventoryFailureKind(message: string): ZenventoryFailureKind {
+  const text = message.toLowerCase()
+  if (
+    text.includes('timeout')
+    || text.includes('timed out')
+    || text.includes('etimedout')
+    || text.includes('aborted')
+  ) return 'timeout'
+  if (
+    text.includes('401')
+    || text.includes('403')
+    || text.includes('unauthorized')
+    || text.includes('invalid api')
+    || text.includes('credentials')
+  ) return 'credentials'
+  return 'other'
+}
+
+export function zenventoryFailureLabel(kind: ZenventoryFailureKind): string {
+  if (kind === 'credentials') {
+    return 'Zenventory credentials were rejected. This is not a timeout. No new credentials were created.'
+  }
+  if (kind === 'timeout') return 'Zenventory did not answer in time.'
+  return ''
 }
 
 /** Orders whose date is on or after `sinceIso`, and the latest of those dates. */
@@ -92,7 +140,9 @@ export function redactSecrets(message: string, secrets: readonly string[]): stri
 
 function failureText(err: unknown, secrets: readonly string[]): string {
   const raw = err instanceof Error ? err.message : String(err)
-  return redactSecrets(raw, secrets)
+  const redacted = redactSecrets(raw, secrets)
+  const label = zenventoryFailureLabel(zenventoryFailureKind(redacted))
+  return label ? `${label} ${redacted}` : redacted
 }
 
 export async function runZenventoryCheck(args: {

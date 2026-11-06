@@ -14,6 +14,7 @@ import {
   fmtMonth,
   confidenceLabel,
   netProfitUnavailableReason,
+  publishedNetProfit,
   varianceUnavailableText,
   PICK_ROW_LIMIT,
   type MonthlyRow,
@@ -481,11 +482,14 @@ export default async function LedgerPage() {
                     </td>
                     {/* Net profit — null names its own cause */}
                     <td className="py-2.5 pr-3 text-right">
-                      {r.net_profit !== null ? (
-                        <span className={marginClass(r.net_profit)}>{fmt(r.net_profit)}</span>
-                      ) : (
-                        <NetProfitUnknown row={r} />
-                      )}
+                      {(() => {
+                        const net = publishedNetProfit(r)
+                        return net !== null ? (
+                          <span className={marginClass(net)}>{fmt(net)}</span>
+                        ) : (
+                          <NetProfitUnknown row={r} />
+                        )
+                      })()}
                     </td>
                     {/* Flags */}
                     <td className="py-2.5 text-right">
