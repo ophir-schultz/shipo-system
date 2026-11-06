@@ -10,7 +10,9 @@ import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 import { DASHBOARD_SHIPPING_BASIS, FULFILLMENT_PNL_BASIS } from '@/lib/billing/pnl-basis'
-import { BANK_OPEX_SEPARATE_FROM_DIRECT } from '@/lib/ledger/bank-operating-labels'
+import { NO_PERIOD_FULFILLMENT, fullPicture, type FullPicture } from '@/lib/billing/full-picture'
+import { BANK_OPEX_LABEL, BANK_OPEX_SEPARATE_FROM_DIRECT } from '@/lib/ledger/bank-operating-labels'
+import { bankOperatingFor, dollars, loadBankLines } from '@/lib/ledger/bank-operating-costs'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
 import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 
@@ -488,6 +490,57 @@ async function getPnlData() {
   }) }
 }
 
+function pictureMoney(cents: number | null): string {
+  return cents === null ? 'unknown' : dollars(cents)
+}
+
+function FullPictureSection() {
+  const months = ['2026-09', '2026-10'].map((period) => fullPicture(
+    period,
+    bankOperatingFor(period, loadBankLines(period)),
+    NO_PERIOD_FULFILLMENT,
+    null,
+  ))
+  const rows: { label: string; value: (picture: FullPicture) => string }[] = [
+    { label: 'Shipping revenue', value: (picture) => pictureMoney(picture.shippingRevenueCents) },
+    { label: 'Fulfillment direct costs', value: (picture) => pictureMoney(picture.fulfillmentDirectCents) },
+    { label: 'Bank operating sample, provisional', value: (picture) => pictureMoney(picture.bankOperatingSampleCents) },
+    {
+      label: 'Bank postage, separate',
+      value: (picture) => picture.bankPostageCents === 0 ? '$0.00 none on this statement' : pictureMoney(picture.bankPostageCents),
+    },
+    { label: 'Other invoice costs', value: (picture) => picture.invoiceCostsCents === null ? 'unknown, not $0' : pictureMoney(picture.invoiceCostsCents) },
+    { label: 'Observed contribution before incomplete costs', value: (picture) => pictureMoney(picture.observedContributionCents) },
+    { label: 'Genuine net profit', value: () => 'unknown' },
+  ]
+  return (
+    <div className="bg-white rounded-xl p-5">
+      <h3 className="font-semibold text-[#0B1220]">Full picture</h3>
+      <p className="mt-1 text-xs text-[#4B4F58]">{BANK_OPEX_LABEL} {BANK_OPEX_SEPARATE_FROM_DIRECT} Genuine net profit is unknown until shipping revenue, complete fulfillment coverage, recognized operating costs, and supplied invoices are all present for that month. The bank sample is not subtracted from fulfillment margin.</p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-[#4B4F58] border-b border-[#E2E8F0]">
+              <th className="pb-2 pr-3">Line</th>
+              {months.map((picture) => <th key={picture.period} className="pb-2 pr-3 text-right">{picture.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label} className="border-b border-[#E2E8F0]/60">
+                <td className="py-2 pr-3 text-[#0B1220]">{row.label}</td>
+                {months.map((picture) => (
+                  <td key={picture.period} className="py-2 pr-3 text-right font-mono text-[#0B1220]">{row.value(picture)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function Header() {
   return (
     <div>
@@ -530,6 +583,8 @@ export default async function PnlPage() {
           <p className="text-yellow-500/80 text-xs mt-1">Per-client P&amp;L below is live from real shipment + warehouse data. Run <span className="font-mono">supabase/campaigns_pnl.sql</span> in Supabase to enable the campaign ROI, referral payout, and inbound-log sections.</p>
         </div>
       )}
+
+      <FullPictureSection />
 
       {/* Summary bar */}
       <div className="grid grid-cols-4 gap-4">
