@@ -10,6 +10,7 @@ import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 import { DASHBOARD_SHIPPING_BASIS, FULFILLMENT_PNL_BASIS } from '@/lib/billing/pnl-basis'
+import { BANK_OPEX_SEPARATE_FROM_DIRECT } from '@/lib/ledger/bank-operating-costs'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
 import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 
@@ -491,7 +492,7 @@ function Header() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Campaigns + P&amp;L</h2>
-      <p className="text-[#4B4F58] text-sm mt-1">{FULFILLMENT_PNL_BASIS} {DASHBOARD_SHIPPING_BASIS}</p>
+      <p className="text-[#4B4F58] text-sm mt-1">{FULFILLMENT_PNL_BASIS} {DASHBOARD_SHIPPING_BASIS} {BANK_OPEX_SEPARATE_FROM_DIRECT}</p>
     </div>
   )
 }

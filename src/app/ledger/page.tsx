@@ -22,6 +22,13 @@ import {
   type VarianceRow,
 } from '@/lib/ledger/summary'
 import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
+import {
+  BANK_OPEX_LABEL,
+  BANK_OPEX_SEPARATE_FROM_DIRECT,
+  bankOperatingFor,
+  dollars,
+  loadSeptember2026BankLines,
+} from '@/lib/ledger/bank-operating-costs'
 
 export const dynamic = 'force-dynamic'
 
@@ -263,6 +270,45 @@ function LeakCells({ row }: { row: LeakRow }) {
 // ------------------------------------------------------------------
 // Page
 // ------------------------------------------------------------------
+function BankOperatingSample() {
+  const september = bankOperatingFor('2026-09', loadSeptember2026BankLines())
+  const june = bankOperatingFor('2026-06', [])
+  const november = bankOperatingFor('2026-11', [])
+  if (september.status !== 'provisional') return null
+  const view = september.view
+  const rows = [
+    ['Software', view.softwareCents],
+    ['Proposed contractors', view.contractorsCents],
+    ['Communications', view.communicationsCents],
+    ['Bank fees', view.bankFeesCents],
+    ['Operating subtotal', view.operatingSubtotalCents],
+  ] as const
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+      <h3 className="font-semibold text-[#0B1220]">Sep 2026 bank operating sample</h3>
+      <p className="mt-1 text-xs text-amber-900">{BANK_OPEX_LABEL} {BANK_OPEX_SEPARATE_FROM_DIRECT}</p>
+      <table className="mt-3 w-full max-w-md text-sm">
+        <tbody>
+          {rows.map(([label, cents]) => (
+            <tr key={label} className="border-t border-amber-200">
+              <td className="py-1.5 pr-3 text-[#0B1220]">{label}</td>
+              <td className="py-1.5 text-right font-mono text-[#0B1220]">{dollars(cents)}</td>
+            </tr>
+          ))}
+          <tr className="border-t border-amber-200">
+            <td className="py-1.5 pr-3 text-[#0B1220]">Postage/shipping, excluded</td>
+            <td className="py-1.5 text-right font-mono text-[#0B1220]">{dollars(view.postageExcludedCents)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="mt-3 text-xs text-amber-900">
+        {view.lines} September lines. All bank expenditures {dollars(view.expendituresCents)}. Full net profit is unknown: rent, payroll, and ledger charges are not in this sample.
+      </p>
+      <p className="mt-1 text-xs text-amber-900">{june.status === 'unknown' ? june.reason : ''} {november.status === 'unknown' ? november.reason : ''}</p>
+    </div>
+  )
+}
+
 export default async function LedgerPage() {
   const { leaks, leaksUndated, monthly, clients, picks, variance, counts, failed, errors } =
     await getLedgerSummary()
@@ -283,6 +329,8 @@ export default async function LedgerPage() {
           Read-only view of leaks, monthly P&amp;L, per-client margins, and pick activity — last three months.
         </p>
       </div>
+
+      <BankOperatingSample />
 
       {/* Error banner — errors surface here, not as empty tables */}
       {errors.length > 0 && (
