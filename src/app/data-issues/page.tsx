@@ -78,7 +78,7 @@ export default async function DataIssuesPage() {
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Data issues</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          Ledger charge amounts stay null when no client price is in effect. A later backfill may copy shipments.client_rate onto a shipping charge that is still null. It will not use carrier cost, and it will not turn a missing price into $0. That backfill has not been run.
+          A shipping charge amount comes from the warehouse rate in effect on the ship date. If no rate applies, the amount stays null. An empty flat rate, a cost-plus line missing its markup or carrier cost, and an unknown rate type also stay null. Carrier cost is not used unless the rate type is at cost or cost plus. This screen does not write those amounts.
         </p>
         <p className="text-[#4B4F58] text-sm mt-1">
           {page.ok
