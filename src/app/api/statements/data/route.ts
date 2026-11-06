@@ -13,6 +13,8 @@ import {
 } from '@/lib/billing/statement-view'
 import { totalOrUnknown, unpricedNote } from '@/lib/billing/unpriced'
 import { priceStatementCharges } from '@/lib/billing/statement-source'
+import { monthlyMinimumBill } from '@/lib/billing/monthly-minimum'
+import { loadAgreedMinimum } from '@/lib/billing/agreed-minimum'
 
 // One client's statement as JSON, for the Statement tab on /reports.
 //
@@ -139,6 +141,12 @@ export async function GET(req: Request) {
   if (priced.error) return unreadable('shipment prices', priced.error.message)
 
   const statement = buildStatement(priced.charges, range)
+  const minimum = monthlyMinimumBill({
+    from: range.from,
+    to: range.to,
+    rows: priced.charges,
+    agreed: await loadAgreedMinimum(client.row.name),
+  })
 
   return NextResponse.json({
     client: { id: client.row.id, name: client.row.name },
@@ -162,6 +170,11 @@ export async function GET(req: Request) {
       estimated: line.estimated,
     })),
     total: statementTotal(statement),
+    subtotalCents: minimum.subtotalCents,
+    minimumTopUpCents: minimum.topUpCents,
+    amountDueCents: minimum.applies ? minimum.totalCents : null,
+    minimumApplied: minimum.applies,
+    minimumReason: minimum.reason,
     unpriced: statement.sum.unpriced,
     counted: statement.sum.counted,
     estimated: statement.estimated,

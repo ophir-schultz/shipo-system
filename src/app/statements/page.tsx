@@ -16,6 +16,8 @@ import {
 import {
   formatPrice, unpricedNote, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
+import { monthlyMinimumBill, type MonthlyMinimum } from '@/lib/billing/monthly-minimum'
+import { loadAgreedMinimum } from '@/lib/billing/agreed-minimum'
 
 // What one client has been billed in a period. Shipping uses the same zone-matrix price as Profit. Pick and pack come from the client's price list when the ledger did not already price them.
 //
@@ -93,10 +95,18 @@ async function getStatement(clientId: string, clientName: string, grain: Grain) 
   const priceError = priced.error
     ? `shipment prices could not be read (${priced.error.message})`
     : null
+  const agreed = await loadAgreedMinimum(clientName)
+  const statement = buildStatement(priced.charges, range)
 
   return loaded(readErrors(charges, earliest) ?? priceError, () => ({
     range,
-    statement: buildStatement(priced.charges, range),
+    statement,
+    minimum: monthlyMinimumBill({
+      from: range.from,
+      to: range.to,
+      rows: priced.charges,
+      agreed,
+    }),
     // An explicit length check, and NOT `rows[0]?.charge_date ?? null`.
     // `noUncheckedIndexedAccess` is off in this project, so `rows[0]` is typed
     // as always present: the `?.` and the `?? null` are both read as dead code
@@ -282,11 +292,19 @@ function StatementTable(
   { name, grain, data }: {
     name: string
     grain: Grain
-    data: { range: ReturnType<typeof periodRange>; statement: Statement; earliest: string | null }
+    data: {
+      range: ReturnType<typeof periodRange>
+      statement: Statement
+      earliest: string | null
+      minimum: MonthlyMinimum
+    }
   },
 ) {
-  const { range, statement, earliest } = data
-  const total = statementTotal(statement)
+  const { range, statement, earliest, minimum } = data
+  const subtotal = statementTotal(statement)
+  const due = minimum.applies && minimum.totalCents !== null
+    ? minimum.totalCents / 100
+    : subtotal
 
   const coverage = coverageNote(earliest, range, statement.lines.length)
   const unpriced = unpricedNote(statement.sum.unpriced, 'charge')
@@ -342,17 +360,28 @@ function StatementTable(
             <tfoot>
               <tr className="border-t border-slate-600">
                 <td className="pt-3 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
-                  Total for the period
+                  Subtotal
                 </td>
-                <td className="pt-3 text-right text-base font-bold text-[#0B1220]">
-                  {total === null ? (
-                    <span
-                      className="text-orange-500"
-                      title="This total is not known yet. It is not zero."
-                    >
-                      unknown
-                    </span>
-                  ) : formatPrice(total)}
+                <td className="pt-3 text-right font-medium text-[#0B1220]">
+                  {subtotal === null ? 'unknown' : formatPrice(subtotal)}
+                </td>
+              </tr>
+              <tr>
+                <td className="pt-2 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
+                  Monthly minimum top-up
+                </td>
+                <td className="pt-2 text-right font-medium text-[#0B1220]">
+                  {minimum.applies && minimum.topUpCents !== null
+                    ? formatPrice(minimum.topUpCents / 100)
+                    : 'not applied'}
+                </td>
+              </tr>
+              <tr>
+                <td className="pt-2 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
+                  Amount due
+                </td>
+                <td className="pt-2 text-right text-base font-bold text-[#0B1220]">
+                  {due === null ? 'unknown' : formatPrice(due)}
                 </td>
               </tr>
             </tfoot>
@@ -362,13 +391,12 @@ function StatementTable(
 
       {/* The caveats. Each renders only when it has something to say, so none of
           them is the permanent all-clear that teaches a reader to skip the box. */}
-      {(coverage !== '' || unpriced !== '' || estimated !== '') && (
-        <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-700">
-          {coverage !== '' && <li>{coverage}</li>}
-          {unpriced !== '' && <li>{unpriced}.</li>}
-          {estimated !== '' && <li>{estimated}.</li>}
-        </ul>
-      )}
+      <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-700">
+        <li>{minimum.reason}</li>
+        {coverage !== '' && <li>{coverage}</li>}
+        {unpriced !== '' && <li>{unpriced}.</li>}
+        {estimated !== '' && <li>{estimated}.</li>}
+      </ul>
     </div>
   )
 }

@@ -260,8 +260,12 @@ describe('GET /api/statements/download: the file carries the detail behind the t
     expect(parcels).toBeCloseTo(16.75, 2)
 
     // And the grand total still includes the surcharge and the pick.
-    const total = rowsOf(wb, 'Statement').find(r => r['Line'] === 'TOTAL')
+    const total = rowsOf(wb, 'Statement').find(r => r['Line'] === 'Subtotal')
     expect(num(total?.['Amount ($)'])).toBeCloseTo(21.75, 2)
+    const due = rowsOf(wb, 'Statement').find(r => r['Line'] === 'Amount due')
+    expect(num(due?.['Amount ($)'])).toBeCloseTo(395, 2)
+    const topUp = rowsOf(wb, 'Statement').find(r => r['Line'] === 'Monthly minimum top-up')
+    expect(num(topUp?.['Amount ($)'])).toBeCloseTo(395 - 21.75, 2)
   })
 
   it('explains the blank carrier columns in words, on the Statement sheet', async () => {
