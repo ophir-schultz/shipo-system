@@ -24,4 +24,16 @@ describe('shipment data issues', () => {
     expect(issues[0].reason).toContain('$1.20')
     expect(issues[0].reason).toContain('$1.75')
   })
+
+  it('reports Orcam when two different pick services are live and leaves both rows in place', () => {
+    const rows = [
+      { client_id: 'o', client_name: 'Orcam', service_type: 'orders_(picks_n_pack)', rate: 1.2 },
+      { client_id: 'o', client_name: 'Orcam', service_type: 'pick_n_pack', rate: 1.75 },
+    ]
+    const issues = ambiguousPickCards(rows, '2026-10-26')
+    expect(issues.map((issue) => issue.clientName)).toEqual(['Orcam'])
+    expect(issues[0].reason).toContain('orders_(picks_n_pack)')
+    expect(issues[0].reason).toContain('pick_n_pack')
+    expect(rows).toHaveLength(2)
+  })
 })

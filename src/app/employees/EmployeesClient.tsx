@@ -14,7 +14,7 @@ type Employee = {
   last_sign_in: string | null
 }
 
-export default function EmployeesClient({ employees }: { employees: Employee[] }) {
+export default function EmployeesClient({ employees, canManage }: { employees: Employee[]; canManage: boolean }) {
   const router = useRouter()
   const [showInvite, setShowInvite] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -73,18 +73,24 @@ export default function EmployeesClient({ employees }: { employees: Employee[] }
       )}
 
       <div className="flex justify-between items-center">
-        <p className="text-sm text-[#4B4F58]">Manage who has access to the Shipo Operations Platform.</p>
-        <button
-          onClick={() => setShowInvite(v => !v)}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-[#0B1220] transition"
-          style={{ background: '#1A73E8' }}
-        >
-          + Add Employee
-        </button>
+        <p className="text-sm text-[#4B4F58]">
+          {canManage
+            ? 'The role label does not grant employee management. Only the owner allowlist can add or remove accounts.'
+            : 'Adding and removing accounts is limited to the owner allowlist.'}
+        </p>
+        {canManage ? (
+          <button
+            onClick={() => setShowInvite(v => !v)}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-[#0B1220] transition"
+            style={{ background: '#1A73E8' }}
+          >
+            + Add Employee
+          </button>
+        ) : null}
       </div>
 
       {/* Add employee form */}
-      {showInvite && (
+      {canManage && showInvite && (
         <form onSubmit={handleInvite} className="bg-white rounded-xl p-5 space-y-4">
           <h3 className="font-semibold text-[#0B1220] text-sm">New Employee Account</h3>
           <div className="grid grid-cols-2 gap-4">
@@ -184,12 +190,14 @@ export default function EmployeesClient({ employees }: { employees: Employee[] }
                 <td className="px-4 py-3 text-[#6B7A8D] text-xs">{new Date(emp.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                 <td className="px-4 py-3 text-[#6B7A8D] text-xs">{emp.last_sign_in ? new Date(emp.last_sign_in).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never'}</td>
                 <td className="px-4 py-3 text-right">
-                  <button
-                    onClick={() => handleDelete(emp.id, emp.email)}
-                    className="text-xs text-[#6B7A8D] hover:text-red-700 transition px-2 py-1 rounded hover:bg-red-50"
-                  >
-                    Remove
-                  </button>
+                  {canManage ? (
+                    <button
+                      onClick={() => handleDelete(emp.id, emp.email)}
+                      className="text-xs text-[#6B7A8D] hover:text-red-700 transition px-2 py-1 rounded hover:bg-red-50"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}

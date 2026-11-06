@@ -65,7 +65,7 @@ export default async function ManualChargesPage() {
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Manual charges</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          One-off fees for an active client. The date is the Eastern warehouse day you enter. A saved charge stays unapproved, so it is not added to a bill yet.
+          One-off fees for an active client. The date is the Eastern warehouse day you enter. A saved charge is stored with approved false. This screen has no approval action, so the amount stays off bills until a separate billing approval exists.
         </p>
       </div>
       {!page.ok ? <ViewUnreadable message={page.error} /> : (
