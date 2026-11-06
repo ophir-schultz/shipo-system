@@ -288,7 +288,7 @@ function StatementTable(
   const { range, statement, earliest } = data
   const total = statementTotal(statement)
 
-  const coverage = coverageNote(earliest, range)
+  const coverage = coverageNote(earliest, range, statement.lines.length)
   const unpriced = unpricedNote(statement.sum.unpriced, 'charge')
   const estimated = estimateNote(statement.estimated)
 

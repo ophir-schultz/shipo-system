@@ -169,7 +169,7 @@ export async function GET(req: Request) {
     // only the /statements page knows how to build does not exist on this tab,
     // and the figure it qualifies would be read without it.
     notes: [
-      coverageNote(earliest, range),
+      coverageNote(earliest, range, statement.lines.length),
       unpricedNote(statement.sum.unpriced, 'charge'),
       estimateNote(statement.estimated),
     ].filter(n => n !== ''),

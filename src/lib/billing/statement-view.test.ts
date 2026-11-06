@@ -164,6 +164,18 @@ describe('coverageNote', () => {
     expect(note).toMatch(/sum over nothing/i)
   })
 
+  it('does not say no charges when this period already has charge lines', () => {
+    // Nayax: the statement lists shipment-priced lines (about $1,111.33)
+    // while the ledger's earliest-charge read is empty. The note must follow
+    // the rows on the statement, not only order_charges.
+    const week = { from: '2026-10-26', to: '2026-11-01' }
+    const note = coverageNote(null, week, 4)
+    expect(note).toBe('')
+    expect(note).not.toMatch(/no charges/i)
+    expect(coverageNote('2026-11-02', week, 4)).toBe('')
+    expect(coverageNote(null, week, 0)).toMatch(/no charges/i)
+  })
+
   it('says the record starts mid-period, and from when', () => {
     const note = coverageNote('2026-10-07', OCTOBER)
     expect(note).toContain('2026-10-07')

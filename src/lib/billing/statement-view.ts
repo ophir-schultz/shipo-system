@@ -124,7 +124,17 @@ export function grainChoice(asked: string | null | undefined, fallback: Grain): 
  * caveat printed on every statement is a caveat nobody reads -- same rule as
  * unpricedNote and undatedNote.
  */
-export function coverageNote(earliest: string | null, range: DateRange): string {
+export function coverageNote(
+  earliest: string | null,
+  range: DateRange,
+  shownLines = 0,
+): string {
+  // Charge rows already on the statement — ledger lines or shipment prices
+  // for this period — are the figures. A "no charges" sentence beside them
+  // contradicts the total. Creative Pea, with no rows, still gets the note.
+  if (shownLines > 0) {
+    if (earliest === null || earliest > range.to) return ''
+  }
   if (earliest === null) {
     return 'The ledger holds no charges for this client on any date, so the '
       + 'figures above are a sum over nothing rather than a quiet period.'

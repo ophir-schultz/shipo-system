@@ -25,7 +25,7 @@ describe('rate check rows', () => {
     })
     expect(row.sheetPrice).toBe(24.51)
     expect(row.difference).toBe(0.49)
-    expect(row.reason).toBeNull()
+    expect(row.reason).toMatch(/Not a pass/)
     expect(row).not.toHaveProperty('iclCost')
     expect(row).not.toHaveProperty('actualCost')
   })
@@ -104,6 +104,8 @@ describe('rate check rows', () => {
       shipments: 2,
       matched: 1,
       notCompared: 0,
+      priceGaps: 0,
+      unknownBilled: 0,
       billedTotal: 33.31,
       sheetTotal: 33.31,
       difference: 0,
@@ -115,5 +117,40 @@ describe('rate check rows', () => {
     expect(byName.Suteka.notCompared).toBe(1)
     expect(byName.Suteka.matched).toBe(0)
     expect(rows.find((row) => row.id === 'd')?.reason).toBe('Needs manual price (client approval)')
+    expect(byName.Nayax.priceGaps).toBe(0)
+    expect(byName.Nayax.billedTotal).toBeNull()
+  })
+
+  it('reports Suteka sheet leakage without calling the matched rows a pass', () => {
+    const gaps = Array.from({ length: 26 }, (_, index) => ({
+      id: `s${index}`,
+      clientName: 'Suteka',
+      orderNumber: String(index),
+      shipDate: '2026-10-27',
+      weightOz: 16,
+      zone: 4,
+      service: 'ground',
+      sheetPrice: 10,
+      clientRate: index === 0 ? 213.87 : 10,
+      difference: index === 0 ? 203.87 : 0,
+      reason: index === 0 ? 'Billed rate differs from the sheet. Not a pass.' : null,
+      kind: 'matched' as const,
+    }))
+    const aside = [
+      { ...gaps[0], id: 'nayax', clientName: 'Nayax', kind: 'no_sheet' as const, sheetPrice: null, clientRate: 12, difference: null, reason: 'no sheet rates' },
+      { ...gaps[0], id: 'orcam', clientName: 'Orcam', kind: 'no_sheet' as const, sheetPrice: null, clientRate: 8, difference: null, reason: 'no sheet rates' },
+      { ...gaps[0], id: 'none', clientName: null, kind: 'no_sheet' as const, sheetPrice: null, clientRate: null, difference: null, reason: 'no sheet rates' },
+    ]
+    const byName = Object.fromEntries(summarizeRateCheck([...gaps, ...aside]).map((row) => [row.clientName, row]))
+    expect(byName.Suteka.matched).toBe(26)
+    expect(byName.Suteka.priceGaps).toBe(1)
+    expect(byName.Suteka.difference).toBe(203.87)
+    expect(byName.Suteka.difference).not.toBe(0)
+    expect(byName.Nayax.notCompared).toBe(1)
+    expect(byName.Nayax.matched).toBe(0)
+    expect(byName.Nayax.difference).toBeNull()
+    expect(byName.Orcam.difference).toBeNull()
+    expect(byName['No client'].difference).toBeNull()
+    expect(byName['No client'].notCompared).toBe(1)
   })
 })

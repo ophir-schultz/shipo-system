@@ -9,6 +9,7 @@ import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
+import { DASHBOARD_SHIPPING_BASIS, FULFILLMENT_PNL_BASIS } from '@/lib/billing/pnl-basis'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
 import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 
@@ -490,7 +491,7 @@ function Header() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Campaigns + P&amp;L</h2>
-      <p className="text-[#4B4F58] text-sm mt-1">Marketing ROI by campaign, fulfillment margin by client, referral payouts, and the inbound receiving log.</p>
+      <p className="text-[#4B4F58] text-sm mt-1">{FULFILLMENT_PNL_BASIS} {DASHBOARD_SHIPPING_BASIS}</p>
     </div>
   )
 }
@@ -546,8 +547,8 @@ export default async function PnlPage() {
             said when every figure under it had been withheld. */}
         <StatCard label="Net Profit" value={fmtOrDash(d.totalProfit)}
           sub={d.totalProfit === null
-            ? 'No readable revenue or cost to compute it from'
-            : 'Gross of warehouse labor'}
+            ? 'Unknown amounts were excluded. Not $0, and not a full ledger P&L.'
+            : 'Shipment + warehouse + inbound, gross of labor. Not the dashboard shipping margin.'}
           color={d.totalProfit === null ? 'unknown' : d.totalProfit >= 0 ? 'green' : 'red'} />
         {/* A dash, not $0.00, when not one campaign has a spend entered. The
             count in `sub` was already telling the truth underneath a figure
@@ -646,7 +647,7 @@ export default async function PnlPage() {
       <div className="bg-white rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-[#0B1220]">Per-Client Fulfillment P&amp;L</h3>
-          <span className="text-xs text-[#4B4F58]">Revenue = shipping + warehouse + inbound · Cost = carrier + receiving · gross of labor</span>
+          <span className="text-xs text-[#4B4F58]">Shipment + warehouse + inbound. Unknown charges excluded, not $0. Not the dashboard shipping-only margin.</span>
         </div>
         {d.unassignedCount > 0 && (
           <div className="mb-4 rounded-lg px-4 py-3 border border-amber-200 bg-amber-50 text-xs text-amber-700">

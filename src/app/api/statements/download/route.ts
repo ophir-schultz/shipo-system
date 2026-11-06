@@ -269,7 +269,7 @@ export async function GET(req: Request) {
   // A note that only exists on the screen does not survive the download, and
   // this file is the artefact that gets read six weeks later.
   const notes = [
-    coverageNote(earliest, range),
+    coverageNote(earliest, range, statement.lines.length),
     unpricedNote(statement.sum.unpriced, 'charge'),
     estimateNote(statement.estimated),
     // On sheet 1 and not only on sheet 3, because a blank carrier column is
