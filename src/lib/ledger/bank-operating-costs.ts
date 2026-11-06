@@ -1,18 +1,25 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import {
+  BANK_OPEX_LABEL,
+  BANK_OPEX_SEPARATE_FROM_DIRECT,
+  CASH_APP_NOT_PAYROLL,
+} from './bank-operating-labels'
 
-// September 2026 bank activity, loaded from a committed file. Nothing here
-// writes to Supabase. September is not copied onto any other month.
+export { BANK_OPEX_LABEL, BANK_OPEX_SEPARATE_FROM_DIRECT, CASH_APP_NOT_PAYROLL }
 
-export const BANK_OPEX_PERIOD = '2026-09'
+// Bank statements loaded from committed files. Nothing here writes to
+// Supabase. A month is shown only from its own file. September is not
+// added to October, and neither is copied onto June or November.
 
-export const BANK_OPEX_LABEL =
-  'Unreviewed bank-derived classifications. Cash basis. Not complete accrual accounting. September 2026 only, not annualized.'
+export const BANK_OPEX_MONTHS = ['2026-09', '2026-10'] as const
 
-export const BANK_OPEX_SEPARATE_FROM_DIRECT =
-  'September bank operating costs are not fulfillment direct costs. Postage on that statement is kept out of the operating subtotal so it is not counted again with carrier cost.'
+const CATEGORIES = ['software', 'contractors', 'communications', 'postage', 'bank_fees', 'other'] as const
 
-const CATEGORIES = ['software', 'contractors', 'communications', 'postage', 'bank_fees'] as const
+const FILES: Record<string, string> = {
+  '2026-09': '2026-09-bank.csv',
+  '2026-10': '2026-10-bank.csv',
+}
 
 export type BankCostCategory = (typeof CATEGORIES)[number]
 
@@ -22,20 +29,24 @@ export interface BankCostLine {
   payee: string
   amountCents: number
   category: BankCostCategory
+  note: string
 }
 
 export interface BankOperatingView {
-  period: '2026-09'
-  label: 'Sep 2026'
+  period: '2026-09' | '2026-10'
+  label: 'Sep 2026' | 'Oct 2026'
   annualized: false
   lines: number
   expendituresCents: number
+  /** Withdrawals and other debits, before the statement's service fees. */
+  withdrawalsCents: number
   postageExcludedCents: number
   operatingSubtotalCents: number
   softwareCents: number
   contractorsCents: number
   communicationsCents: number
   bankFeesCents: number
+  otherCents: number
   /** Rent, payroll, and ledger charges are not in this file. */
   netProfit: null
 }
@@ -53,12 +64,12 @@ function centsOf(amount: string): number {
 export function parseBankCostCsv(text: string): BankCostLine[] {
   const rows = text.trim().split(/\r?\n/).slice(1)
   return rows.map((line) => {
-    const [n, posted, payee, amount, category] = line.split(',')
+    const [n, posted, payee, amount, category, ...noteParts] = line.split(',')
     if (!CATEGORIES.includes(category as BankCostCategory)) {
       throw new Error(`Unknown bank category ${category}`)
     }
-    if (!posted.startsWith('2026-09-')) {
-      throw new Error(`Bank row ${n} is not September 2026`)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(posted)) {
+      throw new Error(`Bank row ${n} has no posted date`)
     }
     return {
       n: Number(n),
@@ -66,52 +77,69 @@ export function parseBankCostCsv(text: string): BankCostLine[] {
       payee,
       amountCents: centsOf(amount),
       category: category as BankCostCategory,
+      note: noteParts.join(',').trim(),
     }
   })
 }
 
+export function loadBankLines(period: string): BankCostLine[] {
+  const file = FILES[period.slice(0, 7)]
+  if (!file) return []
+  return parseBankCostCsv(readFileSync(join(process.cwd(), 'data', 'operating-costs', file), 'utf8'))
+}
+
 export function loadSeptember2026BankLines(): BankCostLine[] {
-  const path = join(process.cwd(), 'data/operating-costs/2026-09-bank.csv')
-  return parseBankCostCsv(readFileSync(path, 'utf8'))
+  return loadBankLines('2026-09')
+}
+
+export function loadOctober2026BankLines(): BankCostLine[] {
+  return loadBankLines('2026-10')
 }
 
 function sumCategory(lines: readonly BankCostLine[], category: BankCostCategory): number {
   return lines.filter((line) => line.category === category).reduce((sum, line) => sum + line.amountCents, 0)
 }
 
+const LABELS = { '2026-09': 'Sep 2026', '2026-10': 'Oct 2026' } as const
+
 /**
- * September only. Any other month is unknown, even when the September
- * lines are in hand. Those lines are not the answer for June or November.
+ * One statement, one month. Lines posted in another month are not used.
+ * June and November have no file, so they stay unknown rather than an
+ * average or a copy of a neighbor.
  */
 export function bankOperatingFor(period: string, lines: readonly BankCostLine[]): BankOperatingAnswer {
   const month = period.slice(0, 7)
-  if (month !== BANK_OPEX_PERIOD) {
-    const direction = month < BANK_OPEX_PERIOD ? 'before' : 'after'
+  const known = month === '2026-09' || month === '2026-10'
+  const ownLines = lines.filter((line) => line.posted.startsWith(`${month}-`))
+  if (!known || ownLines.length === 0 || ownLines.length !== lines.length) {
     return {
       status: 'unknown',
-      reason: `No bank operating sample for ${month}. September 2026 is not applied ${direction} that month, and a missing month is unknown, not zero.`,
+      reason: `No bank statement for ${month}. A missing month is unknown, not zero, and no other month is copied or averaged in.`,
     }
   }
-  const softwareCents = sumCategory(lines, 'software')
-  const contractorsCents = sumCategory(lines, 'contractors')
-  const communicationsCents = sumCategory(lines, 'communications')
-  const bankFeesCents = sumCategory(lines, 'bank_fees')
-  const postageExcludedCents = sumCategory(lines, 'postage')
-  const operatingSubtotalCents = softwareCents + contractorsCents + communicationsCents + bankFeesCents
+  const softwareCents = sumCategory(ownLines, 'software')
+  const contractorsCents = sumCategory(ownLines, 'contractors')
+  const communicationsCents = sumCategory(ownLines, 'communications')
+  const bankFeesCents = sumCategory(ownLines, 'bank_fees')
+  const otherCents = sumCategory(ownLines, 'other')
+  const postageExcludedCents = sumCategory(ownLines, 'postage')
+  const operatingSubtotalCents = softwareCents + contractorsCents + communicationsCents + bankFeesCents + otherCents
   return {
     status: 'provisional',
     view: {
-      period: '2026-09',
-      label: 'Sep 2026',
+      period: month,
+      label: LABELS[month],
       annualized: false,
-      lines: lines.length,
+      lines: ownLines.length,
       expendituresCents: operatingSubtotalCents + postageExcludedCents,
+      withdrawalsCents: operatingSubtotalCents + postageExcludedCents - bankFeesCents,
       postageExcludedCents,
       operatingSubtotalCents,
       softwareCents,
       contractorsCents,
       communicationsCents,
       bankFeesCents,
+      otherCents,
       netProfit: null,
     },
   }

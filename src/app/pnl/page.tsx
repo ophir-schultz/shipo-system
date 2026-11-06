@@ -10,7 +10,7 @@ import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 import { DASHBOARD_SHIPPING_BASIS, FULFILLMENT_PNL_BASIS } from '@/lib/billing/pnl-basis'
-import { BANK_OPEX_SEPARATE_FROM_DIRECT } from '@/lib/ledger/bank-operating-costs'
+import { BANK_OPEX_SEPARATE_FROM_DIRECT } from '@/lib/ledger/bank-operating-labels'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
 import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 

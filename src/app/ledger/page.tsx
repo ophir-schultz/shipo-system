@@ -25,9 +25,11 @@ import { ViewUnreadable } from '@/components/ui/ViewUnreadable'
 import {
   BANK_OPEX_LABEL,
   BANK_OPEX_SEPARATE_FROM_DIRECT,
+  CASH_APP_NOT_PAYROLL,
   bankOperatingFor,
   dollars,
-  loadSeptember2026BankLines,
+  loadBankLines,
+  type BankOperatingView,
 } from '@/lib/ledger/bank-operating-costs'
 
 export const dynamic = 'force-dynamic'
@@ -270,24 +272,20 @@ function LeakCells({ row }: { row: LeakRow }) {
 // ------------------------------------------------------------------
 // Page
 // ------------------------------------------------------------------
-function BankOperatingSample() {
-  const september = bankOperatingFor('2026-09', loadSeptember2026BankLines())
-  const june = bankOperatingFor('2026-06', [])
-  const november = bankOperatingFor('2026-11', [])
-  if (september.status !== 'provisional') return null
-  const view = september.view
+function BankMonthTable({ view }: { view: BankOperatingView }) {
   const rows = [
     ['Software', view.softwareCents],
     ['Proposed contractors', view.contractorsCents],
     ['Communications', view.communicationsCents],
     ['Bank fees', view.bankFeesCents],
+    ...(view.otherCents > 0 ? [['Other (uPrinting), provisional', view.otherCents] as const] : []),
     ['Operating subtotal', view.operatingSubtotalCents],
+    ['Postage/shipping, excluded', view.postageExcludedCents],
   ] as const
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
-      <h3 className="font-semibold text-[#0B1220]">Sep 2026 bank operating sample</h3>
-      <p className="mt-1 text-xs text-amber-900">{BANK_OPEX_LABEL} {BANK_OPEX_SEPARATE_FROM_DIRECT}</p>
-      <table className="mt-3 w-full max-w-md text-sm">
+    <div>
+      <h4 className="font-medium text-[#0B1220]">{view.label}</h4>
+      <table className="mt-2 w-full max-w-md text-sm">
         <tbody>
           {rows.map(([label, cents]) => (
             <tr key={label} className="border-t border-amber-200">
@@ -295,16 +293,27 @@ function BankOperatingSample() {
               <td className="py-1.5 text-right font-mono text-[#0B1220]">{dollars(cents)}</td>
             </tr>
           ))}
-          <tr className="border-t border-amber-200">
-            <td className="py-1.5 pr-3 text-[#0B1220]">Postage/shipping, excluded</td>
-            <td className="py-1.5 text-right font-mono text-[#0B1220]">{dollars(view.postageExcludedCents)}</td>
-          </tr>
         </tbody>
       </table>
-      <p className="mt-3 text-xs text-amber-900">
-        {view.lines} September lines. All bank expenditures {dollars(view.expendituresCents)}. Full net profit is unknown: rent, payroll, and ledger charges are not in this sample.
+      <p className="mt-2 text-xs text-amber-900">
+        {view.lines} lines. Withdrawals {dollars(view.withdrawalsCents)} plus bank fees {dollars(view.bankFeesCents)} = {dollars(view.expendituresCents)}. Full net profit is unknown.
       </p>
-      <p className="mt-1 text-xs text-amber-900">{june.status === 'unknown' ? june.reason : ''} {november.status === 'unknown' ? november.reason : ''}</p>
+    </div>
+  )
+}
+
+function BankOperatingSample() {
+  const months = ['2026-09', '2026-10'].map((period) => bankOperatingFor(period, loadBankLines(period)))
+  const june = bankOperatingFor('2026-06', [])
+  const november = bankOperatingFor('2026-11', [])
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+      <h3 className="font-semibold text-[#0B1220]">Bank operating samples</h3>
+      <p className="mt-1 text-xs text-amber-900">{BANK_OPEX_LABEL} {BANK_OPEX_SEPARATE_FROM_DIRECT} {CASH_APP_NOT_PAYROLL}</p>
+      <div className="mt-4 grid gap-6 md:grid-cols-2">
+        {months.map((answer) => answer.status === 'provisional' ? <BankMonthTable key={answer.view.period} view={answer.view} /> : null)}
+      </div>
+      <p className="mt-3 text-xs text-amber-900">{june.status === 'unknown' ? june.reason : ''} {november.status === 'unknown' ? november.reason : ''}</p>
     </div>
   )
 }
