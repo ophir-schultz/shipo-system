@@ -117,6 +117,16 @@ export default function ReferralsManager({
 
   // ---- payout ledger actions ----
   async function payoutAction(line: OwedLine, action: 'approve' | 'paid' | 'pending' | 'unrecord') {
+    if (action === 'paid') {
+      const partner = partners.find((p) => p.id === line.partnerId)
+      const blocked = partner
+        ? payoutBlockedReason(partner)
+        : 'Partner not found. Nothing was marked paid.'
+      if (blocked) {
+        showError('Not paid', blocked)
+        return
+      }
+    }
     const ok = await call('/api/referrals/payouts', {
       action,
       dedupe_key: line.dedupeKey,

@@ -7,6 +7,7 @@ import {
   type ReferredClient,
 } from '@/lib/referrals'
 import { isLedgerInvoiceId } from '@/lib/partner-ledger'
+import { payoutBlockedReason } from '@/lib/partner-w9'
 
 /**
  * What this signup bonus is actually worth, decided server-side.
@@ -55,6 +56,13 @@ async function resolveBonusAmount(
   return { amount: bonusAmount(partner) }
 }
 
+function recordedAmount(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  if (!Number.isFinite(n) || n < 0) return null
+  return Math.round(n * 100) / 100
+}
+
 // The payout ledger. This records / advances a payout's approval
 // state. It NEVER sends money — 'paid' only means Ophir has marked
 // it settled outside the system.
@@ -83,6 +91,22 @@ export async function POST(req: Request) {
 
   const now = new Date().toISOString()
 
+  // A missing amount used to become 0. That records a settled payout of
+  // nothing, which then reads as paid. The signup bonus is the exception:
+  // its amount is computed below from the partner row, not from this body.
+  const bonusApprove = action === 'approve' && body.kind === 'signup_bonus'
+  const amount = recordedAmount(body.amount)
+  if (!bonusApprove && amount === null) {
+    return NextResponse.json({
+      error: 'amount is required and must be a nonnegative number. Nothing was recorded.',
+    }, { status: 400 })
+  }
+  if (bonusApprove && !body.client_id) {
+    return NextResponse.json({
+      error: 'client_id is required to price a signup bonus. Nothing was recorded.',
+    }, { status: 400 })
+  }
+
   // A month that exists only in the ledger has no fba_invoices row, so
   // computeOwed stamps it with a synthetic 'ledger:<client>:<month>' id.
   // referral_payouts.fba_invoice_id is a real uuid FK, so forwarding one
@@ -98,7 +122,7 @@ export async function POST(req: Request) {
     client_id: body.client_id ?? null,
     kind: body.kind ?? 'commission',
     period: body.period ?? null,
-    amount: Number(body.amount ?? 0),
+    amount,
     fba_invoice_id: fbaInvoiceId,
     updated_at: now,
   }
@@ -121,6 +145,29 @@ export async function POST(req: Request) {
     row.approved_by = 'Ophir'
     row.approved_at = now
   } else if (action === 'paid') {
+    const partnerId = typeof body.referral_partner_id === 'string' ? body.referral_partner_id : ''
+    if (!partnerId) {
+      return NextResponse.json({
+        error: 'referral_partner_id is required to mark a payout paid. Nothing was recorded.',
+      }, { status: 400 })
+    }
+    const { data: partner, error: partnerErr } = await supabaseAdmin
+      .from('referral_partners')
+      .select('id, w9_received_at')
+      .eq('id', partnerId)
+      .maybeSingle()
+    if (partnerErr) {
+      return NextResponse.json({
+        error: `Could not check the W-9, so nothing was marked paid: ${partnerErr.message}`,
+      }, { status: 503 })
+    }
+    if (!partner) {
+      return NextResponse.json({ error: 'Partner not found. Nothing was marked paid.' }, { status: 409 })
+    }
+    const blocked = payoutBlockedReason(partner)
+    if (blocked) {
+      return NextResponse.json({ error: blocked }, { status: 409 })
+    }
     row.status = 'paid'
     row.paid_at = now
   } else {
