@@ -78,6 +78,9 @@ export default async function DataIssuesPage() {
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Data issues</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
+          Ledger charge amounts stay null when no client price is in effect. A later backfill may copy shipments.client_rate onto a shipping charge that is still null. It will not use carrier cost, and it will not turn a missing price into $0. That backfill has not been run.
+        </p>
+        <p className="text-[#4B4F58] text-sm mt-1">
           {page.ok
             ? `${page.data.issues.length} shipments that cannot be billed, and ${page.data.pickCards.length} rate cards with more than one live pick rate. Voided labels are left off.`
             : 'This list could not be read.'}

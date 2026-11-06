@@ -93,12 +93,12 @@ function layoutChain(pageDir: string): string[] {
   return chain
 }
 
-/** The hrefs in the staff sidebar's nav array, in order. */
+/** The hrefs the staff sidebar renders, from the shared map. */
 function navHrefs(): string[] {
-  const src = readFileSync('src/components/layout/Sidebar.tsx', 'utf8')
-  const nav = /const nav = \[([\s\S]*?)\n\]/.exec(src)
-  if (nav === null) return []
-  return [...nav[1].matchAll(/href:\s*'([^']*)'/g)].map(m => m[1])
+  const src = readFileSync('src/lib/staff-nav.ts', 'utf8')
+  const sidebar = readFileSync('src/components/layout/Sidebar.tsx', 'utf8')
+  if (!sidebar.includes("from '@/lib/staff-nav'")) return []
+  return [...src.matchAll(/href:\s*'([^']*)'/g)].map(m => m[1])
 }
 
 /** The hrefs on the root landing page's card grid. */
