@@ -9,7 +9,7 @@ import DocusignNotice from '@/components/partner/DocusignNotice'
 import ClaimsQueue from '@/components/referrals/ClaimsQueue'
 import UnmatchedAgreements, { type UnmatchedAgreementEvent } from '@/components/referrals/UnmatchedAgreements'
 import { UNMATCHED_EVENT_COLUMNS } from '@/lib/partner-agreement-match'
-import { REFERRALS_MONEY_SOURCE } from '@/lib/partner-money-source'
+import { REFERRALS_MONEY_SOURCE, STORED_COMMISSION_IGNORED, emptyReferralBooks } from '@/lib/partner-money-source'
 
 export const dynamic = 'force-dynamic'
 
@@ -165,6 +165,7 @@ async function getData() {
         partners: partners.rows,
         clients: clients.rows,
         invoices: invoices.rows,
+        payoutCount: payouts.rows.length,
         owed,
         totals: summarize(owed),
       }
@@ -202,6 +203,18 @@ export default async function ReferralsPage() {
           stays <span className="text-amber-700">pending</span> until you approve it — nothing is ever paid automatically.
         </p>
         <p className="text-[#4B4F58] text-sm mt-2">{REFERRALS_MONEY_SOURCE}</p>
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {STORED_COMMISSION_IGNORED}
+        </p>
+        {d.page.ok && (
+          <p className="mt-2 text-sm text-[#4B4F58]">
+            {emptyReferralBooks({
+              linkedClients: d.page.data.clients.filter((client) => client.referral_partner_id).length,
+              invoiceRows: d.page.data.invoices.length,
+              payoutRows: d.page.data.payoutCount,
+            }).text}
+          </p>
+        )}
       </div>
 
       {d.migrationMissing && (
