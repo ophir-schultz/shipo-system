@@ -31,9 +31,8 @@ export interface AmbiguousPickCard {
 
 /**
  * Clients whose card has two live pick rates. Kivema is the case: $1.20 and
- * $1.75. Orcam is the same kind of warning when two different pick services
- * are both live at different prices. The statement skips the line on purpose.
- * This list does not delete those rate rows.
+ * $1.75. An additional-item line is not a second pick rate. The statement
+ * skips a real conflict on purpose. This list does not delete those rate rows.
  */
 export function ambiguousPickCards(
   rows: readonly (PickCardRow & { client_id: string | null; client_name: string | null })[],

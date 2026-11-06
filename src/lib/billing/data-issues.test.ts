@@ -25,15 +25,12 @@ describe('shipment data issues', () => {
     expect(issues[0].reason).toContain('$1.75')
   })
 
-  it('reports Orcam when two different pick services are live and leaves both rows in place', () => {
+  it('does not flag Orcam when the second live line is an additional item', () => {
     const rows = [
-      { client_id: 'o', client_name: 'Orcam', service_type: 'orders_(picks_n_pack)', rate: 1.2 },
-      { client_id: 'o', client_name: 'Orcam', service_type: 'pick_n_pack', rate: 1.75 },
+      { client_id: 'o', client_name: 'Orcam', service_type: 'pick_pack', rate: 0.5, effective_from: '2026-11-03' },
+      { client_id: 'o', client_name: 'Orcam', service_type: 'pick_pack_additional_item', rate: 0.1, effective_from: '2026-11-03' },
     ]
-    const issues = ambiguousPickCards(rows, '2026-10-26')
-    expect(issues.map((issue) => issue.clientName)).toEqual(['Orcam'])
-    expect(issues[0].reason).toContain('orders_(picks_n_pack)')
-    expect(issues[0].reason).toContain('pick_n_pack')
-    expect(rows).toHaveLength(2)
+    expect(ambiguousPickCards(rows, '2026-11-06')).toEqual([])
+    expect(rows.map((row) => row.rate)).toEqual([0.5, 0.1])
   })
 })
