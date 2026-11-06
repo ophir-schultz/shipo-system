@@ -48,9 +48,10 @@ export interface ZenventoryEnvCredentials {
   apiKey: string
   apiSecret: string
   /**
-   * Value sent as the legacy SecureKey. A ZEN_SECURE or ZENVENTORY_SECURE
-   * variable wins. Otherwise this is the secret: Zenventory uses the same
-   * value for both. Null only when the secret itself is missing.
+   * Value sent as the legacy SecureKey. Only ZEN_${slug}_SECURE or
+   * ZENVENTORY_SECURE_${slug}. The API secret is not a SecureKey: Nayax's
+   * legacy pick GET answers 401 when the secret is sent in that header and
+   * the secure variable is unset. Null means the pick cannot be sent.
    */
   secureKey: string | null
 }
@@ -77,10 +78,9 @@ function readEither(
  * Key and secret for this client's Zenventory account.
  *
  * `ZEN_${slug}_KEY` is read first, then `ZENVENTORY_KEY_${slug}`. The same
- * order applies to SECRET. SECURE is `ZEN_${slug}_SECURE`, then
- * `ZENVENTORY_SECURE_${slug}`, then the secret (`ZEN_${slug}_SECRET`, then
- * `ZENVENTORY_SECRET_${slug}`). The pick push is configured once the key and
- * secret are present. A missing variable is named in the notice. The value
+ * order applies to SECRET. The legacy SecureKey is only
+ * `ZEN_${slug}_SECURE`, then `ZENVENTORY_SECURE_${slug}`. It is not filled
+ * from the secret. A missing variable is named in the notice. The value
  * is not.
  */
 export function readZenventoryClientCredentials(
@@ -100,16 +100,17 @@ export function readZenventoryClientCredentials(
   const apiKey = readEither(env, names.key, names.legacyKey)
   const apiSecret = readEither(env, names.secret, names.legacySecret)
   const dedicatedSecure = readEither(env, names.secure, names.legacySecure)
-  // Zenventory's secure value is the secret unless a secure variable is set.
-  const secureKey = dedicatedSecure.value ?? apiSecret.value
+  const secureKey = dedicatedSecure.value
   const missing: string[] = []
   if (!apiKey.value) missing.push(apiKey.label)
   if (!apiSecret.value) missing.push(apiSecret.label)
-  if (missing.length > 0 || !apiKey.value || !apiSecret.value || (options.requireSecure && !secureKey)) {
+  if (options.requireSecure && !secureKey) missing.push(dedicatedSecure.label)
+  if (missing.length > 0 || !apiKey.value || !apiSecret.value) {
     return {
       ok: false,
       notice: `${label} Zenventory is ${ZENVENTORY_NOT_CONFIGURED}. Missing ${missing.join(', ')}. `
-        + `The pick push uses the secret when no ${names.secure} or ${names.legacySecure} is set.`,
+        + `The legacy pick is not sent unless ${names.secure} or ${names.legacySecure} is set. `
+        + `The API secret is not used as that key.`,
     }
   }
   return {

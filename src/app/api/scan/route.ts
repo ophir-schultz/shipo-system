@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase-server'
 import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/require-staff'
 import { duplicatesWithin } from '@/lib/scan/parse'
+import { getCustomerOrders } from '@/lib/api/zenventory'
+import { readZenventoryClientCredentials } from '@/lib/zenventory/client-env'
+import { queueDecision, readCustomerOrder } from '@/lib/scan/order-lines'
 
 // ============================================================
 // POST /api/scan  — record one serialization scan.
@@ -90,12 +93,23 @@ export async function POST(req: Request) {
     return bad('expected_count must be a positive whole number, or left blank.')
   }
 
+  const orderRef = body.order_ref?.trim() || null
+  const requestedSku = body.sku?.trim() || null
+  let skuForRecord = requestedSku
+  let verification = ''
+  if (orderRef && requestedSku) {
+    const decision = await decideRecordedSku(body.client_id, orderRef, requestedSku, serials.length)
+    if (!decision.record) return bad(decision.reason)
+    skuForRecord = decision.queue ? requestedSku : null
+    verification = decision.reason
+  }
+
   const { data, error } = await supabaseAdmin.rpc('record_scan', {
     p_client_id: body.client_id,
     p_scan_type: body.scan_type,
     p_serials: serials,
-    p_order_ref: body.order_ref?.trim() || null,
-    p_sku: body.sku?.trim() || null,
+    p_order_ref: orderRef,
+    p_sku: skuForRecord,
     p_box_ref: body.box_ref?.trim() || null,
     p_expected_count: expected,
     p_notes: body.notes?.trim() || null,
@@ -126,7 +140,51 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, ...(data as Record<string, unknown>) })
+  return NextResponse.json({
+    success: true,
+    ...(data as Record<string, unknown>),
+    verification: verification || null,
+    pickSent: false,
+  })
+}
+
+async function decideRecordedSku(
+  clientId: string,
+  orderRef: string,
+  sku: string,
+  serialCount: number,
+): Promise<{ record: boolean; queue: boolean; reason: string }> {
+  const { data: client, error } = await supabaseAdmin
+    .from('clients')
+    .select('name')
+    .eq('id', clientId)
+    .maybeSingle()
+  if (error || !client) {
+    return queueDecision({
+      loaded: { ok: false, reason: error ? `Could not read the client: ${error.message}` : 'No client has that id.' },
+      sku,
+      serialCount,
+    })
+  }
+  const creds = readZenventoryClientCredentials(client.name ?? '')
+  if (!creds.ok) {
+    return queueDecision({ loaded: { ok: false, reason: creds.notice }, sku, serialCount })
+  }
+  try {
+    const body = await getCustomerOrders(creds.credentials.apiKey, creds.credentials.apiSecret, {
+      page: 1,
+      perPage: 100,
+      orderNumber: orderRef,
+    })
+    return queueDecision({ loaded: readCustomerOrder(body, orderRef), sku, serialCount })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return queueDecision({
+      loaded: { ok: false, reason: `The order could not be read. ${message}` },
+      sku,
+      serialCount,
+    })
+  }
 }
 
 export async function GET(req: Request) {

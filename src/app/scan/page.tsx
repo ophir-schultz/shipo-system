@@ -6,6 +6,7 @@ import { parseScan, duplicatesWithin } from '@/lib/scan/parse'
 // lib/ because vitest excludes `.test.tsx`. See client-list.ts for why an
 // empty dropdown on this screen is worse than an error on it.
 import { readClientList, type Client } from '@/lib/clients/client-list'
+import { scanCoverage, type CustomerOrderLine } from '@/lib/scan/order-lines'
 
 // ============================================================
 // SERIALIZATION SCAN STATION
@@ -50,6 +51,9 @@ export default function ScanPage() {
   // apart, and the dropdown said "Select a client…" for both.
   const [loaded, setLoaded] = useState(false)
   const [queueNote, setQueueNote] = useState('')
+  const [orderLines, setOrderLines] = useState<CustomerOrderLine[] | null>(null)
+  const [orderNote, setOrderNote] = useState('')
+  const [orderLoaded, setOrderLoaded] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -82,6 +86,45 @@ export default function ScanPage() {
     return () => { live = false }
   }, [])
 
+  useEffect(() => {
+    const ref = orderRef.trim()
+    if (!clientId || !ref) {
+      setOrderLines(null)
+      setOrderNote('')
+      setOrderLoaded(false)
+      return
+    }
+    let live = true
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ client_id: clientId, order_ref: ref })
+      fetch(`/api/scan/order?${params}`)
+        .then(async (r) => {
+          const body = await r.json().catch(() => null) as {
+            loaded?: boolean
+            lines?: CustomerOrderLine[] | null
+            reason?: string
+          } | null
+          if (!live) return
+          if (!body?.loaded || !body.lines) {
+            setOrderLines(null)
+            setOrderLoaded(false)
+            setOrderNote(body?.reason || 'The order lines could not be read.')
+            return
+          }
+          setOrderLines(body.lines)
+          setOrderLoaded(true)
+          setOrderNote(body.reason || '')
+        })
+        .catch(() => {
+          if (!live) return
+          setOrderLines(null)
+          setOrderLoaded(false)
+          setOrderNote('The order lines could not be read.')
+        })
+    }, 400)
+    return () => { live = false; clearTimeout(timer) }
+  }, [clientId, orderRef])
+
   const result = useMemo(
     () => parseScan(raw, expected ? Number(expected) : undefined),
     [raw, expected],
@@ -99,6 +142,9 @@ export default function ScanPage() {
 
   const short =
     expected !== '' && serials.length > 0 && serials.length < Number(expected)
+  const coverage = orderLines
+    ? scanCoverage(orderLines, sku.trim() ? [{ sku: sku.trim(), count: serials.length }] : [])
+    : null
 
   async function submit() {
     setError('')
@@ -261,13 +307,31 @@ export default function ScanPage() {
             </div>
             <div>
               <label className="block text-xs text-[#6B7A8D] mb-1">SKU</label>
-              <input
-                type="text"
-                value={sku}
-                onChange={(e) => setSku(e.target.value)}
-                placeholder="Line item"
-                className={field}
-              />
+              {orderLines && orderLines.length > 0 ? (
+                <select
+                  value={sku}
+                  onChange={(e) => {
+                    const next = e.target.value
+                    setSku(next)
+                    const line = orderLines.find((row) => row.sku === next)
+                    setExpected(line?.requiredQty != null ? String(line.requiredQty) : '')
+                  }}
+                  className={field}
+                >
+                  <option value="">Select a line</option>
+                  {orderLines.map((line) => (
+                    <option key={line.sku} value={line.sku}>{line.sku}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={sku}
+                  onChange={(e) => setSku(e.target.value)}
+                  placeholder="Line item"
+                  className={field}
+                />
+              )}
             </div>
             <div>
               <label className="block text-xs text-[#6B7A8D] mb-1">Box ref</label>
@@ -286,6 +350,30 @@ export default function ScanPage() {
               scan is still billed and stored, but there is no safe way
               to push it — so say that here rather than letting it look
               queued. */}
+          {orderNote && (
+            <p className="text-xs text-amber-800">{orderNote}</p>
+          )}
+          {orderLoaded && orderLines && (
+            <div className="text-xs text-[#3A4658] space-y-1">
+              {orderLines.map((line) => {
+                const covered = coverage?.lines.find((row) => row.sku === line.sku)
+                const serialized = line.serialized === true ? 'serialized' : line.serialized === false ? 'not serialized' : 'serialized unknown'
+                const required = line.requiredQty == null ? 'qty unknown' : `qty ${line.requiredQty}`
+                return (
+                  <p key={line.sku}>
+                    {line.sku}: {serialized}, {required}
+                    {covered ? `, scanned now ${covered.scanned}` : ''}
+                  </p>
+                )
+              })}
+              <p>
+                {coverage?.allSerializedComplete
+                  ? 'Every serialized line on this order matches its required quantity in this scan.'
+                  : 'This order is not fully scanned. A partial line is not a completed order.'}
+              </p>
+            </div>
+          )}
+
           {orderRef.trim() && !sku.trim() && (
             <p className="text-xs text-amber-700">
               No SKU — this scan will be billed and stored, but not queued for
@@ -412,8 +500,8 @@ export default function ScanPage() {
               Recorded {last.serial_count} serial{last.serial_count === 1 ? '' : 's'} —
               billed ${Number(last.total).toFixed(2)} ({last.service_type}).{' '}
               {last.queued
-                ? 'Queued for Zenventory.'
-                : 'Not queued — no order ref, so there is nothing to match against.'}
+                ? 'Stored against the verified line. A pick is not sent from this screen.'
+                : 'Stored. Not queued for a pick — the order line was not verified.'}
             </div>
           )}
         </div>

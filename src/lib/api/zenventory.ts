@@ -40,7 +40,7 @@ function extractError(err: unknown): string {
 export async function getCustomerOrders(
   apiKey: string,
   apiSecret: string,
-  params?: { page?: number; perPage?: number; modifiedSince?: string; orderedSince?: string }
+  params?: { page?: number; perPage?: number; modifiedSince?: string; orderedSince?: string; orderNumber?: string }
 ) {
   const c = makeClient(apiKey, apiSecret)
   try {
@@ -57,6 +57,9 @@ export async function getCustomerOrders(
           : {}),
         ...(params?.orderedSince
           ? { orderedDate: params.orderedSince, orderedDateConditional: 'on_or_after' }
+          : {}),
+        ...(params?.orderNumber
+          ? { orderNumber: params.orderNumber, orderNumberConditional: 'matches' }
           : {}),
       },
     })
