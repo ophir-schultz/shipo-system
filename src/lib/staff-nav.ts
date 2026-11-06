@@ -45,6 +45,7 @@ export const STAFF_NAV: readonly StaffNavGroup[] = [
       { href: '/ledger', label: 'Ledger' },
       { href: '/rate-check', label: 'Rate check' },
       { href: '/adjustments', label: 'Adjustments' },
+      { href: '/manual-charges', label: 'Manual charges' },
       { href: '/referrals', label: 'Referral payouts' },
       { href: '/quotes', label: 'Rate sheets' },
     ],
