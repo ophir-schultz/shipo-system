@@ -45,6 +45,8 @@ type ScanBody = {
   expected_count?: number | string
   notes?: string
   log_date?: string
+  // Read-only preview of the claim decision. Never stores a scan.
+  dry_run?: boolean
 }
 
 export async function POST(req: Request) {
@@ -82,6 +84,7 @@ export async function POST(req: Request) {
 
   const orderRef = body.order_ref?.trim() || null
   const requestedSku = body.sku?.trim() || null
+  const dryRun = body.dry_run === true
   const prior = await loadRecordedScans(body.client_id, serials)
   if (prior.error) {
     return NextResponse.json(
@@ -96,9 +99,34 @@ export async function POST(req: Request) {
     scanType: body.scan_type,
     serials,
   }, prior.recorded)
+  if (dryRun) {
+    return NextResponse.json({
+      dryRun: true,
+      recorded: false,
+      pickSent: false,
+      action: claim.action,
+      scan_event_id: claim.action === 'idempotent' ? claim.scanEventId : null,
+      message: claim.action === 'reject'
+        ? claim.message
+        : claim.action === 'idempotent'
+          ? 'This scan was already recorded. Dry run: nothing was billed and nothing was sent.'
+          : 'Dry run. Nothing was recorded and nothing was sent.',
+    })
+  }
+
+  const ready = await supabaseAdmin.rpc('scan_claim_ready')
+  if (ready.error || ready.data !== true) {
+    return NextResponse.json({
+      error: 'Serial claims are not ready. A scan was not recorded and nothing was sent.',
+      recorded: false,
+      pickSent: false,
+    }, { status: 503 })
+  }
+
   if (claim.action === 'reject') {
     return NextResponse.json({ error: claim.message }, { status: 409 })
   }
+
   if (claim.action === 'idempotent') {
     return NextResponse.json({
       success: true,

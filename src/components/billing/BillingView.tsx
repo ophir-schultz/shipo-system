@@ -421,7 +421,7 @@ export default function BillingView({ data }: { data: BillingData }) {
 
         {activeTab === 'warehouse' && (
           <>
-            <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+            <div className="grid grid-cols-1 divide-[#E2E8F0] border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x">
               <Stat label="Entries" value={warehouse.length} />
               <Stat label="Total Charges" value={`$${warehouseTotal.toFixed(2)}`} />
               <Stat label="Unique Days" value={new Set(warehouse.map(w => w.log_date)).size} />
@@ -467,7 +467,7 @@ export default function BillingView({ data }: { data: BillingData }) {
 
         {activeTab === 'adjustments' && (
           <>
-            <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+            <div className="grid grid-cols-1 divide-[#E2E8F0] border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x">
               <Stat label="Total Adjustments" value={adjustments.length} />
               <Stat label="Pending" value={formatSignedPrice(totalOrUnknown(pendingAdjSum))} note={unpricedNote(pendingAdjSum.unpriced, 'adjustment')} color="orange" />
               <Stat label="Resolved" value={adjustments.filter(a => a.status !== 'pending').length} />
@@ -509,7 +509,7 @@ export default function BillingView({ data }: { data: BillingData }) {
 
         {activeTab === 'bills' && (
           <>
-            <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+            <div className="grid grid-cols-1 divide-[#E2E8F0] border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x">
               <Stat label="Bills Generated" value={bills.length} />
               <Stat label="Total Billed" value={formatPrice(totalOrUnknown(billedSum))} note={unpricedNote(billedSum.unpriced, 'bill')} />
               <Stat label="Paid" value={bills.filter(b => b.status === 'paid').length} color="green" />

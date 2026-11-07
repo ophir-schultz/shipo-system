@@ -34,4 +34,18 @@ describe('record_scan contract, unread against a database', () => {
     expect(claims).toContain('group by e.client_id, e.sku, s.serial')
     expect(claims).not.toContain('array_agg(distinct e.client_id)')
   })
+
+  it('replaces the old writer, stays invoker, and does not define a return release', () => {
+    expect(claims).toContain('drop function if exists public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date)')
+    expect(claims).toContain('security invoker')
+    expect(claims).not.toContain('security definer')
+    expect(claims).toContain('scan_claim_ready')
+    expect(claims).toContain('ONE-TIME OUTBOUND')
+    expect(claims).not.toMatch(/delete\s+from\s+scan_serial_claims/i)
+    const route = readFileSync('src/app/api/scan/route.ts', 'utf8')
+    const writes = route.split("rpc('record_scan'")
+    expect(writes).toHaveLength(2)
+    expect(route).toContain('p_claim_sku: requestedSku')
+    expect(route).toContain('Serial claims are not ready')
+  })
 })

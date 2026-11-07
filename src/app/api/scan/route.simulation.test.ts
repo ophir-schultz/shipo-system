@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server'
 const h = vi.hoisted(() => ({
   requireStaff: vi.fn(),
   rpc: vi.fn(),
+  claimReady: { data: true as boolean | null, error: null as { message: string } | null },
   orders: vi.fn(),
   getUser: vi.fn(),
   client: { data: { name: 'Nayax' } as { name: string } | null, error: null as { message: string } | null },
@@ -25,7 +26,10 @@ vi.mock('@/lib/api/zenventory', () => ({
 }))
 vi.mock('@/lib/supabase', () => ({
   supabaseAdmin: {
-    rpc: h.rpc,
+    rpc: (fn: string, args?: unknown) => {
+      if (fn === 'scan_claim_ready') return Promise.resolve(h.claimReady)
+      return h.rpc(fn, args)
+    },
     from: (table: string) => {
       if (table === 'clients') {
         return {
@@ -92,6 +96,7 @@ function scan(extra: Record<string, unknown> = {}) {
 beforeEach(() => {
   h.requireStaff.mockReset().mockResolvedValue(null)
   h.rpc.mockReset().mockResolvedValue({ data: { scan_event_id: 'sim-event', queued: true }, error: null })
+  h.claimReady = { data: true, error: null }
   h.orders.mockReset().mockResolvedValue(ORDER)
   h.getUser.mockReset().mockResolvedValue({ data: { user: { id: 'staff-sim' } } })
   h.client = { data: { name: 'Nayax' }, error: null }
@@ -279,6 +284,37 @@ describe('simulated POST /api/scan', () => {
     expect(JSON.stringify(body)).not.toContain('other-client')
     expect(JSON.stringify(body)).not.toContain('THEIR-ORDER')
     expect(h.rpc).toHaveBeenCalled()
+  })
+
+  it('does not store a scan when the claim migration is absent', async () => {
+    h.claimReady = { data: null, error: { message: 'Could not find the function public.scan_claim_ready' } }
+    const res = await scan()
+    expect(res.status).toBe(503)
+    const body = await res.json()
+    expect(body.error).toContain('not ready')
+    expect(body.recorded).toBe(false)
+    expect(body.pickSent).toBe(false)
+    expect(h.rpc).not.toHaveBeenCalled()
+    expect(h.orders).not.toHaveBeenCalled()
+  })
+
+  it('does not store a scan when the claim probe is false', async () => {
+    h.claimReady = { data: false, error: null }
+    const res = await scan()
+    expect(res.status).toBe(503)
+    expect(h.rpc).not.toHaveBeenCalled()
+  })
+
+  it('dry-runs the decision without the migration and without storing', async () => {
+    h.claimReady = { data: false, error: null }
+    const res = await scan({ dry_run: true })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.dryRun).toBe(true)
+    expect(body.recorded).toBe(false)
+    expect(body.pickSent).toBe(false)
+    expect(body.action).toBe('record')
+    expect(h.rpc).not.toHaveBeenCalled()
   })
 
   it('turns an already-pushed line into a conflict and does not report success', async () => {

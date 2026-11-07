@@ -15,8 +15,12 @@
 -- unique index is on an empty table, so creating it does not fail on
 -- those older pairs and does not remove them.
 --
--- A return of the same unit is not given a second scan by this file.
--- Releasing a claim would be a separate change.
+-- ONE-TIME OUTBOUND. A serial stored for this client and SKU means that
+-- unit already went out. This file does not define a return, a
+-- reshipment, or a later rescan, and it does not delete a claim or
+-- open a release. Those need their own approved rules. A same-scan
+-- retry is not that case: it is the original submission again, and it
+-- must not create a second bill or a second pick.
 
 create table if not exists scan_serial_claims (
   id              uuid primary key default uuid_generate_v4(),
@@ -53,6 +57,13 @@ having count(*) > 1;
 -- that may join the push queue, and it is still null when that line
 -- was not verified. The claim follows the named line so an unverified
 -- scan and a later verified one cannot both keep the same unit.
+--
+-- The previous function has one fewer argument. CREATE OR REPLACE
+-- cannot change that list, so it would leave the old function in
+-- place and a caller that omits p_claim_sku would still use it.
+-- Dropping that signature removes the writer, not any scan row.
+drop function if exists public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date);
+
 create or replace function record_scan(
   p_client_id      uuid,
   p_scan_type      text,
@@ -68,6 +79,7 @@ create or replace function record_scan(
 )
 returns jsonb
 language plpgsql
+security invoker
 set search_path = public
 as $$
 declare
@@ -313,3 +325,56 @@ begin
   end;
 end;
 $$;
+
+-- Presence of this function is the readiness probe. It does not insert.
+-- It is true only when this file's record_scan (the one that takes
+-- p_claim_sku) and the claim table are both there. A caller that gets
+-- an error or false must not fall back to the older record_scan.
+create or replace function scan_claim_ready()
+returns boolean
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'record_scan'
+      and pg_get_function_identity_arguments(p.oid) like '%p_claim_sku text%'
+  )
+  and exists (
+    select 1
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'scan_serial_claims'
+  );
+$$;
+
+-- Supabase grants new public tables and functions to anon and
+-- authenticated unless this revoke runs. service_role is the only
+-- reader the app uses. Roles that are not on this server are skipped
+-- so a local database can still apply the file.
+do $$
+begin
+  execute 'revoke all on table public.scan_serial_claims from public';
+  execute 'revoke all on function public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date, text) from public';
+  execute 'revoke all on function public.scan_claim_ready() from public';
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on table public.scan_serial_claims from anon';
+    execute 'revoke all on function public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date, text) from anon';
+    execute 'revoke all on function public.scan_claim_ready() from anon';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    execute 'revoke all on table public.scan_serial_claims from authenticated';
+    execute 'revoke all on function public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date, text) from authenticated';
+    execute 'revoke all on function public.scan_claim_ready() from authenticated';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    execute 'grant select, insert, update, delete on table public.scan_serial_claims to service_role';
+    execute 'grant execute on function public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date, text) to service_role';
+    execute 'grant execute on function public.scan_claim_ready() to service_role';
+  end if;
+end $$;
