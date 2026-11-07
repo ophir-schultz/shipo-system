@@ -6,6 +6,13 @@ import { duplicatesWithin } from '@/lib/scan/parse'
 import { getCustomerOrders } from '@/lib/api/zenventory'
 import { readZenventoryClientCredentials } from '@/lib/zenventory/client-env'
 import { queueDecision, readCustomerOrder } from '@/lib/scan/order-lines'
+import { readAllPages } from '@/lib/db/page'
+import {
+  decideSerialClaim,
+  recordedScansFromRows,
+  repeatedSerialKeys,
+  type StoredSerialRow,
+} from '@/lib/scan/serial-claim'
 
 // ============================================================
 // POST /api/scan  — record one serialization scan.
@@ -64,11 +71,42 @@ export async function POST(req: Request) {
   // The database rejects this too, but catching it here lets us name
   // the offending values instead of returning a constraint violation.
   const dupes = duplicatesWithin(serials)
-  if (dupes.length) {
+  const folded = repeatedSerialKeys(serials)
+  if (dupes.length || folded.length) {
+    const shown = dupes.length ? dupes : folded
     return bad(
-      `The same serial was scanned twice: ${dupes.join(', ')}. ` +
+      `The same serial was scanned twice: ${shown.join(', ')}. ` +
         'That is a double-read or a bad split — rescan the carton.',
     )
+  }
+
+  const orderRef = body.order_ref?.trim() || null
+  const requestedSku = body.sku?.trim() || null
+  const prior = await loadRecordedScans(body.client_id, serials)
+  if (prior.error) {
+    return NextResponse.json(
+      { error: 'Existing serials could not be read. Nothing was recorded.' },
+      { status: 503 },
+    )
+  }
+  const claim = decideSerialClaim({
+    clientId: body.client_id,
+    sku: requestedSku,
+    orderRef,
+    scanType: body.scan_type,
+    serials,
+  }, prior.recorded)
+  if (claim.action === 'reject') {
+    return NextResponse.json({ error: claim.message }, { status: 409 })
+  }
+  if (claim.action === 'idempotent') {
+    return NextResponse.json({
+      success: true,
+      idempotent: true,
+      scan_event_id: claim.scanEventId,
+      verification: 'This scan was already recorded. It was not billed again and it was not sent.',
+      pickSent: false,
+    })
   }
 
   // Stamps who did the work. Non-fatal if it cannot be read: the scan
@@ -93,8 +131,6 @@ export async function POST(req: Request) {
     return bad('expected_count must be a positive whole number, or left blank.')
   }
 
-  const orderRef = body.order_ref?.trim() || null
-  const requestedSku = body.sku?.trim() || null
   let skuForRecord = requestedSku
   let verification = ''
   if (orderRef && requestedSku) {
@@ -115,6 +151,7 @@ export async function POST(req: Request) {
     p_notes: body.notes?.trim() || null,
     p_scanned_by: scannedBy,
     p_log_date: body.log_date || null,
+    p_claim_sku: requestedSku,
   })
 
   if (error) {
@@ -134,7 +171,7 @@ export async function POST(req: Request) {
     // line was sent to Zenventory. Letting it join the job would leave
     // serials sitting in a 'done' job looking shipped when they never
     // were, so it is refused and surfaced.
-    if (msg.includes('already been pushed')) {
+    if (msg.includes('already been pushed') || msg.includes('already scanned for this client')) {
       return NextResponse.json({ error: msg }, { status: 409 })
     }
     return NextResponse.json({ error: msg }, { status: 500 })
@@ -146,6 +183,50 @@ export async function POST(req: Request) {
     verification: verification || null,
     pickSent: false,
   })
+}
+
+const SERIAL_SELECT = 'serial, scan_event_id, scan_events!inner(id, client_id, sku, order_ref, scan_type)'
+
+function ilikeTerm(value: string): string {
+  const escaped = value.replace(/[\\%_]/g, (ch) => `\\${ch}`)
+  if (/[,.()"\s:*]/.test(escaped)) return `"${escaped.replace(/"/g, '""')}"`
+  return escaped
+}
+
+async function loadRecordedScans(
+  clientId: string,
+  serials: string[],
+): Promise<{ recorded: ReturnType<typeof recordedScansFromRows>; error: string | null }> {
+  const chunks: string[][] = []
+  for (let i = 0; i < serials.length; i += 20) chunks.push(serials.slice(i, i + 20))
+  const matched: StoredSerialRow[] = []
+  for (const chunk of chunks) {
+    const page = await readAllPages<StoredSerialRow>((from, to) => supabaseAdmin
+      .from('scanned_serials')
+      .select(SERIAL_SELECT)
+      .eq('scan_events.client_id', clientId)
+      .or(chunk.map((serial) => `serial.ilike.${ilikeTerm(serial)}`).join(','))
+      .order('id')
+      .range(from, to))
+    if (page.error) return { recorded: [], error: page.error.message }
+    matched.push(...(page.data ?? []))
+  }
+  const ids = [...new Set(recordedScansFromRows(clientId, matched).map((scan) => scan.scanEventId))]
+  if (ids.length === 0) return { recorded: [], error: null }
+  const full: StoredSerialRow[] = []
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50)
+    const page = await readAllPages<StoredSerialRow>((from, to) => supabaseAdmin
+      .from('scanned_serials')
+      .select(SERIAL_SELECT)
+      .in('scan_event_id', chunk)
+      .eq('scan_events.client_id', clientId)
+      .order('id')
+      .range(from, to))
+    if (page.error) return { recorded: [], error: page.error.message }
+    full.push(...(page.data ?? []))
+  }
+  return { recorded: recordedScansFromRows(clientId, full), error: null }
 }
 
 async function decideRecordedSku(

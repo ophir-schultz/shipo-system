@@ -11,6 +11,9 @@ const h = vi.hoisted(() => ({
   orders: vi.fn(),
   getUser: vi.fn(),
   client: { data: { name: 'Nayax' } as { name: string } | null, error: null as { message: string } | null },
+  matchedRows: [] as unknown[],
+  fullRows: [] as unknown[],
+  serialError: null as { message: string } | null,
 }))
 
 vi.mock('@/lib/require-staff', () => ({ requireStaff: h.requireStaff }))
@@ -23,13 +26,35 @@ vi.mock('@/lib/api/zenventory', () => ({
 vi.mock('@/lib/supabase', () => ({
   supabaseAdmin: {
     rpc: h.rpc,
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => h.client,
+    from: (table: string) => {
+      if (table === 'clients') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => h.client,
+            }),
+          }),
+        }
+      }
+      return {
+        select: () => ({
+          eq: () => ({
+            or: () => ({
+              order: () => ({
+                range: async (from: number) => ({ data: from === 0 ? h.matchedRows : [], error: h.serialError }),
+              }),
+            }),
+          }),
+          in: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async (from: number) => ({ data: from === 0 ? h.fullRows : [], error: h.serialError }),
+              }),
+            }),
+          }),
         }),
-      }),
-    }),
+      }
+    },
   },
 }))
 
@@ -70,6 +95,9 @@ beforeEach(() => {
   h.orders.mockReset().mockResolvedValue(ORDER)
   h.getUser.mockReset().mockResolvedValue({ data: { user: { id: 'staff-sim' } } })
   h.client = { data: { name: 'Nayax' }, error: null }
+  h.matchedRows = []
+  h.fullRows = []
+  h.serialError = null
   process.env.ZEN_NAYAX_KEY = 'fixture-key-not-live'
   process.env.ZEN_NAYAX_SECRET = 'fixture-secret-not-live'
   delete process.env.ZEN_NAYAX_SECURE
@@ -159,6 +187,98 @@ describe('simulated POST /api/scan', () => {
     expect(body.pickSent).toBe(false)
     expect(body.verification).toContain('401')
     expect(h.rpc).toHaveBeenCalledWith('record_scan', expect.objectContaining({ p_sku: null }))
+  })
+
+  it('refuses a serial already stored on another scan of this client and SKU', async () => {
+    const event = {
+      id: 'prior-event',
+      client_id: '00000000-0000-4000-8000-000000000001',
+      sku: 'SIM-SKU',
+      order_ref: 'SIM-ORDER',
+      scan_type: 'box',
+    }
+    h.matchedRows = [{ serial: 'SIM-SERIAL-1', scan_event_id: 'prior-event', scan_events: event }]
+    h.fullRows = [
+      { serial: 'SIM-SERIAL-1', scan_event_id: 'prior-event', scan_events: event },
+      { serial: 'SIM-SERIAL-9', scan_event_id: 'prior-event', scan_events: event },
+    ]
+    const res = await scan({ serials: ['SIM-SERIAL-1'] })
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toContain('SIM-SERIAL-1')
+    expect(body.error).toContain('this client and SKU')
+    expect(body.error).not.toContain('other-client')
+    expect(h.rpc).not.toHaveBeenCalled()
+    expect(h.orders).not.toHaveBeenCalled()
+  })
+
+  it('accepts the same serial on a different SKU and stores that scan once', async () => {
+    const event = {
+      id: 'prior-event',
+      client_id: '00000000-0000-4000-8000-000000000001',
+      sku: 'OTHER-SKU',
+      order_ref: 'SIM-ORDER',
+      scan_type: 'box',
+    }
+    h.matchedRows = [{ serial: 'SIM-SERIAL-1', scan_event_id: 'prior-event', scan_events: event }]
+    h.fullRows = [{ serial: 'SIM-SERIAL-1', scan_event_id: 'prior-event', scan_events: event }]
+    const res = await scan({ serials: ['SIM-SERIAL-1'] })
+    expect(res.status).toBe(200)
+    expect(h.rpc).toHaveBeenCalledWith('record_scan', expect.objectContaining({
+      p_claim_sku: 'SIM-SKU',
+      p_serials: ['SIM-SERIAL-1'],
+    }))
+  })
+
+  it('returns the original event when the same scan is submitted again', async () => {
+    const event = {
+      id: 'prior-event',
+      client_id: '00000000-0000-4000-8000-000000000001',
+      sku: 'SIM-SKU',
+      order_ref: 'SIM-ORDER',
+      scan_type: 'box',
+    }
+    const rows = [
+      { serial: 'SIM-SERIAL-1', scan_event_id: 'prior-event', scan_events: event },
+      { serial: 'SIM-SERIAL-2', scan_event_id: 'prior-event', scan_events: event },
+    ]
+    h.matchedRows = rows
+    h.fullRows = rows
+    const res = await scan({ serials: ['sim-serial-2', 'SIM-SERIAL-1'] })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.idempotent).toBe(true)
+    expect(body.scan_event_id).toBe('prior-event')
+    expect(body.pickSent).toBe(false)
+    expect(h.rpc).not.toHaveBeenCalled()
+  })
+
+  it('does not record when the existing-serial read fails', async () => {
+    h.serialError = { message: 'connection refused' }
+    const res = await scan()
+    expect(res.status).toBe(503)
+    expect(h.rpc).not.toHaveBeenCalled()
+  })
+
+  it('drops another client from the read before deciding', async () => {
+    h.matchedRows = [{
+      serial: 'SIM-SERIAL-1',
+      scan_event_id: 'theirs',
+      scan_events: {
+        id: 'theirs',
+        client_id: 'other-client',
+        sku: 'SIM-SKU',
+        order_ref: 'THEIR-ORDER',
+        scan_type: 'box',
+      },
+    }]
+    h.fullRows = []
+    const res = await scan()
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(JSON.stringify(body)).not.toContain('other-client')
+    expect(JSON.stringify(body)).not.toContain('THEIR-ORDER')
+    expect(h.rpc).toHaveBeenCalled()
   })
 
   it('turns an already-pushed line into a conflict and does not report success', async () => {
