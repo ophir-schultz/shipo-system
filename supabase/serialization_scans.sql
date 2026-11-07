@@ -96,16 +96,18 @@ create table if not exists scanned_serials (
 create unique index if not exists scanned_serials_unique_in_event
   on scanned_serials (scan_event_id, serial);
 
--- Lookup only. The same text on another client, or another SKU, is
--- a different Zenventory line. The same client and SKU is refused
--- by supabase/scan_serial_claims.sql, which is a separate file and
--- is not applied by this one. This index is not that constraint.
+-- NOT globally unique on purpose. A unit can legitimately be
+-- returned and reshipped, so a hard constraint would block real
+-- work. This index makes the ACROSS-scan duplicate check cheap
+-- instead, and the view below surfaces them for a human.
+-- supabase/scan_serial_claims.sql does not replace this index,
+-- record_scan, or the view below. The claim check is a separate
+-- function, record_scan_claimed.
 create index if not exists scanned_serials_serial_idx on scanned_serials (serial);
 
--- One row per client and SKU once scan_serial_claims.sql has replaced
--- this view. Until that file is applied, this definition can still
--- list more than one client on a row. Do not re-apply this statement
--- after that file: the replacement drops this view first.
+-- The same physical unit appearing on two different scans. Usually
+-- means it was shipped twice. Column shape is part of the installed
+-- view: serial, times_scanned, client_ids, order_refs, first and last.
 create or replace view duplicate_serials as
 select
   s.serial,

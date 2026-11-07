@@ -8,6 +8,7 @@ import { readZenventoryClientCredentials } from '@/lib/zenventory/client-env'
 import { queueDecision, readCustomerOrder } from '@/lib/scan/order-lines'
 import { readAllPages } from '@/lib/db/page'
 import {
+  claimProbeOk,
   decideSerialClaim,
   recordedScansFromRows,
   repeatedSerialKeys,
@@ -24,9 +25,10 @@ import {
 // that nobody looked at must never become a billing quantity.
 // What gets stored is exactly what a human approved.
 //
-// Everything then goes through the record_scan() function so the
-// billing row, the scan, the serials and the push queue land in
-// one transaction or not at all.
+// A real scan goes through record_scan_claimed, after scan_claim_ready
+// reports that function's version. record_scan is the production
+// writer and is not called here. Until production code is switched,
+// production scans do not use this check. The probe is not a constant.
 //
 // GET /api/scan?date=YYYY-MM-DD — recent scans, for the page.
 // ============================================================
@@ -115,7 +117,7 @@ export async function POST(req: Request) {
   }
 
   const ready = await supabaseAdmin.rpc('scan_claim_ready')
-  if (ready.error || ready.data !== true) {
+  if (ready.error || !claimProbeOk(ready.data)) {
     return NextResponse.json({
       error: 'Serial claims are not ready. A scan was not recorded and nothing was sent.',
       recorded: false,
@@ -168,7 +170,7 @@ export async function POST(req: Request) {
     verification = decision.reason
   }
 
-  const { data, error } = await supabaseAdmin.rpc('record_scan', {
+  const { data, error } = await supabaseAdmin.rpc('record_scan_claimed', {
     p_client_id: body.client_id,
     p_scan_type: body.scan_type,
     p_serials: serials,

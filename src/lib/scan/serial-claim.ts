@@ -32,6 +32,29 @@ export type ClaimDecision =
   | { action: 'idempotent'; scanEventId: string }
   | { action: 'reject'; serials: string[]; message: string }
 
+export const CLAIM_RPC = 'record_scan_claimed'
+export const CLAIM_VERSION = 'client-sku-v1'
+
+/** True only for the catalog probe of record_scan_claimed. A bare true is not enough. */
+export function claimProbeOk(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false
+  const row = data as Record<string, unknown>
+  const checks = row.checks
+  if (!checks || typeof checks !== 'object') return false
+  const listed = checks as Record<string, unknown>
+  return row.ready === true
+    && row.rpc === CLAIM_RPC
+    && row.version === CLAIM_VERSION
+    && row.old_record_scan === 'unchanged'
+    && row.old_has_claim_safety === false
+    && listed.advisory_lock === true
+    && listed.unique_claim === true
+    && listed.idempotent_retry === true
+    && listed.invoker === true
+    && listed.old_signature === '10-arg'
+    && listed.duplicate_serials_shape === 'client_ids'
+}
+
 export function serialKey(value: string): string {
   return value.trim().toLowerCase()
 }

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { deliverOrder, type ZenventoryTransport } from './zenventory-pick'
 import {
+  claimProbeOk,
   decideSerialClaim,
   recordedScansFromRows,
   settleInLockOrder,
@@ -19,6 +20,32 @@ function scan(serials: string[], sku = 'SIM-SKU', orderRef = 'SO-1', who = clien
 function recorded(serials: string[], sku = 'SIM-SKU', orderRef = 'SO-1', who = client): RecordedScan {
   return { scanEventId: 'prior', clientId: who, sku, orderRef, scanType: 'box', serials }
 }
+
+describe('claim readiness probe', () => {
+  const probe = {
+    ready: true,
+    rpc: 'record_scan_claimed',
+    version: 'client-sku-v1',
+    old_record_scan: 'unchanged',
+    old_has_claim_safety: false,
+    checks: {
+      advisory_lock: true,
+      unique_claim: true,
+      idempotent_retry: true,
+      invoker: true,
+      old_signature: '10-arg',
+      duplicate_serials_shape: 'client_ids',
+    },
+  }
+
+  it('accepts only the catalog shape for the new function', () => {
+    expect(claimProbeOk(probe)).toBe(true)
+    expect(claimProbeOk(true)).toBe(false)
+    expect(claimProbeOk({ ready: true })).toBe(false)
+    expect(claimProbeOk({ ...probe, rpc: 'record_scan' })).toBe(false)
+    expect(claimProbeOk({ ...probe, old_has_claim_safety: true })).toBe(false)
+  })
+})
 
 describe('serial claim, simulated scans', () => {
   it('refuses the same serial on a later scan of this client and SKU', () => {

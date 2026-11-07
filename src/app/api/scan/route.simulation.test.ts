@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server'
 const h = vi.hoisted(() => ({
   requireStaff: vi.fn(),
   rpc: vi.fn(),
-  claimReady: { data: true as boolean | null, error: null as { message: string } | null },
+  claimReady: { data: null as unknown, error: null as { message: string } | null },
   orders: vi.fn(),
   getUser: vi.fn(),
   client: { data: { name: 'Nayax' } as { name: string } | null, error: null as { message: string } | null },
@@ -64,6 +64,22 @@ vi.mock('@/lib/supabase', () => ({
 
 const { POST } = await import('./route')
 
+const readyProbe = {
+  ready: true,
+  rpc: 'record_scan_claimed',
+  version: 'client-sku-v1',
+  old_record_scan: 'unchanged',
+  old_has_claim_safety: false,
+  checks: {
+    advisory_lock: true,
+    unique_claim: true,
+    idempotent_retry: true,
+    invoker: true,
+    old_signature: '10-arg',
+    duplicate_serials_shape: 'client_ids',
+  },
+}
+
 const ORDER = {
   customerOrders: [{
     orderNumber: 'SIM-ORDER',
@@ -96,7 +112,7 @@ function scan(extra: Record<string, unknown> = {}) {
 beforeEach(() => {
   h.requireStaff.mockReset().mockResolvedValue(null)
   h.rpc.mockReset().mockResolvedValue({ data: { scan_event_id: 'sim-event', queued: true }, error: null })
-  h.claimReady = { data: true, error: null }
+  h.claimReady = { data: readyProbe, error: null }
   h.orders.mockReset().mockResolvedValue(ORDER)
   h.getUser.mockReset().mockResolvedValue({ data: { user: { id: 'staff-sim' } } })
   h.client = { data: { name: 'Nayax' }, error: null }
@@ -153,7 +169,7 @@ describe('simulated POST /api/scan', () => {
     const body = await res.json()
     expect(body.pickSent).toBe(false)
     expect(body.success).toBe(true)
-    expect(h.rpc).toHaveBeenCalledWith('record_scan', expect.objectContaining({
+    expect(h.rpc).toHaveBeenCalledWith('record_scan_claimed', expect.objectContaining({
       p_order_ref: 'SIM-ORDER',
       p_sku: 'SIM-SKU',
       p_serials: ['SIM-SERIAL-1'],
@@ -178,7 +194,7 @@ describe('simulated POST /api/scan', () => {
   it('does not queue a SKU that is not a serialized line on the order', async () => {
     const res = await scan({ sku: 'SIM-PLAIN', serials: ['SIM-SERIAL-1'] })
     expect(res.status).toBe(200)
-    expect(h.rpc).toHaveBeenCalledWith('record_scan', expect.objectContaining({ p_sku: null }))
+    expect(h.rpc).toHaveBeenCalledWith('record_scan_claimed', expect.objectContaining({ p_sku: null }))
     const body = await res.json()
     expect(body.pickSent).toBe(false)
     expect(body.verification).toContain('not queued')
@@ -191,7 +207,7 @@ describe('simulated POST /api/scan', () => {
     const body = await res.json()
     expect(body.pickSent).toBe(false)
     expect(body.verification).toContain('401')
-    expect(h.rpc).toHaveBeenCalledWith('record_scan', expect.objectContaining({ p_sku: null }))
+    expect(h.rpc).toHaveBeenCalledWith('record_scan_claimed', expect.objectContaining({ p_sku: null }))
   })
 
   it('refuses a serial already stored on another scan of this client and SKU', async () => {
@@ -229,7 +245,7 @@ describe('simulated POST /api/scan', () => {
     h.fullRows = [{ serial: 'SIM-SERIAL-1', scan_event_id: 'prior-event', scan_events: event }]
     const res = await scan({ serials: ['SIM-SERIAL-1'] })
     expect(res.status).toBe(200)
-    expect(h.rpc).toHaveBeenCalledWith('record_scan', expect.objectContaining({
+    expect(h.rpc).toHaveBeenCalledWith('record_scan_claimed', expect.objectContaining({
       p_claim_sku: 'SIM-SKU',
       p_serials: ['SIM-SERIAL-1'],
     }))
@@ -300,6 +316,20 @@ describe('simulated POST /api/scan', () => {
 
   it('does not store a scan when the claim probe is false', async () => {
     h.claimReady = { data: false, error: null }
+    const res = await scan()
+    expect(res.status).toBe(503)
+    expect(h.rpc).not.toHaveBeenCalled()
+  })
+
+  it('does not treat a bare true as a ready claim function', async () => {
+    h.claimReady = { data: true, error: null }
+    const res = await scan()
+    expect(res.status).toBe(503)
+    expect(h.rpc).not.toHaveBeenCalled()
+  })
+
+  it('does not accept a ready flag that does not name the claim function', async () => {
+    h.claimReady = { data: { ready: true, rpc: 'record_scan', version: 'client-sku-v1' }, error: null }
     const res = await scan()
     expect(res.status).toBe(503)
     expect(h.rpc).not.toHaveBeenCalled()

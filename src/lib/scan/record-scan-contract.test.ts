@@ -14,10 +14,12 @@ describe('record_scan contract, unread against a database', () => {
     expect(claims).toContain('the same serial appears twice in one scan')
   })
 
-  it('points a cross-scan repeat at the claim file instead of a global unique', () => {
+  it('keeps the production view and points the new check at a separate function', () => {
+    expect(original).toContain('create or replace function record_scan(')
+    expect(original).toContain('array_agg(distinct e.client_id) as client_ids')
     expect(original).toContain('scan_serial_claims.sql')
-    expect(original).not.toContain('NOT globally unique on purpose')
     expect(claims).toContain('unique (client_id, sku_key, serial_key)')
+    expect(claims).not.toContain('array_agg(distinct e.client_id)')
   })
 
   it('joins a second carton to the same line and refuses one that is already done', () => {
@@ -30,22 +32,22 @@ describe('record_scan contract, unread against a database', () => {
     expect(claims).toContain('no % rate configured for this client')
   })
 
-  it('keeps the duplicate list to one client and one SKU', () => {
-    expect(claims).toContain('group by e.client_id, e.sku, s.serial')
-    expect(claims).not.toContain('array_agg(distinct e.client_id)')
-  })
-
-  it('replaces the old writer, stays invoker, and does not define a return release', () => {
-    expect(claims).toContain('drop function if exists public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date)')
+  it('adds a separate writer and leaves the production function and view alone', () => {
+    expect(claims).toContain('create or replace function record_scan_claimed(')
+    expect(claims).not.toContain('drop function if exists public.record_scan')
+    expect(claims).not.toContain('drop view if exists duplicate_serials')
+    expect(claims).not.toContain('create or replace function record_scan(')
+    expect(claims).not.toContain('create or replace view duplicate_serials')
     expect(claims).toContain('security invoker')
     expect(claims).not.toContain('security definer')
-    expect(claims).toContain('scan_claim_ready')
+    expect(claims).toContain('pg_get_functiondef')
+    expect(claims).toContain('client-sku-v1')
     expect(claims).toContain('ONE-TIME OUTBOUND')
     expect(claims).not.toMatch(/delete\s+from\s+scan_serial_claims/i)
     const route = readFileSync('src/app/api/scan/route.ts', 'utf8')
-    const writes = route.split("rpc('record_scan'")
-    expect(writes).toHaveLength(2)
+    expect(route.match(/rpc\('record_scan[^']*'/g)).toEqual(["rpc('record_scan_claimed'"])
     expect(route).toContain('p_claim_sku: requestedSku')
     expect(route).toContain('Serial claims are not ready')
+    expect(route).toContain('claimProbeOk')
   })
 })

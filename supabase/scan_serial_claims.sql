@@ -1,8 +1,18 @@
 -- Cross-scan serial claim. Apply AFTER supabase/serialization_scans.sql.
 --
--- NOT APPLIED by the app. A person has to run this in the SQL editor
--- after reading it. It does not update or delete scan_events,
--- scanned_serials, warehouse_daily_log, or zenventory_push_queue.
+-- NOT APPLIED by the app. Preview uses the production database, so
+-- this file is additive. It does not drop, replace, or regrant
+-- public.record_scan. It does not drop or replace public.duplicate_serials.
+-- It does not update or delete scan_events, scanned_serials,
+-- warehouse_daily_log, or zenventory_push_queue.
+--
+-- Production code on main calls record_scan with the original ten
+-- arguments (src/app/api/scan/route.ts). That function is left as it
+-- is, so it still does not refuse a serial that was stored on an
+-- earlier scan. The refusal exists only in record_scan_claimed.
+-- This branch calls that function after scan_claim_ready reports
+-- version client-sku-v1. Until production code is switched to it,
+-- production scans do not get this check.
 --
 -- Zenventory stores scanned serials on one order line: one client and
 -- one SKU. This claim uses that same domain. Another client, or another
@@ -34,37 +44,10 @@ create table if not exists scan_serial_claims (
 
 alter table scan_serial_claims enable row level security;
 
--- The old view listed every client id that had ever stored that text
--- on one row. This replacement is one client and one SKU per row.
--- Dropping the view does not drop the scans it read.
-drop view if exists duplicate_serials;
-create view duplicate_serials
-with (security_invoker = true) as
-select
-  e.client_id,
-  e.sku,
-  s.serial,
-  count(*) as times_scanned,
-  array_agg(distinct e.order_ref) as order_refs,
-  min(e.scanned_at) as first_scanned_at,
-  max(e.scanned_at) as last_scanned_at
-from scanned_serials s
-join scan_events e on e.id = s.scan_event_id
-group by e.client_id, e.sku, s.serial
-having count(*) > 1;
-
--- p_claim_sku is the line the operator named. p_sku stays the line
--- that may join the push queue, and it is still null when that line
--- was not verified. The claim follows the named line so an unverified
--- scan and a later verified one cannot both keep the same unit.
---
--- The previous function has one fewer argument. CREATE OR REPLACE
--- cannot change that list, so it would leave the old function in
--- place and a caller that omits p_claim_sku would still use it.
--- Dropping that signature removes the writer, not any scan row.
-drop function if exists public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date);
-
-create or replace function record_scan(
+-- Separate from record_scan. p_claim_sku is the line the operator
+-- named. p_sku stays the line that may join the push queue.
+-- claim version client-sku-v1
+create or replace function record_scan_claimed(
   p_client_id      uuid,
   p_scan_type      text,
   p_serials        text[],
@@ -100,6 +83,7 @@ declare
   v_existing       uuid;
   v_conflict       text;
 begin
+  -- claim version client-sku-v1
   if p_scan_type not in ('box', 'loose') then
     raise exception 'scan_type must be box or loose, got %', p_scan_type;
   end if;
@@ -326,55 +310,142 @@ begin
 end;
 $$;
 
--- Presence of this function is the readiness probe. It does not insert.
--- It is true only when this file's record_scan (the one that takes
--- p_claim_sku) and the claim table are both there. A caller that gets
--- an error or false must not fall back to the older record_scan.
+-- Reads the installed function bodies. A constant true is not a pass.
+-- ready is true only for record_scan_claimed version client-sku-v1,
+-- with the old ten-argument record_scan still free of this table.
+-- It does not insert.
 create or replace function scan_claim_ready()
-returns boolean
-language sql
+returns jsonb
+language plpgsql
 stable
 security invoker
 set search_path = public
 as $$
-  select exists (
+declare
+  v_new text := '';
+  v_old text := '';
+  v_config text := '';
+  v_new_args integer := 0;
+  v_old_args integer := 0;
+  v_old_count integer := 0;
+  v_definer boolean := true;
+  v_advisory boolean := false;
+  v_idempotent boolean := false;
+  v_version boolean := false;
+  v_invoker boolean := false;
+  v_unique boolean := false;
+  v_shape boolean := false;
+  v_old_clean boolean := false;
+begin
+  select count(*), coalesce(max(p.pronargs), 0)
+    into v_old_count, v_old_args
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'record_scan';
+
+  select pg_get_functiondef(p.oid), p.pronargs, p.prosecdef,
+         coalesce(array_to_string(p.proconfig, ','), '')
+    into v_new, v_new_args, v_definer, v_config
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'record_scan_claimed';
+
+  select coalesce(pg_get_functiondef(p.oid), '')
+    into v_old
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'record_scan'
+  order by p.oid
+  limit 1;
+
+  v_advisory := position('pg_advisory_xact_lock' in v_new) > 0;
+  v_idempotent := position('idempotent' in v_new) > 0
+    and position('already scanned for this client and SKU' in v_new) > 0;
+  v_version := position('client-sku-v1' in v_new) > 0 and v_new_args = 11;
+  v_invoker := v_definer = false and position('search_path=public' in v_config) > 0;
+  v_unique := exists (
     select 1
+    from pg_constraint c
+    join pg_class rel on rel.oid = c.conrelid
+    join pg_namespace n on n.oid = rel.relnamespace
+    where n.nspname = 'public'
+      and rel.relname = 'scan_serial_claims'
+      and c.contype = 'u'
+  );
+  v_shape := exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'duplicate_serials'
+      and column_name = 'client_ids'
+  );
+  v_old_clean := v_old_count = 1
+    and v_old_args = 10
+    and position('scan_serial_claims' in v_old) = 0;
+
+  return jsonb_build_object(
+    'ready', v_advisory and v_idempotent and v_version and v_invoker and v_unique and v_shape and v_old_clean,
+    'rpc', 'record_scan_claimed',
+    'version', 'client-sku-v1',
+    'old_record_scan', case
+      when v_old_count = 0 then 'missing'
+      when v_old_count <> 1 or v_old_args <> 10 then 'replaced'
+      when position('scan_serial_claims' in v_old) > 0 then 'replaced'
+      else 'unchanged'
+    end,
+    'old_has_claim_safety', position('scan_serial_claims' in v_old) > 0,
+    'checks', jsonb_build_object(
+      'advisory_lock', v_advisory,
+      'unique_claim', v_unique,
+      'idempotent_retry', v_idempotent,
+      'invoker', v_invoker,
+      'old_signature', case when v_old_count = 1 and v_old_args = 10 then '10-arg' else 'other' end,
+      'duplicate_serials_shape', case when v_shape then 'client_ids' else 'changed' end
+    )
+  );
+end;
+$$;
+
+-- Grants below name only the new objects. record_scan is not revoked
+-- and not granted here. Roles missing on a local server are skipped.
+do $$
+declare
+  fn record;
+  role_name text;
+begin
+  execute 'revoke all on table public.scan_serial_claims from public';
+  for fn in
+    select p.oid::regprocedure as sig
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
-      and p.proname = 'record_scan'
-      and pg_get_function_identity_arguments(p.oid) like '%p_claim_sku text%'
-  )
-  and exists (
-    select 1
-    from information_schema.tables
-    where table_schema = 'public'
-      and table_name = 'scan_serial_claims'
-  );
-$$;
-
--- Supabase grants new public tables and functions to anon and
--- authenticated unless this revoke runs. service_role is the only
--- reader the app uses. Roles that are not on this server are skipped
--- so a local database can still apply the file.
-do $$
-begin
-  execute 'revoke all on table public.scan_serial_claims from public';
-  execute 'revoke all on function public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date, text) from public';
-  execute 'revoke all on function public.scan_claim_ready() from public';
-  if exists (select 1 from pg_roles where rolname = 'anon') then
-    execute 'revoke all on table public.scan_serial_claims from anon';
-    execute 'revoke all on function public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date, text) from anon';
-    execute 'revoke all on function public.scan_claim_ready() from anon';
-  end if;
-  if exists (select 1 from pg_roles where rolname = 'authenticated') then
-    execute 'revoke all on table public.scan_serial_claims from authenticated';
-    execute 'revoke all on function public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date, text) from authenticated';
-    execute 'revoke all on function public.scan_claim_ready() from authenticated';
-  end if;
+      and p.proname in ('record_scan_claimed', 'scan_claim_ready')
+  loop
+    execute format('revoke all on function %s from public', fn.sig);
+  end loop;
+  foreach role_name in array array['anon', 'authenticated'] loop
+    if exists (select 1 from pg_roles where rolname = role_name) then
+      execute format('revoke all on table public.scan_serial_claims from %I', role_name);
+      for fn in
+        select p.oid::regprocedure as sig
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname in ('record_scan_claimed', 'scan_claim_ready')
+      loop
+        execute format('revoke all on function %s from %I', fn.sig, role_name);
+      end loop;
+    end if;
+  end loop;
   if exists (select 1 from pg_roles where rolname = 'service_role') then
     execute 'grant select, insert, update, delete on table public.scan_serial_claims to service_role';
-    execute 'grant execute on function public.record_scan(uuid, text, text[], text, text, text, integer, text, uuid, date, text) to service_role';
-    execute 'grant execute on function public.scan_claim_ready() to service_role';
+    for fn in
+      select p.oid::regprocedure as sig
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in ('record_scan_claimed', 'scan_claim_ready')
+    loop
+      execute format('grant execute on function %s to service_role', fn.sig);
+    end loop;
   end if;
 end $$;
