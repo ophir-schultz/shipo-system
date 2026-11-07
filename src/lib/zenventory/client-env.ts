@@ -123,3 +123,46 @@ export function readZenventoryClientCredentials(
     },
   }
 }
+
+/**
+ * Credentials for a read-only order load.
+ *
+ * API 2.0 key and secret are used when both are set. A dedicated SecureKey
+ * is enough on its own: Nayax's 2.0 pair can be refused while the legacy
+ * key still reads the order. The secret is never copied into the SecureKey.
+ */
+export function readOrderReadCredentials(
+  clientName: string,
+  env: Record<string, string | undefined> = process.env,
+): { ok: true; credentials: ZenventoryEnvCredentials } | { ok: false; notice: string } {
+  const label = clientName.trim() || 'This client'
+  const slug = zenventorySlug(clientName)
+  if (!slug) {
+    return {
+      ok: false,
+      notice: `${label} Zenventory is ${ZENVENTORY_NOT_CONFIGURED}. No slug is mapped for this client.`,
+    }
+  }
+  const names = zenventoryEnvNames(slug)
+  const apiKey = readEither(env, names.key, names.legacyKey)
+  const apiSecret = readEither(env, names.secret, names.legacySecret)
+  const dedicatedSecure = readEither(env, names.secure, names.legacySecure)
+  const pair = Boolean(apiKey.value && apiSecret.value)
+  if (!pair && !dedicatedSecure.value) {
+    return {
+      ok: false,
+      notice: `${label} Zenventory is ${ZENVENTORY_NOT_CONFIGURED}. `
+        + `Missing ${apiKey.value ? '' : apiKey.label + ', '}${apiSecret.value ? '' : apiSecret.label + ', '}${dedicatedSecure.label}. `
+        + `The API secret is not used as the legacy key.`,
+    }
+  }
+  return {
+    ok: true,
+    credentials: {
+      slug,
+      apiKey: apiKey.value ?? '',
+      apiSecret: apiSecret.value ?? '',
+      secureKey: dedicatedSecure.value,
+    },
+  }
+}

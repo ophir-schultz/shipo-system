@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { requireStaff } from '@/lib/require-staff'
-import { getCustomerOrders } from '@/lib/api/zenventory'
-import { readZenventoryClientCredentials } from '@/lib/zenventory/client-env'
+import { getCustomerOrders, getLegacyCustomerOrder } from '@/lib/api/zenventory'
+import { readOrderReadCredentials, zenventoryEnvNames } from '@/lib/zenventory/client-env'
+import { loadScanOrder } from '@/lib/scan/load-order'
 import { readCustomerOrder } from '@/lib/scan/order-lines'
 
 export const dynamic = 'force-dynamic'
@@ -48,7 +49,7 @@ export async function GET(req: Request) {
     }, { status: 404 })
   }
 
-  const creds = readZenventoryClientCredentials(client.name ?? '')
+  const creds = readOrderReadCredentials(client.name ?? '')
   if (!creds.ok) {
     return NextResponse.json({
       loaded: false,
@@ -58,22 +59,28 @@ export async function GET(req: Request) {
     })
   }
 
-  let body: unknown
-  try {
-    body = await getCustomerOrders(creds.credentials.apiKey, creds.credentials.apiSecret, {
+  const names = zenventoryEnvNames(creds.credentials.slug)
+  const loaded = await loadScanOrder({
+    orderRef,
+    credentials: creds.credentials,
+    secureLabel: `${names.secure} or ${names.legacySecure}`,
+    readV2: (apiKey, apiSecret) => getCustomerOrders(apiKey, apiSecret, {
       page: 1,
       perPage: 100,
       orderNumber: orderRef,
-    })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    }),
+    readLegacy: (secureKey) => getLegacyCustomerOrder(secureKey, orderRef),
+  })
+  if (!loaded.loaded) {
     return NextResponse.json({
       loaded: false,
       lines: null,
       secureConfigured: creds.credentials.secureKey != null,
-      reason: `The order could not be read. ${message}`,
+      source: null,
+      reason: loaded.reason,
     }, { status: 502 })
   }
+  const body = loaded.body
 
   const read = readCustomerOrder(body, orderRef)
   if (!read.ok) {
@@ -91,8 +98,11 @@ export async function GET(req: Request) {
     orderNumber: read.orderNumber,
     lines: read.lines,
     secureConfigured,
-    reason: secureConfigured
-      ? ''
-      : 'The legacy pick key is not set, so a pick cannot be sent. Order lines are from the read-only API.',
+    source: loaded.source,
+    reason: loaded.source === 'legacy'
+      ? 'Order lines were read with the legacy key. No pick was sent.'
+      : secureConfigured
+        ? ''
+        : 'The legacy pick key is not set, so a pick cannot be sent. Order lines are from the read-only API.',
   })
 }

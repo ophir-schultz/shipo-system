@@ -24,7 +24,7 @@ export interface OrderLineMiss {
 }
 
 const SERIAL_KEYS = ['serialized', 'isSerialized', 'requiresSerial', 'serialTracking'] as const
-const QTY_KEYS = ['quantityOrdered', 'quantity', 'allocatedquantity', 'allocatedQuantity'] as const
+const QTY_KEYS = ['quantityOrdered', 'orderquantity', 'quantity', 'allocatedquantity', 'allocatedQuantity'] as const
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null

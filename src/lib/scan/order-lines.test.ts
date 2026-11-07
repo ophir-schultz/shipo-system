@@ -24,6 +24,15 @@ describe('customer order lines', () => {
     ])
   })
 
+  it('reads a legacy order quantity', () => {
+    const read = readCustomerOrder({
+      customerorders: [{ ordernumber: 'SO601065056', items: [{ sku: 'READER', orderquantity: 3 }] }],
+    }, 'SO601065056')
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.lines[0]).toMatchObject({ sku: 'READER', requiredQty: 3, pickedQty: null })
+  })
+
   it('reports a picked quantity when the order line has one and does not invent one', () => {
     const read = readCustomerOrder({
       customerOrders: [{

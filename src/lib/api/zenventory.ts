@@ -121,6 +121,79 @@ export async function getShippingOrders(
   }
 }
 
+/**
+ * Read-only legacy customer order. GET /customerorders, then GET
+ * /customerorders/{id}/items. SecureKey is the legacy header. The API
+ * secret is not accepted here. Nothing is picked.
+ */
+export async function getLegacyCustomerOrder(secureKey: string, orderRef: string): Promise<unknown> {
+  const c = makeLegacyClient(secureKey)
+  let listed: unknown
+  try {
+    const res = await c.get('/customerorders')
+    listed = res.data
+  } catch (err) {
+    throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
+  }
+  const orders = legacyOrders(listed)
+  const want = orderRef.trim().toLowerCase()
+  const matched = orders.filter((order) => legacyOrderNumber(order).toLowerCase() === want)
+  if (matched.length !== 1) {
+    return { customerorders: matched }
+  }
+  const order = matched[0]
+  const id = legacyOrderId(order)
+  if (!id) return { customerorders: [order] }
+  try {
+    const items = await c.get(`/customerorders/${id}/items`)
+    const rows = Array.isArray(items.data)
+      ? items.data
+      : Array.isArray((items.data as { items?: unknown } | null)?.items)
+        ? (items.data as { items: unknown[] }).items
+        : []
+    return { customerorders: [{ ...order, items: rows }] }
+  } catch (err) {
+    throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
+  }
+}
+
+function asLegacyRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function legacyOrders(body: unknown): Record<string, unknown>[] {
+  if (Array.isArray(body)) {
+    return body.map(asLegacyRecord).filter((row): row is Record<string, unknown> => row !== null)
+  }
+  const record = asLegacyRecord(body)
+  if (!record) return []
+  for (const key of ['customerorders', 'customerOrders', 'orders']) {
+    if (Array.isArray(record[key])) {
+      return (record[key] as unknown[]).map(asLegacyRecord).filter((row): row is Record<string, unknown> => row !== null)
+    }
+  }
+  return legacyOrderNumber(record) ? [record] : []
+}
+
+function legacyOrderNumber(order: Record<string, unknown>): string {
+  for (const key of ['ordernumber', 'orderNumber', 'order_number']) {
+    const value = order[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  }
+  return ''
+}
+
+function legacyOrderId(order: Record<string, unknown>): string | null {
+  for (const key of ['customerorderid', 'customerOrderId', 'id']) {
+    const value = order[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+    if (typeof value === 'string' && /^[0-9]+$/.test(value.trim())) return value.trim()
+  }
+  return null
+}
+
 export async function testZenventorySecureKey(secureKey: string) {
   const c = makeLegacyClient(secureKey)
   try {

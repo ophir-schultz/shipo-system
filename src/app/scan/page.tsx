@@ -164,6 +164,8 @@ export default function ScanPage() {
     && selectedLine.requiredQty != null
     && selectedLine.requiredQty > 0
     && selectedLine.pickedQty >= selectedLine.requiredQty
+  const orderUnread = orderRef.trim() !== '' && !orderLoaded
+  const lineUnchosen = orderLoaded && sku.trim() === ''
 
   async function submit() {
     setError('')
@@ -377,11 +379,9 @@ export default function ScanPage() {
             </div>
           </div>
 
-          {/* Zenventory holds scanned serials per line item, not per
-              order, and real orders are multi-line. Without the SKU the
-              scan is still billed and stored, but there is no safe way
-              to push it — so say that here rather than letting it look
-              queued. */}
+          {/* A failed order read must not look like a scan that will be
+              billed. Record stays off until the lines load and a line
+              is chosen. */}
           {orderNote && (
             <p className="text-xs text-amber-800">{orderNote}</p>
           )}
@@ -414,11 +414,15 @@ export default function ScanPage() {
             </p>
           )}
 
-          {orderRef.trim() && !sku.trim() && (
-            <p className="text-xs text-amber-700">
-              No SKU — this scan will be billed and stored, but not queued for
-              Zenventory. The serials go onto a specific order line, so the line
-              has to be named.
+          {orderUnread && (
+            <p className="text-xs text-amber-800">
+              Order lines were not loaded. Record scan is off. Nothing has been billed or stored.
+            </p>
+          )}
+
+          {lineUnchosen && (
+            <p className="text-xs text-amber-800">
+              No line selected. Record scan is off until a loaded line is chosen. Nothing has been billed.
             </p>
           )}
 
@@ -529,7 +533,7 @@ export default function ScanPage() {
           <button
             type="button"
             onClick={submit}
-            disabled={saving || !claimReady || lineAlreadyPicked || !serials.length || dupes.length > 0}
+            disabled={saving || !claimReady || lineAlreadyPicked || orderUnread || lineUnchosen || !serials.length || dupes.length > 0}
             className="w-full bg-[#1A73E8] hover:bg-[#63B3FF] disabled:opacity-50 text-white py-3 rounded-xl text-sm font-semibold transition"
           >
             {saving ? 'Recording…' : 'Record scan'}

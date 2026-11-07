@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  readOrderReadCredentials,
   readZenventoryClientCredentials,
   zenventoryEnvNames,
   zenventorySlug,
@@ -125,6 +126,19 @@ describe('per-client Zenventory env credentials', () => {
     expect(read.ok).toBe(true)
     if (!read.ok) return
     expect(read.credentials.secureKey).toBe('secure')
+  })
+
+  it('reads an order with only the dedicated SecureKey and does not copy the secret', () => {
+    const read = readOrderReadCredentials('Nayax', {
+      ZEN_NAYAX_SECRET: 'secret',
+      ZEN_NAYAX_SECURE: 'dedicated',
+    })
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.credentials.apiKey).toBe('')
+    expect(read.credentials.apiSecret).toBe('secret')
+    expect(read.credentials.secureKey).toBe('dedicated')
+    expect(read.credentials.secureKey).not.toBe(read.credentials.apiSecret)
   })
 
   it('says not configured when the client has no slug', () => {
