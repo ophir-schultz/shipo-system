@@ -9,6 +9,7 @@ vi.mock('@/lib/supabase', () => ({
 const {
   getLedgerSummary,
   netProfitUnavailableReason,
+  publishedNetProfit,
   threeMonthWindowStart,
   fmtMonth,
   mapVarianceRows,
@@ -179,6 +180,31 @@ describe('netProfitUnavailableReason', () => {
     }))
     expect(reason).toContain('no billed revenue')
     expect(reason).toContain('direct labor')
+  })
+})
+
+describe('publishedNetProfit', () => {
+  it('prints a net only when revenue and every operating-cost category are present', () => {
+    expect(publishedNetProfit(monthlyRow({ net_profit: 750 }))).toBe(750)
+  })
+
+  it('withholds a stored net that equals gross when operating costs were never entered', () => {
+    const row = monthlyRow({
+      net_profit: 900,
+      gross_margin: 900,
+      overhead: null,
+      direct_labor: null,
+      direct_storage: null,
+      overhead_rows: null,
+      direct_labor_rows: null,
+      direct_storage_rows: null,
+    })
+    expect(publishedNetProfit(row)).toBeNull()
+    expect(netProfitUnavailableReason(row)).toContain('no operating costs')
+  })
+
+  it('does not treat a real zero net as missing', () => {
+    expect(publishedNetProfit(monthlyRow({ net_profit: 0 }))).toBe(0)
   })
 })
 

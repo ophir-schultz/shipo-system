@@ -18,6 +18,8 @@ import {
   factsByShipmentId, buildShipmentLines, unmatchedParcelNote,
 } from '@/lib/billing/statement-detail'
 import { priceOf, totalOrUnknown, unpricedNote, UNPRICED_CELL } from '@/lib/billing/unpriced'
+import { monthlyMinimumBill } from '@/lib/billing/monthly-minimum'
+import { loadAgreedMinimum } from '@/lib/billing/agreed-minimum'
 import { priceStatementCharges } from '@/lib/billing/statement-source'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
 
@@ -194,6 +196,15 @@ export async function GET(req: Request) {
     : (earliestRes.data ?? [])[0].charge_date
   const statement = buildStatement(charges, range)
   const total = statementTotal(statement)
+  const minimum = monthlyMinimumBill({
+    from: range.from,
+    to: range.to,
+    rows: charges,
+    agreed: await loadAgreedMinimum(name),
+  })
+  const amountDue = minimum.applies && minimum.totalCents !== null
+    ? minimum.totalCents / 100
+    : total
 
   // ---- The two lookups that turn the detail into something checkable ----
   //
@@ -256,10 +267,30 @@ export async function GET(req: Request) {
   } else {
     summary.push({
       'Charge': '',
-      'Line': 'TOTAL',
+      'Line': 'Subtotal',
       'Units': '',
       'Rate': '',
       'Amount ($)': moneyCell(total),
+      'Unpriced rows': statement.sum.unpriced,
+      'Estimated rows': statement.estimated,
+    })
+    summary.push({
+      'Charge': 'minimum',
+      'Line': 'Monthly minimum top-up',
+      'Units': '',
+      'Rate': '',
+      'Amount ($)': minimum.applies && minimum.topUpCents !== null
+        ? minimum.topUpCents / 100
+        : minimum.reason,
+      'Unpriced rows': 0,
+      'Estimated rows': 0,
+    })
+    summary.push({
+      'Charge': '',
+      'Line': 'Amount due',
+      'Units': '',
+      'Rate': '',
+      'Amount ($)': moneyCell(amountDue),
       'Unpriced rows': statement.sum.unpriced,
       'Estimated rows': statement.estimated,
     })
@@ -269,7 +300,7 @@ export async function GET(req: Request) {
   // A note that only exists on the screen does not survive the download, and
   // this file is the artefact that gets read six weeks later.
   const notes = [
-    coverageNote(earliest, range),
+    coverageNote(earliest, range, statement.lines.length),
     unpricedNote(statement.sum.unpriced, 'charge'),
     estimateNote(statement.estimated),
     // On sheet 1 and not only on sheet 3, because a blank carrier column is

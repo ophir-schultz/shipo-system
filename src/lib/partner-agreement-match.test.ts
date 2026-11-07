@@ -6,6 +6,9 @@ import {
   CONNECT_IS_OFF,
   UNMATCHED_EVENT_COLUMNS,
   agreementLookupSteps,
+  planAgreementLink,
+  planAgreementLinks,
+  type AgreementEventRow,
 } from './partner-agreement-match'
 import { docusignReadiness } from './docusign-client'
 
@@ -32,6 +35,63 @@ describe('agreementLookupSteps', () => {
 
   it('matches nobody when both keys are blank', () => {
     expect(agreementLookupSteps({ partnerIdField: null, envelopeId: '  ' })).toEqual([])
+  })
+})
+
+const liveShape: AgreementEventRow[] = [
+  { envelopeId: 'env-void-nov6', event: 'voided', referralPartnerId: null },
+  { envelopeId: 'env-void-nov3', event: 'voided', referralPartnerId: null },
+  { envelopeId: 'env-done-oct28', event: 'completed', referralPartnerId: null },
+  { envelopeId: 'env-done-oct26-a', event: 'completed', referralPartnerId: null },
+  { envelopeId: 'env-done-oct26-b', event: 'completed', referralPartnerId: null },
+]
+
+describe('staff agreement link plan', () => {
+  it('leaves every unmatched event unmatched when nobody names a partner', () => {
+    const plans = planAgreementLinks(liveShape, [])
+    expect(plans.every((plan) => plan.action === 'unmatched')).toBe(true)
+    expect(plans).toHaveLength(5)
+  })
+
+  it('refuses a voided envelope and does not treat a completed one as consent', () => {
+    expect(planAgreementLink(liveShape[0], {
+      envelopeId: 'env-void-nov6', partnerId: 'partner-signed',
+    })).toMatchObject({ action: 'refuse' })
+    const completed = planAgreementLink(liveShape[2], {
+      envelopeId: 'env-done-oct28', partnerId: 'partner-signed',
+    })
+    expect(completed).toMatchObject({
+      action: 'link',
+      partnerId: 'partner-signed',
+      grantsAccess: false,
+      setsAgreementStatus: false,
+      setsW9: false,
+    })
+  })
+
+  it('is idempotent for the same pair and refuses to move an existing link', () => {
+    const first = planAgreementLink(liveShape[2], {
+      envelopeId: 'env-done-oct28', partnerId: 'partner-signed',
+    })
+    expect(first.action).toBe('link')
+    const second = planAgreementLink(
+      { ...liveShape[2], referralPartnerId: 'partner-signed' },
+      { envelopeId: 'env-done-oct28', partnerId: 'partner-signed' },
+    )
+    expect(second.action).toBe('noop')
+    const moved = planAgreementLink(
+      { ...liveShape[2], referralPartnerId: 'partner-signed' },
+      { envelopeId: 'env-done-oct28', partnerId: 'someone-else' },
+    )
+    expect(moved.action).toBe('refuse')
+  })
+
+  it('collapses a repeated envelope in one batch', () => {
+    const plans = planAgreementLinks(
+      [liveShape[2], { ...liveShape[2], event: 'completed' }],
+      [{ envelopeId: 'env-done-oct28', partnerId: 'partner-signed' }],
+    )
+    expect(plans.map((plan) => plan.action)).toEqual(['link', 'noop'])
   })
 })
 

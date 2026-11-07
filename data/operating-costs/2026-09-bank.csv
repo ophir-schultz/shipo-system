@@ -1,0 +1,39 @@
+n,posted,payee,amount,category
+1,2026-09-02,Apollo.io,426.87,software
+2,2026-09-02,Google Workspace (shipou),132.00,software
+3,2026-09-02,Google Workspace (shipou),4.40,software
+4,2026-09-02,Cash App · Youssef Amer,451.50,contractors
+5,2026-09-02,Cash App · Younes El Boua,447.32,contractors
+6,2026-09-02,Microsoft,12.99,software
+7,2026-09-02,Overdraft item fee (activity 09-02),10.00,bank_fees
+8,2026-09-02,Overdraft item fee (activity 09-02),10.00,bank_fees
+9,2026-09-03,Amazon Web Services,21.25,software
+10,2026-09-03,Overdraft item fee (activity 09-03),10.00,bank_fees
+11,2026-09-04,Airalo,10.00,communications
+12,2026-09-04,UPS,15.75,postage
+13,2026-09-04,Overdraft item fee (activity 09-04),10.00,bank_fees
+14,2026-09-04,Overdraft item fee (activity 09-04),10.00,bank_fees
+15,2026-09-08,Anthropic,100.00,software
+16,2026-09-08,Apple.com/bill,14.99,software
+17,2026-09-08,Overdraft item fee (activity 09-08),10.00,bank_fees
+18,2026-09-08,Overdraft item fee (activity 09-08),10.00,bank_fees
+19,2026-09-09,Stamps.com (Add Funds),20.00,postage
+20,2026-09-09,Overdraft item fee (activity 09-09),10.00,bank_fees
+21,2026-09-18,Apple.com/bill,14.99,software
+22,2026-09-21,Apple.com/bill,29.99,software
+23,2026-09-21,Apple.com/bill,14.99,software
+24,2026-09-21,Comcast Business Mobile,47.26,communications
+25,2026-09-21,Make.com,18.82,software
+26,2026-09-21,Overdraft item fee (activity 09-21),10.00,bank_fees
+27,2026-09-21,Overdraft item fee (activity 09-21),10.00,bank_fees
+28,2026-09-25,Comcast / Xfinity,369.06,communications
+29,2026-09-25,Cash App · Youssef Amer,429.45,contractors
+30,2026-09-25,Cash App · Younes El Boua,479.53,contractors
+31,2026-09-28,Apple.com/bill,34.98,software
+32,2026-09-28,Stamps.com (Add Funds),300.00,postage
+33,2026-09-28,Overdraft item fee (activity 09-28),10.00,bank_fees
+34,2026-09-29,Scribd,9.99,software
+35,2026-09-29,Stamps.com (Add Funds),25.00,postage
+36,2026-09-29,Stamps.com (Add Funds),10.00,postage
+37,2026-09-29,Overdraft item fee (activity 09-29),10.00,bank_fees
+38,2026-09-29,Overdraft item fee (activity 09-29),10.00,bank_fees

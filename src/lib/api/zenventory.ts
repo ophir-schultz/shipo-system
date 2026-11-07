@@ -1,4 +1,5 @@
 import axios, { AxiosError } from 'axios'
+import { legacyMissReason, legacyOrderId, matchLegacyOrders } from '@/lib/scan/legacy-orders'
 
 // Zenventory has TWO APIs on two DIFFERENT paths. Neither of them is /api —
 // that path does not exist on the host and returns an Apache HTML 404 page,
@@ -40,7 +41,7 @@ function extractError(err: unknown): string {
 export async function getCustomerOrders(
   apiKey: string,
   apiSecret: string,
-  params?: { page?: number; perPage?: number; modifiedSince?: string; orderedSince?: string }
+  params?: { page?: number; perPage?: number; modifiedSince?: string; orderedSince?: string; orderNumber?: string }
 ) {
   const c = makeClient(apiKey, apiSecret)
   try {
@@ -57,6 +58,9 @@ export async function getCustomerOrders(
           : {}),
         ...(params?.orderedSince
           ? { orderedDate: params.orderedSince, orderedDateConditional: 'on_or_after' }
+          : {}),
+        ...(params?.orderNumber
+          ? { orderNumber: params.orderNumber, orderNumberConditional: 'matches' }
           : {}),
       },
     })
@@ -113,6 +117,59 @@ export async function getShippingOrders(
       },
     })
     return res.data
+  } catch (err) {
+    throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
+  }
+}
+
+/**
+ * Read-only legacy customer order.
+ *
+ * GET /customerorders is the open-order window. A completed order is
+ * not in it. When the typed number is absent there, GET /shippingorders
+ * is the second read. Items are GET /{collection}/{id}/items. SecureKey
+ * is the header. Nothing is picked.
+ */
+export async function getLegacyCustomerOrder(secureKey: string, orderRef: string): Promise<unknown> {
+  const c = makeLegacyClient(secureKey)
+  let customerBody: unknown
+  try {
+    customerBody = (await c.get('/customerorders')).data
+  } catch (err) {
+    throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
+  }
+  const customer = matchLegacyOrders(customerBody, orderRef)
+  if (customer.kind === 'one') return withLegacyItems(c, 'customerorders', customer.order)
+  if (customer.kind === 'many') throw new Error(legacyMissReason(orderRef, customer, null))
+
+  let shipping: ReturnType<typeof matchLegacyOrders> | null = null
+  try {
+    const shippingBody = (await c.get('/shippingorders')).data
+    shipping = matchLegacyOrders(shippingBody, orderRef)
+    if (shipping.kind === 'one') return withLegacyItems(c, 'shippingorders', shipping.order)
+  } catch (err) {
+    if (customer.kind === 'unreadable') {
+      throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
+    }
+  }
+  throw new Error(legacyMissReason(orderRef, customer, shipping))
+}
+
+async function withLegacyItems(
+  client: ReturnType<typeof makeLegacyClient>,
+  collection: 'customerorders' | 'shippingorders',
+  order: Record<string, unknown>,
+): Promise<unknown> {
+  const id = legacyOrderId(order)
+  if (!id) return { customerorders: [order] }
+  try {
+    const items = await client.get(`/${collection}/${id}/items`)
+    const rows = Array.isArray(items.data)
+      ? items.data
+      : Array.isArray((items.data as { items?: unknown } | null)?.items)
+        ? (items.data as { items: unknown[] }).items
+        : []
+    return { customerorders: [{ ...order, items: rows }] }
   } catch (err) {
     throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
   }

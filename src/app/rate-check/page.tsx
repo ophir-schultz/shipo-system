@@ -92,10 +92,12 @@ export default async function RateCheckPage({
                   <th className="px-4 py-2.5 font-medium">Client</th>
                   <th className="px-4 py-2.5 font-medium">Shipments</th>
                   <th className="px-4 py-2.5 font-medium">Matched</th>
+                  <th className="px-4 py-2.5 font-medium">Price gaps</th>
+                  <th className="px-4 py-2.5 font-medium">Unknown billed</th>
                   <th className="px-4 py-2.5 font-medium">Not compared</th>
                   <th className="px-4 py-2.5 font-medium">Billed</th>
                   <th className="px-4 py-2.5 font-medium">Sheet</th>
-                  <th className="px-4 py-2.5 font-medium">Difference</th>
+                  <th className="px-4 py-2.5 font-medium">Leakage</th>
                 </tr>
               </thead>
               <tbody>
@@ -104,10 +106,12 @@ export default async function RateCheckPage({
                     <td className="px-4 py-2.5">{row.clientName}</td>
                     <td className="px-4 py-2.5">{row.shipments}</td>
                     <td className="px-4 py-2.5">{row.matched}</td>
+                    <td className="px-4 py-2.5">{row.priceGaps}</td>
+                    <td className="px-4 py-2.5">{row.unknownBilled}</td>
                     <td className="px-4 py-2.5">{row.notCompared}</td>
                     <td className="px-4 py-2.5">{money(row.billedTotal)}</td>
                     <td className="px-4 py-2.5">{money(row.sheetTotal)}</td>
-                    <td className="px-4 py-2.5">{money(row.difference)}</td>
+                    <td className="px-4 py-2.5">{row.difference == null ? '—' : row.difference === 0 ? money(0) : `${money(row.difference)} leakage`}</td>
                   </tr>
                 ))}
               </tbody>

@@ -290,7 +290,8 @@ describe('GET /api/statements/data: agrees with the spreadsheet', () => {
     const sheet = await sheetRows()
 
     // Drop the TOTAL and NOTE rows: those are the sheet's own layout.
-    const sheetLines = sheet.filter(r => r['Line'] !== 'TOTAL' && r['Charge'] !== 'NOTE')
+    const layout = new Set(['TOTAL', 'Subtotal', 'Monthly minimum top-up', 'Amount due'])
+    const sheetLines = sheet.filter(r => !layout.has(String(r['Line'])) && r['Charge'] !== 'NOTE')
 
     expect(sheetLines).toHaveLength(b.lines!.length)
     for (const line of b.lines!) {
@@ -313,8 +314,8 @@ describe('GET /api/statements/data: agrees with the spreadsheet', () => {
   it('shows the same TOTAL as the Statement sheet', async () => {
     const b = await body(await GET(url()))
     h.db = createFakeSupabase(structuredClone(seed()))
-    const total = (await sheetRows()).find(r => r['Line'] === 'TOTAL')
-    expect(total, 'the sheet has no TOTAL row').toBeDefined()
+    const total = (await sheetRows()).find(r => r['Line'] === 'Subtotal')
+    expect(total, 'the sheet has no Subtotal row').toBeDefined()
     expect(total!['Amount ($)']).toBeCloseTo(b.total!, 10)
     expect(total!['Unpriced rows']).toBe(b.unpriced)
     expect(total!['Estimated rows']).toBe(b.estimated)

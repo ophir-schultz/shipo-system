@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  readOrderReadCredentials,
   readZenventoryClientCredentials,
   zenventoryEnvNames,
   zenventorySlug,
@@ -33,7 +34,7 @@ describe('per-client Zenventory env credentials', () => {
     expect(zenventoryEnvNames('TIMESYSTEMS').secret).toBe('ZEN_TIMESYSTEMS_SECRET')
   })
 
-  it('reads ZEN_KEY and ZEN_SECRET and uses the secret as the secure value', () => {
+  it('reads ZEN_KEY and ZEN_SECRET and does not treat the secret as a SecureKey', () => {
     const read = readZenventoryClientCredentials('Orcam', {
       ZEN_ORCAM_KEY: 'key',
       ZEN_ORCAM_SECRET: 'secret',
@@ -42,7 +43,7 @@ describe('per-client Zenventory env credentials', () => {
     if (!read.ok) return
     expect(read.credentials.apiKey).toBe('key')
     expect(read.credentials.apiSecret).toBe('secret')
-    expect(read.credentials.secureKey).toBe('secret')
+    expect(read.credentials.secureKey).toBeNull()
   })
 
   it('falls back to the old ZENVENTORY_ names when the new ones are unset', () => {
@@ -77,30 +78,31 @@ describe('per-client Zenventory env credentials', () => {
     expect(read.notice).toContain('not configured')
     expect(read.notice).toContain('ZEN_ORCAM_KEY (or ZENVENTORY_KEY_ORCAM)')
     expect(read.notice).toContain('ZEN_ORCAM_SECRET (or ZENVENTORY_SECRET_ORCAM)')
-    expect(read.notice).toContain('pick push uses the secret')
+    expect(read.notice).toContain('API secret is not used')
     expect(read.notice).toContain('ZEN_ORCAM_SECURE')
     expect(read.notice).toContain('ZENVENTORY_SECURE_ORCAM')
   })
 
-  it('counts the pick push as configured from the secret when no secure variable is set', () => {
-    const read = readZenventoryClientCredentials('Kivema', {
-      ZEN_KIVEMA_KEY: 'key',
-      ZEN_KIVEMA_SECRET: 'secret',
+  it('does not count the pick as configured when Nayax has no secure variable', () => {
+    const read = readZenventoryClientCredentials('Nayax', {
+      ZEN_NAYAX_KEY: 'key',
+      ZEN_NAYAX_SECRET: 'secret',
     }, { requireSecure: true })
-    expect(read.ok).toBe(true)
-    if (!read.ok) return
-    expect(read.credentials.secureKey).toBe('secret')
+    expect(read.ok).toBe(false)
+    if (read.ok) return
+    expect(read.notice).toContain('ZEN_NAYAX_SECURE')
+    expect(read.notice).toContain('not used as that key')
   })
 
-  it('uses the old secret name when neither secure variable nor the new secret is set', () => {
+  it('keeps the API secret when the secure variable is unset and a pick is not required', () => {
     const read = readZenventoryClientCredentials('Suteka', {
       ZENVENTORY_KEY_SUTEKA: 'old-key',
       ZENVENTORY_SECRET_SUTEKA: 'old-secret',
-    }, { requireSecure: true })
+    })
     expect(read.ok).toBe(true)
     if (!read.ok) return
     expect(read.credentials.apiSecret).toBe('old-secret')
-    expect(read.credentials.secureKey).toBe('old-secret')
+    expect(read.credentials.secureKey).toBeNull()
   })
 
   it('prefers a dedicated secure variable over the secret', () => {
@@ -124,6 +126,19 @@ describe('per-client Zenventory env credentials', () => {
     expect(read.ok).toBe(true)
     if (!read.ok) return
     expect(read.credentials.secureKey).toBe('secure')
+  })
+
+  it('reads an order with only the dedicated SecureKey and does not copy the secret', () => {
+    const read = readOrderReadCredentials('Nayax', {
+      ZEN_NAYAX_SECRET: 'secret',
+      ZEN_NAYAX_SECURE: 'dedicated',
+    })
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.credentials.apiKey).toBe('')
+    expect(read.credentials.apiSecret).toBe('secret')
+    expect(read.credentials.secureKey).toBe('dedicated')
+    expect(read.credentials.secureKey).not.toBe(read.credentials.apiSecret)
   })
 
   it('says not configured when the client has no slug', () => {

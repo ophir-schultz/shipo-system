@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { requireStaff } from '@/lib/require-staff'
+import { requireEmployeeAdmin } from '@/lib/employee-admin'
 
 export async function POST(req: Request) {
-  const denied = await requireStaff()
+  const denied = await requireEmployeeAdmin()
   if (denied) return denied
 
   const { email, name, role, password } = await req.json()
@@ -12,6 +12,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
   }
 
+  // The role below is a display label on the employees screen. It is not
+  // copied onto the server-only admin claim, and it does not grant this route.
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,

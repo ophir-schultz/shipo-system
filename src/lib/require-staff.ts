@@ -77,3 +77,12 @@ export async function staffEmail(): Promise<string | null> {
   } = await supabase.auth.getUser()
   return user?.email ?? null
 }
+
+/** The signed-in employee's auth id, or null. Used to stamp `added_by`. */
+export async function staffUserId(): Promise<string | null> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  return user?.id ?? null
+}

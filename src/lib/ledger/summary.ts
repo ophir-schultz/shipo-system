@@ -389,6 +389,20 @@ export function netProfitUnavailableReason(row: MonthlyRow): string {
   return `net profit could not be computed for ${month}; the cause is not one this screen can name`
 }
 
+/**
+ * The net profit a screen may print.
+ *
+ * A number is shown only when revenue is known and every operating-cost
+ * category has at least one row. A stored net that equals gross margin
+ * because operating_costs is empty is not printed: that is gross standing
+ * in for net, and it is unavailable, not zero.
+ */
+export function publishedNetProfit(row: MonthlyRow): number | null {
+  if (row.revenue === null) return null
+  if (!row.overhead_rows || !row.direct_labor_rows || !row.direct_storage_rows) return null
+  return row.net_profit
+}
+
 /** Confidence label for a pick_days row. */
 export function confidenceLabel(n: number | null): string {
   if (n === null || n === 0) return 'unknown'

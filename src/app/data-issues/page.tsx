@@ -78,6 +78,9 @@ export default async function DataIssuesPage() {
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Data issues</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
+          This list is shipments with no client or no stored price, as of {easternToday()} Eastern. Voided labels are left off. It is not a count of null order charges, and it is not the dashboard, the October billing card, or the ledger. Those use different dates, clients, and whether a missing price is excluded. A charge can be null while its shipment already has a price. That price is not copied onto the charge here, and nothing on this page is written.
+        </p>
+        <p className="text-[#4B4F58] text-sm mt-1">
           {page.ok
             ? `${page.data.issues.length} shipments that cannot be billed, and ${page.data.pickCards.length} rate cards with more than one live pick rate. Voided labels are left off.`
             : 'This list could not be read.'}

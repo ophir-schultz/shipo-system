@@ -1,10 +1,5 @@
-import Sidebar from '@/components/layout/Sidebar'
+import StaffShell from '@/components/layout/StaffShell'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex min-h-screen bg-[#FFFFFF] text-[#0B1220]">
-      <Sidebar />
-      <main className="flex-1 p-8 overflow-auto">{children}</main>
-    </div>
-  )
+  return <StaffShell>{children}</StaffShell>
 }

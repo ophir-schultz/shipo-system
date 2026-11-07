@@ -97,6 +97,10 @@ export function isPickPackService(serviceType: string | null | undefined): boole
   if (!serviceType) return false
   const name = serviceType.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
   if (!name) return false
+  // Before the generic pick_pack match. That match allows a trailing
+  // underscore, so pick_pack_additional_item would count as a second
+  // per-order pick rate. Additional items stay a separate per-unit price.
+  if (/(^|_)additional(_|$)/.test(name)) return false
   if (name === 'pick' || name === 'picks' || name === 'pick_pack' || name === 'pick_n_pack' || name === 'picks_n_pack') {
     return true
   }

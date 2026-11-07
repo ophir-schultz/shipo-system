@@ -316,7 +316,7 @@ export function exclusionNote(r: Reconciled, noun = 'shipment'): string {
   if (r.uncosted > 0) reasons.push(`${r.uncosted} awaiting carrier cost`)
   if (r.unmeasured > 0) reasons.push(`${r.unmeasured} with neither`)
   return `${excluded} of ${r.counted} ${excluded === 1 && r.counted === 1 ? noun : `${noun}s`} `
-    + `not in these figures: ${reasons.join(', ')}`
+    + `excluded from these figures, not counted as $0: ${reasons.join(', ')}`
 }
 
 /**

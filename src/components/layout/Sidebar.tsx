@@ -5,43 +5,43 @@ import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase-browser'
+import { STAFF_NAV, STAFF_SETTINGS, type StaffNavItem } from '@/lib/staff-nav'
 
-const nav = [
-  { href: '/dashboard', label: 'Dashboard', icon: '📊' },
-  { href: '/clients', label: 'Clients', icon: '👥' },
-  { href: '/shipments', label: 'Shipments', icon: '🚚' },
-  { href: '/rate-check', label: 'Rate check', icon: '⚖️' },
-  { href: '/data-issues', label: 'Data issues', icon: '🚩' },
-  { href: '/losses', label: 'Loss Analysis', icon: '📉' },
-  { href: '/adjustments', label: 'Adjustments', icon: '⚠️' },
-  { href: '/warehouse', label: 'Warehouse Log', icon: '📦' },
-  { href: '/scan', label: 'Serialization Scan', icon: '🔢' },
-  { href: '/serials', label: 'Serial History', icon: '🔎' },
-  { href: '/billing', label: 'Billing', icon: '💰' },
-  { href: '/client-report', label: 'Client Report', icon: '📑' },
-  { href: '/serial-report', label: 'Serial Report', icon: '🔎' },
-  { href: '/order-pnl', label: 'Order P&L', icon: '📈' },
-  { href: '/profit', label: 'Profit', icon: '💵' },
-  { href: '/statements', label: 'Statements', icon: '🧾' },
-  { href: '/referrals', label: 'Referral Payouts', icon: '🤝' },
-  // Lives at /quotes, not /rate-sheets: that segment is excluded from the
-  // proxy so prospects can open their links without logging in.
-  { href: '/quotes', label: 'Rate Sheets', icon: '📄' },
-  { href: '/reports', label: 'Reports', icon: '📥' },
-  { href: '/employees', label: 'Employees', icon: '🧑‍💼' },
-  { href: '/marketing', label: 'Marketing', icon: '📣' },
-]
+function activeItem(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
 
-export default function Sidebar() {
+function ItemLink({ item, pathname, onNavigate }: { item: StaffNavItem; pathname: string; onNavigate?: () => void }) {
+  const active = activeItem(pathname, item.href)
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={`block px-3 py-1.5 rounded-lg text-sm ${active ? 'text-white' : 'hover:text-white'}`}
+      style={active
+        ? { background: 'linear-gradient(135deg, #1A73E8, #0B5ED7)' }
+        : { color: '#C7D8F0' }}
+    >
+      {item.label}
+    </Link>
+  )
+}
+
+export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
   const router = useRouter()
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const settingsOpen = STAFF_SETTINGS.some((item) => activeItem(pathname, item.href))
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => {
-      setUserEmail(data.user?.email ?? null)
-    })
+    try {
+      const supabase = createClient()
+      supabase.auth.getUser().then(({ data }) => {
+        setUserEmail(data.user?.email ?? null)
+      }).catch(() => setUserEmail(null))
+    } catch {
+      setUserEmail(null)
+    }
   }, [])
 
   async function handleLogout() {
@@ -52,7 +52,7 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-60 min-h-screen flex flex-col" style={{ background: 'linear-gradient(165deg, #081A33 0%, #0B3361 55%, #0F4A94 100%)', borderRight: '1px solid #0B3361' }}>
+    <aside className="flex h-screen w-60 shrink-0 flex-col md:h-auto md:min-h-screen" style={{ background: 'linear-gradient(165deg, #081A33 0%, #0B3361 55%, #0F4A94 100%)', borderRight: '1px solid #0B3361' }}>
       <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.14)' }}>
         <div className="px-1 py-2 mb-1">
           <Image src="/shipo-logo-white.png" alt="Shipo" width={322} height={122} className="w-full h-auto" priority />
@@ -60,27 +60,26 @@ export default function Sidebar() {
         <div style={{ height: '4px', borderRadius: '2px', background: '#E0EE47', margin: '6px 2px 0' }} />
         <p className="text-xs text-center mt-2" style={{ color: '#C7D8F0' }}>Operations Platform</p>
       </div>
-      <nav className="flex-1 px-3 py-4 space-y-0.5">
-        {nav.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(item.href + '/')
+      <nav className="flex-1 px-3 py-4 space-y-2 overflow-auto">
+        {STAFF_NAV.map((group) => {
+          const open = group.items.some((item) => activeItem(pathname, item.href))
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                active ? 'text-white' : 'hover:text-white'
-              }`}
-              style={active
-                ? { background: 'linear-gradient(135deg, #1A73E8, #0B5ED7)' }
-                : { color: '#C7D8F0' }}
-            >
-              <span>{item.icon}</span>
-              {item.label}
-            </Link>
+            <details key={group.id} open={open} className="rounded-lg">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-white">{group.label}</summary>
+              <div className="pb-1">
+                {group.items.map((item) => <ItemLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />)}
+              </div>
+            </details>
           )
         })}
       </nav>
       <div className="px-4 py-4 space-y-2" style={{ borderTop: '1px solid rgba(255,255,255,0.14)' }}>
+        <details open={settingsOpen}>
+          <summary className="cursor-pointer px-2 py-1 text-xs font-semibold" style={{ color: '#C7D8F0' }}>Settings</summary>
+          <div className="pt-1">
+            {STAFF_SETTINGS.map((item) => <ItemLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />)}
+          </div>
+        </details>
         {userEmail && (
           <div className="px-2 py-1.5">
             <p className="text-xs text-gray-500 truncate">{userEmail}</p>
@@ -90,7 +89,7 @@ export default function Sidebar() {
           onClick={handleLogout}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[#C7D8F0] hover:text-white hover:bg-white/10 transition"
         >
-          <span>🚪</span> Sign Out
+          Sign Out
         </button>
         <p className="text-xs text-gray-600 px-2">Shipo LLC © 2026</p>
       </div>

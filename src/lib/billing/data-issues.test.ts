@@ -24,4 +24,13 @@ describe('shipment data issues', () => {
     expect(issues[0].reason).toContain('$1.20')
     expect(issues[0].reason).toContain('$1.75')
   })
+
+  it('does not flag Orcam when the second live line is an additional item', () => {
+    const rows = [
+      { client_id: 'o', client_name: 'Orcam', service_type: 'pick_pack', rate: 0.5, effective_from: '2026-11-03' },
+      { client_id: 'o', client_name: 'Orcam', service_type: 'pick_pack_additional_item', rate: 0.1, effective_from: '2026-11-03' },
+    ]
+    expect(ambiguousPickCards(rows, '2026-11-06')).toEqual([])
+    expect(rows.map((row) => row.rate)).toEqual([0.5, 0.1])
+  })
 })

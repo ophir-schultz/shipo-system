@@ -181,6 +181,22 @@ describe('pick & pack from the warehouse rate card', () => {
     expect(decision.reason).toContain('orders_(picks_n_pack)')
   })
 
+  it('bills Orcam from the base pick rate and leaves the additional item off that rate', () => {
+    expect(isPickPackService('pick_pack')).toBe(true)
+    expect(isPickPackService('pick_pack_additional_item')).toBe(false)
+    const rows = [
+      { service_type: 'pick_pack', rate: 0.5, effective_from: '2026-11-03' },
+      { service_type: 'pick_pack_additional_item', rate: 0.1, effective_from: '2026-11-03' },
+    ]
+    const decision = decidePickRate(rows, '2026-11-06')
+    expect(decision.billed).toBe(true)
+    expect(decision.rate).toBe(0.5)
+    expect(decision.reason).toContain('pick_pack')
+    expect(decision.reason).not.toContain('additional')
+    expect(rows[0].rate).toBe(0.5)
+    expect(rows[1].rate).toBe(0.1)
+  })
+
   it('keeps Kivema skipped and names both live rates', () => {
     const decision = decidePickRate([
       { service_type: 'orders_(picks_n_pack)', rate: 1.2 },
@@ -219,6 +235,7 @@ describe('pick & pack from the warehouse rate card', () => {
     for (const service of [
       'storage',
       'additional_item',
+      'pick_pack_additional_item',
       'inbound_pallet_handling',
       'special_tasks_(kitting,_bundling,_counting,_repackaging,_labelling)',
       'loose_case',

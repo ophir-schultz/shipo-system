@@ -4,6 +4,7 @@ import { readZenventoryClientCredentials } from '@/lib/zenventory/client-env'
 import { normaliseLines, NegativeQuantityError, PICKED_KEYS } from '@/lib/ledger/order-line'
 import { watermarkPickDate, watermarkIsEvidence } from '@/lib/ledger/pick-date'
 import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
+import { orderDateForImport } from '@/lib/zenventory/account-check'
 
 /**
  * Each client has their own Zenventory account.
@@ -317,7 +318,7 @@ export async function syncClientAssignments(daysBack = 30) {
                 order_key: orderNumber.toUpperCase(),
                 order_number: orderNumber,
                 source: 'zenventory',
-                order_date: order.orderDate ?? order.order_date ?? null,
+                order_date: orderDateForImport(order),
                 cancelled: Boolean(order.cancelled ?? false),
               }, { onConflict: 'client_id,order_key' })
               .select('id')

@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   inventoryCountOf,
+  orderDateForImport,
   redactSecrets,
   runZenventoryCheck,
   summarizeOrders,
+  zenventoryFailureKind,
+  zenventoryFailureLabel,
 } from './account-check'
 
 const NOW = new Date('2026-11-04T12:00:00.000Z')
@@ -25,6 +28,23 @@ describe('zenventory account check', () => {
   it('reads the inventory total from meta.count', () => {
     expect(inventoryCountOf({ inventory: [{ item: { sku: 'A' } }], meta: { count: 40, totalPages: 2 } })).toBe(40)
     expect(inventoryCountOf({ inventory: [{ item: { sku: 'A' } }] })).toBe(1)
+  })
+
+  it('stores orderedDate, and still accepts the older field names', () => {
+    expect(orderDateForImport({ orderedDate: '2026-11-03T15:00:00.000Z' })).toBe('2026-11-03')
+    expect(orderDateForImport({ orderDate: '2026-09-01' })).toBe('2026-09-01')
+    expect(orderDateForImport({ order_date: '2026-08-15T04:30:00.000Z' })).toBe('2026-08-15')
+    expect(orderDateForImport({ orderNumber: 'A-1' })).toBeNull()
+    expect(orderDateForImport({ orderedDate: 'not-a-date', orderDate: '2026-07-04' })).toBe('2026-07-04')
+  })
+
+  it('names a rejected credential separately from a timeout', () => {
+    expect(zenventoryFailureKind('Zenventory API error: HTTP 401: unauthorized')).toBe('credentials')
+    expect(zenventoryFailureKind('timeout of 15000ms exceeded')).toBe('timeout')
+    expect(zenventoryFailureLabel('credentials')).toContain('not a timeout')
+    expect(zenventoryFailureLabel('credentials')).toContain('No new credentials')
+    expect(zenventoryFailureLabel('timeout')).toContain('did not answer in time')
+    expect(zenventoryFailureLabel('credentials')).not.toMatch(/sk_|secret/i)
   })
 
   it('strips credential text out of an error', () => {
