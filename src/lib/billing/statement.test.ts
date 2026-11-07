@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import {
   periodRange, buildStatement, statementTotal, statementToday, isGrain, GRAINS,
-  GRAIN_LABELS, resolvePeriod,
+  GRAIN_LABELS, resolvePeriod, resolveStatementQuery, monthInputRange,
   type Grain, type StatementCharge, type PeriodRequest,
 } from '@/lib/billing/statement'
 import { warehouseParts, WAREHOUSE_TZ } from '@/lib/ledger/pick-date'
@@ -802,6 +802,29 @@ describe('resolvePeriod', () => {
       const r = resolvePeriod(req, TODAY)
       expect(r.ok, JSON.stringify(req)).toBe(true)
       if (r.ok) expect(r.range.from <= r.range.to, JSON.stringify(req)).toBe(true)
+    }
+  })
+})
+
+describe('statement screen period', () => {
+  it('turns a calendar month into that full month, not the month of today', () => {
+    expect(monthInputRange('2026-10')).toEqual({ from: '2026-10-01', to: '2026-10-31' })
+    const asked = resolveStatementQuery({ month: '2026-10' }, '2026-11-07')
+    expect(asked.ok).toBe(true)
+    if (asked.ok) expect(asked.range).toEqual({ from: '2026-10-01', to: '2026-10-31' })
+  })
+
+  it('refuses a relative period sent together with dates', () => {
+    const asked = resolveStatementQuery({ grain: 'half-year', from: '2026-10-01', to: '2026-10-31' }, '2026-11-07')
+    expect(asked.ok).toBe(false)
+  })
+
+  it('keeps an explicit partial range from being labeled a month', () => {
+    const asked = resolveStatementQuery({ from: '2026-10-07', to: '2026-12-31' }, '2026-11-07')
+    expect(asked.ok).toBe(true)
+    if (asked.ok) {
+      expect(asked.grain).toBeNull()
+      expect(asked.range).toEqual({ from: '2026-10-07', to: '2026-12-31' })
     }
   })
 })

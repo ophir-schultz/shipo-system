@@ -18,9 +18,27 @@ describe('customer order lines', () => {
     expect(read.ok).toBe(true)
     if (!read.ok) return
     expect(read.lines).toEqual([
-      { sku: 'BASE', serialized: true, requiredQty: 4 },
-      { sku: 'EXTRA', serialized: false, requiredQty: 2 },
-      { sku: 'UNKNOWN', serialized: null, requiredQty: 1 },
+      { sku: 'BASE', serialized: true, requiredQty: 4, pickedQty: null },
+      { sku: 'EXTRA', serialized: false, requiredQty: 2, pickedQty: null },
+      { sku: 'UNKNOWN', serialized: null, requiredQty: 1, pickedQty: null },
+    ])
+  })
+
+  it('reports a picked quantity when the order line has one and does not invent one', () => {
+    const read = readCustomerOrder({
+      customerOrders: [{
+        orderNumber: 'SO-100',
+        items: [
+          { sku: 'BASE', serialized: true, quantityOrdered: 2, pickedquantity: 2 },
+          { sku: 'OPEN', serialized: true, quantityOrdered: 1 },
+        ],
+      }],
+    }, 'SO-100')
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.lines.map((line) => [line.sku, line.pickedQty])).toEqual([
+      ['BASE', 2],
+      ['OPEN', null],
     ])
   })
 
@@ -30,7 +48,7 @@ describe('customer order lines', () => {
     }, 'SO-100')
     expect(read.ok).toBe(true)
     if (!read.ok) return
-    expect(read.lines[0]).toEqual({ sku: 'BASE', serialized: null, requiredQty: null })
+    expect(read.lines[0]).toEqual({ sku: 'BASE', serialized: null, requiredQty: null, pickedQty: null })
   })
 
   it('keeps a partial scan incomplete', () => {

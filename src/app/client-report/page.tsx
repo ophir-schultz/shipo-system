@@ -61,7 +61,7 @@ function Header() {
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Client report</h2>
       <p className="text-[#4B4F58] text-sm mt-1">
-        The billing workbook, for any date range. Finance approves it here, then downloads it. It is not emailed.
+        Imported billing lines only. Live shipments and order charges are not copied into this report. An empty range means no workbook rows, not that the client was idle. Approving and importing are separate actions. Nothing is generated on its own.
       </p>
     </div>
   )

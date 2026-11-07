@@ -6,18 +6,18 @@ import {
 } from '@/lib/billing/statement-charges'
 import { priceStatementCharges } from '@/lib/billing/statement-source'
 import {
-  periodRange, buildStatement, statementTotal, statementToday,
-  GRAINS, GRAIN_LABELS,
-  type Grain, type Statement,
+  buildStatement, statementTotal, resolveStatementQuery,
+  type Grain, type Statement, type DateRange,
 } from '@/lib/billing/statement'
 import {
-  rateText, periodLabel, coverageNote, estimateNote, grainChoice,
+  rateText, periodLabel, coverageNote, estimateNote,
 } from '@/lib/billing/statement-view'
 import {
   formatPrice, unpricedNote, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 import { monthlyMinimumBill, type MonthlyMinimum } from '@/lib/billing/monthly-minimum'
 import { loadAgreedMinimum } from '@/lib/billing/agreed-minimum'
+import StatementPeriodForm from '@/components/billing/StatementPeriodForm'
 
 // What one client has been billed in a period. Shipping uses the same zone-matrix price as Profit. Pick and pack come from the client's price list when the ledger did not already price them.
 //
@@ -81,9 +81,7 @@ async function getClients() {
  * while that read failed would put the confident reading of an ambiguous figure
  * on a document headed for a client.
  */
-async function getStatement(clientId: string, clientName: string, grain: Grain) {
-  const range = periodRange(grain, statementToday())
-
+async function getStatement(clientId: string, clientName: string, range: DateRange) {
   const [chargesRes, earliestRes] = await Promise.all([
     readStatementCharges(clientId, range),
     readEarliestChargeDate(clientId),
@@ -164,10 +162,13 @@ function Amount({ sum }: { sum: Statement['sum'] }) {
 }
 
 export default async function StatementsPage(
-  { searchParams }: { searchParams: Promise<{ client?: string; grain?: string }> },
+  { searchParams }: { searchParams: Promise<{ client?: string; grain?: string; from?: string; to?: string; month?: string }> },
 ) {
-  const { client: clientId, grain: askedGrain } = await searchParams
-  const { grain, note: grainNote } = grainChoice(askedGrain, 'month')
+  const query = await searchParams
+  const clientId = query.client
+  const period = resolveStatementQuery(query)
+  const grain = period.ok ? period.grain : null
+  const grainNote = period.ok ? '' : period.error
 
   const clientsPage = await getClients()
   // The client list IS the screen when no client is chosen, so a failed read of
@@ -180,60 +181,37 @@ export default async function StatementsPage(
 
   return (
     <Shell>
-      <form method="GET" className="flex flex-wrap items-end gap-3 rounded-xl bg-slate-800 p-5">
-        <label className="flex flex-col gap-1 text-xs uppercase text-slate-500">
-          Client
-          <select
-            name="client"
-            defaultValue={selected?.id ?? ''}
-            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-          >
-            <option value="">Choose a client…</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </label>
+      <StatementPeriodForm
+        clients={clients}
+        selectedId={selected?.id ?? ''}
+        grain={query.month || query.from || query.to ? '' : (query.grain || 'month')}
+        month={query.month ?? ''}
+        from={query.from ?? ''}
+        to={query.to ?? ''}
+      />
 
-        <label className="flex flex-col gap-1 text-xs uppercase text-slate-500">
-          Period
-          <select
-            name="grain"
-            defaultValue={grain}
-            className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-          >
-            {GRAINS.map(g => <option key={g} value={g}>{GRAIN_LABELS[g]}</option>)}
-          </select>
-        </label>
-
-        <button
-          type="submit"
-          className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500"
-        >
-          Show statement
-        </button>
-
-        {selected !== null && (
-          <>
+      {selected !== null && period.ok && (
+        <div className="flex flex-wrap gap-2">
             <a
-              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}&format=csv`}
+              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}&format=csv`}
               className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
             >
               Download CSV
             </a>
             <a
-              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}`}
+              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}`}
               className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
             >
               Download Excel
             </a>
             <a
-              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&grain=${encodeURIComponent(grain)}&format=pdf`}
+              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}&format=pdf`}
               className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
             >
               Download PDF
             </a>
-          </>
-        )}
-      </form>
+        </div>
+      )}
 
       {grainNote !== '' && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
@@ -241,14 +219,14 @@ export default async function StatementsPage(
         </p>
       )}
 
-      {selected === null ? (
+      {selected === null || !period.ok ? (
         <p className="text-sm text-slate-500">
-          Choose a client to see what they have been billed for the period. No
-          figures are shown until one is chosen — a statement with no client is
-          not an empty statement, it is no statement.
+          Choose a client and one period. No figures are shown until both are
+          valid — a statement with no client is not an empty statement, it is no
+          statement.
         </p>
       ) : (
-        <StatementSection clientId={selected.id} name={selected.name} grain={grain} />
+        <StatementSection clientId={selected.id} name={selected.name} grain={grain} range={period.range} />
       )}
     </Shell>
   )
@@ -263,9 +241,9 @@ export default async function StatementsPage(
  * `Loaded` was introduced to make impossible (see read.ts).
  */
 async function StatementSection(
-  { clientId, name, grain }: { clientId: string; name: string; grain: Grain },
+  { clientId, name, grain, range }: { clientId: string; name: string; grain: Grain | null; range: DateRange },
 ) {
-  const page = await getStatement(clientId, name, grain)
+  const page = await getStatement(clientId, name, range)
   if (!page.ok) return <ViewUnreadable message={page.error} />
   const data: LoadedData<typeof page> = page.data
 
@@ -279,8 +257,13 @@ function Shell({ children }: { children: React.ReactNode }) {
         <h2 className="text-2xl font-bold text-[#0B1220]">Statements</h2>
         <p className="mt-1 text-sm text-slate-400">
           What one client has been billed for a period — pick and pack counts at
-          their own rates, plus shipping. Read live from the ledger; this is not
-          an invoice and nothing here is saved.
+          their own rates, plus shipping. Use one control: a relative period, a
+          calendar month such as October 2026, or From and To. A half-year is
+          July 1 through December 31 or January 1 through June 30. The note under
+          the figures says when the first stored charge is later than that start.
+          The $395 floor applies only when the range is one full calendar month
+          and the subtotal is known. Read live from the ledger; this is not an
+          invoice and nothing here is saved.
         </p>
       </div>
       {children}
@@ -291,9 +274,9 @@ function Shell({ children }: { children: React.ReactNode }) {
 function StatementTable(
   { name, grain, data }: {
     name: string
-    grain: Grain
+    grain: Grain | null
     data: {
-      range: ReturnType<typeof periodRange>
+      range: DateRange
       statement: Statement
       earliest: string | null
       minimum: MonthlyMinimum

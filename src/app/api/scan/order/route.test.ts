@@ -58,8 +58,8 @@ describe('GET /api/scan/order', () => {
     const body = await res.json()
     expect(body.loaded).toBe(true)
     expect(body.lines).toEqual([
-      { sku: 'BASE', serialized: true, requiredQty: 4 },
-      { sku: 'EXTRA', serialized: false, requiredQty: 1 },
+      { sku: 'BASE', serialized: true, requiredQty: 4, pickedQty: null },
+      { sku: 'EXTRA', serialized: false, requiredQty: 1, pickedQty: null },
     ])
     expect(body.secureConfigured).toBe(false)
     const text = JSON.stringify(body)

@@ -42,7 +42,7 @@ export default function UnmatchedAgreements({
       <ul className="mt-2 space-y-1 font-mono text-xs">
         {events.map((event) => (
           <li key={`${event.envelope_id}:${event.event}:${event.processed_at ?? ''}`}>
-            {event.processed_at?.slice(0, 10) ?? 'undated'} · {event.event} · {event.envelope_id}
+            {event.processed_at?.slice(0, 10) ?? 'undated'} · DocuSign {event.event} · match pending · not a W-9 · {event.envelope_id}
           </li>
         ))}
       </ul>

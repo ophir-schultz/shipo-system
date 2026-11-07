@@ -8,6 +8,8 @@ export interface CustomerOrderLine {
   sku: string
   serialized: boolean | null
   requiredQty: number | null
+  /** Units already picked on the order line. Null when the read did not say. */
+  pickedQty: number | null
 }
 
 export interface OrderLineRead {
@@ -45,6 +47,16 @@ function flag(record: Record<string, unknown>): boolean | null {
     if (typeof value === 'boolean') return value
     if (value === 'true') return true
     if (value === 'false') return false
+    return null
+  }
+  return null
+}
+
+function pickedQty(record: Record<string, unknown>): number | null {
+  for (const key of ['pickedQuantity', 'pickedquantity'] as const) {
+    if (!(key in record) || record[key] === null || record[key] === '') continue
+    const n = typeof record[key] === 'number' ? record[key] : Number(record[key])
+    if (typeof n === 'number' && Number.isFinite(n) && n >= 0) return n
     return null
   }
   return null
@@ -109,7 +121,7 @@ export function readCustomerOrder(body: unknown, orderRef: string): OrderLineRea
   for (const row of lineRows(order)) {
     const sku = skuOf(row)
     if (!sku) continue
-    lines.push({ sku, serialized: flag(row), requiredQty: qty(row) })
+    lines.push({ sku, serialized: flag(row), requiredQty: qty(row), pickedQty: pickedQty(row) })
   }
   return { ok: true, orderNumber, lines }
 }

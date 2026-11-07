@@ -54,6 +54,9 @@ export default function ScanPage() {
   const [orderLines, setOrderLines] = useState<CustomerOrderLine[] | null>(null)
   const [orderNote, setOrderNote] = useState('')
   const [orderLoaded, setOrderLoaded] = useState(false)
+  const [orderLoading, setOrderLoading] = useState(false)
+  const [claimNote, setClaimNote] = useState('Checking whether a scan can be recorded.')
+  const [claimReady, setClaimReady] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -76,6 +79,18 @@ export default function ScanPage() {
       // A network failure is a failure, not a client list with nobody on it.
       // This used to be `.catch(() => setClients([]))`.
       .catch((e) => { if (live) setLoadError(String(e)) })
+    fetch('/api/scan/ready')
+      .then(async (r) => {
+        const body = await r.json().catch(() => null) as { ready?: boolean; message?: string } | null
+        if (!live) return
+        setClaimReady(body?.ready === true)
+        setClaimNote(body?.message || 'Claim check could not be read. Record scan stays blocked.')
+      })
+      .catch(() => {
+        if (!live) return
+        setClaimReady(false)
+        setClaimNote('Claim check could not be read. Record scan stays blocked.')
+      })
     fetch('/api/scan/push')
       .then(async (r) => {
         const body = await r.json().catch(() => null) as { message?: string; mode?: string } | null
@@ -86,44 +101,42 @@ export default function ScanPage() {
     return () => { live = false }
   }, [])
 
-  useEffect(() => {
+  async function loadOrder() {
     const ref = orderRef.trim()
     if (!clientId || !ref) {
       setOrderLines(null)
-      setOrderNote('')
       setOrderLoaded(false)
+      setOrderNote('Choose a client and enter an order reference.')
       return
     }
-    let live = true
-    const timer = setTimeout(() => {
+    setOrderLoading(true)
+    setOrderNote('Reading the order. This does not record a scan or send a pick.')
+    try {
       const params = new URLSearchParams({ client_id: clientId, order_ref: ref })
-      fetch(`/api/scan/order?${params}`)
-        .then(async (r) => {
-          const body = await r.json().catch(() => null) as {
-            loaded?: boolean
-            lines?: CustomerOrderLine[] | null
-            reason?: string
-          } | null
-          if (!live) return
-          if (!body?.loaded || !body.lines) {
-            setOrderLines(null)
-            setOrderLoaded(false)
-            setOrderNote(body?.reason || 'The order lines could not be read.')
-            return
-          }
-          setOrderLines(body.lines)
-          setOrderLoaded(true)
-          setOrderNote(body.reason || '')
-        })
-        .catch(() => {
-          if (!live) return
-          setOrderLines(null)
-          setOrderLoaded(false)
-          setOrderNote('The order lines could not be read.')
-        })
-    }, 400)
-    return () => { live = false; clearTimeout(timer) }
-  }, [clientId, orderRef])
+      const res = await fetch(`/api/scan/order?${params}`)
+      const body = await res.json().catch(() => null) as {
+        loaded?: boolean
+        lines?: CustomerOrderLine[] | null
+        reason?: string
+      } | null
+      if (!body?.loaded || !body.lines) {
+        setOrderLines(null)
+        setOrderLoaded(false)
+        setOrderNote(body?.reason || 'The order lines could not be read.')
+        return
+      }
+      setOrderLines(body.lines)
+      setOrderLoaded(true)
+      setOrderNote(body.reason || 'Order lines loaded. Read only.')
+      setSku('')
+    } catch {
+      setOrderLines(null)
+      setOrderLoaded(false)
+      setOrderNote('The order lines could not be read.')
+    } finally {
+      setOrderLoading(false)
+    }
+  }
 
   const result = useMemo(
     () => parseScan(raw, expected ? Number(expected) : undefined),
@@ -145,6 +158,12 @@ export default function ScanPage() {
   const coverage = orderLines
     ? scanCoverage(orderLines, sku.trim() ? [{ sku: sku.trim(), count: serials.length }] : [])
     : null
+  const selectedLine = orderLines?.find((line) => line.sku === sku.trim()) ?? null
+  const lineAlreadyPicked = selectedLine != null
+    && selectedLine.pickedQty != null
+    && selectedLine.requiredQty != null
+    && selectedLine.requiredQty > 0
+    && selectedLine.pickedQty >= selectedLine.requiredQty
 
   async function submit() {
     setError('')
@@ -231,6 +250,9 @@ export default function ScanPage() {
           <a href="/serials" className="text-[#1A73E8]">Serial history</a>
           <span className="text-[#6B7A8D]"> keeps every scanned serial. A pick is sent on the customer order once that order is fully scanned. Nayax receives the serials from Zenventory through its existing API connection.</span>
         </p>
+        <p className={`mt-3 rounded-lg border px-3 py-2 text-xs ${claimReady ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+          {claimNote}
+        </p>
         {queueNote && (
           <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {queueNote}
@@ -294,7 +316,7 @@ export default function ScanPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-xs text-[#6B7A8D] mb-1">Order ref</label>
               <input
@@ -333,6 +355,16 @@ export default function ScanPage() {
                 />
               )}
             </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={loadOrder}
+                disabled={orderLoading || !clientId || !orderRef.trim()}
+                className="w-full rounded-lg border border-[#1A73E8] px-3 py-2 text-sm font-semibold text-[#1A73E8] disabled:opacity-50"
+              >
+                {orderLoading ? 'Loading…' : 'Load order lines'}
+              </button>
+            </div>
             <div>
               <label className="block text-xs text-[#6B7A8D] mb-1">Box ref</label>
               <input
@@ -359,9 +391,10 @@ export default function ScanPage() {
                 const covered = coverage?.lines.find((row) => row.sku === line.sku)
                 const serialized = line.serialized === true ? 'serialized' : line.serialized === false ? 'not serialized' : 'serialized unknown'
                 const required = line.requiredQty == null ? 'qty unknown' : `qty ${line.requiredQty}`
+                const picked = line.pickedQty == null ? 'picked unknown' : `picked ${line.pickedQty}`
                 return (
                   <p key={line.sku}>
-                    {line.sku}: {serialized}, {required}
+                    {line.sku}: {serialized}, {required}, {picked}
                     {covered ? `, scanned now ${covered.scanned}` : ''}
                   </p>
                 )
@@ -372,6 +405,13 @@ export default function ScanPage() {
                   : 'This order is not fully scanned. A partial line is not a completed order.'}
               </p>
             </div>
+          )}
+
+          {lineAlreadyPicked && (
+            <p className="text-xs text-amber-800">
+              This line already shows a picked quantity at least as large as the order quantity.
+              Record scan is not offered for it. Loading the order did not send a pick.
+            </p>
           )}
 
           {orderRef.trim() && !sku.trim() && (
@@ -489,7 +529,7 @@ export default function ScanPage() {
           <button
             type="button"
             onClick={submit}
-            disabled={saving || !serials.length || dupes.length > 0}
+            disabled={saving || !claimReady || lineAlreadyPicked || !serials.length || dupes.length > 0}
             className="w-full bg-[#1A73E8] hover:bg-[#63B3FF] disabled:opacity-50 text-white py-3 rounded-xl text-sm font-semibold transition"
           >
             {saving ? 'Recording…' : 'Record scan'}

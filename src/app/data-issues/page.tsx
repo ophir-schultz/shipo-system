@@ -78,7 +78,7 @@ export default async function DataIssuesPage() {
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Data issues</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          A preview can copy a stored shipment price onto a null shipping charge. Of 709 null charges, 701 already have that price and 8 do not, so those 8 stay null. The preview does not write, and it does not use carrier cost. Warehouse rates explain the calculator only. Nayax and Creative Pea are not ledger orders, so their service revenue stays missing.
+          This list is shipments with no client or no stored price, as of {easternToday()} Eastern. Voided labels are left off. It is not a count of null order charges, and it is not the dashboard, the October billing card, or the ledger. Those use different dates, clients, and whether a missing price is excluded. A charge can be null while its shipment already has a price. That price is not copied onto the charge here, and nothing on this page is written.
         </p>
         <p className="text-[#4B4F58] text-sm mt-1">
           {page.ok
