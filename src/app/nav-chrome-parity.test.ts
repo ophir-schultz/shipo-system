@@ -178,9 +178,14 @@ describe('every page renders inside some chrome', () => {
       const chain = layoutChain(dir)
       expect(chain, `${href} has no layout above it`).not.toEqual([])
 
-      const rendersSidebar = chain.some(f => /<Sidebar\s*\/>/.test(readFileSync(f, 'utf8')))
-      expect(rendersSidebar, `no layout above ${href} renders <Sidebar />: ${chain.join(', ')}`)
+      const rendersSidebar = chain.some((f) => {
+        const src = readFileSync(f, 'utf8')
+        return /<Sidebar\s*\/>/.test(src) || /<StaffShell[\s>]/.test(src)
+      })
+      expect(rendersSidebar, `no layout above ${href} renders the staff shell: ${chain.join(', ')}`)
         .toBe(true)
+      const shell = readFileSync('src/components/layout/StaffShell.tsx', 'utf8')
+      expect(shell).toContain('<Sidebar')
     })
   }
 })

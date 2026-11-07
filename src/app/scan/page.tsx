@@ -294,7 +294,7 @@ export default function ScanPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <label className="block text-xs text-[#6B7A8D] mb-1">Order ref</label>
               <input

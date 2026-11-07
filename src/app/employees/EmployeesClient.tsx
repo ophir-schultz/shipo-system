@@ -93,7 +93,7 @@ export default function EmployeesClient({ employees, canManage }: { employees: E
       {canManage && showInvite && (
         <form onSubmit={handleInvite} className="bg-white rounded-xl p-5 space-y-4">
           <h3 className="font-semibold text-[#0B1220] text-sm">New Employee Account</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-xs text-[#4B4F58] mb-1">Full Name</label>
               <input

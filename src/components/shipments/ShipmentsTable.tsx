@@ -181,7 +181,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="bg-white rounded-xl px-4 py-3">
           <p className="text-xs text-[#4B4F58]">Shipments</p>
           <p className="text-xl font-bold text-[#0B1220]">{filtered.length}</p>

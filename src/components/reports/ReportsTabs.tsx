@@ -593,7 +593,7 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
 
   return (
     <>
-      <div className="grid grid-cols-4 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+      <div className="grid grid-cols-2 border-b border-[#E2E8F0] lg:grid-cols-4 lg:divide-x lg:divide-[#E2E8F0]">
         {([
           ['Revenue', t.revenue === null ? UNPRICED_DASH : `$${t.revenue.toFixed(2)}`, 'text-[#0B1220]'],
           ['Cost', t.cost === null ? UNPRICED_DASH : `$${t.cost.toFixed(2)}`, 'text-[#0B1220]'],
@@ -1089,7 +1089,7 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
 
   return (
     <>
-      <div className="grid grid-cols-4 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+      <div className="grid grid-cols-2 border-b border-[#E2E8F0] lg:grid-cols-4 lg:divide-x lg:divide-[#E2E8F0]">
         {stats.map(([l, v, note]) => (
           <div key={l} className="px-5 py-3">
             <p className="text-xs text-[#4B4F58]">{l}</p>
@@ -1153,7 +1153,7 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
   const note = unpricedNote(plSum.unpriced)
   return (
     <>
-      <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]" style={{ background: '#FEF2F2' }}>
+      <div className="grid grid-cols-1 border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x sm:divide-[#E2E8F0]" style={{ background: '#FEF2F2' }}>
         {([
           ['Loss Shipments', filtered.length, omissionNote(period)],
           ['Total Lost', `-$${total.toFixed(2)}`, note],
@@ -1218,7 +1218,7 @@ function AdjustmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<Repor
 
   return (
     <>
-      <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+      <div className="grid grid-cols-1 border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x sm:divide-[#E2E8F0]">
         {([
           ['Total', filtered.length, omissionNote(period, 'adjustment')],
           ['Pending', pending.length, ''],
@@ -1276,7 +1276,7 @@ function BillingTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportBil
 
   return (
     <>
-      <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+      <div className="grid grid-cols-1 border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x sm:divide-[#E2E8F0]">
         {([
           ['Bills', filtered.length, omissionNote(period, 'bill')],
           ['Total Billed', formatPrice(totalOrUnknown(billedSum)), unpricedNote(billedSum.unpriced, 'bill')],
@@ -1333,7 +1333,7 @@ function WarehouseTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportW
 
   return (
     <>
-      <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+      <div className="grid grid-cols-1 border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x sm:divide-[#E2E8F0]">
         {([
           // 'row' and not 'day', which the other notes in this strip use. A
           // warehouse_daily_log row is one service line for one client on one

@@ -458,7 +458,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── ALERTS SECTION ── */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
         {/* Loss Shipments Panel */}
         <div className="rounded-xl overflow-hidden border border-red-200" style={{ background: '#FEF2F2' }}>
@@ -602,14 +602,14 @@ export default async function DashboardPage() {
       </div>
 
       {/* Period Revenue Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <PeriodCard title="This Week" p={d.week} />
         <PeriodCard title="This Month" p={d.month} />
         <PeriodCard title="This Year" p={d.year} />
       </div>
 
       {/* All Time Summary */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {/* These three are the same reconciling triple as the period cards --
             one row set, margin derived -- so the headline tiles subtract the
             same way the cards above them do. They used to be three independent

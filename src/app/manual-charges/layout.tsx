@@ -1,12 +1,5 @@
-import Sidebar from '@/components/layout/Sidebar'
+import StaffShell from '@/components/layout/StaffShell'
 
 export default function ManualChargesLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex min-h-screen" style={{ background: '#FFFFFF' }}>
-      <Sidebar />
-      <main className="flex-1 p-8 overflow-auto">
-        {children}
-      </main>
-    </div>
-  )
+  return <StaffShell>{children}</StaffShell>
 }

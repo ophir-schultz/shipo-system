@@ -327,7 +327,7 @@ export default async function LossesPage() {
       )}
 
       {/* Summary bar */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Loss Shipments" value={d.lossCount.toString()} sub={`${d.lossRate.toFixed(1)}% of all shipments`} color="red" />
         <StatCard label="Total Loss Amount" value={`-${fmt(d.totalLossAmt)}`} sub="Money we lost on those shipments" color="red" />
         {/* Both cards below are built from the SAME reconciled rows, so the
@@ -362,7 +362,7 @@ export default async function LossesPage() {
       </div>
 
       {/* Breakdown panels */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* By Client */}
         <div className="bg-white rounded-xl p-5">
           <h3 className="font-semibold text-[#0B1220] mb-3">By Client</h3>

@@ -331,7 +331,7 @@ export default function BillingView({ data }: { data: BillingData }) {
 
       {/* Client summary cards */}
       {client && (
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
           {/* Each `sub` carries BOTH reasons the figure above it can be short:
               lines with no price, and lines left out for having no date. The
               `||` fallback is only reached when there is nothing to report. */}
@@ -367,7 +367,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                 whose carrier cost has not landed, because those have no
                 knowable margin. Two questions, two figures, two labels; the
                 note underneath says which rows are held back and why. */}
-            <div className="grid grid-cols-4 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+            <div className="grid grid-cols-2 divide-[#E2E8F0] border-b border-[#E2E8F0] lg:grid-cols-4 lg:divide-x">
               <Stat label="Shipments" value={shipments.length} />
               <Stat label="We Paid (Carrier)" value={fig(known.cost)} />
               <Stat label="Charged Client" value={fig(known.revenue)} />

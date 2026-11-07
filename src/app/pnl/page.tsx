@@ -587,7 +587,7 @@ export default async function PnlPage() {
       <FullPictureSection />
 
       {/* Summary bar */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total Revenue" value={fmtOrDash(d.totalRevenue)}
           sub={d.unreadRevenue > 0
             ? `${d.clientCount} active clients — ${d.unreadRevenue} revenue figure${d.unreadRevenue === 1 ? '' : 's'} unreadable, excluded`
@@ -822,7 +822,7 @@ export default async function PnlPage() {
       </div>
 
       {/* ---- Referral payouts + Inbound log ---- */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {/* Referral payouts */}
         <div className="bg-white rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">

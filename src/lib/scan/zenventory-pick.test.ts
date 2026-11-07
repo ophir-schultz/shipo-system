@@ -158,6 +158,97 @@ describe('customer order pick', () => {
     expect(outcomes[0].log.every((row) => row.channel === 'zenventory')).toBe(true)
   })
 
+  it('does not send a pick when a serialized line is only partly picked', async () => {
+    const sent = harness({ pick: [line('R1', 10, 2, 1)] })
+    const [outcome] = await deliverOrder({
+      jobs: [job()],
+      credentials: { apiKey: 'fixture-key', apiSecret: 'fixture-secret', secureKey: 'fixture-secure' },
+      transport: sent.transport,
+      now: NOW,
+      shipmentTracking: ['1Z-SIM'],
+    })
+    expect(sent.puts).toEqual([])
+    expect(outcome.action).toBe('waiting')
+    expect(outcome.error).toContain('partly picked')
+  })
+
+  it('does not treat a repeated serial as a second unit', async () => {
+    const sent = harness({ pick: [line('R1', 10, 2)] })
+    const [outcome] = await deliverOrder({
+      jobs: [job({ serials: ['AAA', 'AAA'], serialRows: [{ id: 's1', serial: 'AAA' }] })],
+      credentials: { apiKey: 'fixture-key', apiSecret: 'fixture-secret', secureKey: 'fixture-secure' },
+      transport: sent.transport,
+      now: NOW,
+      shipmentTracking: ['1Z-SIM'],
+    })
+    expect(sent.puts).toEqual([])
+    expect(outcome.error).toBe(SCAN_INCOMPLETE)
+  })
+
+  it('sends the SecureKey and not the API secret, and records a simulated HTTP failure', async () => {
+    const puts: Array<{ secureKey: string }> = []
+    const transport: ZenventoryTransport = {
+      async getV2() {
+        return { status: 200, body: [{ id: 99, orderNumber: 'SO1' }] }
+      },
+      async getLegacy(path) {
+        if (path.endsWith('/items/pick')) return { status: 200, body: [line('R1', 10, 1)] }
+        return { status: 200, body: [{ customerorderid: 99, ordernumber: 'SO1' }] }
+      },
+      async putLegacy(_path, _body, secureKey) {
+        puts.push({ secureKey })
+        return { status: 503, body: { simulated: true } }
+      },
+    }
+    const [outcome] = await deliverOrder({
+      jobs: [job({ serials: ['AAA'], serialRows: [{ id: 's1', serial: 'AAA' }] })],
+      credentials: { apiKey: 'fixture-key', apiSecret: 'fixture-secret', secureKey: 'fixture-secure' },
+      transport,
+      now: NOW,
+      shipmentTracking: ['1Z-SIM'],
+    })
+    expect(puts).toEqual([{ secureKey: 'fixture-secure' }])
+    expect(outcome.action).toBe('failed')
+    expect(outcome.attemptsIncrement).toBe(true)
+    expect(outcome.queueStatus).toBe('failed')
+    expect(outcome.error).toContain('HTTP 503')
+    expect(JSON.stringify(outcome)).not.toContain('fixture-secret')
+  })
+
+  it('does not call the pick when the SecureKey is missing, even if the API secret is set', async () => {
+    let puts = 0
+    const transport: ZenventoryTransport = {
+      async getV2() { return { status: 200, body: [] } },
+      async getLegacy() { return { status: 200, body: [] } },
+      async putLegacy() { puts += 1; return { status: 200, body: [] } },
+    }
+    const [outcome] = await deliverOrder({
+      jobs: [job()],
+      credentials: { apiKey: 'fixture-key', apiSecret: 'fixture-secret', secureKey: null },
+      transport,
+      now: NOW,
+      shipmentTracking: ['1Z-SIM'],
+    })
+    expect(puts).toBe(0)
+    expect(outcome.action).toBe('failed')
+    expect(outcome.error).toContain('SecureKey')
+    expect(outcome.attemptsIncrement).toBe(true)
+  })
+
+  it('does not send a second pick for a job that is already done', async () => {
+    const sent = harness()
+    const [outcome] = await deliverOrder({
+      jobs: [job({ status: 'done' })],
+      credentials: { apiKey: 'fixture-key', apiSecret: 'fixture-secret', secureKey: 'fixture-secure' },
+      transport: sent.transport,
+      now: NOW,
+      shipmentTracking: ['1Z-SIM'],
+    })
+    expect(sent.puts).toEqual([])
+    expect(outcome.action).toBe('skipped')
+    expect(outcome.mutate).toBe(false)
+  })
+
   it('does not pick a line that already has a picked quantity', async () => {
     const sent = harness({ pick: [line('R1', 10, 2, 2)] })
     const [outcome] = await deliverOrder({
@@ -251,6 +342,70 @@ describe('customer order pick', () => {
 })
 
 describe('runPush', () => {
+  it('records a simulated pick failure as another attempt, then skips a done job', async () => {
+    const saved: boolean[] = []
+    let claims = 0
+    const puts: string[] = []
+    const store: PushStore = {
+      async claim() { claims += 1; return { ok: true, error: null } },
+      async credentials() {
+        return {
+          credentials: { apiKey: 'fixture-key', apiSecret: 'fixture-secret', secureKey: 'fixture-secure' },
+          error: null,
+        }
+      },
+      async save(_job, outcome) {
+        saved.push(outcome.attemptsIncrement)
+        return { error: null }
+      },
+    }
+    const transport: ZenventoryTransport = {
+      async getV2() { return { status: 200, body: [{ id: 99, orderNumber: 'SO1' }] } },
+      async getLegacy(path) {
+        if (path.endsWith('/items/pick')) return { status: 200, body: [line('R1', 10, 1)] }
+        return { status: 200, body: [{ customerorderid: 99, ordernumber: 'SO1' }] }
+      },
+      async putLegacy(_path, _body, secureKey) {
+        puts.push(secureKey)
+        return { status: 500, body: { simulated: true } }
+      },
+    }
+    const open: RunnableJob = {
+      id: 'job-1',
+      clientId: 'c',
+      orderRef: 'SO1',
+      sku: 'R1',
+      status: 'pending',
+      attempts: 0,
+      serials: ['AAA'],
+      serialRows: [{ id: 's1', serial: 'AAA' }],
+    }
+    const failed = await runPush({
+      jobs: [open],
+      store,
+      transport,
+      now: NOW,
+      shipmentTracking: { SO1: ['1Z-SIM'] },
+    })
+    expect(failed[0].action).toBe('failed')
+    expect(failed[0].error).toContain('HTTP 500')
+    expect(saved).toEqual([true])
+    expect(puts).toEqual(['fixture-secure'])
+    expect(claims).toBe(1)
+
+    claims = 0
+    const again = await runPush({
+      jobs: [{ ...open, status: 'done', attempts: 1 }],
+      store,
+      transport,
+      now: NOW,
+      shipmentTracking: { SO1: ['1Z-SIM'] },
+    })
+    expect(again[0].action).toBe('skipped')
+    expect(claims).toBe(0)
+    expect(puts).toEqual(['fixture-secure'])
+  })
+
   it('does not claim a job that is already done', async () => {
     const done: RunnableJob = {
       id: 'job-1',

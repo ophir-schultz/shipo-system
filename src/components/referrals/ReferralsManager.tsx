@@ -146,7 +146,7 @@ export default function ReferralsManager({
   return (
     <div className="space-y-6">
       {/* Summary */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Owed (unpaid)" value={fmt(totals.owed)} sub="Everything not yet paid" color="blue" />
         <StatCard label="Pending Approval" value={fmt(totals.pending)} sub="Waiting on you" color="yellow" />
         <StatCard label="Approved" value={fmt(totals.approved)} sub="Cleared to pay" color="gray" />
