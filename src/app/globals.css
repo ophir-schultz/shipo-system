@@ -81,11 +81,16 @@
   color: var(--brand-ink);
 }
 
-/* Phone tables stay readable by scrolling sideways inside the page,
-   instead of compressing every column into the viewport. */
+/* Phone tables scroll inside their own box. A min-width on every table
+   widened the page, so Rate and Amount sat past the screen with no
+   local scrollbar. */
 @media (max-width: 767px) {
-  .staff-main table {
-    min-width: 36rem;
+  .staff-main {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  .staff-main .overflow-x-auto {
+    max-width: 100%;
   }
 }
 

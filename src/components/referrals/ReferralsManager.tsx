@@ -161,7 +161,7 @@ export default function ReferralsManager({
             {REFERRAL_TERMS.SIGNUP_BONUS} bonus + {PCT} commissions will appear here.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="max-w-full overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
@@ -448,7 +448,7 @@ function PartnersPanel({
       {partners.length === 0 ? (
         <p className="text-[#6B7A8D] text-sm">No partners yet. Website sign-ups land here as “pending” for you to review.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="max-w-full overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
@@ -628,7 +628,7 @@ function ClientsPanel({
       {clients.length === 0 ? (
         <p className="text-[#6B7A8D] text-sm">No clients yet.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="max-w-full overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
@@ -852,7 +852,7 @@ function InvoicesPanel({
       {invoices.length === 0 ? (
         <p className="text-[#6B7A8D] text-sm">Nothing logged yet.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="max-w-full overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">

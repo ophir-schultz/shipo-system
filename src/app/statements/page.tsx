@@ -252,10 +252,10 @@ async function StatementSection(
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="space-y-6 font-sans text-slate-200">
+    <div className="space-y-6 font-sans text-[#0B1220]">
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Statements</h2>
-        <p className="mt-1 text-sm text-slate-400">
+        <p className="mt-1 text-sm text-[#3A4658]">
           What one client has been billed for a period — pick and pack counts at
           their own rates, plus shipping. Use one control: a relative period, a
           calendar month such as October 2026, or From and To. A half-year is
@@ -296,16 +296,28 @@ function StatementTable(
   return (
     <div className="rounded-xl bg-slate-800 p-5">
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
-        <h3 className="font-semibold text-[#0B1220]">{name}</h3>
-        <span className="font-mono text-xs text-slate-500">{periodLabel(grain, range)}</span>
+        <h3 className="font-semibold text-white">{name}</h3>
+        <span className="font-mono text-xs text-slate-300">{periodLabel(grain, range)}</span>
       </div>
 
       {statement.lines.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">
+        <p className="mt-3 text-sm text-slate-300">
           No charges recorded for {name} in this period.
         </p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 max-w-full">
+          <ul className="space-y-3 md:hidden">
+            {statement.lines.map(line => (
+              <li key={`${line.charge_type}\u0000${line.label}-card`} className="rounded-lg border border-slate-600 p-3 text-sm">
+                <p className="font-mono text-xs text-sky-300">{line.charge_type}</p>
+                <p className="text-slate-100">{line.label}</p>
+                <p className="mt-1 text-slate-300">Units <Units quantity={line.quantity} /></p>
+                <p className="text-slate-300">Rate {rateText(line)}</p>
+                <p className="font-medium text-white">Amount <Amount sum={line.sum} /></p>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden max-w-full overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-700 text-left text-xs uppercase text-slate-500">
@@ -345,7 +357,7 @@ function StatementTable(
                 <td className="pt-3 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
                   Subtotal
                 </td>
-                <td className="pt-3 text-right font-medium text-[#0B1220]">
+                <td className="pt-3 text-right font-medium text-white">
                   {subtotal === null ? 'unknown' : formatPrice(subtotal)}
                 </td>
               </tr>
@@ -353,7 +365,7 @@ function StatementTable(
                 <td className="pt-2 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
                   Monthly minimum top-up
                 </td>
-                <td className="pt-2 text-right font-medium text-[#0B1220]">
+                <td className="pt-2 text-right font-medium text-white">
                   {minimum.applies && minimum.topUpCents !== null
                     ? formatPrice(minimum.topUpCents / 100)
                     : 'not applied'}
@@ -363,12 +375,18 @@ function StatementTable(
                 <td className="pt-2 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
                   Amount due
                 </td>
-                <td className="pt-2 text-right text-base font-bold text-[#0B1220]">
+                <td className="pt-2 text-right text-base font-bold text-white">
                   {due === null ? 'unknown' : formatPrice(due)}
                 </td>
               </tr>
             </tfoot>
           </table>
+          </div>
+          <div className="mt-3 space-y-1 text-sm text-slate-100 md:hidden">
+            <p>Subtotal {subtotal === null ? 'unknown' : formatPrice(subtotal)}</p>
+            <p>Monthly minimum top-up {minimum.applies && minimum.topUpCents !== null ? formatPrice(minimum.topUpCents / 100) : 'not applied'}</p>
+            <p className="font-bold">Amount due {due === null ? 'unknown' : formatPrice(due)}</p>
+          </div>
         </div>
       )}
 

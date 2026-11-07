@@ -9,7 +9,9 @@ export default function StaffShell({ children }: { children: React.ReactNode }) 
   const [open, setOpen] = useState(false)
   return (
     <div className="flex min-h-screen bg-white text-[#0B1220]">
-      <div className={open ? 'fixed inset-0 z-40 flex md:static md:inset-auto md:z-auto' : 'hidden md:flex'}>
+      <div className={open
+        ? 'fixed inset-0 z-40 flex max-md:w-screen md:static md:inset-auto md:z-auto'
+        : 'hidden w-0 max-md:hidden md:flex md:w-60'}>
         {open ? (
           <button
             type="button"
@@ -34,7 +36,7 @@ export default function StaffShell({ children }: { children: React.ReactNode }) 
           </button>
           <span className="text-sm font-semibold">Shipo</span>
         </header>
-        <main className="staff-main min-w-0 flex-1 overflow-x-auto p-4 md:p-8">{children}</main>
+        <main className="staff-main w-full min-w-0 max-w-full flex-1 overflow-x-hidden p-4 md:overflow-x-auto md:p-8">{children}</main>
       </div>
     </div>
   )

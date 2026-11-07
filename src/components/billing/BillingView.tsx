@@ -344,10 +344,10 @@ export default function BillingView({ data }: { data: BillingData }) {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-[#F1F5FB] rounded-xl p-1">
+      <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#F1F5FB] p-1 sm:flex">
         {tabs.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
+            className={`flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition sm:flex-1 ${
               activeTab === tab.id ? 'text-[#0B1220]' : 'text-[#4B4F58] hover:text-[#0B1220]'
             }`}
             style={activeTab === tab.id ? { background: '#1A73E8' } : {}}>

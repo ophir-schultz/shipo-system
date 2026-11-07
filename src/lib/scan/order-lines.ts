@@ -88,7 +88,7 @@ function ordersIn(body: unknown): Record<string, unknown>[] {
 }
 
 function lineRows(order: Record<string, unknown>): Record<string, unknown>[] {
-  for (const key of ['items', 'orderItems', 'lineItems']) {
+  for (const key of ['items', 'orderItems', 'orderitems', 'lineItems']) {
     if (Array.isArray(order[key])) {
       return (order[key] as unknown[]).map(asRecord).filter((row): row is Record<string, unknown> => row !== null)
     }
