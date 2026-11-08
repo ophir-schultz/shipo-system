@@ -16,6 +16,7 @@ import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 import { isReportType, REPORT_TYPES } from '@/lib/billing/report-types'
 import {
   combineReconciled, marginPct, reconcile, reconciledOrUnknown,
+  SHIPMENT_MARGIN_HEADER, SHIPMENT_RATE_BASIS, SHIPMENT_RATE_HEADER,
 } from '@/lib/billing/profit-rollup'
 
 // The per-shipment sheets pass `s.client_rate` straight through, which is
@@ -184,7 +185,7 @@ export async function GET(req: Request) {
   }
 
   else if (type === 'profit-loss') {
-    sheetName = 'Profit & Loss'
+    sheetName = 'Shipment rate'
     const { data, error } = await readAllPages((from, to) => {
       let q = supabaseAdmin
         .from('shipments')
@@ -272,11 +273,11 @@ export async function GET(req: Request) {
         'No agreed rate (excluded)': l.r.unrated,
         'Awaiting carrier cost (excluded)': l.r.uncosted,
         'Neither known (excluded)': l.r.unmeasured,
-        'Revenue ($)': money(v.revenue),
+        [SHIPMENT_RATE_HEADER]: money(v.revenue),
         'Carrier Cost ($)': money(v.cost),
         // Derived by subtraction, in cents, from the two columns to its left.
-        // Revenue - Carrier Cost equals this exactly, for every row.
-        'Profit ($)': money(v.profit),
+        // Shipment client rate minus carrier cost equals this exactly.
+        [SHIPMENT_MARGIN_HEADER]: money(v.profit),
         // Blank and not '0%' when there is no revenue to be a ratio of.
         // `profit / 0` is Infinity or NaN and both render through toFixed
         // without complaint; the old code printed '0%', which reads as "we
@@ -311,6 +312,11 @@ export async function GET(req: Request) {
           key: '', label: 'TOTAL', unattributed: false,
           r: totals, losses: lines.reduce((s, l) => s + l.losses, 0),
         }),
+        {
+          ...Object.fromEntries(columns.map(k => [k, ''])),
+          'Client': 'NOTE',
+          [SHIPMENT_RATE_HEADER]: SHIPMENT_RATE_BASIS,
+        },
       ]
     }
   }

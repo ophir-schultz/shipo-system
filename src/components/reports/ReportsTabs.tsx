@@ -8,11 +8,12 @@ import {
 } from '@/lib/billing/unpriced'
 import {
   combineReconciled, exclusionNote, marginPct, reconcile, reconciledOrUnknown,
+  SHIPMENT_RATE_BASIS,
 } from '@/lib/billing/profit-rollup'
 import { embedOne, type Embed } from '@/lib/db/read'
 import { scopeRows, undatedNote, unattributedNote, type Scoped } from '@/lib/billing/date-range'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
-import { presentShipDay, SHIP_DATE_FILTER_NOTE } from '@/lib/billing/ship-day-label'
+import { SHIP_DATE_FILTER_NOTE, shipDateWithStored } from '@/lib/billing/ship-day-label'
 import { billableWarehouse, isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 import {
   REPORT_TABS, reportTabById, reportTypeForTab, tabRequiresClient,
@@ -597,10 +598,10 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
     <>
       <div className="grid grid-cols-2 border-b border-[#E2E8F0] lg:grid-cols-4 lg:divide-x lg:divide-[#E2E8F0]">
         {([
-          ['Revenue', t.revenue === null ? UNPRICED_DASH : `$${t.revenue.toFixed(2)}`, 'text-[#0B1220]'],
-          ['Cost', t.cost === null ? UNPRICED_DASH : `$${t.cost.toFixed(2)}`, 'text-[#0B1220]'],
+          ['Shipment client rate', t.revenue === null ? UNPRICED_DASH : `$${t.revenue.toFixed(2)}`, 'text-[#0B1220]'],
+          ['Carrier cost', t.cost === null ? UNPRICED_DASH : `$${t.cost.toFixed(2)}`, 'text-[#0B1220]'],
           [
-            'Profit',
+            'Rate minus cost',
             t.profit === null
               ? UNPRICED_DASH
               : `${t.profit >= 0 ? '+' : ''}$${t.profit.toFixed(2)}`,
@@ -624,6 +625,7 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
         property this tab exists to have, and a per-column note would imply
         three different shortfalls.
       */}
+      <p className="px-5 py-2 text-[11px] text-[#6B7A8D] border-b border-[#E2E8F0]">{SHIPMENT_RATE_BASIS}</p>
       {totalNote && (
         <p className="px-5 py-2 text-[11px] text-amber-700 border-b border-[#E2E8F0]">⚠ {totalNote}</p>
       )}
@@ -633,7 +635,7 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
       {totals.stale > 0 && (
         <p className="px-5 py-2 text-[11px] text-amber-700 border-b border-[#E2E8F0]">
           ⚠ {totals.stale} of {totals.reconciled} reconciled shipments have a stored
-          profit_loss that disagrees with charged minus paid. The figures above are
+          profit_loss that disagrees with shipment client rate minus carrier cost. The figures above are
           derived by subtraction and do not use that column; the disagreement means
           it was written against a rate or cost that has since changed.
         </p>
@@ -645,9 +647,9 @@ function ProfitTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportShip
             <tr>
               <th className="text-left px-4 py-2 font-medium">Client</th>
               <th className="text-right px-4 py-2 font-medium">Shipments</th>
-              <th className="text-right px-4 py-2 font-medium">Revenue</th>
-              <th className="text-right px-4 py-2 font-medium">Cost</th>
-              <th className="text-right px-4 py-2 font-medium">Profit</th>
+              <th className="text-right px-4 py-2 font-medium">Shipment client rate</th>
+              <th className="text-right px-4 py-2 font-medium">Carrier cost</th>
+              <th className="text-right px-4 py-2 font-medium">Rate minus cost</th>
               <th className="text-right px-4 py-2 font-medium">Margin</th>
               <th className="text-left px-4 py-2 font-medium">Not counted</th>
             </tr>
@@ -1137,15 +1139,7 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
                 <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? <span className="text-[#6B7A8D]">—</span>}</td>
                 <td className="px-4 py-2.5 text-[#4B4F58] text-xs">
-                  {(() => {
-                    const day = presentShipDay(s.ship_date, s.raw_data)
-                    return (
-                      <>
-                        <div>{day.shipDate || '—'}</div>
-                        {day.differs ? <div className="text-[10px] text-amber-700">Stored ship day {day.storedShipDay}</div> : null}
-                      </>
-                    )
-                  })()}
+                  {shipDateWithStored(s.ship_date, s.raw_data) || '—'}
                 </td>
                 <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-[#6B7A8D]">{s.tracking_number ?? '—'}</td>
@@ -1215,15 +1209,7 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
                 <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? '—'}</td>
                 <td className="px-4 py-2.5 text-[#4B4F58] text-xs">
-                  {(() => {
-                    const day = presentShipDay(s.ship_date, s.raw_data)
-                    return (
-                      <>
-                        <div>{day.shipDate || '—'}</div>
-                        {day.differs ? <div className="text-[10px] text-amber-700">Stored ship day {day.storedShipDay}</div> : null}
-                      </>
-                    )
-                  })()}
+                  {shipDateWithStored(s.ship_date, s.raw_data) || '—'}
                 </td>
                 <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>

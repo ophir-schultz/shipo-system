@@ -101,10 +101,11 @@ export default function OrderPnlView({ orders }: { orders: OrderProfit[] }) {
             {filteredOrders.slice(0, 300).map((order) => (
               <tr key={order.key} className="border-b border-[#E2E8F0]/40">
                 <td className="py-2 pr-3 text-[#4B4F58]">
-                  <div>{order.carrierShipDate ?? '—'}</div>
-                  {order.carrierShipDate && order.shipDate && order.carrierShipDate !== order.shipDate
-                    ? <div className="text-[10px] text-amber-700">Stored ship day {order.shipDate}</div>
-                    : null}
+                  <div>
+                    {order.carrierShipDate && order.shipDate && order.carrierShipDate !== order.shipDate
+                      ? `${order.carrierShipDate} (stored ${order.shipDate})`
+                      : (order.carrierShipDate ?? '—')}
+                  </div>
                 </td>
                 <td className="py-2 pr-3 text-[#0B1220]">{order.orderNumber}</td>
                 <td className="py-2 pr-3 text-[#4B4F58]">{order.clientName}</td>

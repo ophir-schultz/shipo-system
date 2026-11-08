@@ -94,7 +94,7 @@ export function applyManualFullFreight(
     const full = priceOf(links[0].amount)
     if (full === null) return pendingFreight(charge)
     if (links[0].logDate !== charge.charge_date) {
-      reviews.push(`Shipment ${shipmentId} manual date ${links[0].logDate} is not the charge date ${charge.charge_date}. The carrier cost was not billed.`)
+      reviews.push(`Shipment ${shipmentId} manual date ${links[0].logDate} is not the charge date ${charge.charge_date}. The manual freight line was not billed.`)
       return pendingFreight(charge)
     }
     return { ...charge, amount: full, label: 'Shipping' }

@@ -8,10 +8,11 @@
 -- SHA-256 of that file: eff3346858d733e83e6ceafb2d79fa48fd53e2d867fc0e4199c6724ec2f46500
 --
 -- The fingerprint bfb18f5b9109c7c56cc3eec6726cdb3485323f3a3d74df683a56f614f1c6b569
--- was given as sha256 of sorted id|old|new|amount lines. It does not
--- match that layout when amount is empty, the word null, or two
--- decimals, with LF or CRLF. This file does not claim that hash.
--- The pin is the 1038 rows copied below from the snapshot file.
+-- is sha256 of these rows sorted by id ascending. Each line is
+-- id|stored_charge_date|carrier_day|amount. A JSON null amount is the
+-- literal None. A known amount stays the JSON string, two decimals.
+-- Lines are joined with LF and there is no trailing newline. UTF-8.
+-- The JSON file hash above remains the pin.
 --
 -- A later approved run must set, in the same session:
 --   set shipo.approve_charge_date_repair = 'propose_charge_date_repair_2026_11_08';

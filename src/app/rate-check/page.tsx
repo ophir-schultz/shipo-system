@@ -141,8 +141,11 @@ export default async function RateCheckPage({
                     <td className="px-4 py-2.5">{row.orderNumber}</td>
                     <td className="px-4 py-2.5">{row.clientName}</td>
                     <td className="px-4 py-2.5">
-                      <div>{row.shipDate ?? '—'}</div>
-                      {row.storedShipDay ? <div className="text-[10px] text-amber-700">Stored ship day {row.storedShipDay}</div> : null}
+                      <div>
+                        {row.storedShipDay
+                          ? `${row.shipDate} (stored ${row.storedShipDay})`
+                          : (row.shipDate ?? '—')}
+                      </div>
                     </td>
                     <td className="px-4 py-2.5">{row.weightOz ?? '—'}</td>
                     <td className="px-4 py-2.5">{row.zone ?? '—'}</td>

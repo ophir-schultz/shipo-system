@@ -1,4 +1,4 @@
-import { presentShipDay } from '@/lib/billing/ship-day-label'
+import { shipDateWithStored } from '@/lib/billing/ship-day-label'
 
 export function ShipDay({
   stored,
@@ -7,13 +7,6 @@ export function ShipDay({
   stored: string | null | undefined
   raw?: unknown
 }) {
-  const day = presentShipDay(stored, raw)
-  return (
-    <>
-      <span>{day.shipDate || '—'}</span>
-      {day.differs ? (
-        <span className="block text-[10px] text-amber-700">Stored ship day {day.storedShipDay}</span>
-      ) : null}
-    </>
-  )
+  const text = shipDateWithStored(stored, raw)
+  return <span>{text || '—'}</span>
 }

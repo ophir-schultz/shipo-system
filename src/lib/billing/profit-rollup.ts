@@ -104,6 +104,19 @@ export interface MarginRow {
  * because a partition that stops being total is how a row goes missing from a
  * money figure without appearing in any count.
  */
+/**
+ * What the profit summary is adding up.
+ *
+ * `revenue` is the client rate stored on the shipment. A zone price is
+ * included when the label has no invoice charge yet. It is not the
+ * statement, and profit is not company profit. Carrier cost stays internal.
+ */
+export const SHIPMENT_RATE_BASIS =
+  'Shipment client rate is the price stored on the label, including a zone price that has not been invoiced. It is not invoiced, charged, or realized revenue, and rate minus carrier cost is not company profit. Carrier cost is staff-only.'
+
+export const SHIPMENT_RATE_HEADER = 'Shipment client rate ($)'
+export const SHIPMENT_MARGIN_HEADER = 'Rate minus carrier cost ($)'
+
 export interface Reconciled {
   /** SUM(client_rate) over the rows where rate AND cost are both known. */
   revenue: number

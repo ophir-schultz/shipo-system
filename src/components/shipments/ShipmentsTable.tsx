@@ -6,7 +6,7 @@ import {
 } from '@/lib/billing/unpriced'
 import { exclusionNote, reconcile, reconciledOrUnknown } from '@/lib/billing/profit-rollup'
 import { easternAddDays, easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
-import { presentShipDay, SHIP_DATE_FILTER_NOTE, shipmentMatchesStoredRange } from '@/lib/billing/ship-day-label'
+import { SHIP_DATE_FILTER_NOTE, shipDateWithStored, shipmentMatchesStoredRange } from '@/lib/billing/ship-day-label'
 
 // The rate and profit columns are nullable: recalculate.ts writes null when
 // the rate card does not cover a shipment. `?? 0` printed those as "$0.00",
@@ -237,15 +237,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                   <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                   <td className="px-4 py-2.5 font-medium text-sm">{s.clients?.name ?? <span className="text-[#6B7A8D]">Unassigned</span>}</td>
                   <td className="px-4 py-2.5 text-[#4B4F58] text-xs whitespace-nowrap">
-                    {(() => {
-                      const day = presentShipDay(s.ship_date, s.raw_data)
-                      return (
-                        <>
-                          <div>{day.shipDate || '—'}</div>
-                          {day.differs ? <div className="text-[10px] text-amber-700">Stored ship day {day.storedShipDay}</div> : null}
-                        </>
-                      )
-                    })()}
+                    {shipDateWithStored(s.ship_date, s.raw_data) || '—'}
                   </td>
                   <td className="px-4 py-2.5 text-[#3A4658] text-xs whitespace-nowrap">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-[#6B7A8D]">{s.tracking_number ?? '—'}</td>

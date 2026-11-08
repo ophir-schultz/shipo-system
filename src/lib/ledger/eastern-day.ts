@@ -87,8 +87,17 @@ export function shipCalendarDay(
   return easternCalendarDay(storedText)
 }
 
-/** `raw_data.shipDate` when that field is a string. Other payload fields are ignored. */
+/** `raw_data.shipDate` when that field is a string. A JSON string is parsed once. Other payload fields are ignored. */
 export function rawShipDate(raw: unknown): string | null {
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed.startsWith('{')) return null
+    try {
+      return rawShipDate(JSON.parse(trimmed) as unknown)
+    } catch {
+      return null
+    }
+  }
   if (!raw || typeof raw !== 'object') return null
   const value = (raw as { shipDate?: unknown }).shipDate
   return typeof value === 'string' ? value : null

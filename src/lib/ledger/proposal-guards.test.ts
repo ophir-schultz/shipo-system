@@ -46,12 +46,15 @@ describe('frozen charge-date snapshot', () => {
     )
   })
 
-  it('does not treat the unpublished fingerprint as proven', () => {
-    const lines = snapshot.map((row) =>
-      `${row.id}|${row.stored_charge_date}|${row.carrier_day}|${row.amount ?? ''}`)
-    const hash = sha256(`${lines.sort().join('\n')}\n`)
-    expect(hash).not.toBe('bfb18f5b9109c7c56cc3eec6726cdb3485323f3a3d74df683a56f614f1c6b569')
-    expect(dateSql).toContain('does not claim that hash')
+  it('reproduces the line fingerprint with Python None and no trailing newline', () => {
+    const lines = [...snapshot]
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((row) => `${row.id}|${row.stored_charge_date}|${row.carrier_day}|${row.amount == null ? 'None' : row.amount}`)
+    const hash = sha256(lines.join('\n'))
+    expect(hash).toBe('bfb18f5b9109c7c56cc3eec6726cdb3485323f3a3d74df683a56f614f1c6b569')
+    expect(dateSql).toContain('bfb18f5b9109c7c56cc3eec6726cdb3485323f3a3d74df683a56f614f1c6b569')
+    expect(dateSql).not.toContain('does not claim that hash')
+    expect(dateSql).toContain('eff3346858d733e83e6ceafb2d79fa48fd53e2d867fc0e4199c6724ec2f46500')
   })
 
   it('pins every frozen id and does not create a public backup', () => {

@@ -338,6 +338,61 @@ describe('GET /api/reports/download: staff only', () => {
   })
 })
 
+describe('GET /api/reports/download: profit summary is a shipment client rate', () => {
+  it('prints the rate basis, no date column, and the same dollars', async () => {
+    h.db = createFakeSupabase({
+      ...structuredClone(EMPTY_TABLES),
+      shipments: [
+        {
+          id: 'priced', client_id: 'c1', clients: { name: 'Nayax' },
+          ship_date: '2026-10-15T15:00:00.000Z',
+          actual_cost: 4873.52, client_rate: 6313.47, profit_loss: 1439.95,
+          is_loss: false, raw_data: {},
+        },
+        {
+          id: 'unrated', client_id: 'c1', clients: { name: 'Nayax' },
+          ship_date: '2026-10-16T15:00:00.000Z',
+          actual_cost: 12, client_rate: null, profit_loss: null,
+          is_loss: true, raw_data: {},
+        },
+      ],
+    })
+
+    const rows = await sheetRows(await GET(url({ type: 'profit-loss', dateFrom: FROM, dateTo: TO })))
+    const keys = Object.keys(rows[0])
+    expect(keys).toContain('Shipment client rate ($)')
+    expect(keys).toContain('Rate minus carrier cost ($)')
+    expect(keys).not.toContain('Revenue ($)')
+    expect(keys).not.toContain('Profit ($)')
+    expect(keys.some((key) => /date/i.test(key))).toBe(false)
+
+    const total = rows.find((row) => row.Client === 'TOTAL')
+    expect(total).toMatchObject({
+      'Shipments': 2,
+      'Reconciled (in the figures below)': 1,
+      'No agreed rate (excluded)': 1,
+      'Shipment client rate ($)': '6313.47',
+      'Carrier Cost ($)': '4873.52',
+      'Rate minus carrier cost ($)': '1439.95',
+      'Margin %': '22.8%',
+      'Loss-flagged Shipments': 1,
+    })
+    expect(String(rows.find((row) => row.Client === 'NOTE')?.['Shipment client rate ($)']))
+      .toMatch(/not invoiced, charged, or realized revenue/)
+    expect(String(rows.find((row) => row.Client === 'NOTE')?.['Shipment client rate ($)']))
+      .toMatch(/not company profit/)
+
+    const csv = await bodyText(await GET(url({
+      type: 'profit-loss', dateFrom: FROM, dateTo: TO, format: 'csv',
+    })))
+    const header = csv.split('\n')[0]
+    expect(header).toContain('Shipment client rate ($)')
+    expect(header).not.toMatch(/Date/)
+    expect(csv).toContain('6313.47')
+    expect(csv).toContain('not company profit')
+  })
+})
+
 describe('GET /api/reports/download: ship date is the carrier calendar day', () => {
   function parcel(over: Record<string, unknown>) {
     return {
