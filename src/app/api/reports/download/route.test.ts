@@ -337,3 +337,141 @@ describe('GET /api/reports/download: staff only', () => {
     expect(h.db.calls).toHaveLength(0)
   })
 })
+
+describe('GET /api/reports/download: profit summary is a shipment client rate', () => {
+  it('prints the rate basis, no date column, and the same dollars', async () => {
+    h.db = createFakeSupabase({
+      ...structuredClone(EMPTY_TABLES),
+      shipments: [
+        {
+          id: 'priced', client_id: 'c1', clients: { name: 'Nayax' },
+          ship_date: '2026-10-15T15:00:00.000Z',
+          actual_cost: 4873.52, client_rate: 6313.47, profit_loss: 1439.95,
+          is_loss: false, raw_data: {},
+        },
+        {
+          id: 'unrated', client_id: 'c1', clients: { name: 'Nayax' },
+          ship_date: '2026-10-16T15:00:00.000Z',
+          actual_cost: 12, client_rate: null, profit_loss: null,
+          is_loss: true, raw_data: {},
+        },
+      ],
+    })
+
+    const rows = await sheetRows(await GET(url({ type: 'profit-loss', dateFrom: FROM, dateTo: TO })))
+    const keys = Object.keys(rows[0])
+    expect(keys).toContain('Shipment client rate ($)')
+    expect(keys).toContain('Rate minus carrier cost ($)')
+    expect(keys).not.toContain('Revenue ($)')
+    expect(keys).not.toContain('Profit ($)')
+    expect(keys.some((key) => /date/i.test(key))).toBe(false)
+
+    const total = rows.find((row) => row.Client === 'TOTAL')
+    expect(total).toMatchObject({
+      'Shipments': 2,
+      'Reconciled (in the figures below)': 1,
+      'No agreed rate (excluded)': 1,
+      'Shipment client rate ($)': '6313.47',
+      'Carrier Cost ($)': '4873.52',
+      'Rate minus carrier cost ($)': '1439.95',
+      'Margin %': '22.8%',
+      'Loss-flagged Shipments': 1,
+    })
+    expect(String(rows.find((row) => row.Client === 'NOTE')?.['Shipment client rate ($)']))
+      .toMatch(/not invoiced, charged, or realized revenue/)
+    expect(String(rows.find((row) => row.Client === 'NOTE')?.['Shipment client rate ($)']))
+      .toMatch(/not company profit/)
+
+    const csv = await bodyText(await GET(url({
+      type: 'profit-loss', dateFrom: FROM, dateTo: TO, format: 'csv',
+    })))
+    const header = csv.split('\n')[0]
+    expect(header).toContain('Shipment client rate ($)')
+    expect(header).not.toMatch(/Date/)
+    expect(csv).toContain('6313.47')
+    expect(csv).toContain('not company profit')
+  })
+})
+
+describe('GET /api/reports/download: ship date is the carrier calendar day', () => {
+  function parcel(over: Record<string, unknown>) {
+    return {
+      carrier: 'ups', service: 'ground', tracking_number: '1Z',
+      recipient_name: 'A', recipient_city: 'Dover', recipient_state: 'DE',
+      weight: 1, actual_cost: 4, client_rate: 9, profit_loss: 5, is_loss: false,
+      source: 'shipstation', client_id: 'c1', clients: { name: 'Nayax' },
+      ...over,
+    }
+  }
+
+  beforeEach(() => {
+    h.db = createFakeSupabase({
+      ...structuredClone(EMPTY_TABLES),
+      shipments: [
+        parcel({
+          id: 'raw', order_number: 'SO601061446',
+          ship_date: '2026-10-09T00:00:00.000Z',
+          raw_data: { shipDate: '2026-10-09', secretCost: 'secret-cost-87873' },
+          tracking_number: '1ZRAW',
+        }),
+        parcel({
+          id: 'gate', order_number: 'SO-GATE',
+          ship_date: '2026-10-01T00:00:00.000Z',
+          raw_data: { shipDate: '2026-10-01' },
+          tracking_number: '1ZGATE', is_loss: true, profit_loss: -2,
+        }),
+        parcel({
+          id: 'instant', order_number: 'SO-INSTANT',
+          ship_date: '2026-10-01T00:00:00.000Z',
+          raw_data: { shipDate: '2026-10-01T00:00:00.000Z' },
+          tracking_number: '1ZINSTANT', is_loss: true, profit_loss: -3,
+        }),
+        parcel({
+          id: 'late', order_number: 'SO-LATE',
+          ship_date: '2026-11-01T03:30:00.000Z',
+          raw_data: {}, tracking_number: '1ZLATE',
+        }),
+      ],
+    })
+  })
+
+  it('prints the carrier day and leaves a September instant out of October', async () => {
+    const october = await sheetRows(await GET(url({ type: 'shipments', dateFrom: FROM, dateTo: TO })))
+    const byOrder = new Map(october.map((row) => [row['Order #'], row]))
+    expect(byOrder.get('SO601061446')).toMatchObject({
+      'Ship Date': '2026-10-09',
+      'Stored ship day': '2026-10-08',
+    })
+    expect(byOrder.get('SO-LATE')).toMatchObject({ 'Ship Date': '2026-10-31' })
+    expect(byOrder.get('SO-LATE')?.['Stored ship day'] ?? '').toBe('')
+    expect(byOrder.has('SO-GATE')).toBe(false)
+    expect(byOrder.has('SO-INSTANT')).toBe(false)
+    expect(JSON.stringify(october)).not.toContain('secret-cost-87873')
+
+    const september = await sheetRows(await GET(url({
+      type: 'shipments', dateFrom: '2026-09-01', dateTo: '2026-09-30',
+    })))
+    const earlier = new Map(september.map((row) => [row['Order #'], row]))
+    expect(earlier.get('SO-GATE')).toMatchObject({
+      'Ship Date': '2026-10-01',
+      'Stored ship day': '2026-09-30',
+    })
+    expect(earlier.get('SO-INSTANT')).toMatchObject({ 'Ship Date': '2026-09-30' })
+    expect(earlier.get('SO-INSTANT')?.['Stored ship day'] ?? '').toBe('')
+    expect(earlier.has('SO601061446')).toBe(false)
+  })
+
+  it('uses the same dates on the loss export', async () => {
+    const october = await sheetRows(await GET(url({ type: 'loss-shipments', dateFrom: FROM, dateTo: TO })))
+    expect(october.map((row) => row['Order #'])).not.toContain('SO-GATE')
+    const september = await sheetRows(await GET(url({
+      type: 'loss-shipments', dateFrom: '2026-09-01', dateTo: '2026-09-30',
+    })))
+    const byOrder = new Map(september.map((row) => [row['Order #'], row]))
+    expect(byOrder.get('SO-GATE')).toMatchObject({
+      'Ship Date': '2026-10-01',
+      'Stored ship day': '2026-09-30',
+    })
+    expect(byOrder.get('SO-INSTANT')).toMatchObject({ 'Ship Date': '2026-09-30' })
+  })
+})

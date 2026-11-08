@@ -5,6 +5,8 @@ import {
   formatPrice, formatSignedPrice, isPriced, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 import { exclusionNote, reconcile, reconciledOrUnknown } from '@/lib/billing/profit-rollup'
+import { easternAddDays, easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
+import { SHIP_DATE_FILTER_NOTE, shipDateWithStored, shipmentMatchesStoredRange } from '@/lib/billing/ship-day-label'
 
 // The rate and profit columns are nullable: recalculate.ts writes null when
 // the rate card does not cover a shipment. `?? 0` printed those as "$0.00",
@@ -25,16 +27,11 @@ const QUICK_RANGES = [
 ]
 
 function getQuickRange(days: number) {
-  const to = new Date().toISOString().split('T')[0]
+  const to = easternToday()
   if (days === -2) return { from: '', to: '' }
-  if (days === -1) {
-    const now = new Date()
-    return { from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0], to }
-  }
+  if (days === -1) return { from: easternMonthStart(to), to }
   if (days === 0) return { from: to, to }
-  const from = new Date()
-  from.setDate(from.getDate() - days)
-  return { from: from.toISOString().split('T')[0], to }
+  return { from: easternAddDays(to, -days), to }
 }
 
 export default function ShipmentsTable({ shipments, clients, initialFilter }: {
@@ -42,9 +39,8 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
   clients: any[]
   initialFilter: string
 }) {
-  const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-  const today = now.toISOString().split('T')[0]
+  const today = easternToday()
+  const monthStart = easternMonthStart(today)
 
   const [dateFrom, setDateFrom] = useState(monthStart)
   const [dateTo, setDateTo] = useState(today)
@@ -69,9 +65,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
 
   const filtered = useMemo(() => {
     return shipments.filter(s => {
-      const d = s.ship_date?.split('T')[0] ?? ''
-      if (dateFrom && d < dateFrom) return false
-      if (dateTo && d > dateTo) return false
+      if (!shipmentMatchesStoredRange(s.ship_date, dateFrom, dateTo)) return false
       if (clientId && s.client_id !== clientId) return false
       if (carrier && s.carrier !== carrier) return false
       if (lossOnly && !s.is_loss) return false
@@ -179,10 +173,11 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
             Clear
           </button>
         </div>
+        <p className="text-xs text-[#6B7A8D]">{SHIP_DATE_FILTER_NOTE}</p>
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="bg-white rounded-xl px-4 py-3">
           <p className="text-xs text-[#4B4F58]">Shipments</p>
           <p className="text-xl font-bold text-[#0B1220]">{filtered.length}</p>
@@ -241,7 +236,9 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                 <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                   <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                   <td className="px-4 py-2.5 font-medium text-sm">{s.clients?.name ?? <span className="text-[#6B7A8D]">Unassigned</span>}</td>
-                  <td className="px-4 py-2.5 text-[#4B4F58] text-xs whitespace-nowrap">{s.ship_date ? new Date(s.ship_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</td>
+                  <td className="px-4 py-2.5 text-[#4B4F58] text-xs whitespace-nowrap">
+                    {shipDateWithStored(s.ship_date, s.raw_data) || '—'}
+                  </td>
                   <td className="px-4 py-2.5 text-[#3A4658] text-xs whitespace-nowrap">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-[#6B7A8D]">{s.tracking_number ?? '—'}</td>
                   <td className="px-4 py-2.5 text-right text-xs text-[#3A4658]">

@@ -1,0 +1,21 @@
+n,posted,payee,amount,category,note
+1,2026-10-01,Apple.com/bill,2.99,software,Low / confirm — Apple recurring bill; possible personal or app subscription — confirm business purpose. Provisional unreviewed bank classification.
+2,2026-10-01,Overdraft item fee (activity 10-01),10.00,bank_fees,High — BoA overdraft fee
+3,2026-10-02,Cash App · Younes El Boua,483.15,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll
+4,2026-10-02,Cash App · Youssef Amer,472.50,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll
+5,2026-10-02,Google Workspace (shipou),116.40,software,High — Google Workspace billing (Dublin); business workspace
+6,2026-10-02,Amazon Web Services,20.68,software,High — AWS cloud usage
+7,2026-10-02,Overdraft item fee (activity 10-02),10.00,bank_fees,High — BoA overdraft fee
+8,2026-10-08,Cash App · Younes El Boua,523.45,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll
+9,2026-10-08,Cash App · Youssef Amer,483.00,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll
+10,2026-10-13,Microsoft 365,12.99,software,Medium-high — Microsoft 365; confirm 100% business use
+11,2026-10-16,uPrinting (DRI*UPRINTING),254.69,other,Medium / confirm — print vendor; likely packaging/labels/marketing print — confirm business purpose and whether COGS vs OpEx. Provisional unreviewed bank classification.
+12,2026-10-16,Cash App · Youssef Amer,472.50,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll
+13,2026-10-16,Cash App · Younes El Boua,473.15,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll
+14,2026-10-19,Comcast Business Mobile,47.26,communications,High — labeled Comcast Business Mobile
+15,2026-10-20,Make.com,18.82,software,High — automation SaaS (Make.com)
+16,2026-10-23,Cash App · Youssef Amer,404.04,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll
+17,2026-10-23,Cash App · Younes El Boua,473.15,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll
+18,2026-10-28,Apple.com/bill,19.99,software,Low / confirm — Apple recurring; possible personal — confirm business purpose. Provisional unreviewed bank classification.
+19,2026-10-30,Cash App · Youssef Amer,465.15,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll
+20,2026-10-30,Cash App · Younes El Boua,473.15,contractors,Low / confirm — proposed contractor expense; confirm business purpose. Not labeled as confirmed payroll

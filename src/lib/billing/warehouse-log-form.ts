@@ -24,6 +24,7 @@ import {
   WAREHOUSE_SERVICE_TYPES,
   WAREHOUSE_SERVICE_GROUPS,
 } from './warehouse-rate-card'
+import type { CardLine } from './warehouse-card-lines'
 import type { CardState, PricedService } from './warehouse-priced-services'
 
 export type { CardState }
@@ -41,8 +42,17 @@ export type ServiceRow = {
   notes: string
   /** Ticked prep steps. Recorded in `notes`; never priced. */
   steps: string[]
-  /** The agreed rate, as priceServiceLine resolved it. Shown beside the box. */
-  rate: number
+  /** The agreed rate, as priceServiceLine resolved it. Shown beside the box.
+   *  Null when the operator has to type the amount. */
+  rate: number | null
+  /** Printed instead of the rate when the card is cost-plus, at cost, or a percent. */
+  rateText: string
+  pricing: 'fixed' | 'entered'
+  automatic: boolean
+  automaticReason: string | null
+  problem: string | null
+  /** Typed dollar amount for an entered line. */
+  amount: string
   /** May be null: a card can price a service without saying per what. Shown
    *  as nothing rather than guessed. */
   unit: string | null
@@ -131,7 +141,32 @@ export function rowsFromCard(services: PricedService[]): ServiceRow[] {
     notes: '',
     steps: [],
     rate: s.rate,
+    rateText: '',
+    pricing: 'fixed',
+    automatic: false,
+    automaticReason: null,
+    problem: null,
+    amount: '',
     unit: s.unit,
+  }))
+}
+
+/** One form row per rate line in effect, including structured lines. */
+export function rowsFromLines(lines: CardLine[]): ServiceRow[] {
+  return lines.map(line => ({
+    service_type: line.key,
+    label: line.label,
+    quantity: '',
+    notes: '',
+    steps: [],
+    rate: line.rate,
+    rateText: line.rateText,
+    pricing: line.pricing,
+    automatic: line.automatic,
+    automaticReason: line.automaticReason,
+    problem: line.problem,
+    amount: '',
+    unit: line.unit,
   }))
 }
 
@@ -194,7 +229,7 @@ export function filledRows(rows: ServiceRow[]): ServiceRow[] {
 export function clearedEntries(entries: ClientEntry[]): ClientEntry[] {
   return entries.map(e => ({
     ...e,
-    rows: e.rows.map(r => ({ ...r, quantity: '', notes: '', steps: [] })),
+    rows: e.rows.map(r => ({ ...r, quantity: '', notes: '', steps: [], amount: '' })),
   }))
 }
 

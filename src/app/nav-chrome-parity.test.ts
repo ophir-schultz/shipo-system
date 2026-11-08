@@ -93,12 +93,12 @@ function layoutChain(pageDir: string): string[] {
   return chain
 }
 
-/** The hrefs in the staff sidebar's nav array, in order. */
+/** The hrefs the staff sidebar renders, from the shared map. */
 function navHrefs(): string[] {
-  const src = readFileSync('src/components/layout/Sidebar.tsx', 'utf8')
-  const nav = /const nav = \[([\s\S]*?)\n\]/.exec(src)
-  if (nav === null) return []
-  return [...nav[1].matchAll(/href:\s*'([^']*)'/g)].map(m => m[1])
+  const src = readFileSync('src/lib/staff-nav.ts', 'utf8')
+  const sidebar = readFileSync('src/components/layout/Sidebar.tsx', 'utf8')
+  if (!sidebar.includes("from '@/lib/staff-nav'")) return []
+  return [...src.matchAll(/href:\s*'([^']*)'/g)].map(m => m[1])
 }
 
 /** The hrefs on the root landing page's card grid. */
@@ -178,9 +178,14 @@ describe('every page renders inside some chrome', () => {
       const chain = layoutChain(dir)
       expect(chain, `${href} has no layout above it`).not.toEqual([])
 
-      const rendersSidebar = chain.some(f => /<Sidebar\s*\/>/.test(readFileSync(f, 'utf8')))
-      expect(rendersSidebar, `no layout above ${href} renders <Sidebar />: ${chain.join(', ')}`)
+      const rendersSidebar = chain.some((f) => {
+        const src = readFileSync(f, 'utf8')
+        return /<Sidebar\s*\/>/.test(src) || /<StaffShell[\s>]/.test(src)
+      })
+      expect(rendersSidebar, `no layout above ${href} renders the staff shell: ${chain.join(', ')}`)
         .toBe(true)
+      const shell = readFileSync('src/components/layout/StaffShell.tsx', 'utf8')
+      expect(shell).toContain('<Sidebar')
     })
   }
 })

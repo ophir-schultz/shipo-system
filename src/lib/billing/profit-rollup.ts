@@ -77,6 +77,7 @@
 // "wait".
 
 import { priceOf, type Money, type PricedSum, combinePriced, sumPriced } from './unpriced'
+import { billableWarehouse } from './warehouse-card-lines'
 
 /**
  * The three money columns this module reads off a shipment.
@@ -103,6 +104,19 @@ export interface MarginRow {
  * because a partition that stops being total is how a row goes missing from a
  * money figure without appearing in any count.
  */
+/**
+ * What the profit summary is adding up.
+ *
+ * `revenue` is the client rate stored on the shipment. A zone price is
+ * included when the label has no invoice charge yet. It is not the
+ * statement, and profit is not company profit. Carrier cost stays internal.
+ */
+export const SHIPMENT_RATE_BASIS =
+  'Shipment client rate is the price stored on the label, including a zone price that has not been invoiced. It is not invoiced, charged, or realized revenue, and rate minus carrier cost is not company profit. Carrier cost is staff-only.'
+
+export const SHIPMENT_RATE_HEADER = 'Shipment client rate ($)'
+export const SHIPMENT_MARGIN_HEADER = 'Rate minus carrier cost ($)'
+
 export interface Reconciled {
   /** SUM(client_rate) over the rows where rate AND cost are both known. */
   revenue: number
@@ -315,7 +329,7 @@ export function exclusionNote(r: Reconciled, noun = 'shipment'): string {
   if (r.uncosted > 0) reasons.push(`${r.uncosted} awaiting carrier cost`)
   if (r.unmeasured > 0) reasons.push(`${r.unmeasured} with neither`)
   return `${excluded} of ${r.counted} ${excluded === 1 && r.counted === 1 ? noun : `${noun}s`} `
-    + `not in these figures: ${reasons.join(', ')}`
+    + `excluded from these figures, not counted as $0: ${reasons.join(', ')}`
 }
 
 /**
@@ -356,7 +370,10 @@ export function otherIncome(
   manual: ReadonlyArray<object> | null | undefined,
 ): PricedSum {
   return combinePriced(
-    sumPriced(warehouse, 'total'),
+    // A recorded-only automatic line has a null total on purpose. It is
+    // already billed by the order charge, so it is not warehouse revenue
+    // and it is not an unpriced gap.
+    sumPriced(billableWarehouse(warehouse as ReadonlyArray<{ notes?: string | null }> | null | undefined), 'total'),
     sumPriced(manual, 'amount'),
   )
 }

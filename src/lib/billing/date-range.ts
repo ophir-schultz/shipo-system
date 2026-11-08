@@ -1,3 +1,5 @@
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+
 // Which rows are inside the period a screen claims to be showing.
 //
 // This exists because /billing and /reports filtered the same rows by the same
@@ -72,7 +74,12 @@ export function filterByDate<T>(
     // period. Reading it as '' would be worse than useless: '' sorts before
     // every real date, so every row would silently fail the lower bound while
     // this function reported nothing wrong.
-    const day = typeof raw === 'string' ? raw.split('T')[0] : null
+    // A date column is already a calendar day. A timestamptz is an instant;
+    // the day is the one in New York, not the UTC date in front of the T.
+    // 2026-11-01T03:30Z is still 31 Oct in the warehouse.
+    const day = typeof raw === 'string'
+      ? easternCalendarDay(raw) || null
+      : null
 
     if (day === null) {
       // Unknown date. Only an unbounded view can honestly show it.

@@ -3,6 +3,8 @@ import {
   formatPrice, formatSignedPrice, priceOf, sumPriced, unpricedNote,
   UNPRICED_CELL,
 } from './unpriced'
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { shipmentDateColumns, shipDateWithStored } from '@/lib/billing/ship-day-label'
 
 // These two produce the files a client actually receives, which is why `?? 0`
 // mattered more here than anywhere: a 0 in a spreadsheet cell is not "we do not
@@ -51,20 +53,24 @@ export function downloadBillingExcel({
 
   // Shipments sheet
   const shipRows = [
-    ['Order #', 'Ship Date', 'Carrier', 'Service', 'We Paid', 'Charged', 'P/L'],
-    ...shipments.map((s: any) => [
-      s.order_number,
-      s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '',
-      s.carrier ?? '',
-      s.service ?? '',
-      priceOf(s.actual_cost) ?? UNPRICED_CELL,
-      priceOf(s.client_rate) ?? UNPRICED_CELL,
-      priceOf(s.profit_loss) ?? UNPRICED_CELL,
-    ]),
+    ['Order #', 'Ship Date', 'Stored ship day', 'Carrier', 'Service', 'We Paid', 'Charged', 'P/L'],
+    ...shipments.map((s: any) => {
+      const dates = shipmentDateColumns(s.ship_date, s.raw_data)
+      return [
+        s.order_number,
+        dates['Ship Date'],
+        dates['Stored ship day'],
+        s.carrier ?? '',
+        s.service ?? '',
+        priceOf(s.actual_cost) ?? UNPRICED_CELL,
+        priceOf(s.client_rate) ?? UNPRICED_CELL,
+        priceOf(s.profit_loss) ?? UNPRICED_CELL,
+      ]
+    }),
     [],
-    ['', '', '', 'TOTAL', sumPriced(shipments, 'actual_cost').total, shippingRevenue],
+    ['', '', '', '', 'TOTAL', sumPriced(shipments, 'actual_cost').total, shippingRevenue],
     ...(unpricedShipments > 0
-      ? [['', '', '', '', '', `⚠ ${unpricedNote(unpricedShipments)}`]]
+      ? [['', '', '', '', '', '', `⚠ ${unpricedNote(unpricedShipments)}`]]
       : []),
   ]
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shipRows), 'Shipments')
@@ -94,7 +100,7 @@ export function downloadBillingExcel({
     ...adjustments.map((a: any) => [
       a.order_number,
       a.reason ?? 'Carrier reweigh',
-      a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '',
+      easternCalendarDay(a.adjustment_date),
       a.adjustment_amount ?? 0,
       a.status,
     ]),
@@ -250,7 +256,7 @@ export async function downloadBillingPDF({
       if (y > 270) { doc.addPage(); y = 20 }
       tableRow([
         s.order_number ?? '',
-        s.ship_date ? new Date(s.ship_date).toLocaleDateString() : '',
+        shipDateWithStored(s.ship_date, s.raw_data),
         [s.carrier, s.service].filter(Boolean).join(' '),
         formatPrice(s.actual_cost),
         formatPrice(s.client_rate),
@@ -316,7 +322,7 @@ export async function downloadBillingPDF({
       tableRow([
         a.order_number ?? '',
         a.reason ?? 'Carrier reweigh',
-        a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString() : '',
+        easternCalendarDay(a.adjustment_date),
         `+$${(a.adjustment_amount ?? 0).toFixed(2)}`,
         a.status ?? '',
       ], [40, 60, 25, 25, 25], false, i % 2 === 0)

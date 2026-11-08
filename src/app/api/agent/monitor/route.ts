@@ -47,7 +47,7 @@ import {
   type EnvelopeVerdict,
 } from '@/lib/partner-agreement-audit'
 import { docusignConfig, envelopeStatus } from '@/lib/docusign-client'
-import { requireStaffOrCron } from '@/lib/require-staff'
+import { requireStaff, requireStaffOrCron } from '@/lib/require-staff'
 import { recalculateShipments, type RecalculateStats } from '@/lib/billing/recalculate'
 // CHARGE_CRON_HOURS_UTC is imported for the undelivered-report message, which
 // states how often this runs. Derived rather than written out, because that
@@ -78,13 +78,26 @@ const ALERT_TO = process.env.ALERT_EMAIL || 'ophir@shipousa.com'
 // throttled (CHARGE_THROTTLE_MINUTES) so browser polling cannot drive it.
 export const maxDuration = 300
 
+// GET is what vercel.json calls. It recalculates. Existing charge
+// dates and amounts stay put because the charge run uses preserve_stored.
 export async function GET(req: Request) {
-  // Two callers, both legitimate: the Vercel cron (see vercel.json) and
-  // the AutoSync widget on the staff dashboard, which polls this every
-  // five minutes from a signed-in browser. The guard has to accept
-  // both, so it is not a plain requireStaff().
   const denied = await requireStaffOrCron(req)
   if (denied) return denied
+  // The production cron is this GET. It still recalculates. persist-charges
+  // records preserve_stored and does not move an existing charge date or
+  // amount. Preview PR 58 leaves this GET read-only; this release does not.
+  return runMonitor(true)
+}
+
+// ShipStation sync, Zenventory client mapping, and recalculate write.
+// Only a signed-in staff POST runs them. A cron bearer is not enough.
+export async function POST(req: Request) {
+  const denied = await requireStaff()
+  if (denied) return denied
+  return runMonitor(true)
+}
+
+async function runMonitor(write: boolean) {
 
   const log: string[] = []
   const errors: string[] = []
@@ -95,7 +108,9 @@ export async function GET(req: Request) {
 
   // ── 1. Sync ShipStation ────────────────────────────────────────────────────
   let syncResult: any = {}
-  try {
+  if (!write) {
+    log.push('· ShipStation sync was not run. POST /api/agent/monitor runs it.')
+  } else try {
     syncResult = await syncShipments(7)
     // A green tick belongs to a clean pass, not to a pass that returned.
     // syncShipments counts its own per-shipment failures in results.errors and
@@ -284,7 +299,9 @@ export async function GET(req: Request) {
 
   // ── 2. Zenventory client mapping ───────────────────────────────────────────
   let clientResult: any = {}
-  try {
+  if (!write) {
+    log.push('· Zenventory client mapping was not run. POST /api/agent/monitor runs it.')
+  } else try {
     clientResult = await syncClientAssignments(7)
     // syncClientAssignments only throws when EVERY client failed — a partial
     // failure is its documented normal state, because two clients are 401ing
@@ -350,7 +367,9 @@ export async function GET(req: Request) {
     updated: 0, zone_matched: 0, legacy_matched: 0, unmatched: 0,
     skipped: 0, failed: 0, reasons: [],
   }
-  try {
+  if (!write) {
+    log.push('· Recalculate was not run. POST /api/agent/monitor runs it.')
+  } else try {
     // Called directly, not over HTTP. The old self-fetch to
     // /api/sync/recalculate carried no credentials, which is the only
     // reason that endpoint had to stay unauthenticated.
@@ -388,7 +407,9 @@ export async function GET(req: Request) {
   // Thirty days: long enough to catch a pick recorded against a date already
   // passed, short enough that a run stays inside the cron's time budget.
   let chargeResult: RecalculateResult | null = null
-  try {
+  if (!write) {
+    log.push('· Charge recalculation was not run. POST /api/agent/monitor runs it.')
+  } else try {
     const windowStart = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
     chargeResult = await recalculateCharges((warn) => loadChargeInputs(windowStart, warn))
 

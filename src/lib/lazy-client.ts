@@ -1,3 +1,5 @@
+import { readSupabaseServerUrl } from './supabase-url'
+
 // Deferred construction for clients that must not be built at import time.
 //
 // src/lib/supabase.ts used to call createClient() at module scope. `next build`
@@ -59,6 +61,32 @@ export function createLazyClient<T extends object>(factory: () => T): T {
  * `env` is a parameter so this is testable without mutating process.env, which
  * leaks between test files.
  */
+export const SUPABASE_ENV_VARS = [
+  'SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+] as const
+
+/**
+ * Names of Supabase variables that are missing or blank. Values are never returned.
+ *
+ * The URL counts as present when either SUPABASE_URL or
+ * NEXT_PUBLIC_SUPABASE_URL is set. Preview has the second and not the first.
+ */
+export function missingSupabaseEnv(
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  const missing: string[] = []
+  if (!readSupabaseServerUrl(env)) missing.push(SUPABASE_ENV_VARS[0])
+  if (env.NEXT_PUBLIC_SUPABASE_ANON_KEY === undefined || env.NEXT_PUBLIC_SUPABASE_ANON_KEY === '') {
+    missing.push('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+  }
+  if (env.SUPABASE_SERVICE_ROLE_KEY === undefined || env.SUPABASE_SERVICE_ROLE_KEY === '') {
+    missing.push('SUPABASE_SERVICE_ROLE_KEY')
+  }
+  return missing
+}
+
 export function requireEnv(
   name: string,
   env: Record<string, string | undefined> = process.env,

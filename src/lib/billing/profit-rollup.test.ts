@@ -7,6 +7,7 @@ import {
 // that the subtraction survives the trip through the exact two functions the
 // dashboard calls, so a local toFixed here would test nothing.
 import { formatPrice, formatSignedPrice } from '@/lib/billing/unpriced'
+import { AUTOMATIC_NOTE } from '@/lib/billing/warehouse-card-lines'
 
 // A shipment row, written as the three money columns only, because those are
 // the only three this module reads.
@@ -466,7 +467,7 @@ describe('exclusionNote', () => {
     const note = exclusionNote(reconcile([
       ship(10, 7), ship(null, 9), ship(25, null), ship(null, null),
     ]))
-    expect(note).toContain('3 of 4 shipments not in these figures')
+    expect(note).toContain('3 of 4 shipments excluded from these figures, not counted as $0')
     expect(note.indexOf('no agreed rate')).toBeLessThan(note.indexOf('awaiting carrier cost'))
     expect(note).toContain('1 with neither')
   })
@@ -485,6 +486,33 @@ describe('exclusionNote', () => {
   it('pluralizes on the counts it actually prints', () => {
     expect(exclusionNote(reconcile([ship(null, 9), ship(10, 7)]))).toContain('1 of 2 shipments')
   })
+})
+
+describe('verified shipping triples stay put when unrated rows are excluded', () => {
+  // Measured figures. An unrated shipment (cost known, rate unknown) must
+  // not move them, and revenue minus cost must stay the printed margin.
+  const periods = [
+    { name: 'week', revenue: 2032.76, cost: 1338.55, margin: 694.21 },
+    { name: 'month', revenue: 2934.69, cost: 1806.98, margin: 1127.71 },
+    { name: 'year', revenue: 42205.04, cost: 24459.24, margin: 17745.80 },
+  ]
+
+  for (const period of periods) {
+    it(`keeps the ${period.name} triple and counts the unrated row separately`, () => {
+      const r = reconcile([
+        { client_rate: period.revenue, actual_cost: period.cost },
+        { client_rate: null, actual_cost: 50 },
+      ])
+      expect(r.revenue).toBe(period.revenue)
+      expect(r.cost).toBe(period.cost)
+      expect(r.profit).toBe(period.margin)
+      expect(r.unrated).toBe(1)
+      expect(Math.round(r.revenue * 100) - Math.round(r.cost * 100) - Math.round(r.profit * 100)).toBe(0)
+      expect(exclusionNote(r)).toContain('1 with no agreed rate')
+      expect(exclusionNote(r)).toContain('excluded')
+      expect(exclusionNote(r)).toContain('not counted as $0')
+    })
+  }
 })
 
 describe('excludedCount', () => {
@@ -535,5 +563,13 @@ describe('otherIncome', () => {
     // since both columns hold money. Named parameters make that unexpressible;
     // this pins it.
     expect(otherIncome([{ amount: 999, total: 1 }], [{ total: 999, amount: 2 }]).total).toBe(3)
+  })
+
+  it('does not count a recorded-only automatic warehouse line as unpriced', () => {
+    const s = otherIncome([
+      { total: 12, notes: 'boxes' },
+      { total: null, notes: AUTOMATIC_NOTE },
+    ], [])
+    expect(s).toEqual({ total: 12, unpriced: 0, counted: 1 })
   })
 })

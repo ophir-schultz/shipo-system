@@ -16,6 +16,7 @@ import {
   taxStatusOf,
 } from '@/lib/partner-tax-status'
 import type { OwedLine, FbaInvoice } from '@/lib/referrals'
+import { REFERRALS_MONEY_SOURCE } from '@/lib/partner-money-source'
 
 const PCT = `${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%`
 
@@ -116,6 +117,16 @@ export default function ReferralsManager({
 
   // ---- payout ledger actions ----
   async function payoutAction(line: OwedLine, action: 'approve' | 'paid' | 'pending' | 'unrecord') {
+    if (action === 'paid') {
+      const partner = partners.find((p) => p.id === line.partnerId)
+      const blocked = partner
+        ? payoutBlockedReason(partner)
+        : 'Partner not found. Nothing was marked paid.'
+      if (blocked) {
+        showError('Not paid', blocked)
+        return
+      }
+    }
     const ok = await call('/api/referrals/payouts', {
       action,
       dedupe_key: line.dedupeKey,
@@ -135,7 +146,7 @@ export default function ReferralsManager({
   return (
     <div className="space-y-6">
       {/* Summary */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Owed (unpaid)" value={fmt(totals.owed)} sub="Everything not yet paid" color="blue" />
         <StatCard label="Pending Approval" value={fmt(totals.pending)} sub="Waiting on you" color="yellow" />
         <StatCard label="Approved" value={fmt(totals.approved)} sub="Cleared to pay" color="gray" />
@@ -150,7 +161,7 @@ export default function ReferralsManager({
             {REFERRAL_TERMS.SIGNUP_BONUS} bonus + {PCT} commissions will appear here.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="max-w-full overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
@@ -437,7 +448,7 @@ function PartnersPanel({
       {partners.length === 0 ? (
         <p className="text-[#6B7A8D] text-sm">No partners yet. Website sign-ups land here as “pending” for you to review.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="max-w-full overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
@@ -617,7 +628,7 @@ function ClientsPanel({
       {clients.length === 0 ? (
         <p className="text-[#6B7A8D] text-sm">No clients yet.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="max-w-full overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
@@ -766,7 +777,7 @@ function InvoicesPanel({
   return (
     <Section
       title="Monthly Account Figures"
-      subtitle={`Net profit = invoiced less these four direct costs. Warehouse labor is NOT deducted. ${PCT} of the result is the partner's.`}
+      subtitle={`Net profit = invoiced less these four direct costs. Warehouse labor is NOT deducted. ${PCT} of the result is the partner's. ${REFERRALS_MONEY_SOURCE}`}
     >
       <div className="mb-4 rounded-lg border border-[#E2E8F0] bg-[#F1F5FB]/40 p-4 space-y-3">
         <div className="flex flex-wrap items-end gap-3">
@@ -841,7 +852,7 @@ function InvoicesPanel({
       {invoices.length === 0 ? (
         <p className="text-[#6B7A8D] text-sm">Nothing logged yet.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="max-w-full overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">

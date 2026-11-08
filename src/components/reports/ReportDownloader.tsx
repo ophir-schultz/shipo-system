@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { showError, showSuccess } from '@/components/ui/Toast'
+import { easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
 
 const colors: Record<string, string> = {
   blue: 'border-blue-200 bg-blue-50',
@@ -15,19 +16,16 @@ const colors: Record<string, string> = {
 export default function ReportDownloader({ report, clients }: { report: any; clients: any[] }) {
   const [loading, setLoading] = useState(false)
   const [clientId, setClientId] = useState('')
-  const [dateFrom, setDateFrom] = useState(() => {
-    const d = new Date()
-    d.setDate(1)
-    return d.toISOString().split('T')[0]
-  })
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0])
+  const [dateFrom, setDateFrom] = useState(() => easternMonthStart(easternToday()))
+  const [dateTo, setDateTo] = useState(() => easternToday())
 
-  async function handleDownload() {
+  async function handleDownload(format: 'xlsx' | 'csv' | 'pdf') {
     setLoading(true)
     const params = new URLSearchParams({
       type: report.id,
       dateFrom,
       dateTo,
+      format,
       ...(clientId ? { clientId } : {}),
     })
     try {
@@ -40,10 +38,10 @@ export default function ReportDownloader({ report, clients }: { report: any; cli
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${report.id}-${dateFrom}-${dateTo}.xlsx`
+      a.download = `${report.id}-${dateFrom}-${dateTo}.${format}`
       a.click()
       URL.revokeObjectURL(url)
-      showSuccess('Report downloaded', `${report.title} exported as Excel`)
+      showSuccess('Report downloaded', `${report.title} exported as ${format.toUpperCase()}`)
     } catch (err: any) {
       showError('Download failed', err?.message ?? 'Could not generate report')
     } finally {
@@ -95,13 +93,21 @@ export default function ReportDownloader({ report, clients }: { report: any; cli
           </select>
         </div>
 
-        <button
-          onClick={handleDownload}
-          disabled={loading}
-          className="w-full bg-white hover:bg-gray-100 disabled:opacity-50 text-gray-900 py-2.5 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-2"
-        >
-          {loading ? '⏳ Generating...' : '↓ Download Excel'}
-        </button>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => handleDownload('csv')} disabled={loading}
+            className="flex-1 bg-white hover:bg-gray-100 disabled:opacity-50 text-gray-900 py-2.5 rounded-lg text-sm font-semibold">
+            {loading ? '…' : 'CSV'}
+          </button>
+          <button type="button" onClick={() => handleDownload('xlsx')} disabled={loading}
+            className="flex-1 bg-white hover:bg-gray-100 disabled:opacity-50 text-gray-900 py-2.5 rounded-lg text-sm font-semibold">
+            {loading ? '…' : 'Excel'}
+          </button>
+          <button type="button" onClick={() => handleDownload('pdf')} disabled={loading}
+            className="flex-1 text-white disabled:opacity-50 py-2.5 rounded-lg text-sm font-semibold"
+            style={{ background: '#1A73E8' }}>
+            {loading ? '…' : 'PDF'}
+          </button>
+        </div>
       </div>
     </div>
   )

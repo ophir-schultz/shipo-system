@@ -8,6 +8,7 @@ import {
 } from '@/lib/partner-terms'
 import TermsGate from '@/components/partner/TermsGate'
 import Statement from '@/components/partner/Statement'
+import DocusignNotice from '@/components/partner/DocusignNotice'
 
 export const dynamic = 'force-dynamic'
 
@@ -73,5 +74,10 @@ export default async function PartnerPage() {
   // <Statement> withholds the money surfaces itself, from the same
   // `holdsW9` predicate /referrals asks, so the dashboard and the payout
   // path cannot disagree about what "absent" means.
-  return <Statement partner={partner} />
+  return (
+    <div className="space-y-4">
+      <DocusignNotice audience="partner" />
+      <Statement partner={partner} />
+    </div>
+  )
 }

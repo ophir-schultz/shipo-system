@@ -2,6 +2,7 @@ import {
   priceOf, sumPriced, combinePriced, totalOrUnknown,
   type Money, type PricedSum,
 } from '@/lib/billing/unpriced'
+import { easternAddDays, easternWeekStart } from '@/lib/ledger/eastern-day'
 import { warehouseParts } from '@/lib/ledger/pick-date'
 
 // What a client is owed for a period, assembled from the charges the ledger
@@ -167,20 +168,17 @@ const DAY_MS = 86_400_000
 /**
  * The calendar period of `grain` that contains `today`.
  *
- * Weeks run Monday to Sunday. Not a preference: `getUTCDay()` calls Sunday 0,
- * and taking that as the start would split every working week across two
- * statements.
+ * Weeks run Monday 12:00 AM America/New_York through Sunday.
+ * easternWeekStart is the same Monday the dashboard uses.
  */
 export function periodRange(grain: Grain, today: string): DateRange {
-  const { y, m, ms } = parseDay(today)
+  const { y, m } = parseDay(today)
 
   if (grain === 'day') return { from: today, to: today }
 
   if (grain === 'week') {
-    // Sunday (0) is 6 days from Monday, every other day is `dow - 1`.
-    const dow = new Date(ms).getUTCDay()
-    const start = ms - ((dow + 6) % 7) * DAY_MS
-    return { from: fmt(start), to: fmt(start + 6 * DAY_MS) }
+    const start = easternWeekStart(today)
+    return { from: start, to: easternAddDays(start, 6) }
   }
 
   if (grain === 'month') {
@@ -274,6 +272,54 @@ export type PeriodResolution =
  * already documents its cost against the 'year' grain and the failure mode of a
  * too-long read is a timeout, not a wrong number.
  */
+/**
+ * The calendar month named by an `<input type="month">` value.
+ *
+ * `2026-10` is 1 October through 31 October, the same range as
+ * periodRange('month', '2026-10-01'). It does not mean "this month"
+ * relative to today.
+ */
+export function monthInputRange(month: string): DateRange | null {
+  if (!/^\d{4}-\d{2}$/.test(month)) return null
+  try {
+    return periodRange('month', `${month}-01`)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The statement screen's query: one of a relative grain, a calendar
+ * month, or an explicit from/to. More than one is a refusal.
+ */
+export function resolveStatementQuery(
+  q: { grain?: string | null; from?: string | null; to?: string | null; month?: string | null },
+  today: string = statementToday(),
+): PeriodResolution {
+  const filled = (value: string | null | undefined) =>
+    typeof value === 'string' && value.trim() !== '' ? value.trim() : ''
+  const month = filled(q.month)
+  const from = filled(q.from)
+  const to = filled(q.to)
+  const grain = filled(q.grain)
+  const chosen = [month !== '', from !== '' || to !== '', grain !== ''].filter(Boolean).length
+  if (chosen > 1) {
+    return {
+      ok: false,
+      error: 'Send a relative period, a calendar month, or a from/to range. Not more than one.',
+    }
+  }
+  if (month !== '') {
+    const range = monthInputRange(month)
+    if (!range) return { ok: false, error: `Calendar month ${JSON.stringify(month)} is not YYYY-MM.` }
+    return { ok: true, range, grain: null }
+  }
+  if (from !== '' || to !== '' || grain !== '') {
+    return resolvePeriod({ grain: grain || null, from: from || null, to: to || null }, today)
+  }
+  return resolvePeriod({ grain: 'month' }, today)
+}
+
 export function resolvePeriod(
   req: PeriodRequest,
   today: string = statementToday(),

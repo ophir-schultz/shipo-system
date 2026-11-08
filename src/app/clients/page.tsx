@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import Link from 'next/link'
 import { read, loaded } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { nameInitial } from '@/lib/display/initial'
 
@@ -30,14 +31,16 @@ export const dynamic = 'force-dynamic'
 // so make one".
 
 async function getClients() {
-  const clients = read('clients', await supabaseAdmin
+  const clients = read('clients', await readAllPages((from, to) => supabaseAdmin
     .from('clients')
     .select(`
       *,
       client_shipping_rates(count),
       client_warehouse_rates(count)
     `)
-    .order('name'))
+    .order('name')
+    .order('id')
+    .range(from, to)))
   // `loaded` rather than returning the Read directly, so that `clients` below
   // is `undefined` until the error has been checked. A Read's `rows` is always
   // an array, which means deleting the refusal compiles cleanly -- I checked,

@@ -41,13 +41,10 @@ if (!url || !key) {
   process.exit(2)
 }
 
+import { supabaseKeyRole } from './supabase-key-role.mjs'
+
 const ref = new URL(url).hostname.split('.')[0]
-let role = 'unknown'
-try {
-  role = JSON.parse(Buffer.from(key.split('.')[1], 'base64url').toString()).role ?? 'absent'
-} catch {
-  role = 'unparseable'
-}
+const role = supabaseKeyRole(key)
 console.log(`project ${ref}   reader role=${role}`)
 if (role !== 'service_role') {
   console.log('!! NOT service_role -- RLS can hide rows and a count of 0 would prove nothing.')

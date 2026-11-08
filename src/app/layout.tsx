@@ -13,13 +13,13 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// shipousa.com is set in Inter, headings at weight 800. Loaded through
-// next/font rather than a <link> so it is self-hosted and does not block
-// first paint on a third-party request.
+// shipousa.com is set in Inter, headings at weight 800. Inter is a variable
+// font, so one file covers those weights. Listing them separately makes the
+// Vercel Turbopack build ask next/font for several Google files at once, and
+// that build fails with "queries have exactly one entry".
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {

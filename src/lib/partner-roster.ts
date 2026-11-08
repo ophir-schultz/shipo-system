@@ -118,7 +118,7 @@ export interface RosterRow {
 export const ROSTER_STATE_TEXT: Record<RosterState, string> = {
   awaiting_first_payment:
     'Signed up. Your commission starts the month this client pays their first invoice.',
-  earning: `Earning. You receive ${REFERRAL_TERMS.COMMISSION_RATE * 100}% of this account's net profit each month.`,
+  earning: 'Earning commission on this account.',
   window_closed: `The ${REFERRAL_TERMS.COMMISSION_MONTHS}-month commission window for this client has ended.`,
 }
 

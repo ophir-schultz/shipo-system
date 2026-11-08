@@ -671,3 +671,129 @@ describe('recalculateCharges: losing the database-level lock', () => {
     expect(h.db.calls.some((c) => c.table === 'order_charges' && c.verb === 'delete')).toBe(false)
   })
 })
+
+describe('recalculateCharges — an approved zone price', () => {
+  function zonedOrder() {
+    return order('order-a', {
+      shipments: [{
+        id: 's1', shipmentId: 900, shipDate: '2026-10-07', actualCost: 10, voided: false,
+      }],
+      rateCard: [pickRate, shipRate],
+    })
+  }
+
+  const zoneRow = {
+    id: 'zone-1',
+    order_id: 'order-a',
+    client_id: 'client-1',
+    charge_key: 'shipment:900',
+    charge_type: 'shipping',
+    label: 'Shipping',
+    quantity: 1,
+    unit_rate: 41,
+    amount: 41,
+    cost: null,
+    cost_basis: null,
+    rate_id: null,
+    cost_rate_id: null,
+    charge_date: '2026-10-07',
+    charge_date_source: 'ship_date',
+    source: 'zone_client_rate',
+    is_estimate: false,
+    calculated_at: '2020-01-01T00:00:00.000Z',
+  }
+
+  function shippingRows() {
+    return charges().filter((row) => row.order_id === 'order-a' && row.charge_type === 'shipping')
+  }
+
+  it('keeps the zone price on a second run and does not write at-cost', async () => {
+    h.db.tables.order_charges = [{ ...zoneRow }]
+
+    await recalculateCharges(async () => [zonedOrder()])
+    h.db.tables.sync_runs = []
+    await recalculateCharges(async () => [zonedOrder()])
+
+    expect(shippingRows()).toHaveLength(1)
+    expect(shippingRows()[0]).toMatchObject({
+      amount: 41,
+      unit_rate: 41,
+      source: 'zone_client_rate',
+      charge_date: '2026-10-07',
+      cost: null,
+    })
+    const run = (h.db.tables.sync_runs as FakeRow[]).find((row) => row.source === 'charges' && row.status === 'ok')
+    expect(run?.mode).toBe('preserve_stored')
+  })
+
+  it('does not move a preexisting calculator date or amount', async () => {
+    h.db.tables.order_charges = [{
+      id: 'old-ship',
+      order_id: 'order-a',
+      client_id: 'client-1',
+      charge_key: 'shipment:900',
+      charge_type: 'shipping',
+      label: 'Shipping',
+      quantity: 1,
+      unit_rate: null,
+      amount: 14.78,
+      cost: 8.22,
+      cost_basis: 'measured',
+      rate_id: 'rate-ship',
+      cost_rate_id: null,
+      charge_date: '2026-10-08',
+      charge_date_source: 'ship_date',
+      source: 'calculator',
+      is_estimate: false,
+      calculated_at: '2020-01-01T00:00:00.000Z',
+    }]
+
+    await recalculateCharges(async () => [zonedOrder()])
+
+    expect(shippingRows()).toHaveLength(1)
+    expect(shippingRows()[0]).toMatchObject({
+      charge_date: '2026-10-08',
+      amount: 14.78,
+      cost: 8.22,
+      source: 'calculator',
+    })
+  })
+
+  it('does not add a second charge and does not reprice the billed at-cost row', async () => {
+    h.db.tables.warehouse_daily_log = [{
+      id: 'freight-1',
+      shipment_ref: '900',
+      total: 15,
+      log_date: '2026-10-07',
+      client_id: 'client-1',
+      service_type: 'carrier_freight',
+      freight_cost: 10,
+      freight_markup: 5,
+    }]
+
+    await recalculateCharges(async () => [zonedOrder()])
+    h.db.tables.sync_runs = []
+    await recalculateCharges(async () => [zonedOrder()])
+
+    expect(shippingRows()).toHaveLength(1)
+    expect(shippingRows()[0].amount).toBe(10)
+    expect(shippingRows()[0].source).toBe('calculator')
+    expect(shippingRows().some((row) => row.amount === 15)).toBe(false)
+  })
+
+  it('writes nothing when the approved zone rows cannot be read', async () => {
+    h.db.tables.order_charges = [{ ...zoneRow }]
+    h.db.failOn = (call) =>
+      call.table === 'order_charges' && call.verb === 'select'
+      && call.filters.some((filter) => filter.column === 'order_id' && filter.op === 'in')
+      && !call.filters.some((filter) => filter.column === 'calculated_at')
+        ? { message: 'connection reset' }
+        : null
+
+    const result = await recalculateCharges(async () => [zonedOrder()])
+
+    expect(result).toMatchObject({ skipped: false, upserted: 0, deleted: 0 })
+    expect(shippingRows()[0].amount).toBe(41)
+    expect(h.db.calls.some((call) => call.table === 'order_charges' && call.verb === 'upsert')).toBe(false)
+  })
+})

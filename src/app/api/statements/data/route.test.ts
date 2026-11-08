@@ -104,10 +104,14 @@ type Body = {
     amount: number | null; unpriced: number; counted: number; estimated: number
   }>
   total?: number | null
+  partial?: boolean
+  subtotalLabel?: string
+  amountDue?: number | null
   unpriced?: number
   counted?: number
   estimated?: number
   notes?: string[]
+  pickPack?: { billed: boolean; reason: string }
 }
 
 const body = (res: Response): Promise<Body> => res.json() as Promise<Body>
@@ -130,6 +134,7 @@ describe('GET /api/statements/data', () => {
     // label) and the grouping is what the client is shown.
     expect(b.lines?.map(l => l.label).sort())
       .toEqual(['Peak', 'Pick - single', 'Shipping'])
+    expect(b.pickPack?.reason).toContain('ledger')
   })
 
   it('leaves an UNKNOWN amount null rather than summing it as zero', async () => {
@@ -154,18 +159,22 @@ describe('GET /api/statements/data', () => {
   it('totals only what it could price', async () => {
     // 1.05 + 10.50 + 2.20. The at-cost row is NOT in it, and `unpriced` above
     // is how a reader knows.
-    expect((await body(await GET(url()))).total).toBeCloseTo(13.75, 10)
+    const priced = await body(await GET(url()))
+    expect(priced.total).toBeCloseTo(13.75, 10)
+    expect(priced.partial).toBe(true)
+    expect(priced.subtotalLabel).toBe('Known subtotal (partial)')
+    expect(priced.amountDue).toBeNull()
   })
 
   it('renders the three non-numeric rates as three different sentences', async () => {
     const b = await body(await GET(url()))
     // One shared rate across the rows on a line -> the number, four decimals.
     expect(b.lines?.find(l => l.label === 'Pick - single')?.rate).toBe('$0.3500')
-    // No rate on any row -> 'at cost'. The freight line's priced row DOES
+    // No rate on any row -> 'see amount'. The freight line's priced row DOES
     // carry 10.50, so this line has exactly one rate and prints it.
     expect(b.lines?.find(l => l.label === 'Shipping')?.rate).toBe('$10.5000')
     // The surcharge has no rate at all.
-    expect(b.lines?.find(l => l.label === 'Peak')?.rate).toBe('at cost')
+    expect(b.lines?.find(l => l.label === 'Peak')?.rate).toBe('see amount')
   })
 
   it('carries a quantity of null, not 0, for a line that has none', async () => {
@@ -234,7 +243,7 @@ describe('GET /api/statements/data', () => {
     // The other side of the doctrine, and the reason the two tests above are
     // not satisfied by returning null whenever a total looks suspicious.
     // `counted === 0` is a real $0.00: nothing was billed, and that is known.
-    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [] })
+    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [], shipments: [] })
     const b = await body(await GET(url()))
     expect(b.total).toBe(0)
     expect(b.counted).toBe(0)
@@ -244,7 +253,7 @@ describe('GET /api/statements/data', () => {
     // A $0.00 total means either "nothing was billed" or "we have no record",
     // and only the earliest-charge read can tell them apart. Without the note
     // the screen shows the confident reading of an ambiguous figure.
-    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [] })
+    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [], shipments: [] })
     const b = await body(await GET(url()))
     expect(b.lines).toEqual([])
     expect(b.notes?.some(n => /no charges for this client on any date/i.test(n)))
@@ -288,7 +297,10 @@ describe('GET /api/statements/data: agrees with the spreadsheet', () => {
     const sheet = await sheetRows()
 
     // Drop the TOTAL and NOTE rows: those are the sheet's own layout.
-    const sheetLines = sheet.filter(r => r['Line'] !== 'TOTAL' && r['Charge'] !== 'NOTE')
+    const layout = new Set([
+      'TOTAL', 'Subtotal', 'Known subtotal (partial)', 'Monthly minimum top-up', 'Amount due',
+    ])
+    const sheetLines = sheet.filter(r => !layout.has(String(r['Line'])) && r['Charge'] !== 'NOTE')
 
     expect(sheetLines).toHaveLength(b.lines!.length)
     for (const line of b.lines!) {
@@ -311,9 +323,11 @@ describe('GET /api/statements/data: agrees with the spreadsheet', () => {
   it('shows the same TOTAL as the Statement sheet', async () => {
     const b = await body(await GET(url()))
     h.db = createFakeSupabase(structuredClone(seed()))
-    const total = (await sheetRows()).find(r => r['Line'] === 'TOTAL')
-    expect(total, 'the sheet has no TOTAL row').toBeDefined()
+    const total = (await sheetRows()).find(r => r['Line'] === b.subtotalLabel)
+    expect(total, 'the sheet has no subtotal row').toBeDefined()
     expect(total!['Amount ($)']).toBeCloseTo(b.total!, 10)
+    const due = (await sheetRows()).find(r => r['Line'] === 'Amount due')
+    expect(due?.['Amount ($)']).toBe(b.partial ? 'not final' : b.amountDue)
     expect(total!['Unpriced rows']).toBe(b.unpriced)
     expect(total!['Estimated rows']).toBe(b.estimated)
   })
@@ -376,7 +390,7 @@ describe('GET /api/statements/data: refusals', () => {
     // The negative control, and the reason the two refusals above mean
     // anything: a handler that refused on every empty result would pass both
     // and fail here. An empty period is a real answer.
-    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [] })
+    h.db = createFakeSupabase({ ...structuredClone(seed()), order_charges: [], shipments: [] })
     const res = await GET(url())
     expect(res.ok).toBe(true)
     const b = await body(res)

@@ -1,0 +1,3299 @@
+source_tab,kind,client,service,weight_unit,weight_max,zone,price
+SitnStand,client,SitnStand,unspecified,lb,1,1&2,23.68
+SitnStand,client,SitnStand,unspecified,lb,1,3,24.51
+SitnStand,client,SitnStand,unspecified,lb,1,4,28.84
+SitnStand,client,SitnStand,unspecified,lb,1,5,30.31
+SitnStand,client,SitnStand,unspecified,lb,1,6,31.45
+SitnStand,client,SitnStand,unspecified,lb,1,7,32.71
+SitnStand,client,SitnStand,unspecified,lb,1,8,33.31
+SitnStand,client,SitnStand,unspecified,lb,2,1&2,24.68
+SitnStand,client,SitnStand,unspecified,lb,2,3,25.05
+SitnStand,client,SitnStand,unspecified,lb,2,4,29.78
+SitnStand,client,SitnStand,unspecified,lb,2,5,31.40
+SitnStand,client,SitnStand,unspecified,lb,2,6,32.50
+SitnStand,client,SitnStand,unspecified,lb,2,7,33.48
+SitnStand,client,SitnStand,unspecified,lb,2,8,34.47
+SitnStand,client,SitnStand,unspecified,lb,3,1&2,25.05
+SitnStand,client,SitnStand,unspecified,lb,3,3,25.80
+SitnStand,client,SitnStand,unspecified,lb,3,4,30.67
+SitnStand,client,SitnStand,unspecified,lb,3,5,31.81
+SitnStand,client,SitnStand,unspecified,lb,3,6,33.20
+SitnStand,client,SitnStand,unspecified,lb,3,7,34.33
+SitnStand,client,SitnStand,unspecified,lb,3,8,35.71
+SitnStand,client,SitnStand,unspecified,lb,4,1&2,25.24
+SitnStand,client,SitnStand,unspecified,lb,4,3,26.24
+SitnStand,client,SitnStand,unspecified,lb,4,4,31.58
+SitnStand,client,SitnStand,unspecified,lb,4,5,32.81
+SitnStand,client,SitnStand,unspecified,lb,4,6,34.18
+SitnStand,client,SitnStand,unspecified,lb,4,7,35.57
+SitnStand,client,SitnStand,unspecified,lb,4,8,36.80
+SitnStand,client,SitnStand,unspecified,lb,5,1&2,25.42
+SitnStand,client,SitnStand,unspecified,lb,5,3,26.70
+SitnStand,client,SitnStand,unspecified,lb,5,4,32.15
+SitnStand,client,SitnStand,unspecified,lb,5,5,33.74
+SitnStand,client,SitnStand,unspecified,lb,5,6,34.77
+SitnStand,client,SitnStand,unspecified,lb,5,7,36.60
+SitnStand,client,SitnStand,unspecified,lb,5,8,38.03
+SitnStand,client,SitnStand,unspecified,lb,6,1&2,25.62
+SitnStand,client,SitnStand,unspecified,lb,6,3,27.00
+SitnStand,client,SitnStand,unspecified,lb,6,4,32.37
+SitnStand,client,SitnStand,unspecified,lb,6,5,34.10
+SitnStand,client,SitnStand,unspecified,lb,6,6,35.67
+SitnStand,client,SitnStand,unspecified,lb,6,7,37.18
+SitnStand,client,SitnStand,unspecified,lb,6,8,38.70
+SitnStand,client,SitnStand,unspecified,lb,7,1&2,26.08
+SitnStand,client,SitnStand,unspecified,lb,7,3,28.18
+SitnStand,client,SitnStand,unspecified,lb,7,4,32.90
+SitnStand,client,SitnStand,unspecified,lb,7,5,34.36
+SitnStand,client,SitnStand,unspecified,lb,7,6,36.03
+SitnStand,client,SitnStand,unspecified,lb,7,7,38.39
+SitnStand,client,SitnStand,unspecified,lb,7,8,39.91
+SitnStand,client,SitnStand,unspecified,lb,8,1&2,26.21
+SitnStand,client,SitnStand,unspecified,lb,8,3,29.08
+SitnStand,client,SitnStand,unspecified,lb,8,4,35.57
+SitnStand,client,SitnStand,unspecified,lb,8,5,36.10
+SitnStand,client,SitnStand,unspecified,lb,8,6,37.83
+SitnStand,client,SitnStand,unspecified,lb,8,7,39.89
+SitnStand,client,SitnStand,unspecified,lb,8,8,41.53
+SitnStand,client,SitnStand,unspecified,lb,9,1&2,27.42
+SitnStand,client,SitnStand,unspecified,lb,9,3,29.80
+SitnStand,client,SitnStand,unspecified,lb,9,4,36.64
+SitnStand,client,SitnStand,unspecified,lb,9,5,37.13
+SitnStand,client,SitnStand,unspecified,lb,9,6,38.63
+SitnStand,client,SitnStand,unspecified,lb,9,7,40.71
+SitnStand,client,SitnStand,unspecified,lb,9,8,42.70
+SitnStand,client,SitnStand,unspecified,lb,10,1&2,28.12
+SitnStand,client,SitnStand,unspecified,lb,10,3,30.63
+SitnStand,client,SitnStand,unspecified,lb,10,4,36.77
+SitnStand,client,SitnStand,unspecified,lb,10,5,37.50
+SitnStand,client,SitnStand,unspecified,lb,10,6,39.56
+SitnStand,client,SitnStand,unspecified,lb,10,7,41.46
+SitnStand,client,SitnStand,unspecified,lb,10,8,43.69
+SitnStand,client,SitnStand,unspecified,lb,11,1&2,30.81
+SitnStand,client,SitnStand,unspecified,lb,11,3,32.07
+SitnStand,client,SitnStand,unspecified,lb,11,4,38.59
+SitnStand,client,SitnStand,unspecified,lb,11,5,39.26
+SitnStand,client,SitnStand,unspecified,lb,11,6,40.26
+SitnStand,client,SitnStand,unspecified,lb,11,7,42.74
+SitnStand,client,SitnStand,unspecified,lb,11,8,45.27
+SitnStand,client,SitnStand,unspecified,lb,12,1&2,31.57
+SitnStand,client,SitnStand,unspecified,lb,12,3,33.01
+SitnStand,client,SitnStand,unspecified,lb,12,4,39.13
+SitnStand,client,SitnStand,unspecified,lb,12,5,39.89
+SitnStand,client,SitnStand,unspecified,lb,12,6,41.43
+SitnStand,client,SitnStand,unspecified,lb,12,7,44.07
+SitnStand,client,SitnStand,unspecified,lb,12,8,46.89
+SitnStand,client,SitnStand,unspecified,lb,13,1&2,32.07
+SitnStand,client,SitnStand,unspecified,lb,13,3,33.57
+SitnStand,client,SitnStand,unspecified,lb,13,4,40.19
+SitnStand,client,SitnStand,unspecified,lb,13,5,40.94
+SitnStand,client,SitnStand,unspecified,lb,13,6,42.46
+SitnStand,client,SitnStand,unspecified,lb,13,7,45.95
+SitnStand,client,SitnStand,unspecified,lb,13,8,49.30
+SitnStand,client,SitnStand,unspecified,lb,14,1&2,32.63
+SitnStand,client,SitnStand,unspecified,lb,14,3,33.97
+SitnStand,client,SitnStand,unspecified,lb,14,4,40.75
+SitnStand,client,SitnStand,unspecified,lb,14,5,41.57
+SitnStand,client,SitnStand,unspecified,lb,14,6,43.06
+SitnStand,client,SitnStand,unspecified,lb,14,7,47.16
+SitnStand,client,SitnStand,unspecified,lb,14,8,51.88
+SitnStand,client,SitnStand,unspecified,lb,15,1&2,32.77
+SitnStand,client,SitnStand,unspecified,lb,15,3,34.71
+SitnStand,client,SitnStand,unspecified,lb,15,4,41.40
+SitnStand,client,SitnStand,unspecified,lb,15,5,42.57
+SitnStand,client,SitnStand,unspecified,lb,15,6,44.12
+SitnStand,client,SitnStand,unspecified,lb,15,7,49.92
+SitnStand,client,SitnStand,unspecified,lb,15,8,54.71
+SitnStand,client,SitnStand,unspecified,lb,16,1&2,33.20
+SitnStand,client,SitnStand,unspecified,lb,16,3,35.98
+SitnStand,client,SitnStand,unspecified,lb,16,4,42.53
+SitnStand,client,SitnStand,unspecified,lb,16,5,43.79
+SitnStand,client,SitnStand,unspecified,lb,16,6,45.03
+SitnStand,client,SitnStand,unspecified,lb,16,7,51.62
+SitnStand,client,SitnStand,unspecified,lb,16,8,56.62
+SitnStand,client,SitnStand,unspecified,lb,17,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,17,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,17,4,43.56
+SitnStand,client,SitnStand,unspecified,lb,17,5,44.73
+SitnStand,client,SitnStand,unspecified,lb,17,6,46.20
+SitnStand,client,SitnStand,unspecified,lb,17,7,54.25
+SitnStand,client,SitnStand,unspecified,lb,17,8,58.19
+SitnStand,client,SitnStand,unspecified,lb,18,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,18,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,18,4,43.63
+SitnStand,client,SitnStand,unspecified,lb,18,5,45.25
+SitnStand,client,SitnStand,unspecified,lb,18,6,47.12
+SitnStand,client,SitnStand,unspecified,lb,18,7,55.08
+SitnStand,client,SitnStand,unspecified,lb,18,8,60.46
+SitnStand,client,SitnStand,unspecified,lb,19,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,19,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,19,4,44.63
+SitnStand,client,SitnStand,unspecified,lb,19,5,46.17
+SitnStand,client,SitnStand,unspecified,lb,19,6,48.32
+SitnStand,client,SitnStand,unspecified,lb,19,7,55.96
+SitnStand,client,SitnStand,unspecified,lb,19,8,61.97
+SitnStand,client,SitnStand,unspecified,lb,20,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,20,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,20,4,44.72
+SitnStand,client,SitnStand,unspecified,lb,20,5,47.12
+SitnStand,client,SitnStand,unspecified,lb,20,6,49.03
+SitnStand,client,SitnStand,unspecified,lb,20,7,57.44
+SitnStand,client,SitnStand,unspecified,lb,20,8,63.18
+SitnStand,client,SitnStand,unspecified,lb,21,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,21,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,21,4,44.34
+SitnStand,client,SitnStand,unspecified,lb,21,5,47.93
+SitnStand,client,SitnStand,unspecified,lb,21,6,49.83
+SitnStand,client,SitnStand,unspecified,lb,21,7,55.69
+SitnStand,client,SitnStand,unspecified,lb,21,8,61.75
+SitnStand,client,SitnStand,unspecified,lb,22,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,22,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,22,4,44.83
+SitnStand,client,SitnStand,unspecified,lb,22,5,46.66
+SitnStand,client,SitnStand,unspecified,lb,22,6,48.80
+SitnStand,client,SitnStand,unspecified,lb,22,7,56.76
+SitnStand,client,SitnStand,unspecified,lb,22,8,63.19
+SitnStand,client,SitnStand,unspecified,lb,23,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,23,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,23,4,45.22
+SitnStand,client,SitnStand,unspecified,lb,23,5,47.20
+SitnStand,client,SitnStand,unspecified,lb,23,6,49.79
+SitnStand,client,SitnStand,unspecified,lb,23,7,57.49
+SitnStand,client,SitnStand,unspecified,lb,23,8,64.52
+SitnStand,client,SitnStand,unspecified,lb,24,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,24,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,24,4,46.16
+SitnStand,client,SitnStand,unspecified,lb,24,5,47.60
+SitnStand,client,SitnStand,unspecified,lb,24,6,50.75
+SitnStand,client,SitnStand,unspecified,lb,24,7,58.55
+SitnStand,client,SitnStand,unspecified,lb,24,8,66.58
+SitnStand,client,SitnStand,unspecified,lb,25,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,25,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,25,4,46.23
+SitnStand,client,SitnStand,unspecified,lb,25,5,48.75
+SitnStand,client,SitnStand,unspecified,lb,25,6,51.99
+SitnStand,client,SitnStand,unspecified,lb,25,7,60.34
+SitnStand,client,SitnStand,unspecified,lb,25,8,67.72
+SitnStand,client,SitnStand,unspecified,lb,26,1&2,35.97
+SitnStand,client,SitnStand,unspecified,lb,26,3,36.96
+SitnStand,client,SitnStand,unspecified,lb,26,4,47.03
+SitnStand,client,SitnStand,unspecified,lb,26,5,49.18
+SitnStand,client,SitnStand,unspecified,lb,26,6,52.78
+SitnStand,client,SitnStand,unspecified,lb,26,7,61.71
+SitnStand,client,SitnStand,unspecified,lb,26,8,69.34
+SitnStand,client,SitnStand,unspecified,lb,27,1&2,36.14
+SitnStand,client,SitnStand,unspecified,lb,27,3,37.13
+SitnStand,client,SitnStand,unspecified,lb,27,4,47.43
+SitnStand,client,SitnStand,unspecified,lb,27,5,50.10
+SitnStand,client,SitnStand,unspecified,lb,27,6,53.81
+SitnStand,client,SitnStand,unspecified,lb,27,7,62.35
+SitnStand,client,SitnStand,unspecified,lb,27,8,70.01
+SitnStand,client,SitnStand,unspecified,lb,28,1&2,36.51
+SitnStand,client,SitnStand,unspecified,lb,28,3,37.50
+SitnStand,client,SitnStand,unspecified,lb,28,4,48.37
+SitnStand,client,SitnStand,unspecified,lb,28,5,50.50
+SitnStand,client,SitnStand,unspecified,lb,28,6,54.99
+SitnStand,client,SitnStand,unspecified,lb,28,7,63.98
+SitnStand,client,SitnStand,unspecified,lb,28,8,71.58
+SitnStand,client,SitnStand,unspecified,lb,29,1&2,36.56
+SitnStand,client,SitnStand,unspecified,lb,29,3,37.54
+SitnStand,client,SitnStand,unspecified,lb,29,4,48.56
+SitnStand,client,SitnStand,unspecified,lb,29,5,51.93
+SitnStand,client,SitnStand,unspecified,lb,29,6,56.45
+SitnStand,client,SitnStand,unspecified,lb,29,7,64.84
+SitnStand,client,SitnStand,unspecified,lb,29,8,72.71
+SitnStand,client,SitnStand,unspecified,lb,30,1&2,36.71
+SitnStand,client,SitnStand,unspecified,lb,30,3,37.70
+SitnStand,client,SitnStand,unspecified,lb,30,4,48.95
+SitnStand,client,SitnStand,unspecified,lb,30,5,51.93
+SitnStand,client,SitnStand,unspecified,lb,30,6,57.36
+SitnStand,client,SitnStand,unspecified,lb,30,7,65.02
+SitnStand,client,SitnStand,unspecified,lb,30,8,74.54
+SitnStand,client,SitnStand,unspecified,lb,31,1&2,37.47
+SitnStand,client,SitnStand,unspecified,lb,31,3,38.46
+SitnStand,client,SitnStand,unspecified,lb,31,4,49.82
+SitnStand,client,SitnStand,unspecified,lb,31,5,52.93
+SitnStand,client,SitnStand,unspecified,lb,31,6,57.89
+SitnStand,client,SitnStand,unspecified,lb,31,7,66.47
+SitnStand,client,SitnStand,unspecified,lb,31,8,75.97
+SitnStand,client,SitnStand,unspecified,lb,32,1&2,37.47
+SitnStand,client,SitnStand,unspecified,lb,32,3,38.46
+SitnStand,client,SitnStand,unspecified,lb,32,4,49.83
+SitnStand,client,SitnStand,unspecified,lb,32,5,53.29
+SitnStand,client,SitnStand,unspecified,lb,32,6,58.85
+SitnStand,client,SitnStand,unspecified,lb,32,7,66.48
+SitnStand,client,SitnStand,unspecified,lb,32,8,76.49
+SitnStand,client,SitnStand,unspecified,lb,33,1&2,37.59
+SitnStand,client,SitnStand,unspecified,lb,33,3,38.57
+SitnStand,client,SitnStand,unspecified,lb,33,4,50.86
+SitnStand,client,SitnStand,unspecified,lb,33,5,53.29
+SitnStand,client,SitnStand,unspecified,lb,33,6,58.88
+SitnStand,client,SitnStand,unspecified,lb,33,7,67.80
+SitnStand,client,SitnStand,unspecified,lb,33,8,77.79
+SitnStand,client,SitnStand,unspecified,lb,34,1&2,37.69
+SitnStand,client,SitnStand,unspecified,lb,34,3,38.67
+SitnStand,client,SitnStand,unspecified,lb,34,4,51.60
+SitnStand,client,SitnStand,unspecified,lb,34,5,54.56
+SitnStand,client,SitnStand,unspecified,lb,34,6,61.02
+SitnStand,client,SitnStand,unspecified,lb,34,7,69.04
+SitnStand,client,SitnStand,unspecified,lb,34,8,80.11
+SitnStand,client,SitnStand,unspecified,lb,35,1&2,38.04
+SitnStand,client,SitnStand,unspecified,lb,35,3,39.03
+SitnStand,client,SitnStand,unspecified,lb,35,4,52.42
+SitnStand,client,SitnStand,unspecified,lb,35,5,55.53
+SitnStand,client,SitnStand,unspecified,lb,35,6,61.02
+SitnStand,client,SitnStand,unspecified,lb,35,7,70.13
+SitnStand,client,SitnStand,unspecified,lb,35,8,80.49
+SitnStand,client,SitnStand,unspecified,lb,36,1&2,38.30
+SitnStand,client,SitnStand,unspecified,lb,36,3,39.29
+SitnStand,client,SitnStand,unspecified,lb,36,4,52.62
+SitnStand,client,SitnStand,unspecified,lb,36,5,56.25
+SitnStand,client,SitnStand,unspecified,lb,36,6,61.65
+SitnStand,client,SitnStand,unspecified,lb,36,7,71.61
+SitnStand,client,SitnStand,unspecified,lb,36,8,82.53
+SitnStand,client,SitnStand,unspecified,lb,37,1&2,38.59
+SitnStand,client,SitnStand,unspecified,lb,37,3,39.57
+SitnStand,client,SitnStand,unspecified,lb,37,4,52.89
+SitnStand,client,SitnStand,unspecified,lb,37,5,56.98
+SitnStand,client,SitnStand,unspecified,lb,37,6,63.21
+SitnStand,client,SitnStand,unspecified,lb,37,7,73.08
+SitnStand,client,SitnStand,unspecified,lb,37,8,83.02
+SitnStand,client,SitnStand,unspecified,lb,38,1&2,38.87
+SitnStand,client,SitnStand,unspecified,lb,38,3,39.86
+SitnStand,client,SitnStand,unspecified,lb,38,4,53.72
+SitnStand,client,SitnStand,unspecified,lb,38,5,57.66
+SitnStand,client,SitnStand,unspecified,lb,38,6,63.38
+SitnStand,client,SitnStand,unspecified,lb,38,7,73.27
+SitnStand,client,SitnStand,unspecified,lb,38,8,84.04
+SitnStand,client,SitnStand,unspecified,lb,39,1&2,39.51
+SitnStand,client,SitnStand,unspecified,lb,39,3,40.50
+SitnStand,client,SitnStand,unspecified,lb,39,4,54.86
+SitnStand,client,SitnStand,unspecified,lb,39,5,58.41
+SitnStand,client,SitnStand,unspecified,lb,39,6,64.27
+SitnStand,client,SitnStand,unspecified,lb,39,7,75.10
+SitnStand,client,SitnStand,unspecified,lb,39,8,85.16
+SitnStand,client,SitnStand,unspecified,lb,40,1&2,39.53
+SitnStand,client,SitnStand,unspecified,lb,40,3,40.51
+SitnStand,client,SitnStand,unspecified,lb,40,4,54.86
+SitnStand,client,SitnStand,unspecified,lb,40,5,59.41
+SitnStand,client,SitnStand,unspecified,lb,40,6,66.07
+SitnStand,client,SitnStand,unspecified,lb,40,7,75.13
+SitnStand,client,SitnStand,unspecified,lb,40,8,85.17
+SitnStand,client,SitnStand,unspecified,lb,41,1&2,39.97
+SitnStand,client,SitnStand,unspecified,lb,41,3,40.96
+SitnStand,client,SitnStand,unspecified,lb,41,4,55.65
+SitnStand,client,SitnStand,unspecified,lb,41,5,59.42
+SitnStand,client,SitnStand,unspecified,lb,41,6,66.11
+SitnStand,client,SitnStand,unspecified,lb,41,7,76.61
+SitnStand,client,SitnStand,unspecified,lb,41,8,87.32
+SitnStand,client,SitnStand,unspecified,lb,42,1&2,39.99
+SitnStand,client,SitnStand,unspecified,lb,42,3,40.97
+SitnStand,client,SitnStand,unspecified,lb,42,4,56.76
+SitnStand,client,SitnStand,unspecified,lb,42,5,60.61
+SitnStand,client,SitnStand,unspecified,lb,42,6,67.84
+SitnStand,client,SitnStand,unspecified,lb,42,7,77.47
+SitnStand,client,SitnStand,unspecified,lb,42,8,87.60
+SitnStand,client,SitnStand,unspecified,lb,43,1&2,40.37
+SitnStand,client,SitnStand,unspecified,lb,43,3,41.36
+SitnStand,client,SitnStand,unspecified,lb,43,4,56.82
+SitnStand,client,SitnStand,unspecified,lb,43,5,60.71
+SitnStand,client,SitnStand,unspecified,lb,43,6,68.04
+SitnStand,client,SitnStand,unspecified,lb,43,7,79.33
+SitnStand,client,SitnStand,unspecified,lb,43,8,89.20
+SitnStand,client,SitnStand,unspecified,lb,44,1&2,40.67
+SitnStand,client,SitnStand,unspecified,lb,44,3,41.66
+SitnStand,client,SitnStand,unspecified,lb,44,4,57.58
+SitnStand,client,SitnStand,unspecified,lb,44,5,62.47
+SitnStand,client,SitnStand,unspecified,lb,44,6,70.38
+SitnStand,client,SitnStand,unspecified,lb,44,7,80.99
+SitnStand,client,SitnStand,unspecified,lb,44,8,89.82
+SitnStand,client,SitnStand,unspecified,lb,45,1&2,40.69
+SitnStand,client,SitnStand,unspecified,lb,45,3,41.67
+SitnStand,client,SitnStand,unspecified,lb,45,4,57.59
+SitnStand,client,SitnStand,unspecified,lb,45,5,63.12
+SitnStand,client,SitnStand,unspecified,lb,45,6,70.65
+SitnStand,client,SitnStand,unspecified,lb,45,7,82.04
+SitnStand,client,SitnStand,unspecified,lb,45,8,90.25
+SitnStand,client,SitnStand,unspecified,lb,46,1&2,41.36
+SitnStand,client,SitnStand,unspecified,lb,46,3,42.34
+SitnStand,client,SitnStand,unspecified,lb,46,4,58.55
+SitnStand,client,SitnStand,unspecified,lb,46,5,63.14
+SitnStand,client,SitnStand,unspecified,lb,46,6,70.67
+SitnStand,client,SitnStand,unspecified,lb,46,7,82.64
+SitnStand,client,SitnStand,unspecified,lb,46,8,91.88
+SitnStand,client,SitnStand,unspecified,lb,47,1&2,41.43
+SitnStand,client,SitnStand,unspecified,lb,47,3,42.42
+SitnStand,client,SitnStand,unspecified,lb,47,4,59.05
+SitnStand,client,SitnStand,unspecified,lb,47,5,63.81
+SitnStand,client,SitnStand,unspecified,lb,47,6,71.88
+SitnStand,client,SitnStand,unspecified,lb,47,7,83.74
+SitnStand,client,SitnStand,unspecified,lb,47,8,92.89
+SitnStand,client,SitnStand,unspecified,lb,48,1&2,41.43
+SitnStand,client,SitnStand,unspecified,lb,48,3,42.42
+SitnStand,client,SitnStand,unspecified,lb,48,4,59.42
+SitnStand,client,SitnStand,unspecified,lb,48,5,64.09
+SitnStand,client,SitnStand,unspecified,lb,48,6,72.53
+SitnStand,client,SitnStand,unspecified,lb,48,7,84.26
+SitnStand,client,SitnStand,unspecified,lb,48,8,93.92
+SitnStand,client,SitnStand,unspecified,lb,49,1&2,41.46
+SitnStand,client,SitnStand,unspecified,lb,49,3,42.44
+SitnStand,client,SitnStand,unspecified,lb,49,4,59.44
+SitnStand,client,SitnStand,unspecified,lb,49,5,65.45
+SitnStand,client,SitnStand,unspecified,lb,49,6,73.24
+SitnStand,client,SitnStand,unspecified,lb,49,7,85.42
+SitnStand,client,SitnStand,unspecified,lb,49,8,94.29
+SitnStand,client,SitnStand,unspecified,lb,50,1&2,41.46
+SitnStand,client,SitnStand,unspecified,lb,50,3,42.44
+SitnStand,client,SitnStand,unspecified,lb,50,4,59.45
+SitnStand,client,SitnStand,unspecified,lb,50,5,65.47
+SitnStand,client,SitnStand,unspecified,lb,50,6,73.61
+SitnStand,client,SitnStand,unspecified,lb,50,7,85.43
+SitnStand,client,SitnStand,unspecified,lb,50,8,94.65
+SitnStand,client,SitnStand,unspecified,lb,51,1&2,76.37
+SitnStand,client,SitnStand,unspecified,lb,51,3,77.36
+SitnStand,client,SitnStand,unspecified,lb,51,4,96.44
+SitnStand,client,SitnStand,unspecified,lb,51,5,65.48
+SitnStand,client,SitnStand,unspecified,lb,51,6,73.61
+SitnStand,client,SitnStand,unspecified,lb,51,7,126.60
+SitnStand,client,SitnStand,unspecified,lb,51,8,136.54
+SitnStand,client,SitnStand,unspecified,lb,52,1&2,76.37
+SitnStand,client,SitnStand,unspecified,lb,52,3,77.36
+SitnStand,client,SitnStand,unspecified,lb,52,4,96.44
+SitnStand,client,SitnStand,unspecified,lb,52,5,104.14
+SitnStand,client,SitnStand,unspecified,lb,52,6,112.61
+SitnStand,client,SitnStand,unspecified,lb,52,7,126.62
+SitnStand,client,SitnStand,unspecified,lb,52,8,136.55
+SitnStand,client,SitnStand,unspecified,lb,53,1&2,76.38
+SitnStand,client,SitnStand,unspecified,lb,53,3,77.37
+SitnStand,client,SitnStand,unspecified,lb,53,4,96.45
+SitnStand,client,SitnStand,unspecified,lb,53,5,104.15
+SitnStand,client,SitnStand,unspecified,lb,53,6,112.61
+SitnStand,client,SitnStand,unspecified,lb,53,7,126.63
+SitnStand,client,SitnStand,unspecified,lb,53,8,137.21
+SitnStand,client,SitnStand,unspecified,lb,54,1&2,76.40
+SitnStand,client,SitnStand,unspecified,lb,54,3,77.39
+SitnStand,client,SitnStand,unspecified,lb,54,4,96.51
+SitnStand,client,SitnStand,unspecified,lb,54,5,104.52
+SitnStand,client,SitnStand,unspecified,lb,54,6,112.64
+SitnStand,client,SitnStand,unspecified,lb,54,7,126.63
+SitnStand,client,SitnStand,unspecified,lb,54,8,137.22
+SitnStand,client,SitnStand,unspecified,lb,55,1&2,76.40
+SitnStand,client,SitnStand,unspecified,lb,55,3,77.39
+SitnStand,client,SitnStand,unspecified,lb,55,4,96.52
+SitnStand,client,SitnStand,unspecified,lb,55,5,104.61
+SitnStand,client,SitnStand,unspecified,lb,55,6,112.64
+SitnStand,client,SitnStand,unspecified,lb,55,7,126.65
+SitnStand,client,SitnStand,unspecified,lb,55,8,137.22
+SitnStand,client,SitnStand,unspecified,lb,56,1&2,76.41
+SitnStand,client,SitnStand,unspecified,lb,56,3,77.40
+SitnStand,client,SitnStand,unspecified,lb,56,4,96.54
+SitnStand,client,SitnStand,unspecified,lb,56,5,104.61
+SitnStand,client,SitnStand,unspecified,lb,56,6,112.66
+SitnStand,client,SitnStand,unspecified,lb,56,7,126.65
+SitnStand,client,SitnStand,unspecified,lb,56,8,138.06
+SitnStand,client,SitnStand,unspecified,lb,57,1&2,76.80
+SitnStand,client,SitnStand,unspecified,lb,57,3,77.79
+SitnStand,client,SitnStand,unspecified,lb,57,4,96.55
+SitnStand,client,SitnStand,unspecified,lb,57,5,104.61
+SitnStand,client,SitnStand,unspecified,lb,57,6,112.67
+SitnStand,client,SitnStand,unspecified,lb,57,7,126.65
+SitnStand,client,SitnStand,unspecified,lb,57,8,140.04
+SitnStand,client,SitnStand,unspecified,lb,58,1&2,79.99
+SitnStand,client,SitnStand,unspecified,lb,58,3,80.66
+SitnStand,client,SitnStand,unspecified,lb,58,4,94.01
+SitnStand,client,SitnStand,unspecified,lb,58,5,108.68
+SitnStand,client,SitnStand,unspecified,lb,58,6,114.11
+SitnStand,client,SitnStand,unspecified,lb,58,7,126.66
+SitnStand,client,SitnStand,unspecified,lb,58,8,140.64
+SitnStand,client,SitnStand,unspecified,lb,59,1&2,80.00
+SitnStand,client,SitnStand,unspecified,lb,59,3,80.67
+SitnStand,client,SitnStand,unspecified,lb,59,4,94.22
+SitnStand,client,SitnStand,unspecified,lb,59,5,108.68
+SitnStand,client,SitnStand,unspecified,lb,59,6,114.13
+SitnStand,client,SitnStand,unspecified,lb,59,7,126.66
+SitnStand,client,SitnStand,unspecified,lb,59,8,141.81
+SitnStand,client,SitnStand,unspecified,lb,60,1&2,80.62
+SitnStand,client,SitnStand,unspecified,lb,60,3,81.29
+SitnStand,client,SitnStand,unspecified,lb,60,4,94.78
+SitnStand,client,SitnStand,unspecified,lb,60,5,108.70
+SitnStand,client,SitnStand,unspecified,lb,60,6,114.48
+SitnStand,client,SitnStand,unspecified,lb,60,7,126.87
+SitnStand,client,SitnStand,unspecified,lb,60,8,142.24
+SitnStand,client,SitnStand,unspecified,lb,61,1&2,80.62
+SitnStand,client,SitnStand,unspecified,lb,61,3,81.29
+SitnStand,client,SitnStand,unspecified,lb,61,4,95.11
+SitnStand,client,SitnStand,unspecified,lb,61,5,110.15
+SitnStand,client,SitnStand,unspecified,lb,61,6,115.38
+SitnStand,client,SitnStand,unspecified,lb,61,7,126.89
+SitnStand,client,SitnStand,unspecified,lb,61,8,142.24
+SitnStand,client,SitnStand,unspecified,lb,62,1&2,81.57
+SitnStand,client,SitnStand,unspecified,lb,62,3,82.24
+SitnStand,client,SitnStand,unspecified,lb,62,4,95.65
+SitnStand,client,SitnStand,unspecified,lb,62,5,110.24
+SitnStand,client,SitnStand,unspecified,lb,62,6,115.41
+SitnStand,client,SitnStand,unspecified,lb,62,7,127.82
+SitnStand,client,SitnStand,unspecified,lb,62,8,143.11
+SitnStand,client,SitnStand,unspecified,lb,63,1&2,81.57
+SitnStand,client,SitnStand,unspecified,lb,63,3,82.24
+SitnStand,client,SitnStand,unspecified,lb,63,4,95.98
+SitnStand,client,SitnStand,unspecified,lb,63,5,111.45
+SitnStand,client,SitnStand,unspecified,lb,63,6,116.19
+SitnStand,client,SitnStand,unspecified,lb,63,7,128.30
+SitnStand,client,SitnStand,unspecified,lb,63,8,143.54
+SitnStand,client,SitnStand,unspecified,lb,64,1&2,82.20
+SitnStand,client,SitnStand,unspecified,lb,64,3,82.87
+SitnStand,client,SitnStand,unspecified,lb,64,4,96.55
+SitnStand,client,SitnStand,unspecified,lb,64,5,111.47
+SitnStand,client,SitnStand,unspecified,lb,64,6,116.53
+SitnStand,client,SitnStand,unspecified,lb,64,7,128.32
+SitnStand,client,SitnStand,unspecified,lb,64,8,144.00
+SitnStand,client,SitnStand,unspecified,lb,65,1&2,82.47
+SitnStand,client,SitnStand,unspecified,lb,65,3,83.14
+SitnStand,client,SitnStand,unspecified,lb,65,4,96.55
+SitnStand,client,SitnStand,unspecified,lb,65,5,111.48
+SitnStand,client,SitnStand,unspecified,lb,65,6,116.90
+SitnStand,client,SitnStand,unspecified,lb,65,7,128.48
+SitnStand,client,SitnStand,unspecified,lb,65,8,144.14
+SitnStand,client,SitnStand,unspecified,lb,66,1&2,82.60
+SitnStand,client,SitnStand,unspecified,lb,66,3,83.27
+SitnStand,client,SitnStand,unspecified,lb,66,4,96.56
+SitnStand,client,SitnStand,unspecified,lb,66,5,111.48
+SitnStand,client,SitnStand,unspecified,lb,66,6,117.36
+SitnStand,client,SitnStand,unspecified,lb,66,7,128.65
+SitnStand,client,SitnStand,unspecified,lb,66,8,144.42
+SitnStand,client,SitnStand,unspecified,lb,67,1&2,82.60
+SitnStand,client,SitnStand,unspecified,lb,67,3,83.27
+SitnStand,client,SitnStand,unspecified,lb,67,4,96.56
+SitnStand,client,SitnStand,unspecified,lb,67,5,111.50
+SitnStand,client,SitnStand,unspecified,lb,67,6,117.40
+SitnStand,client,SitnStand,unspecified,lb,67,7,128.95
+SitnStand,client,SitnStand,unspecified,lb,67,8,145.12
+SitnStand,client,SitnStand,unspecified,lb,68,1&2,82.90
+SitnStand,client,SitnStand,unspecified,lb,68,3,83.57
+SitnStand,client,SitnStand,unspecified,lb,68,4,98.68
+SitnStand,client,SitnStand,unspecified,lb,68,5,111.58
+SitnStand,client,SitnStand,unspecified,lb,68,6,117.81
+SitnStand,client,SitnStand,unspecified,lb,68,7,129.89
+SitnStand,client,SitnStand,unspecified,lb,68,8,145.12
+SitnStand,client,SitnStand,unspecified,lb,69,1&2,83.42
+SitnStand,client,SitnStand,unspecified,lb,69,3,84.09
+SitnStand,client,SitnStand,unspecified,lb,69,4,99.05
+SitnStand,client,SitnStand,unspecified,lb,69,5,112.57
+SitnStand,client,SitnStand,unspecified,lb,69,6,118.59
+SitnStand,client,SitnStand,unspecified,lb,69,7,129.92
+SitnStand,client,SitnStand,unspecified,lb,69,8,145.52
+SitnStand,client,SitnStand,unspecified,lb,70,1&2,88.17
+SitnStand,client,SitnStand,unspecified,lb,70,3,88.80
+SitnStand,client,SitnStand,unspecified,lb,70,4,103.55
+SitnStand,client,SitnStand,unspecified,lb,70,5,117.01
+SitnStand,client,SitnStand,unspecified,lb,70,6,122.32
+SitnStand,client,SitnStand,unspecified,lb,70,7,131.35
+SitnStand,client,SitnStand,unspecified,lb,70,8,149.68
+SitnStand,client,SitnStand,unspecified,lb,71,1&2,88.22
+SitnStand,client,SitnStand,unspecified,lb,71,3,88.85
+SitnStand,client,SitnStand,unspecified,lb,71,4,104.17
+SitnStand,client,SitnStand,unspecified,lb,71,5,119.17
+SitnStand,client,SitnStand,unspecified,lb,71,6,123.42
+SitnStand,client,SitnStand,unspecified,lb,71,7,132.35
+SitnStand,client,SitnStand,unspecified,lb,71,8,149.71
+SitnStand,client,SitnStand,unspecified,lb,72,1&2,88.95
+SitnStand,client,SitnStand,unspecified,lb,72,3,89.58
+SitnStand,client,SitnStand,unspecified,lb,72,4,104.95
+SitnStand,client,SitnStand,unspecified,lb,72,5,119.20
+SitnStand,client,SitnStand,unspecified,lb,72,6,123.76
+SitnStand,client,SitnStand,unspecified,lb,72,7,135.09
+SitnStand,client,SitnStand,unspecified,lb,72,8,149.83
+SitnStand,client,SitnStand,unspecified,lb,73,1&2,89.09
+SitnStand,client,SitnStand,unspecified,lb,73,3,89.72
+SitnStand,client,SitnStand,unspecified,lb,73,4,104.98
+SitnStand,client,SitnStand,unspecified,lb,73,5,119.20
+SitnStand,client,SitnStand,unspecified,lb,73,6,124.69
+SitnStand,client,SitnStand,unspecified,lb,73,7,135.21
+SitnStand,client,SitnStand,unspecified,lb,73,8,149.83
+SitnStand,client,SitnStand,unspecified,lb,74,1&2,89.82
+SitnStand,client,SitnStand,unspecified,lb,74,3,90.45
+SitnStand,client,SitnStand,unspecified,lb,74,4,105.00
+SitnStand,client,SitnStand,unspecified,lb,74,5,119.92
+SitnStand,client,SitnStand,unspecified,lb,74,6,125.29
+SitnStand,client,SitnStand,unspecified,lb,74,7,135.22
+SitnStand,client,SitnStand,unspecified,lb,74,8,149.84
+SitnStand,client,SitnStand,unspecified,lb,75,1&2,90.83
+SitnStand,client,SitnStand,unspecified,lb,75,3,91.46
+SitnStand,client,SitnStand,unspecified,lb,75,4,105.00
+SitnStand,client,SitnStand,unspecified,lb,75,5,119.93
+SitnStand,client,SitnStand,unspecified,lb,75,6,126.16
+SitnStand,client,SitnStand,unspecified,lb,75,7,135.88
+SitnStand,client,SitnStand,unspecified,lb,75,8,149.84
+SitnStand,client,SitnStand,unspecified,lb,76,1&2,93.03
+SitnStand,client,SitnStand,unspecified,lb,76,3,93.66
+SitnStand,client,SitnStand,unspecified,lb,76,4,105.25
+SitnStand,client,SitnStand,unspecified,lb,76,5,120.29
+SitnStand,client,SitnStand,unspecified,lb,76,6,126.17
+SitnStand,client,SitnStand,unspecified,lb,76,7,136.98
+SitnStand,client,SitnStand,unspecified,lb,76,8,150.55
+SitnStand,client,SitnStand,unspecified,lb,77,1&2,94.23
+SitnStand,client,SitnStand,unspecified,lb,77,3,94.86
+SitnStand,client,SitnStand,unspecified,lb,77,4,105.72
+SitnStand,client,SitnStand,unspecified,lb,77,5,121.02
+SitnStand,client,SitnStand,unspecified,lb,77,6,127.48
+SitnStand,client,SitnStand,unspecified,lb,77,7,138.94
+SitnStand,client,SitnStand,unspecified,lb,77,8,150.55
+SitnStand,client,SitnStand,unspecified,lb,78,1&2,94.26
+SitnStand,client,SitnStand,unspecified,lb,78,3,94.89
+SitnStand,client,SitnStand,unspecified,lb,78,4,106.91
+SitnStand,client,SitnStand,unspecified,lb,78,5,121.24
+SitnStand,client,SitnStand,unspecified,lb,78,6,127.82
+SitnStand,client,SitnStand,unspecified,lb,78,7,139.45
+SitnStand,client,SitnStand,unspecified,lb,78,8,150.57
+SitnStand,client,SitnStand,unspecified,lb,79,1&2,95.69
+SitnStand,client,SitnStand,unspecified,lb,79,3,96.32
+SitnStand,client,SitnStand,unspecified,lb,79,4,107.94
+SitnStand,client,SitnStand,unspecified,lb,79,5,121.80
+SitnStand,client,SitnStand,unspecified,lb,79,6,128.19
+SitnStand,client,SitnStand,unspecified,lb,79,7,140.57
+SitnStand,client,SitnStand,unspecified,lb,79,8,151.81
+SitnStand,client,SitnStand,unspecified,lb,80,1&2,96.61
+SitnStand,client,SitnStand,unspecified,lb,80,3,97.24
+SitnStand,client,SitnStand,unspecified,lb,80,4,108.13
+SitnStand,client,SitnStand,unspecified,lb,80,5,122.56
+SitnStand,client,SitnStand,unspecified,lb,80,6,129.45
+SitnStand,client,SitnStand,unspecified,lb,80,7,141.55
+SitnStand,client,SitnStand,unspecified,lb,80,8,152.41
+SitnStand,client,SitnStand,unspecified,lb,81,1&2,97.44
+SitnStand,client,SitnStand,unspecified,lb,81,3,98.06
+SitnStand,client,SitnStand,unspecified,lb,81,4,109.17
+SitnStand,client,SitnStand,unspecified,lb,81,5,123.79
+SitnStand,client,SitnStand,unspecified,lb,81,6,130.46
+SitnStand,client,SitnStand,unspecified,lb,81,7,141.98
+SitnStand,client,SitnStand,unspecified,lb,81,8,152.68
+SitnStand,client,SitnStand,unspecified,lb,82,1&2,98.59
+SitnStand,client,SitnStand,unspecified,lb,82,3,99.22
+SitnStand,client,SitnStand,unspecified,lb,82,4,111.15
+SitnStand,client,SitnStand,unspecified,lb,82,5,124.12
+SitnStand,client,SitnStand,unspecified,lb,82,6,131.26
+SitnStand,client,SitnStand,unspecified,lb,82,7,143.90
+SitnStand,client,SitnStand,unspecified,lb,82,8,152.68
+SitnStand,client,SitnStand,unspecified,lb,83,1&2,98.59
+SitnStand,client,SitnStand,unspecified,lb,83,3,99.22
+SitnStand,client,SitnStand,unspecified,lb,83,4,111.15
+SitnStand,client,SitnStand,unspecified,lb,83,5,125.46
+SitnStand,client,SitnStand,unspecified,lb,83,6,131.43
+SitnStand,client,SitnStand,unspecified,lb,83,7,143.90
+SitnStand,client,SitnStand,unspecified,lb,83,8,152.70
+SitnStand,client,SitnStand,unspecified,lb,84,1&2,100.04
+SitnStand,client,SitnStand,unspecified,lb,84,3,100.67
+SitnStand,client,SitnStand,unspecified,lb,84,4,112.50
+SitnStand,client,SitnStand,unspecified,lb,84,5,125.46
+SitnStand,client,SitnStand,unspecified,lb,84,6,131.62
+SitnStand,client,SitnStand,unspecified,lb,84,7,144.78
+SitnStand,client,SitnStand,unspecified,lb,84,8,153.28
+SitnStand,client,SitnStand,unspecified,lb,85,1&2,101.04
+SitnStand,client,SitnStand,unspecified,lb,85,3,101.67
+SitnStand,client,SitnStand,unspecified,lb,85,4,112.53
+SitnStand,client,SitnStand,unspecified,lb,85,5,125.97
+SitnStand,client,SitnStand,unspecified,lb,85,6,133.18
+SitnStand,client,SitnStand,unspecified,lb,85,7,145.62
+SitnStand,client,SitnStand,unspecified,lb,85,8,154.16
+SitnStand,client,SitnStand,unspecified,lb,86,1&2,102.47
+SitnStand,client,SitnStand,unspecified,lb,86,3,103.09
+SitnStand,client,SitnStand,unspecified,lb,86,4,114.38
+SitnStand,client,SitnStand,unspecified,lb,86,5,126.86
+SitnStand,client,SitnStand,unspecified,lb,86,6,133.58
+SitnStand,client,SitnStand,unspecified,lb,86,7,147.78
+SitnStand,client,SitnStand,unspecified,lb,86,8,156.59
+SitnStand,client,SitnStand,unspecified,lb,87,1&2,103.27
+SitnStand,client,SitnStand,unspecified,lb,87,3,103.89
+SitnStand,client,SitnStand,unspecified,lb,87,4,114.37
+SitnStand,client,SitnStand,unspecified,lb,87,5,127.90
+SitnStand,client,SitnStand,unspecified,lb,87,6,134.96
+SitnStand,client,SitnStand,unspecified,lb,87,7,147.85
+SitnStand,client,SitnStand,unspecified,lb,87,8,156.70
+SitnStand,client,SitnStand,unspecified,lb,88,1&2,105.00
+SitnStand,client,SitnStand,unspecified,lb,88,3,105.62
+SitnStand,client,SitnStand,unspecified,lb,88,4,115.93
+SitnStand,client,SitnStand,unspecified,lb,88,5,127.90
+SitnStand,client,SitnStand,unspecified,lb,88,6,136.28
+SitnStand,client,SitnStand,unspecified,lb,88,7,147.95
+SitnStand,client,SitnStand,unspecified,lb,88,8,157.61
+SitnStand,client,SitnStand,unspecified,lb,89,1&2,106.88
+SitnStand,client,SitnStand,unspecified,lb,89,3,107.51
+SitnStand,client,SitnStand,unspecified,lb,89,4,116.93
+SitnStand,client,SitnStand,unspecified,lb,89,5,129.70
+SitnStand,client,SitnStand,unspecified,lb,89,6,136.11
+SitnStand,client,SitnStand,unspecified,lb,89,7,148.75
+SitnStand,client,SitnStand,unspecified,lb,89,8,159.36
+SitnStand,client,SitnStand,unspecified,lb,90,1&2,109.61
+SitnStand,client,SitnStand,unspecified,lb,90,3,110.24
+SitnStand,client,SitnStand,unspecified,lb,90,4,119.16
+SitnStand,client,SitnStand,unspecified,lb,90,5,129.90
+SitnStand,client,SitnStand,unspecified,lb,90,6,137.58
+SitnStand,client,SitnStand,unspecified,lb,90,7,150.63
+SitnStand,client,SitnStand,unspecified,lb,90,8,161.03
+SitnStand,client,SitnStand,unspecified,lb,91,1&2,109.63
+SitnStand,client,SitnStand,unspecified,lb,91,3,110.25
+SitnStand,client,SitnStand,unspecified,lb,91,4,119.19
+SitnStand,client,SitnStand,unspecified,lb,91,5,131.59
+SitnStand,client,SitnStand,unspecified,lb,91,6,138.58
+SitnStand,client,SitnStand,unspecified,lb,91,7,150.63
+SitnStand,client,SitnStand,unspecified,lb,91,8,161.03
+SitnStand,client,SitnStand,unspecified,lb,92,1&2,110.67
+SitnStand,client,SitnStand,unspecified,lb,92,3,111.30
+SitnStand,client,SitnStand,unspecified,lb,92,4,119.44
+SitnStand,client,SitnStand,unspecified,lb,92,5,131.61
+SitnStand,client,SitnStand,unspecified,lb,92,6,138.58
+SitnStand,client,SitnStand,unspecified,lb,92,7,150.64
+SitnStand,client,SitnStand,unspecified,lb,92,8,161.30
+SitnStand,client,SitnStand,unspecified,lb,93,1&2,111.28
+SitnStand,client,SitnStand,unspecified,lb,93,3,111.91
+SitnStand,client,SitnStand,unspecified,lb,93,4,120.49
+SitnStand,client,SitnStand,unspecified,lb,93,5,132.18
+SitnStand,client,SitnStand,unspecified,lb,93,6,139.44
+SitnStand,client,SitnStand,unspecified,lb,93,7,150.64
+SitnStand,client,SitnStand,unspecified,lb,93,8,161.32
+SitnStand,client,SitnStand,unspecified,lb,94,1&2,111.54
+SitnStand,client,SitnStand,unspecified,lb,94,3,112.17
+SitnStand,client,SitnStand,unspecified,lb,94,4,120.76
+SitnStand,client,SitnStand,unspecified,lb,94,5,132.19
+SitnStand,client,SitnStand,unspecified,lb,94,6,139.44
+SitnStand,client,SitnStand,unspecified,lb,94,7,150.67
+SitnStand,client,SitnStand,unspecified,lb,94,8,163.02
+SitnStand,client,SitnStand,unspecified,lb,95,1&2,112.21
+SitnStand,client,SitnStand,unspecified,lb,95,3,112.84
+SitnStand,client,SitnStand,unspecified,lb,95,4,121.12
+SitnStand,client,SitnStand,unspecified,lb,95,5,132.98
+SitnStand,client,SitnStand,unspecified,lb,95,6,140.95
+SitnStand,client,SitnStand,unspecified,lb,95,7,150.95
+SitnStand,client,SitnStand,unspecified,lb,95,8,163.97
+SitnStand,client,SitnStand,unspecified,lb,96,1&2,113.81
+SitnStand,client,SitnStand,unspecified,lb,96,3,114.44
+SitnStand,client,SitnStand,unspecified,lb,96,4,123.16
+SitnStand,client,SitnStand,unspecified,lb,96,5,133.81
+SitnStand,client,SitnStand,unspecified,lb,96,6,141.18
+SitnStand,client,SitnStand,unspecified,lb,96,7,150.95
+SitnStand,client,SitnStand,unspecified,lb,96,8,164.86
+SitnStand,client,SitnStand,unspecified,lb,97,1&2,115.50
+SitnStand,client,SitnStand,unspecified,lb,97,3,116.13
+SitnStand,client,SitnStand,unspecified,lb,97,4,124.02
+SitnStand,client,SitnStand,unspecified,lb,97,5,134.48
+SitnStand,client,SitnStand,unspecified,lb,97,6,141.18
+SitnStand,client,SitnStand,unspecified,lb,97,7,152.13
+SitnStand,client,SitnStand,unspecified,lb,97,8,166.65
+SitnStand,client,SitnStand,unspecified,lb,98,1&2,116.21
+SitnStand,client,SitnStand,unspecified,lb,98,3,116.84
+SitnStand,client,SitnStand,unspecified,lb,98,4,124.05
+SitnStand,client,SitnStand,unspecified,lb,98,5,135.49
+SitnStand,client,SitnStand,unspecified,lb,98,6,142.75
+SitnStand,client,SitnStand,unspecified,lb,98,7,152.14
+SitnStand,client,SitnStand,unspecified,lb,98,8,166.65
+SitnStand,client,SitnStand,unspecified,lb,99,1&2,117.39
+SitnStand,client,SitnStand,unspecified,lb,99,3,118.01
+SitnStand,client,SitnStand,unspecified,lb,99,4,125.67
+SitnStand,client,SitnStand,unspecified,lb,99,5,136.24
+SitnStand,client,SitnStand,unspecified,lb,99,6,143.58
+SitnStand,client,SitnStand,unspecified,lb,99,7,153.00
+SitnStand,client,SitnStand,unspecified,lb,99,8,167.58
+SitnStand,client,SitnStand,unspecified,lb,100,1&2,117.87
+SitnStand,client,SitnStand,unspecified,lb,100,3,118.50
+SitnStand,client,SitnStand,unspecified,lb,100,4,125.70
+SitnStand,client,SitnStand,unspecified,lb,100,5,137.05
+SitnStand,client,SitnStand,unspecified,lb,100,6,143.75
+SitnStand,client,SitnStand,unspecified,lb,100,7,153.04
+SitnStand,client,SitnStand,unspecified,lb,100,8,167.65
+SitnStand,client,SitnStand,unspecified,lb,101,1&2,118.79
+SitnStand,client,SitnStand,unspecified,lb,101,3,119.41
+SitnStand,client,SitnStand,unspecified,lb,101,4,126.26
+SitnStand,client,SitnStand,unspecified,lb,101,5,137.39
+SitnStand,client,SitnStand,unspecified,lb,101,6,144.60
+SitnStand,client,SitnStand,unspecified,lb,101,7,153.86
+SitnStand,client,SitnStand,unspecified,lb,101,8,168.50
+SitnStand,client,SitnStand,unspecified,lb,102,1&2,118.80
+SitnStand,client,SitnStand,unspecified,lb,102,3,119.43
+SitnStand,client,SitnStand,unspecified,lb,102,4,126.27
+SitnStand,client,SitnStand,unspecified,lb,102,5,138.01
+SitnStand,client,SitnStand,unspecified,lb,102,6,145.31
+SitnStand,client,SitnStand,unspecified,lb,102,7,153.86
+SitnStand,client,SitnStand,unspecified,lb,102,8,168.53
+SitnStand,client,SitnStand,unspecified,lb,103,1&2,119.53
+SitnStand,client,SitnStand,unspecified,lb,103,3,120.16
+SitnStand,client,SitnStand,unspecified,lb,103,4,127.53
+SitnStand,client,SitnStand,unspecified,lb,103,5,138.02
+SitnStand,client,SitnStand,unspecified,lb,103,6,145.31
+SitnStand,client,SitnStand,unspecified,lb,103,7,153.87
+SitnStand,client,SitnStand,unspecified,lb,103,8,168.53
+SitnStand,client,SitnStand,unspecified,lb,104,1&2,119.53
+SitnStand,client,SitnStand,unspecified,lb,104,3,120.16
+SitnStand,client,SitnStand,unspecified,lb,104,4,127.69
+SitnStand,client,SitnStand,unspecified,lb,104,5,138.41
+SitnStand,client,SitnStand,unspecified,lb,104,6,145.51
+SitnStand,client,SitnStand,unspecified,lb,104,7,153.87
+SitnStand,client,SitnStand,unspecified,lb,104,8,168.55
+SitnStand,client,SitnStand,unspecified,lb,105,1&2,121.59
+SitnStand,client,SitnStand,unspecified,lb,105,3,122.22
+SitnStand,client,SitnStand,unspecified,lb,105,4,128.99
+SitnStand,client,SitnStand,unspecified,lb,105,5,138.49
+SitnStand,client,SitnStand,unspecified,lb,105,6,145.52
+SitnStand,client,SitnStand,unspecified,lb,105,7,155.86
+SitnStand,client,SitnStand,unspecified,lb,105,8,170.85
+SitnStand,client,SitnStand,unspecified,lb,106,1&2,122.00
+SitnStand,client,SitnStand,unspecified,lb,106,3,122.63
+SitnStand,client,SitnStand,unspecified,lb,106,4,129.10
+SitnStand,client,SitnStand,unspecified,lb,106,5,140.51
+SitnStand,client,SitnStand,unspecified,lb,106,6,147.43
+SitnStand,client,SitnStand,unspecified,lb,106,7,155.86
+SitnStand,client,SitnStand,unspecified,lb,106,8,170.85
+SitnStand,client,SitnStand,unspecified,lb,107,1&2,122.87
+SitnStand,client,SitnStand,unspecified,lb,107,3,123.50
+SitnStand,client,SitnStand,unspecified,lb,107,4,130.49
+SitnStand,client,SitnStand,unspecified,lb,107,5,140.51
+SitnStand,client,SitnStand,unspecified,lb,107,6,147.45
+SitnStand,client,SitnStand,unspecified,lb,107,7,156.53
+SitnStand,client,SitnStand,unspecified,lb,107,8,171.61
+SitnStand,client,SitnStand,unspecified,lb,108,1&2,123.16
+SitnStand,client,SitnStand,unspecified,lb,108,3,123.79
+SitnStand,client,SitnStand,unspecified,lb,108,4,130.49
+SitnStand,client,SitnStand,unspecified,lb,108,5,141.27
+SitnStand,client,SitnStand,unspecified,lb,108,6,147.47
+SitnStand,client,SitnStand,unspecified,lb,108,7,156.53
+SitnStand,client,SitnStand,unspecified,lb,108,8,171.62
+SitnStand,client,SitnStand,unspecified,lb,109,1&2,125.00
+SitnStand,client,SitnStand,unspecified,lb,109,3,125.67
+SitnStand,client,SitnStand,unspecified,lb,109,4,131.30
+SitnStand,client,SitnStand,unspecified,lb,109,5,141.27
+SitnStand,client,SitnStand,unspecified,lb,109,6,148.15
+SitnStand,client,SitnStand,unspecified,lb,109,7,158.10
+SitnStand,client,SitnStand,unspecified,lb,109,8,173.41
+SitnStand,client,SitnStand,unspecified,lb,110,1&2,126.07
+SitnStand,client,SitnStand,unspecified,lb,110,3,126.70
+SitnStand,client,SitnStand,unspecified,lb,110,4,132.71
+SitnStand,client,SitnStand,unspecified,lb,110,5,142.61
+SitnStand,client,SitnStand,unspecified,lb,110,6,148.85
+SitnStand,client,SitnStand,unspecified,lb,110,7,159.77
+SitnStand,client,SitnStand,unspecified,lb,110,8,175.21
+SitnStand,client,SitnStand,unspecified,lb,111,1&2,126.09
+SitnStand,client,SitnStand,unspecified,lb,111,3,126.72
+SitnStand,client,SitnStand,unspecified,lb,111,4,134.18
+SitnStand,client,SitnStand,unspecified,lb,111,5,143.97
+SitnStand,client,SitnStand,unspecified,lb,111,6,151.10
+SitnStand,client,SitnStand,unspecified,lb,111,7,160.42
+SitnStand,client,SitnStand,unspecified,lb,111,8,176.41
+SitnStand,client,SitnStand,unspecified,lb,112,1&2,126.83
+SitnStand,client,SitnStand,unspecified,lb,112,3,127.46
+SitnStand,client,SitnStand,unspecified,lb,112,4,134.18
+SitnStand,client,SitnStand,unspecified,lb,112,5,144.65
+SitnStand,client,SitnStand,unspecified,lb,112,6,151.10
+SitnStand,client,SitnStand,unspecified,lb,112,7,160.43
+SitnStand,client,SitnStand,unspecified,lb,112,8,176.42
+SitnStand,client,SitnStand,unspecified,lb,113,1&2,126.83
+SitnStand,client,SitnStand,unspecified,lb,113,3,127.46
+SitnStand,client,SitnStand,unspecified,lb,113,4,134.95
+SitnStand,client,SitnStand,unspecified,lb,113,5,144.68
+SitnStand,client,SitnStand,unspecified,lb,113,6,151.76
+SitnStand,client,SitnStand,unspecified,lb,113,7,160.46
+SitnStand,client,SitnStand,unspecified,lb,113,8,177.31
+SitnStand,client,SitnStand,unspecified,lb,114,1&2,128.15
+SitnStand,client,SitnStand,unspecified,lb,114,3,128.78
+SitnStand,client,SitnStand,unspecified,lb,114,4,136.41
+SitnStand,client,SitnStand,unspecified,lb,114,5,145.34
+SitnStand,client,SitnStand,unspecified,lb,114,6,151.77
+SitnStand,client,SitnStand,unspecified,lb,114,7,162.74
+SitnStand,client,SitnStand,unspecified,lb,114,8,178.94
+SitnStand,client,SitnStand,unspecified,lb,115,1&2,129.50
+SitnStand,client,SitnStand,unspecified,lb,115,3,130.13
+SitnStand,client,SitnStand,unspecified,lb,115,4,137.11
+SitnStand,client,SitnStand,unspecified,lb,115,5,146.78
+SitnStand,client,SitnStand,unspecified,lb,115,6,154.00
+SitnStand,client,SitnStand,unspecified,lb,115,7,163.65
+SitnStand,client,SitnStand,unspecified,lb,115,8,178.98
+SitnStand,client,SitnStand,unspecified,lb,116,1&2,129.58
+SitnStand,client,SitnStand,unspecified,lb,116,3,130.20
+SitnStand,client,SitnStand,unspecified,lb,116,4,137.98
+SitnStand,client,SitnStand,unspecified,lb,116,5,147.70
+SitnStand,client,SitnStand,unspecified,lb,116,6,154.01
+SitnStand,client,SitnStand,unspecified,lb,116,7,164.83
+SitnStand,client,SitnStand,unspecified,lb,116,8,180.59
+SitnStand,client,SitnStand,unspecified,lb,117,1&2,129.59
+SitnStand,client,SitnStand,unspecified,lb,117,3,130.22
+SitnStand,client,SitnStand,unspecified,lb,117,4,137.99
+SitnStand,client,SitnStand,unspecified,lb,117,5,148.04
+SitnStand,client,SitnStand,unspecified,lb,117,6,155.26
+SitnStand,client,SitnStand,unspecified,lb,117,7,164.85
+SitnStand,client,SitnStand,unspecified,lb,117,8,181.31
+SitnStand,client,SitnStand,unspecified,lb,118,1&2,130.95
+SitnStand,client,SitnStand,unspecified,lb,118,3,131.58
+SitnStand,client,SitnStand,unspecified,lb,118,4,138.06
+SitnStand,client,SitnStand,unspecified,lb,118,5,148.70
+SitnStand,client,SitnStand,unspecified,lb,118,6,155.27
+SitnStand,client,SitnStand,unspecified,lb,118,7,164.85
+SitnStand,client,SitnStand,unspecified,lb,118,8,183.11
+SitnStand,client,SitnStand,unspecified,lb,119,1&2,132.31
+SitnStand,client,SitnStand,unspecified,lb,119,3,132.93
+SitnStand,client,SitnStand,unspecified,lb,119,4,140.22
+SitnStand,client,SitnStand,unspecified,lb,119,5,148.94
+SitnStand,client,SitnStand,unspecified,lb,119,6,155.91
+SitnStand,client,SitnStand,unspecified,lb,119,7,165.60
+SitnStand,client,SitnStand,unspecified,lb,119,8,183.12
+SitnStand,client,SitnStand,unspecified,lb,120,1&2,134.22
+SitnStand,client,SitnStand,unspecified,lb,120,3,134.85
+SitnStand,client,SitnStand,unspecified,lb,120,4,140.34
+SitnStand,client,SitnStand,unspecified,lb,120,5,150.11
+SitnStand,client,SitnStand,unspecified,lb,120,6,155.91
+SitnStand,client,SitnStand,unspecified,lb,120,7,166.89
+SitnStand,client,SitnStand,unspecified,lb,120,8,183.15
+SitnStand,client,SitnStand,unspecified,lb,121,1&2,134.23
+SitnStand,client,SitnStand,unspecified,lb,121,3,134.86
+SitnStand,client,SitnStand,unspecified,lb,121,4,140.34
+SitnStand,client,SitnStand,unspecified,lb,121,5,150.64
+SitnStand,client,SitnStand,unspecified,lb,121,6,157.44
+SitnStand,client,SitnStand,unspecified,lb,121,7,166.89
+SitnStand,client,SitnStand,unspecified,lb,121,8,183.15
+SitnStand,client,SitnStand,unspecified,lb,122,1&2,134.23
+SitnStand,client,SitnStand,unspecified,lb,122,3,134.86
+SitnStand,client,SitnStand,unspecified,lb,122,4,141.08
+SitnStand,client,SitnStand,unspecified,lb,122,5,150.65
+SitnStand,client,SitnStand,unspecified,lb,122,6,158.03
+SitnStand,client,SitnStand,unspecified,lb,122,7,168.45
+SitnStand,client,SitnStand,unspecified,lb,122,8,185.05
+SitnStand,client,SitnStand,unspecified,lb,123,1&2,135.56
+SitnStand,client,SitnStand,unspecified,lb,123,3,136.19
+SitnStand,client,SitnStand,unspecified,lb,123,4,144.08
+SitnStand,client,SitnStand,unspecified,lb,123,5,151.36
+SitnStand,client,SitnStand,unspecified,lb,123,6,158.71
+SitnStand,client,SitnStand,unspecified,lb,123,7,170.26
+SitnStand,client,SitnStand,unspecified,lb,123,8,186.57
+SitnStand,client,SitnStand,unspecified,lb,124,1&2,135.58
+SitnStand,client,SitnStand,unspecified,lb,124,3,136.21
+SitnStand,client,SitnStand,unspecified,lb,124,4,144.17
+SitnStand,client,SitnStand,unspecified,lb,124,5,153.53
+SitnStand,client,SitnStand,unspecified,lb,124,6,159.43
+SitnStand,client,SitnStand,unspecified,lb,124,7,170.28
+SitnStand,client,SitnStand,unspecified,lb,124,8,186.58
+SitnStand,client,SitnStand,unspecified,lb,125,1&2,135.58
+SitnStand,client,SitnStand,unspecified,lb,125,3,136.21
+SitnStand,client,SitnStand,unspecified,lb,125,4,144.17
+SitnStand,client,SitnStand,unspecified,lb,125,5,153.54
+SitnStand,client,SitnStand,unspecified,lb,125,6,160.03
+SitnStand,client,SitnStand,unspecified,lb,125,7,170.28
+SitnStand,client,SitnStand,unspecified,lb,125,8,186.58
+SitnStand,client,SitnStand,unspecified,lb,126,1&2,137.05
+SitnStand,client,SitnStand,unspecified,lb,126,3,137.68
+SitnStand,client,SitnStand,unspecified,lb,126,4,144.98
+SitnStand,client,SitnStand,unspecified,lb,126,5,153.54
+SitnStand,client,SitnStand,unspecified,lb,126,6,160.03
+SitnStand,client,SitnStand,unspecified,lb,126,7,170.30
+SitnStand,client,SitnStand,unspecified,lb,126,8,190.53
+SitnStand,client,SitnStand,unspecified,lb,127,1&2,137.06
+SitnStand,client,SitnStand,unspecified,lb,127,3,137.69
+SitnStand,client,SitnStand,unspecified,lb,127,4,146.54
+SitnStand,client,SitnStand,unspecified,lb,127,5,153.54
+SitnStand,client,SitnStand,unspecified,lb,127,6,160.57
+SitnStand,client,SitnStand,unspecified,lb,127,7,172.13
+SitnStand,client,SitnStand,unspecified,lb,127,8,190.54
+SitnStand,client,SitnStand,unspecified,lb,128,1&2,137.75
+SitnStand,client,SitnStand,unspecified,lb,128,3,138.38
+SitnStand,client,SitnStand,unspecified,lb,128,4,146.54
+SitnStand,client,SitnStand,unspecified,lb,128,5,155.40
+SitnStand,client,SitnStand,unspecified,lb,128,6,162.69
+SitnStand,client,SitnStand,unspecified,lb,128,7,172.13
+SitnStand,client,SitnStand,unspecified,lb,128,8,191.17
+SitnStand,client,SitnStand,unspecified,lb,129,1&2,139.16
+SitnStand,client,SitnStand,unspecified,lb,129,3,139.79
+SitnStand,client,SitnStand,unspecified,lb,129,4,146.57
+SitnStand,client,SitnStand,unspecified,lb,129,5,155.41
+SitnStand,client,SitnStand,unspecified,lb,129,6,162.70
+SitnStand,client,SitnStand,unspecified,lb,129,7,172.15
+SitnStand,client,SitnStand,unspecified,lb,129,8,192.28
+SitnStand,client,SitnStand,unspecified,lb,130,1&2,139.48
+SitnStand,client,SitnStand,unspecified,lb,130,3,140.11
+SitnStand,client,SitnStand,unspecified,lb,130,4,147.30
+SitnStand,client,SitnStand,unspecified,lb,130,5,156.00
+SitnStand,client,SitnStand,unspecified,lb,130,6,162.72
+SitnStand,client,SitnStand,unspecified,lb,130,7,173.52
+SitnStand,client,SitnStand,unspecified,lb,130,8,194.99
+SitnStand,client,SitnStand,unspecified,lb,131,1&2,139.89
+SitnStand,client,SitnStand,unspecified,lb,131,3,140.52
+SitnStand,client,SitnStand,unspecified,lb,131,4,149.13
+SitnStand,client,SitnStand,unspecified,lb,131,5,156.00
+SitnStand,client,SitnStand,unspecified,lb,131,6,163.40
+SitnStand,client,SitnStand,unspecified,lb,131,7,174.51
+SitnStand,client,SitnStand,unspecified,lb,131,8,195.53
+SitnStand,client,SitnStand,unspecified,lb,132,1&2,141.38
+SitnStand,client,SitnStand,unspecified,lb,132,3,142.01
+SitnStand,client,SitnStand,unspecified,lb,132,4,149.65
+SitnStand,client,SitnStand,unspecified,lb,132,5,157.37
+SitnStand,client,SitnStand,unspecified,lb,132,6,164.79
+SitnStand,client,SitnStand,unspecified,lb,132,7,174.51
+SitnStand,client,SitnStand,unspecified,lb,132,8,195.54
+SitnStand,client,SitnStand,unspecified,lb,133,1&2,141.39
+SitnStand,client,SitnStand,unspecified,lb,133,3,142.02
+SitnStand,client,SitnStand,unspecified,lb,133,4,149.65
+SitnStand,client,SitnStand,unspecified,lb,133,5,157.94
+SitnStand,client,SitnStand,unspecified,lb,133,6,164.80
+SitnStand,client,SitnStand,unspecified,lb,133,7,174.52
+SitnStand,client,SitnStand,unspecified,lb,133,8,195.56
+SitnStand,client,SitnStand,unspecified,lb,134,1&2,142.87
+SitnStand,client,SitnStand,unspecified,lb,134,3,143.50
+SitnStand,client,SitnStand,unspecified,lb,134,4,150.51
+SitnStand,client,SitnStand,unspecified,lb,134,5,157.96
+SitnStand,client,SitnStand,unspecified,lb,134,6,165.30
+SitnStand,client,SitnStand,unspecified,lb,134,7,176.26
+SitnStand,client,SitnStand,unspecified,lb,134,8,195.56
+SitnStand,client,SitnStand,unspecified,lb,135,1&2,143.48
+SitnStand,client,SitnStand,unspecified,lb,135,3,144.11
+SitnStand,client,SitnStand,unspecified,lb,135,4,152.07
+SitnStand,client,SitnStand,unspecified,lb,135,5,159.50
+SitnStand,client,SitnStand,unspecified,lb,135,6,166.96
+SitnStand,client,SitnStand,unspecified,lb,135,7,176.84
+SitnStand,client,SitnStand,unspecified,lb,135,8,196.14
+SitnStand,client,SitnStand,unspecified,lb,136,1&2,144.08
+SitnStand,client,SitnStand,unspecified,lb,136,3,144.71
+SitnStand,client,SitnStand,unspecified,lb,136,4,153.48
+SitnStand,client,SitnStand,unspecified,lb,136,5,161.06
+SitnStand,client,SitnStand,unspecified,lb,136,6,168.19
+SitnStand,client,SitnStand,unspecified,lb,136,7,178.51
+SitnStand,client,SitnStand,unspecified,lb,136,8,196.99
+SitnStand,client,SitnStand,unspecified,lb,137,1&2,144.10
+SitnStand,client,SitnStand,unspecified,lb,137,3,144.72
+SitnStand,client,SitnStand,unspecified,lb,137,4,154.99
+SitnStand,client,SitnStand,unspecified,lb,137,5,161.83
+SitnStand,client,SitnStand,unspecified,lb,137,6,168.20
+SitnStand,client,SitnStand,unspecified,lb,137,7,178.51
+SitnStand,client,SitnStand,unspecified,lb,137,8,197.00
+SitnStand,client,SitnStand,unspecified,lb,138,1&2,145.61
+SitnStand,client,SitnStand,unspecified,lb,138,3,146.24
+SitnStand,client,SitnStand,unspecified,lb,138,4,155.41
+SitnStand,client,SitnStand,unspecified,lb,138,5,162.47
+SitnStand,client,SitnStand,unspecified,lb,138,6,168.22
+SitnStand,client,SitnStand,unspecified,lb,138,7,179.45
+SitnStand,client,SitnStand,unspecified,lb,138,8,200.36
+SitnStand,client,SitnStand,unspecified,lb,139,1&2,147.17
+SitnStand,client,SitnStand,unspecified,lb,139,3,147.80
+SitnStand,client,SitnStand,unspecified,lb,139,4,155.44
+SitnStand,client,SitnStand,unspecified,lb,139,5,163.23
+SitnStand,client,SitnStand,unspecified,lb,139,6,170.26
+SitnStand,client,SitnStand,unspecified,lb,139,7,181.51
+SitnStand,client,SitnStand,unspecified,lb,139,8,201.56
+SitnStand,client,SitnStand,unspecified,lb,140,1&2,147.85
+SitnStand,client,SitnStand,unspecified,lb,140,3,148.48
+SitnStand,client,SitnStand,unspecified,lb,140,4,156.33
+SitnStand,client,SitnStand,unspecified,lb,140,5,163.25
+SitnStand,client,SitnStand,unspecified,lb,140,6,170.28
+SitnStand,client,SitnStand,unspecified,lb,140,7,181.52
+SitnStand,client,SitnStand,unspecified,lb,140,8,201.56
+SitnStand,client,SitnStand,unspecified,lb,141,1&2,147.85
+SitnStand,client,SitnStand,unspecified,lb,141,3,148.48
+SitnStand,client,SitnStand,unspecified,lb,141,4,157.11
+SitnStand,client,SitnStand,unspecified,lb,141,5,164.69
+SitnStand,client,SitnStand,unspecified,lb,141,6,171.35
+SitnStand,client,SitnStand,unspecified,lb,141,7,181.54
+SitnStand,client,SitnStand,unspecified,lb,141,8,201.59
+SitnStand,client,SitnStand,unspecified,lb,142,1&2,148.95
+SitnStand,client,SitnStand,unspecified,lb,142,3,149.58
+SitnStand,client,SitnStand,unspecified,lb,142,4,157.94
+SitnStand,client,SitnStand,unspecified,lb,142,5,164.69
+SitnStand,client,SitnStand,unspecified,lb,142,6,171.36
+SitnStand,client,SitnStand,unspecified,lb,142,7,183.10
+SitnStand,client,SitnStand,unspecified,lb,142,8,201.87
+SitnStand,client,SitnStand,unspecified,lb,143,1&2,148.97
+SitnStand,client,SitnStand,unspecified,lb,143,3,149.60
+SitnStand,client,SitnStand,unspecified,lb,143,4,157.96
+SitnStand,client,SitnStand,unspecified,lb,143,5,166.17
+SitnStand,client,SitnStand,unspecified,lb,143,6,172.91
+SitnStand,client,SitnStand,unspecified,lb,143,7,183.10
+SitnStand,client,SitnStand,unspecified,lb,143,8,201.87
+SitnStand,client,SitnStand,unspecified,lb,144,1&2,151.43
+SitnStand,client,SitnStand,unspecified,lb,144,3,152.06
+SitnStand,client,SitnStand,unspecified,lb,144,4,161.56
+SitnStand,client,SitnStand,unspecified,lb,144,5,166.17
+SitnStand,client,SitnStand,unspecified,lb,144,6,172.93
+SitnStand,client,SitnStand,unspecified,lb,144,7,186.08
+SitnStand,client,SitnStand,unspecified,lb,144,8,206.02
+SitnStand,client,SitnStand,unspecified,lb,145,1&2,151.43
+SitnStand,client,SitnStand,unspecified,lb,145,3,152.06
+SitnStand,client,SitnStand,unspecified,lb,145,4,161.57
+SitnStand,client,SitnStand,unspecified,lb,145,5,169.13
+SitnStand,client,SitnStand,unspecified,lb,145,6,175.69
+SitnStand,client,SitnStand,unspecified,lb,145,7,187.31
+SitnStand,client,SitnStand,unspecified,lb,145,8,206.05
+SitnStand,client,SitnStand,unspecified,lb,146,1&2,151.44
+SitnStand,client,SitnStand,unspecified,lb,146,3,152.07
+SitnStand,client,SitnStand,unspecified,lb,146,4,161.59
+SitnStand,client,SitnStand,unspecified,lb,146,5,169.35
+SitnStand,client,SitnStand,unspecified,lb,146,6,177.32
+SitnStand,client,SitnStand,unspecified,lb,146,7,187.33
+SitnStand,client,SitnStand,unspecified,lb,146,8,206.89
+SitnStand,client,SitnStand,unspecified,lb,147,1&2,152.50
+SitnStand,client,SitnStand,unspecified,lb,147,3,153.13
+SitnStand,client,SitnStand,unspecified,lb,147,4,162.34
+SitnStand,client,SitnStand,unspecified,lb,147,5,169.36
+SitnStand,client,SitnStand,unspecified,lb,147,6,177.34
+SitnStand,client,SitnStand,unspecified,lb,147,7,187.34
+SitnStand,client,SitnStand,unspecified,lb,147,8,207.78
+SitnStand,client,SitnStand,unspecified,lb,148,1&2,152.51
+SitnStand,client,SitnStand,unspecified,lb,148,3,153.14
+SitnStand,client,SitnStand,unspecified,lb,148,4,163.37
+SitnStand,client,SitnStand,unspecified,lb,148,5,170.13
+SitnStand,client,SitnStand,unspecified,lb,148,6,178.12
+SitnStand,client,SitnStand,unspecified,lb,148,7,187.47
+SitnStand,client,SitnStand,unspecified,lb,148,8,208.53
+SitnStand,client,SitnStand,unspecified,lb,149,1&2,152.51
+SitnStand,client,SitnStand,unspecified,lb,149,3,153.14
+SitnStand,client,SitnStand,unspecified,lb,149,4,163.80
+SitnStand,client,SitnStand,unspecified,lb,149,5,170.96
+SitnStand,client,SitnStand,unspecified,lb,149,6,178.47
+SitnStand,client,SitnStand,unspecified,lb,149,7,187.48
+SitnStand,client,SitnStand,unspecified,lb,149,8,208.55
+SitnStand,client,SitnStand,unspecified,lb,150,1&2,152.53
+SitnStand,client,SitnStand,unspecified,lb,150,3,153.16
+SitnStand,client,SitnStand,unspecified,lb,150,4,163.80
+SitnStand,client,SitnStand,unspecified,lb,150,5,171.68
+SitnStand,client,SitnStand,unspecified,lb,150,6,178.48
+SitnStand,client,SitnStand,unspecified,lb,150,7,187.48
+SitnStand,client,SitnStand,unspecified,lb,150,8,208.55
+Suteka,client,Suteka,unspecified,lb,0.5,1,8.14
+Suteka,client,Suteka,unspecified,lb,0.5,2,8.14
+Suteka,client,Suteka,unspecified,lb,0.5,3,8.18
+Suteka,client,Suteka,unspecified,lb,0.5,4,8.40
+Suteka,client,Suteka,unspecified,lb,0.5,5,8.41
+Suteka,client,Suteka,unspecified,lb,0.5,6,8.55
+Suteka,client,Suteka,unspecified,lb,0.5,7,9.15
+Suteka,client,Suteka,unspecified,lb,0.5,8,9.30
+Suteka,client,Suteka,unspecified,lb,0.9,1,9.34
+Suteka,client,Suteka,unspecified,lb,0.9,2,9.34
+Suteka,client,Suteka,unspecified,lb,0.9,3,9.48
+Suteka,client,Suteka,unspecified,lb,0.9,4,9.83
+Suteka,client,Suteka,unspecified,lb,0.9,5,10.07
+Suteka,client,Suteka,unspecified,lb,0.9,6,10.37
+Suteka,client,Suteka,unspecified,lb,0.9,7,11.19
+Suteka,client,Suteka,unspecified,lb,0.9,8,11.19
+Suteka,client,Suteka,unspecified,lb,1,1,14.52
+Suteka,client,Suteka,unspecified,lb,1,2,15.53
+Suteka,client,Suteka,unspecified,lb,1,3,16.23
+Suteka,client,Suteka,unspecified,lb,1,4,16.68
+Suteka,client,Suteka,unspecified,lb,1,5,16.79
+Suteka,client,Suteka,unspecified,lb,1,6,16.79
+Suteka,client,Suteka,unspecified,lb,1,7,16.79
+Suteka,client,Suteka,unspecified,lb,1,8,16.79
+Suteka,client,Suteka,unspecified,lb,2,1,14.52
+Suteka,client,Suteka,unspecified,lb,2,2,15.83
+Suteka,client,Suteka,unspecified,lb,2,3,16.23
+Suteka,client,Suteka,unspecified,lb,2,4,17.27
+Suteka,client,Suteka,unspecified,lb,2,5,20.45
+Suteka,client,Suteka,unspecified,lb,2,6,20.45
+Suteka,client,Suteka,unspecified,lb,2,7,20.45
+Suteka,client,Suteka,unspecified,lb,2,8,20.45
+Suteka,client,Suteka,unspecified,lb,3,1,15.57
+Suteka,client,Suteka,unspecified,lb,3,2,16.42
+Suteka,client,Suteka,unspecified,lb,3,3,19.29
+Suteka,client,Suteka,unspecified,lb,3,4,21.81
+Suteka,client,Suteka,unspecified,lb,3,5,22.00
+Suteka,client,Suteka,unspecified,lb,3,6,22.03
+Suteka,client,Suteka,unspecified,lb,3,7,22.03
+Suteka,client,Suteka,unspecified,lb,3,8,22.03
+Suteka,client,Suteka,unspecified,lb,4,1,17.05
+Suteka,client,Suteka,unspecified,lb,4,2,19.27
+Suteka,client,Suteka,unspecified,lb,4,3,22.39
+Suteka,client,Suteka,unspecified,lb,4,4,22.62
+Suteka,client,Suteka,unspecified,lb,4,5,22.77
+Suteka,client,Suteka,unspecified,lb,4,6,22.77
+Suteka,client,Suteka,unspecified,lb,4,7,22.78
+Suteka,client,Suteka,unspecified,lb,4,8,22.78
+Suteka,client,Suteka,unspecified,lb,5,1,17.10
+Suteka,client,Suteka,unspecified,lb,5,2,19.85
+Suteka,client,Suteka,unspecified,lb,5,3,22.58
+Suteka,client,Suteka,unspecified,lb,5,4,22.64
+Suteka,client,Suteka,unspecified,lb,5,5,22.78
+Suteka,client,Suteka,unspecified,lb,5,6,22.85
+Suteka,client,Suteka,unspecified,lb,5,7,22.93
+Suteka,client,Suteka,unspecified,lb,5,8,23.03
+Suteka,client,Suteka,unspecified,lb,6,1,17.10
+Suteka,client,Suteka,unspecified,lb,6,2,19.85
+Suteka,client,Suteka,unspecified,lb,6,3,22.58
+Suteka,client,Suteka,unspecified,lb,6,4,22.69
+Suteka,client,Suteka,unspecified,lb,6,5,22.93
+Suteka,client,Suteka,unspecified,lb,6,6,22.95
+Suteka,client,Suteka,unspecified,lb,6,7,22.95
+Suteka,client,Suteka,unspecified,lb,6,8,23.16
+Kivema,client,Kivema,unspecified,oz,1,1,9.71
+Kivema,client,Kivema,unspecified,oz,1,2,10.02
+Kivema,client,Kivema,unspecified,oz,1,3,10.51
+Kivema,client,Kivema,unspecified,oz,1,4,11.24
+Kivema,client,Kivema,unspecified,oz,1,5,11.77
+Kivema,client,Kivema,unspecified,oz,1,6,12.69
+Kivema,client,Kivema,unspecified,oz,1,7,13.08
+Kivema,client,Kivema,unspecified,oz,1,8,13.62
+Kivema,client,Kivema,unspecified,oz,2,1,9.71
+Kivema,client,Kivema,unspecified,oz,2,2,10.02
+Kivema,client,Kivema,unspecified,oz,2,3,10.51
+Kivema,client,Kivema,unspecified,oz,2,4,11.24
+Kivema,client,Kivema,unspecified,oz,2,5,11.77
+Kivema,client,Kivema,unspecified,oz,2,6,12.69
+Kivema,client,Kivema,unspecified,oz,2,7,13.08
+Kivema,client,Kivema,unspecified,oz,2,8,13.62
+Kivema,client,Kivema,unspecified,oz,3,1,9.71
+Kivema,client,Kivema,unspecified,oz,3,2,10.02
+Kivema,client,Kivema,unspecified,oz,3,3,10.51
+Kivema,client,Kivema,unspecified,oz,3,4,11.24
+Kivema,client,Kivema,unspecified,oz,3,5,11.77
+Kivema,client,Kivema,unspecified,oz,3,6,12.69
+Kivema,client,Kivema,unspecified,oz,3,7,13.08
+Kivema,client,Kivema,unspecified,oz,3,8,13.62
+Kivema,client,Kivema,unspecified,oz,4,1,9.71
+Kivema,client,Kivema,unspecified,oz,4,2,10.02
+Kivema,client,Kivema,unspecified,oz,4,3,10.51
+Kivema,client,Kivema,unspecified,oz,4,4,11.24
+Kivema,client,Kivema,unspecified,oz,4,5,11.77
+Kivema,client,Kivema,unspecified,oz,4,6,12.69
+Kivema,client,Kivema,unspecified,oz,4,7,13.08
+Kivema,client,Kivema,unspecified,oz,4,8,13.62
+Kivema,client,Kivema,unspecified,oz,5,1,9.71
+Kivema,client,Kivema,unspecified,oz,5,2,10.02
+Kivema,client,Kivema,unspecified,oz,5,3,10.51
+Kivema,client,Kivema,unspecified,oz,5,4,11.24
+Kivema,client,Kivema,unspecified,oz,5,5,11.77
+Kivema,client,Kivema,unspecified,oz,5,6,12.69
+Kivema,client,Kivema,unspecified,oz,5,7,13.08
+Kivema,client,Kivema,unspecified,oz,5,8,13.62
+Kivema,client,Kivema,unspecified,oz,6,1,10.31
+Kivema,client,Kivema,unspecified,oz,6,2,10.61
+Kivema,client,Kivema,unspecified,oz,6,3,10.92
+Kivema,client,Kivema,unspecified,oz,6,4,11.24
+Kivema,client,Kivema,unspecified,oz,6,5,11.24
+Kivema,client,Kivema,unspecified,oz,6,6,12.69
+Kivema,client,Kivema,unspecified,oz,6,7,13.08
+Kivema,client,Kivema,unspecified,oz,6,8,13.62
+Kivema,client,Kivema,unspecified,oz,7,1,10.61
+Kivema,client,Kivema,unspecified,oz,7,2,11.15
+Kivema,client,Kivema,unspecified,oz,7,3,11.24
+Kivema,client,Kivema,unspecified,oz,7,4,11.40
+Kivema,client,Kivema,unspecified,oz,7,5,12.15
+Kivema,client,Kivema,unspecified,oz,7,6,13.10
+Kivema,client,Kivema,unspecified,oz,7,7,13.41
+Kivema,client,Kivema,unspecified,oz,7,8,13.99
+Kivema,client,Kivema,unspecified,oz,8,1,10.61
+Kivema,client,Kivema,unspecified,oz,8,2,11.18
+Kivema,client,Kivema,unspecified,oz,8,3,11.24
+Kivema,client,Kivema,unspecified,oz,8,4,11.40
+Kivema,client,Kivema,unspecified,oz,8,5,12.15
+Kivema,client,Kivema,unspecified,oz,8,6,13.10
+Kivema,client,Kivema,unspecified,oz,8,7,13.41
+Kivema,client,Kivema,unspecified,oz,8,8,13.99
+Kivema,client,Kivema,unspecified,oz,9,1,11.26
+Kivema,client,Kivema,unspecified,oz,9,2,11.53
+Kivema,client,Kivema,unspecified,oz,9,3,11.84
+Kivema,client,Kivema,unspecified,oz,9,4,12.32
+Kivema,client,Kivema,unspecified,oz,9,5,13.10
+Kivema,client,Kivema,unspecified,oz,9,6,13.62
+Kivema,client,Kivema,unspecified,oz,9,7,13.62
+Kivema,client,Kivema,unspecified,oz,9,8,14.93
+Kivema,client,Kivema,unspecified,oz,10,1,11.26
+Kivema,client,Kivema,unspecified,oz,10,2,11.53
+Kivema,client,Kivema,unspecified,oz,10,3,11.84
+Kivema,client,Kivema,unspecified,oz,10,4,12.32
+Kivema,client,Kivema,unspecified,oz,10,5,13.10
+Kivema,client,Kivema,unspecified,oz,10,6,13.62
+Kivema,client,Kivema,unspecified,oz,10,7,14.16
+Kivema,client,Kivema,unspecified,oz,10,8,14.93
+Kivema,client,Kivema,unspecified,oz,11,1,11.26
+Kivema,client,Kivema,unspecified,oz,11,2,11.53
+Kivema,client,Kivema,unspecified,oz,11,3,11.84
+Kivema,client,Kivema,unspecified,oz,11,4,12.32
+Kivema,client,Kivema,unspecified,oz,11,5,13.10
+Kivema,client,Kivema,unspecified,oz,11,6,13.62
+Kivema,client,Kivema,unspecified,oz,11,7,14.16
+Kivema,client,Kivema,unspecified,oz,11,8,14.93
+Kivema,client,Kivema,unspecified,oz,12,1,12.11
+Kivema,client,Kivema,unspecified,oz,12,2,12.39
+Kivema,client,Kivema,unspecified,oz,12,3,12.69
+Kivema,client,Kivema,unspecified,oz,12,4,13.17
+Kivema,client,Kivema,unspecified,oz,12,5,13.95
+Kivema,client,Kivema,unspecified,oz,12,6,14.16
+Kivema,client,Kivema,unspecified,oz,12,7,15.79
+Kivema,client,Kivema,unspecified,oz,12,8,16.59
+Kivema,client,Kivema,unspecified,oz,13,1,13.33
+Kivema,client,Kivema,unspecified,oz,13,2,13.61
+Kivema,client,Kivema,unspecified,oz,13,3,13.91
+Kivema,client,Kivema,unspecified,oz,13,4,14.40
+Kivema,client,Kivema,unspecified,oz,13,5,15.42
+Kivema,client,Kivema,unspecified,oz,13,6,15.79
+Kivema,client,Kivema,unspecified,oz,13,7,16.43
+Kivema,client,Kivema,unspecified,oz,13,8,17.01
+Kivema,client,Kivema,unspecified,oz,14,1,13.33
+Kivema,client,Kivema,unspecified,oz,14,2,13.61
+Kivema,client,Kivema,unspecified,oz,14,3,13.91
+Kivema,client,Kivema,unspecified,oz,14,4,14.40
+Kivema,client,Kivema,unspecified,oz,14,5,15.42
+Kivema,client,Kivema,unspecified,oz,14,6,15.79
+Kivema,client,Kivema,unspecified,oz,14,7,16.43
+Kivema,client,Kivema,unspecified,oz,14,8,17.01
+Kivema,client,Kivema,unspecified,oz,15,1,13.33
+Kivema,client,Kivema,unspecified,oz,15,2,13.61
+Kivema,client,Kivema,unspecified,oz,15,3,13.91
+Kivema,client,Kivema,unspecified,oz,15,4,14.40
+Kivema,client,Kivema,unspecified,oz,15,5,15.42
+Kivema,client,Kivema,unspecified,oz,15,6,15.79
+Kivema,client,Kivema,unspecified,oz,15,7,16.43
+Kivema,client,Kivema,unspecified,oz,15,8,17.01
+Kivema,client,Kivema,unspecified,oz,15.99,1,13.33
+Kivema,client,Kivema,unspecified,oz,15.99,2,13.61
+Kivema,client,Kivema,unspecified,oz,15.99,3,13.91
+Kivema,client,Kivema,unspecified,oz,15.99,4,14.40
+Kivema,client,Kivema,unspecified,oz,15.99,5,15.42
+Kivema,client,Kivema,unspecified,oz,15.99,6,15.79
+Kivema,client,Kivema,unspecified,oz,15.99,7,16.43
+Kivema,client,Kivema,unspecified,oz,15.99,8,17.01
+Kivema,client,Kivema,unspecified,lb,1,1,16.59
+Kivema,client,Kivema,unspecified,lb,1,2,16.59
+Kivema,client,Kivema,unspecified,lb,1,3,17.14
+Kivema,client,Kivema,unspecified,lb,1,4,17.60
+Kivema,client,Kivema,unspecified,lb,1,5,18.69
+Kivema,client,Kivema,unspecified,lb,1,6,19.40
+Kivema,client,Kivema,unspecified,lb,1,7,20.59
+Kivema,client,Kivema,unspecified,lb,1,8,21.76
+Kivema,client,Kivema,unspecified,lb,2,1,16.59
+Kivema,client,Kivema,unspecified,lb,2,2,16.59
+Kivema,client,Kivema,unspecified,lb,2,3,17.12
+Kivema,client,Kivema,unspecified,lb,2,4,17.60
+Kivema,client,Kivema,unspecified,lb,2,5,18.69
+Kivema,client,Kivema,unspecified,lb,2,6,19.40
+Kivema,client,Kivema,unspecified,lb,2,7,20.59
+Kivema,client,Kivema,unspecified,lb,2,8,21.76
+Kivema,client,Kivema,unspecified,lb,3,1,16.59
+Kivema,client,Kivema,unspecified,lb,3,2,17.17
+Kivema,client,Kivema,unspecified,lb,3,3,17.60
+Kivema,client,Kivema,unspecified,lb,3,4,18.48
+Kivema,client,Kivema,unspecified,lb,3,5,19.40
+Kivema,client,Kivema,unspecified,lb,3,6,20.36
+Kivema,client,Kivema,unspecified,lb,3,7,21.63
+Kivema,client,Kivema,unspecified,lb,3,8,22.42
+Kivema,client,Kivema,unspecified,lb,4,1,17.14
+Kivema,client,Kivema,unspecified,lb,4,2,17.17
+Kivema,client,Kivema,unspecified,lb,4,3,17.60
+Kivema,client,Kivema,unspecified,lb,4,4,18.48
+Kivema,client,Kivema,unspecified,lb,4,5,19.40
+Kivema,client,Kivema,unspecified,lb,4,6,20.36
+Kivema,client,Kivema,unspecified,lb,4,7,21.63
+Kivema,client,Kivema,unspecified,lb,4,8,22.42
+Kivema,client,Kivema,unspecified,lb,5,1,17.14
+Kivema,client,Kivema,unspecified,lb,5,2,17.60
+Kivema,client,Kivema,unspecified,lb,5,3,18.32
+Kivema,client,Kivema,unspecified,lb,5,4,19.03
+Kivema,client,Kivema,unspecified,lb,5,5,20.25
+Kivema,client,Kivema,unspecified,lb,5,6,20.88
+Kivema,client,Kivema,unspecified,lb,5,7,22.16
+Kivema,client,Kivema,unspecified,lb,5,8,23.51
+Kivema,client,Kivema,unspecified,lb,6,1,18.40
+Kivema,client,Kivema,unspecified,lb,6,2,18.94
+Kivema,client,Kivema,unspecified,lb,6,3,19.76
+Kivema,client,Kivema,unspecified,lb,6,4,20.41
+Kivema,client,Kivema,unspecified,lb,6,5,21.72
+Kivema,client,Kivema,unspecified,lb,6,6,22.31
+Kivema,client,Kivema,unspecified,lb,6,7,23.23
+Kivema,client,Kivema,unspecified,lb,6,8,24.27
+Kivema,client,Kivema,unspecified,lb,7,1,19.29
+Kivema,client,Kivema,unspecified,lb,7,2,19.57
+Kivema,client,Kivema,unspecified,lb,7,3,20.49
+Kivema,client,Kivema,unspecified,lb,7,4,21.37
+Kivema,client,Kivema,unspecified,lb,7,5,22.29
+Kivema,client,Kivema,unspecified,lb,7,6,22.98
+Kivema,client,Kivema,unspecified,lb,7,7,24.27
+Kivema,client,Kivema,unspecified,lb,7,8,25.49
+Kivema,client,Kivema,unspecified,lb,8,1,20.29
+Kivema,client,Kivema,unspecified,lb,8,2,20.51
+Kivema,client,Kivema,unspecified,lb,8,3,21.21
+Kivema,client,Kivema,unspecified,lb,8,4,22.16
+Kivema,client,Kivema,unspecified,lb,8,5,22.82
+Kivema,client,Kivema,unspecified,lb,8,6,23.99
+Kivema,client,Kivema,unspecified,lb,8,7,25.57
+Kivema,client,Kivema,unspecified,lb,8,8,26.16
+Kivema,client,Kivema,unspecified,lb,9,1,21.21
+Kivema,client,Kivema,unspecified,lb,9,2,21.56
+Kivema,client,Kivema,unspecified,lb,9,3,22.31
+Kivema,client,Kivema,unspecified,lb,9,4,23.01
+Kivema,client,Kivema,unspecified,lb,9,5,23.78
+Kivema,client,Kivema,unspecified,lb,9,6,24.46
+Kivema,client,Kivema,unspecified,lb,9,7,25.97
+Kivema,client,Kivema,unspecified,lb,9,8,27.20
+Kivema,client,Kivema,unspecified,lb,10,1,22.19
+Kivema,client,Kivema,unspecified,lb,10,2,22.72
+Kivema,client,Kivema,unspecified,lb,10,3,23.52
+Kivema,client,Kivema,unspecified,lb,10,4,24.14
+Kivema,client,Kivema,unspecified,lb,10,5,24.44
+Kivema,client,Kivema,unspecified,lb,10,6,25.36
+Kivema,client,Kivema,unspecified,lb,10,7,27.24
+Kivema,client,Kivema,unspecified,lb,10,8,27.80
+Timesystem,client,Timesystem,unspecified,oz,1,1,5.14
+Timesystem,client,Timesystem,unspecified,oz,1,2,5.20
+Timesystem,client,Timesystem,unspecified,oz,1,3,5.23
+Timesystem,client,Timesystem,unspecified,oz,1,4,5.37
+Timesystem,client,Timesystem,unspecified,oz,1,5,5.44
+Timesystem,client,Timesystem,unspecified,oz,1,6,5.57
+Timesystem,client,Timesystem,unspecified,oz,1,7,5.67
+Timesystem,client,Timesystem,unspecified,oz,1,8,5.91
+Timesystem,client,Timesystem,unspecified,oz,2,1,5.14
+Timesystem,client,Timesystem,unspecified,oz,2,2,5.20
+Timesystem,client,Timesystem,unspecified,oz,2,3,5.23
+Timesystem,client,Timesystem,unspecified,oz,2,4,5.37
+Timesystem,client,Timesystem,unspecified,oz,2,5,5.44
+Timesystem,client,Timesystem,unspecified,oz,2,6,5.57
+Timesystem,client,Timesystem,unspecified,oz,2,7,5.67
+Timesystem,client,Timesystem,unspecified,oz,2,8,5.91
+Timesystem,client,Timesystem,unspecified,oz,3,1,5.14
+Timesystem,client,Timesystem,unspecified,oz,3,2,5.20
+Timesystem,client,Timesystem,unspecified,oz,3,3,5.23
+Timesystem,client,Timesystem,unspecified,oz,3,4,5.37
+Timesystem,client,Timesystem,unspecified,oz,3,5,5.44
+Timesystem,client,Timesystem,unspecified,oz,3,6,5.57
+Timesystem,client,Timesystem,unspecified,oz,3,7,5.67
+Timesystem,client,Timesystem,unspecified,oz,3,8,5.91
+Timesystem,client,Timesystem,unspecified,oz,4,1,5.14
+Timesystem,client,Timesystem,unspecified,oz,4,2,5.20
+Timesystem,client,Timesystem,unspecified,oz,4,3,5.23
+Timesystem,client,Timesystem,unspecified,oz,4,4,5.37
+Timesystem,client,Timesystem,unspecified,oz,4,5,5.44
+Timesystem,client,Timesystem,unspecified,oz,4,6,5.57
+Timesystem,client,Timesystem,unspecified,oz,4,7,5.67
+Timesystem,client,Timesystem,unspecified,oz,4,8,5.91
+Timesystem,client,Timesystem,unspecified,oz,5,1,5.71
+Timesystem,client,Timesystem,unspecified,oz,5,2,5.80
+Timesystem,client,Timesystem,unspecified,oz,5,3,5.85
+Timesystem,client,Timesystem,unspecified,oz,5,4,5.93
+Timesystem,client,Timesystem,unspecified,oz,5,5,6.00
+Timesystem,client,Timesystem,unspecified,oz,5,6,6.05
+Timesystem,client,Timesystem,unspecified,oz,5,7,6.16
+Timesystem,client,Timesystem,unspecified,oz,5,8,6.35
+Timesystem,client,Timesystem,unspecified,oz,6,1,5.71
+Timesystem,client,Timesystem,unspecified,oz,6,2,5.80
+Timesystem,client,Timesystem,unspecified,oz,6,3,5.85
+Timesystem,client,Timesystem,unspecified,oz,6,4,5.93
+Timesystem,client,Timesystem,unspecified,oz,6,5,6.00
+Timesystem,client,Timesystem,unspecified,oz,6,6,6.05
+Timesystem,client,Timesystem,unspecified,oz,6,7,6.16
+Timesystem,client,Timesystem,unspecified,oz,6,8,6.35
+Timesystem,client,Timesystem,unspecified,oz,7,1,5.71
+Timesystem,client,Timesystem,unspecified,oz,7,2,5.80
+Timesystem,client,Timesystem,unspecified,oz,7,3,5.85
+Timesystem,client,Timesystem,unspecified,oz,7,4,5.93
+Timesystem,client,Timesystem,unspecified,oz,7,5,6.00
+Timesystem,client,Timesystem,unspecified,oz,7,6,6.05
+Timesystem,client,Timesystem,unspecified,oz,7,7,6.16
+Timesystem,client,Timesystem,unspecified,oz,7,8,6.35
+Timesystem,client,Timesystem,unspecified,oz,8,1,5.71
+Timesystem,client,Timesystem,unspecified,oz,8,2,5.80
+Timesystem,client,Timesystem,unspecified,oz,8,3,5.85
+Timesystem,client,Timesystem,unspecified,oz,8,4,5.93
+Timesystem,client,Timesystem,unspecified,oz,8,5,6.00
+Timesystem,client,Timesystem,unspecified,oz,8,6,6.05
+Timesystem,client,Timesystem,unspecified,oz,8,7,6.16
+Timesystem,client,Timesystem,unspecified,oz,8,8,6.35
+Timesystem,client,Timesystem,unspecified,oz,9,1,6.60
+Timesystem,client,Timesystem,unspecified,oz,9,2,6.70
+Timesystem,client,Timesystem,unspecified,oz,9,3,6.77
+Timesystem,client,Timesystem,unspecified,oz,9,4,6.88
+Timesystem,client,Timesystem,unspecified,oz,9,5,6.97
+Timesystem,client,Timesystem,unspecified,oz,9,6,7.19
+Timesystem,client,Timesystem,unspecified,oz,9,7,7.38
+Timesystem,client,Timesystem,unspecified,oz,9,8,7.62
+Timesystem,client,Timesystem,unspecified,oz,10,1,6.60
+Timesystem,client,Timesystem,unspecified,oz,10,2,6.70
+Timesystem,client,Timesystem,unspecified,oz,10,3,6.77
+Timesystem,client,Timesystem,unspecified,oz,10,4,6.88
+Timesystem,client,Timesystem,unspecified,oz,10,5,6.97
+Timesystem,client,Timesystem,unspecified,oz,10,6,7.19
+Timesystem,client,Timesystem,unspecified,oz,10,7,7.38
+Timesystem,client,Timesystem,unspecified,oz,10,8,7.62
+Timesystem,client,Timesystem,unspecified,oz,11,1,6.60
+Timesystem,client,Timesystem,unspecified,oz,11,2,6.70
+Timesystem,client,Timesystem,unspecified,oz,11,3,6.77
+Timesystem,client,Timesystem,unspecified,oz,11,4,6.88
+Timesystem,client,Timesystem,unspecified,oz,11,5,6.97
+Timesystem,client,Timesystem,unspecified,oz,11,6,7.19
+Timesystem,client,Timesystem,unspecified,oz,11,7,7.38
+Timesystem,client,Timesystem,unspecified,oz,11,8,7.62
+Timesystem,client,Timesystem,unspecified,oz,12,1,6.60
+Timesystem,client,Timesystem,unspecified,oz,12,2,6.70
+Timesystem,client,Timesystem,unspecified,oz,12,3,6.77
+Timesystem,client,Timesystem,unspecified,oz,12,4,6.88
+Timesystem,client,Timesystem,unspecified,oz,12,5,6.97
+Timesystem,client,Timesystem,unspecified,oz,12,6,7.19
+Timesystem,client,Timesystem,unspecified,oz,12,7,7.38
+Timesystem,client,Timesystem,unspecified,oz,12,8,7.62
+Timesystem,client,Timesystem,unspecified,oz,13,1,8.35
+Timesystem,client,Timesystem,unspecified,oz,13,2,8.48
+Timesystem,client,Timesystem,unspecified,oz,13,3,8.58
+Timesystem,client,Timesystem,unspecified,oz,13,4,8.67
+Timesystem,client,Timesystem,unspecified,oz,13,5,8.88
+Timesystem,client,Timesystem,unspecified,oz,13,6,9.21
+Timesystem,client,Timesystem,unspecified,oz,13,7,9.44
+Timesystem,client,Timesystem,unspecified,oz,13,8,9.69
+Timesystem,client,Timesystem,unspecified,oz,14,1,8.35
+Timesystem,client,Timesystem,unspecified,oz,14,2,8.48
+Timesystem,client,Timesystem,unspecified,oz,14,3,8.58
+Timesystem,client,Timesystem,unspecified,oz,14,4,8.67
+Timesystem,client,Timesystem,unspecified,oz,14,5,8.88
+Timesystem,client,Timesystem,unspecified,oz,14,6,9.21
+Timesystem,client,Timesystem,unspecified,oz,14,7,9.44
+Timesystem,client,Timesystem,unspecified,oz,14,8,9.69
+Timesystem,client,Timesystem,unspecified,oz,15,1,8.35
+Timesystem,client,Timesystem,unspecified,oz,15,2,8.48
+Timesystem,client,Timesystem,unspecified,oz,15,3,8.58
+Timesystem,client,Timesystem,unspecified,oz,15,4,8.67
+Timesystem,client,Timesystem,unspecified,oz,15,5,8.88
+Timesystem,client,Timesystem,unspecified,oz,15,6,9.21
+Timesystem,client,Timesystem,unspecified,oz,15,7,9.44
+Timesystem,client,Timesystem,unspecified,oz,15,8,9.69
+Timesystem,client,Timesystem,unspecified,oz,15.99,1,8.35
+Timesystem,client,Timesystem,unspecified,oz,15.99,2,8.48
+Timesystem,client,Timesystem,unspecified,oz,15.99,3,8.58
+Timesystem,client,Timesystem,unspecified,oz,15.99,4,8.67
+Timesystem,client,Timesystem,unspecified,oz,15.99,5,8.88
+Timesystem,client,Timesystem,unspecified,oz,15.99,6,9.21
+Timesystem,client,Timesystem,unspecified,oz,15.99,7,9.44
+Timesystem,client,Timesystem,unspecified,oz,15.99,8,9.69
+Timesystem,client,Timesystem,unspecified,lb,1,1,9.48
+Timesystem,client,Timesystem,unspecified,lb,1,2,9.48
+Timesystem,client,Timesystem,unspecified,lb,1,3,9.89
+Timesystem,client,Timesystem,unspecified,lb,1,4,9.99
+Timesystem,client,Timesystem,unspecified,lb,1,5,10.03
+Timesystem,client,Timesystem,unspecified,lb,1,6,10.19
+Timesystem,client,Timesystem,unspecified,lb,1,7,10.40
+Timesystem,client,Timesystem,unspecified,lb,1,8,10.46
+Timesystem,client,Timesystem,unspecified,lb,2,1,10.51
+Timesystem,client,Timesystem,unspecified,lb,2,2,10.51
+Timesystem,client,Timesystem,unspecified,lb,2,3,11.15
+Timesystem,client,Timesystem,unspecified,lb,2,4,11.29
+Timesystem,client,Timesystem,unspecified,lb,2,5,11.47
+Timesystem,client,Timesystem,unspecified,lb,2,6,11.73
+Timesystem,client,Timesystem,unspecified,lb,2,7,12.12
+Timesystem,client,Timesystem,unspecified,lb,2,8,12.35
+Timesystem,client,Timesystem,unspecified,lb,3,1,11.72
+Timesystem,client,Timesystem,unspecified,lb,3,2,11.72
+Timesystem,client,Timesystem,unspecified,lb,3,3,12.54
+Timesystem,client,Timesystem,unspecified,lb,3,4,12.71
+Timesystem,client,Timesystem,unspecified,lb,3,5,13.02
+Timesystem,client,Timesystem,unspecified,lb,3,6,13.39
+Timesystem,client,Timesystem,unspecified,lb,3,7,14.00
+Timesystem,client,Timesystem,unspecified,lb,3,8,14.45
+Timesystem,client,Timesystem,unspecified,lb,4,1,12.64
+Timesystem,client,Timesystem,unspecified,lb,4,2,12.64
+Timesystem,client,Timesystem,unspecified,lb,4,3,13.63
+Timesystem,client,Timesystem,unspecified,lb,4,4,13.72
+Timesystem,client,Timesystem,unspecified,lb,4,5,14.26
+Timesystem,client,Timesystem,unspecified,lb,4,6,14.77
+Timesystem,client,Timesystem,unspecified,lb,4,7,15.55
+Timesystem,client,Timesystem,unspecified,lb,4,8,16.24
+Timesystem,client,Timesystem,unspecified,lb,5,1,13.51
+Timesystem,client,Timesystem,unspecified,lb,5,2,13.52
+Timesystem,client,Timesystem,unspecified,lb,5,3,13.80
+Timesystem,client,Timesystem,unspecified,lb,5,4,14.00
+Timesystem,client,Timesystem,unspecified,lb,5,5,15.49
+Timesystem,client,Timesystem,unspecified,lb,5,6,16.12
+Timesystem,client,Timesystem,unspecified,lb,5,7,17.10
+Timesystem,client,Timesystem,unspecified,lb,5,8,18.03
+Timesystem,client,Timesystem,unspecified,lb,6,1,13.62
+Timesystem,client,Timesystem,unspecified,lb,6,2,14.02
+Timesystem,client,Timesystem,unspecified,lb,6,3,14.43
+Timesystem,client,Timesystem,unspecified,lb,6,4,14.65
+Timesystem,client,Timesystem,unspecified,lb,6,5,17.36
+Timesystem,client,Timesystem,unspecified,lb,6,6,18.11
+Timesystem,client,Timesystem,unspecified,lb,6,7,19.29
+Timesystem,client,Timesystem,unspecified,lb,6,8,20.48
+Timesystem,client,Timesystem,unspecified,lb,7,1,14.99
+Timesystem,client,Timesystem,unspecified,lb,7,2,15.08
+Timesystem,client,Timesystem,unspecified,lb,7,3,16.57
+Timesystem,client,Timesystem,unspecified,lb,7,4,17.55
+Timesystem,client,Timesystem,unspecified,lb,7,5,18.71
+Timesystem,client,Timesystem,unspecified,lb,7,6,19.57
+Timesystem,client,Timesystem,unspecified,lb,7,7,20.95
+Timesystem,client,Timesystem,unspecified,lb,7,8,22.38
+Timesystem,client,Timesystem,unspecified,lb,8,1,15.47
+Timesystem,client,Timesystem,unspecified,lb,8,2,15.55
+Timesystem,client,Timesystem,unspecified,lb,8,3,17.19
+Timesystem,client,Timesystem,unspecified,lb,8,4,18.30
+Timesystem,client,Timesystem,unspecified,lb,8,5,20.02
+Timesystem,client,Timesystem,unspecified,lb,8,6,20.99
+Timesystem,client,Timesystem,unspecified,lb,8,7,22.58
+Timesystem,client,Timesystem,unspecified,lb,8,8,24.24
+Timesystem,client,Timesystem,unspecified,lb,9,1,16.15
+Timesystem,client,Timesystem,unspecified,lb,9,2,16.23
+Timesystem,client,Timesystem,unspecified,lb,9,3,17.88
+Timesystem,client,Timesystem,unspecified,lb,9,4,19.09
+Timesystem,client,Timesystem,unspecified,lb,9,5,21.12
+Timesystem,client,Timesystem,unspecified,lb,9,6,22.71
+Timesystem,client,Timesystem,unspecified,lb,9,7,24.31
+Timesystem,client,Timesystem,unspecified,lb,9,8,26.69
+Timesystem,client,Timesystem,unspecified,lb,10,1,16.97
+Timesystem,client,Timesystem,unspecified,lb,10,2,17.07
+Timesystem,client,Timesystem,unspecified,lb,10,3,18.60
+Timesystem,client,Timesystem,unspecified,lb,10,4,19.91
+Timesystem,client,Timesystem,unspecified,lb,10,5,21.96
+Timesystem,client,Timesystem,unspecified,lb,10,6,22.92
+Timesystem,client,Timesystem,unspecified,lb,10,7,25.29
+Timesystem,client,Timesystem,unspecified,lb,10,8,28.58
+Timesystem,client,Timesystem,unspecified,lb,11,1,19.61
+Timesystem,client,Timesystem,unspecified,lb,11,2,19.68
+Timesystem,client,Timesystem,unspecified,lb,11,3,20.74
+Timesystem,client,Timesystem,unspecified,lb,11,4,22.18
+Timesystem,client,Timesystem,unspecified,lb,11,5,23.75
+Timesystem,client,Timesystem,unspecified,lb,11,6,24.83
+Timesystem,client,Timesystem,unspecified,lb,11,7,28.35
+Timesystem,client,Timesystem,unspecified,lb,11,8,31.97
+Timesystem,client,Timesystem,unspecified,lb,12,1,20.35
+Timesystem,client,Timesystem,unspecified,lb,12,2,20.37
+Timesystem,client,Timesystem,unspecified,lb,12,3,21.41
+Timesystem,client,Timesystem,unspecified,lb,12,4,23.00
+Timesystem,client,Timesystem,unspecified,lb,12,5,23.97
+Timesystem,client,Timesystem,unspecified,lb,12,6,25.54
+Timesystem,client,Timesystem,unspecified,lb,12,7,29.28
+Timesystem,client,Timesystem,unspecified,lb,12,8,33.86
+Timesystem,client,Timesystem,unspecified,lb,13,1,20.44
+Timesystem,client,Timesystem,unspecified,lb,13,2,20.44
+Timesystem,client,Timesystem,unspecified,lb,13,3,21.48
+Timesystem,client,Timesystem,unspecified,lb,13,4,23.78
+Timesystem,client,Timesystem,unspecified,lb,13,5,24.33
+Timesystem,client,Timesystem,unspecified,lb,13,6,26.18
+Timesystem,client,Timesystem,unspecified,lb,13,7,30.87
+Timesystem,client,Timesystem,unspecified,lb,13,8,35.78
+Timesystem,client,Timesystem,unspecified,lb,14,1,21.00
+Timesystem,client,Timesystem,unspecified,lb,14,2,21.00
+Timesystem,client,Timesystem,unspecified,lb,14,3,21.92
+Timesystem,client,Timesystem,unspecified,lb,14,4,24.49
+Timesystem,client,Timesystem,unspecified,lb,14,5,24.81
+Timesystem,client,Timesystem,unspecified,lb,14,6,27.41
+Timesystem,client,Timesystem,unspecified,lb,14,7,32.61
+Timesystem,client,Timesystem,unspecified,lb,14,8,37.69
+Timesystem,client,Timesystem,unspecified,lb,15,1,21.00
+Timesystem,client,Timesystem,unspecified,lb,15,2,21.00
+Timesystem,client,Timesystem,unspecified,lb,15,3,22.30
+Timesystem,client,Timesystem,unspecified,lb,15,4,25.15
+Timesystem,client,Timesystem,unspecified,lb,15,5,25.50
+Timesystem,client,Timesystem,unspecified,lb,15,6,28.65
+Timesystem,client,Timesystem,unspecified,lb,15,7,33.49
+Timesystem,client,Timesystem,unspecified,lb,15,8,39.59
+Timesystem,client,Timesystem,unspecified,lb,16,1,21.42
+Timesystem,client,Timesystem,unspecified,lb,16,2,21.42
+Timesystem,client,Timesystem,unspecified,lb,16,3,22.78
+Timesystem,client,Timesystem,unspecified,lb,16,4,25.69
+Timesystem,client,Timesystem,unspecified,lb,16,5,25.87
+Timesystem,client,Timesystem,unspecified,lb,16,6,29.41
+Timesystem,client,Timesystem,unspecified,lb,16,7,34.98
+Timesystem,client,Timesystem,unspecified,lb,16,8,40.03
+Timesystem,client,Timesystem,unspecified,lb,17,1,21.53
+Timesystem,client,Timesystem,unspecified,lb,17,2,21.53
+Timesystem,client,Timesystem,unspecified,lb,17,3,23.15
+Timesystem,client,Timesystem,unspecified,lb,17,4,26.26
+Timesystem,client,Timesystem,unspecified,lb,17,5,26.45
+Timesystem,client,Timesystem,unspecified,lb,17,6,30.44
+Timesystem,client,Timesystem,unspecified,lb,17,7,36.49
+Timesystem,client,Timesystem,unspecified,lb,17,8,41.20
+Timesystem,client,Timesystem,unspecified,lb,18,1,21.71
+Timesystem,client,Timesystem,unspecified,lb,18,2,21.71
+Timesystem,client,Timesystem,unspecified,lb,18,3,23.42
+Timesystem,client,Timesystem,unspecified,lb,18,4,26.85
+Timesystem,client,Timesystem,unspecified,lb,18,5,27.48
+Timesystem,client,Timesystem,unspecified,lb,18,6,31.78
+Timesystem,client,Timesystem,unspecified,lb,18,7,37.43
+Timesystem,client,Timesystem,unspecified,lb,18,8,42.12
+Timesystem,client,Timesystem,unspecified,lb,19,1,22.13
+Timesystem,client,Timesystem,unspecified,lb,19,2,22.13
+Timesystem,client,Timesystem,unspecified,lb,19,3,24.26
+Timesystem,client,Timesystem,unspecified,lb,19,4,27.42
+Timesystem,client,Timesystem,unspecified,lb,19,5,28.48
+Timesystem,client,Timesystem,unspecified,lb,19,6,32.47
+Timesystem,client,Timesystem,unspecified,lb,19,7,38.33
+Timesystem,client,Timesystem,unspecified,lb,19,8,43.32
+Timesystem,client,Timesystem,unspecified,lb,20,1,22.25
+Timesystem,client,Timesystem,unspecified,lb,20,2,22.25
+Timesystem,client,Timesystem,unspecified,lb,20,3,24.41
+Timesystem,client,Timesystem,unspecified,lb,20,4,27.97
+Timesystem,client,Timesystem,unspecified,lb,20,5,29.38
+Timesystem,client,Timesystem,unspecified,lb,20,6,33.40
+Timesystem,client,Timesystem,unspecified,lb,20,7,39.56
+Timesystem,client,Timesystem,unspecified,lb,20,8,44.04
+CreativePea,client,CreativePea,unspecified,oz,1,1,6.1
+CreativePea,client,CreativePea,unspecified,oz,1,2,6.25
+CreativePea,client,CreativePea,unspecified,oz,1,3,6.3
+CreativePea,client,CreativePea,unspecified,oz,1,4,6.41
+CreativePea,client,CreativePea,unspecified,oz,1,5,6.51
+CreativePea,client,CreativePea,unspecified,oz,1,6,6.83
+CreativePea,client,CreativePea,unspecified,oz,1,7,7.16
+CreativePea,client,CreativePea,unspecified,oz,1,8,7.42
+CreativePea,client,CreativePea,unspecified,oz,2,1,6.1
+CreativePea,client,CreativePea,unspecified,oz,2,2,6.25
+CreativePea,client,CreativePea,unspecified,oz,2,3,6.3
+CreativePea,client,CreativePea,unspecified,oz,2,4,6.41
+CreativePea,client,CreativePea,unspecified,oz,2,5,6.51
+CreativePea,client,CreativePea,unspecified,oz,2,6,6.83
+CreativePea,client,CreativePea,unspecified,oz,2,7,7.16
+CreativePea,client,CreativePea,unspecified,oz,2,8,7.42
+CreativePea,client,CreativePea,unspecified,oz,3,1,6.1
+CreativePea,client,CreativePea,unspecified,oz,3,2,6.25
+CreativePea,client,CreativePea,unspecified,oz,3,3,6.3
+CreativePea,client,CreativePea,unspecified,oz,3,4,6.41
+CreativePea,client,CreativePea,unspecified,oz,3,5,6.51
+CreativePea,client,CreativePea,unspecified,oz,3,6,6.83
+CreativePea,client,CreativePea,unspecified,oz,3,7,7.16
+CreativePea,client,CreativePea,unspecified,oz,3,8,7.42
+CreativePea,client,CreativePea,unspecified,oz,4,1,6.1
+CreativePea,client,CreativePea,unspecified,oz,4,2,6.25
+CreativePea,client,CreativePea,unspecified,oz,4,3,6.3
+CreativePea,client,CreativePea,unspecified,oz,4,4,6.41
+CreativePea,client,CreativePea,unspecified,oz,4,5,6.51
+CreativePea,client,CreativePea,unspecified,oz,4,6,6.83
+CreativePea,client,CreativePea,unspecified,oz,4,7,7.16
+CreativePea,client,CreativePea,unspecified,oz,4,8,7.42
+CreativePea,client,CreativePea,unspecified,oz,5,1,7.25
+CreativePea,client,CreativePea,unspecified,oz,5,2,7.35
+CreativePea,client,CreativePea,unspecified,oz,5,3,7.51
+CreativePea,client,CreativePea,unspecified,oz,5,4,7.65
+CreativePea,client,CreativePea,unspecified,oz,5,5,7.72
+CreativePea,client,CreativePea,unspecified,oz,5,6,7.81
+CreativePea,client,CreativePea,unspecified,oz,5,7,7.89
+CreativePea,client,CreativePea,unspecified,oz,5,8,7.99
+CreativePea,client,CreativePea,unspecified,oz,6,1,7.25
+CreativePea,client,CreativePea,unspecified,oz,6,2,7.35
+CreativePea,client,CreativePea,unspecified,oz,6,3,7.51
+CreativePea,client,CreativePea,unspecified,oz,6,4,7.65
+CreativePea,client,CreativePea,unspecified,oz,6,5,7.72
+CreativePea,client,CreativePea,unspecified,oz,6,6,7.81
+CreativePea,client,CreativePea,unspecified,oz,6,7,7.89
+CreativePea,client,CreativePea,unspecified,oz,6,8,7.99
+CreativePea,client,CreativePea,unspecified,oz,7,1,7.25
+CreativePea,client,CreativePea,unspecified,oz,7,2,7.35
+CreativePea,client,CreativePea,unspecified,oz,7,3,7.51
+CreativePea,client,CreativePea,unspecified,oz,7,4,7.65
+CreativePea,client,CreativePea,unspecified,oz,7,5,7.72
+CreativePea,client,CreativePea,unspecified,oz,7,6,7.81
+CreativePea,client,CreativePea,unspecified,oz,7,7,7.89
+CreativePea,client,CreativePea,unspecified,oz,7,8,7.99
+CreativePea,client,CreativePea,unspecified,oz,8,1,7.25
+CreativePea,client,CreativePea,unspecified,oz,8,2,7.35
+CreativePea,client,CreativePea,unspecified,oz,8,3,7.51
+CreativePea,client,CreativePea,unspecified,oz,8,4,7.65
+CreativePea,client,CreativePea,unspecified,oz,8,5,7.72
+CreativePea,client,CreativePea,unspecified,oz,8,6,7.81
+CreativePea,client,CreativePea,unspecified,oz,8,7,7.89
+CreativePea,client,CreativePea,unspecified,oz,8,8,7.99
+CreativePea,client,CreativePea,unspecified,oz,9,1,7.47
+CreativePea,client,CreativePea,unspecified,oz,9,2,7.56
+CreativePea,client,CreativePea,unspecified,oz,9,3,7.62
+CreativePea,client,CreativePea,unspecified,oz,9,4,7.72
+CreativePea,client,CreativePea,unspecified,oz,9,5,7.81
+CreativePea,client,CreativePea,unspecified,oz,9,6,8.03
+CreativePea,client,CreativePea,unspecified,oz,9,7,8.2
+CreativePea,client,CreativePea,unspecified,oz,9,8,8.42
+CreativePea,client,CreativePea,unspecified,oz,10,1,7.47
+CreativePea,client,CreativePea,unspecified,oz,10,2,7.56
+CreativePea,client,CreativePea,unspecified,oz,10,3,7.62
+CreativePea,client,CreativePea,unspecified,oz,10,4,7.72
+CreativePea,client,CreativePea,unspecified,oz,10,5,7.81
+CreativePea,client,CreativePea,unspecified,oz,10,6,8.03
+CreativePea,client,CreativePea,unspecified,oz,10,7,8.2
+CreativePea,client,CreativePea,unspecified,oz,10,8,8.42
+CreativePea,client,CreativePea,unspecified,oz,11,1,7.47
+CreativePea,client,CreativePea,unspecified,oz,11,2,7.56
+CreativePea,client,CreativePea,unspecified,oz,11,3,7.62
+CreativePea,client,CreativePea,unspecified,oz,11,4,7.72
+CreativePea,client,CreativePea,unspecified,oz,11,5,7.81
+CreativePea,client,CreativePea,unspecified,oz,11,6,8.03
+CreativePea,client,CreativePea,unspecified,oz,11,7,8.2
+CreativePea,client,CreativePea,unspecified,oz,11,8,8.42
+CreativePea,client,CreativePea,unspecified,oz,12,1,7.47
+CreativePea,client,CreativePea,unspecified,oz,12,2,7.56
+CreativePea,client,CreativePea,unspecified,oz,12,3,7.62
+CreativePea,client,CreativePea,unspecified,oz,12,4,7.72
+CreativePea,client,CreativePea,unspecified,oz,12,5,7.81
+CreativePea,client,CreativePea,unspecified,oz,12,6,8.03
+CreativePea,client,CreativePea,unspecified,oz,12,7,8.2
+CreativePea,client,CreativePea,unspecified,oz,12,8,8.42
+CreativePea,client,CreativePea,unspecified,oz,13,1,7.85
+CreativePea,client,CreativePea,unspecified,oz,13,2,7.85
+CreativePea,client,CreativePea,unspecified,oz,13,3,8.3
+CreativePea,client,CreativePea,unspecified,oz,13,4,8.66
+CreativePea,client,CreativePea,unspecified,oz,13,5,8.85
+CreativePea,client,CreativePea,unspecified,oz,13,6,9.11
+CreativePea,client,CreativePea,unspecified,oz,13,7,9.27
+CreativePea,client,CreativePea,unspecified,oz,13,8,9.56
+CreativePea,client,CreativePea,unspecified,oz,14,1,7.85
+CreativePea,client,CreativePea,unspecified,oz,14,2,7.85
+CreativePea,client,CreativePea,unspecified,oz,14,3,8.3
+CreativePea,client,CreativePea,unspecified,oz,14,4,8.66
+CreativePea,client,CreativePea,unspecified,oz,14,5,8.79
+CreativePea,client,CreativePea,unspecified,oz,14,6,9.11
+CreativePea,client,CreativePea,unspecified,oz,14,7,9.27
+CreativePea,client,CreativePea,unspecified,oz,14,8,9.56
+CreativePea,client,CreativePea,unspecified,oz,15,1,7.85
+CreativePea,client,CreativePea,unspecified,oz,15,2,7.85
+CreativePea,client,CreativePea,unspecified,oz,15,3,8.3
+CreativePea,client,CreativePea,unspecified,oz,15,4,8.66
+CreativePea,client,CreativePea,unspecified,oz,15,5,8.79
+CreativePea,client,CreativePea,unspecified,oz,15,6,9.11
+CreativePea,client,CreativePea,unspecified,oz,15,7,9.27
+CreativePea,client,CreativePea,unspecified,oz,15,8,9.56
+CreativePea,client,CreativePea,unspecified,oz,16,1,7.85
+CreativePea,client,CreativePea,unspecified,oz,16,2,7.85
+CreativePea,client,CreativePea,unspecified,oz,16,3,8.3
+CreativePea,client,CreativePea,unspecified,oz,16,4,8.66
+CreativePea,client,CreativePea,unspecified,oz,16,5,8.79
+CreativePea,client,CreativePea,unspecified,oz,16,6,9.11
+CreativePea,client,CreativePea,unspecified,oz,16,7,9.27
+CreativePea,client,CreativePea,unspecified,oz,16,8,9.56
+CreativePea,client,CreativePea,unspecified,lb,1,1,10.16
+CreativePea,client,CreativePea,unspecified,lb,1,2,10.16
+CreativePea,client,CreativePea,unspecified,lb,1,3,10.55
+CreativePea,client,CreativePea,unspecified,lb,1,4,10.63
+CreativePea,client,CreativePea,unspecified,lb,1,5,10.67
+CreativePea,client,CreativePea,unspecified,lb,1,6,10.82
+CreativePea,client,CreativePea,unspecified,lb,1,7,11.01
+CreativePea,client,CreativePea,unspecified,lb,1,8,11.08
+CreativePea,client,CreativePea,unspecified,lb,2,1,11.11
+CreativePea,client,CreativePea,unspecified,lb,2,2,11.11
+CreativePea,client,CreativePea,unspecified,lb,2,3,11.72
+CreativePea,client,CreativePea,unspecified,lb,2,4,11.84
+CreativePea,client,CreativePea,unspecified,lb,2,5,12.01
+CreativePea,client,CreativePea,unspecified,lb,2,6,12.26
+CreativePea,client,CreativePea,unspecified,lb,2,7,12.63
+CreativePea,client,CreativePea,unspecified,lb,2,8,12.84
+CreativePea,client,CreativePea,unspecified,lb,3,1,12.25
+CreativePea,client,CreativePea,unspecified,lb,3,2,12.25
+CreativePea,client,CreativePea,unspecified,lb,3,3,13.02
+CreativePea,client,CreativePea,unspecified,lb,3,4,13.18
+CreativePea,client,CreativePea,unspecified,lb,3,5,13.46
+CreativePea,client,CreativePea,unspecified,lb,3,6,13.81
+CreativePea,client,CreativePea,unspecified,lb,3,7,14.38
+CreativePea,client,CreativePea,unspecified,lb,3,8,14.81
+CreativePea,client,CreativePea,unspecified,lb,4,1,13.10
+CreativePea,client,CreativePea,unspecified,lb,4,2,13.10
+CreativePea,client,CreativePea,unspecified,lb,4,3,14.04
+CreativePea,client,CreativePea,unspecified,lb,4,4,14.12
+CreativePea,client,CreativePea,unspecified,lb,4,5,14.63
+CreativePea,client,CreativePea,unspecified,lb,4,6,15.09
+CreativePea,client,CreativePea,unspecified,lb,4,7,15.83
+CreativePea,client,CreativePea,unspecified,lb,4,8,16.48
+CreativePea,client,CreativePea,unspecified,lb,5,1,13.92
+CreativePea,client,CreativePea,unspecified,lb,5,2,13.94
+CreativePea,client,CreativePea,unspecified,lb,5,3,14.19
+CreativePea,client,CreativePea,unspecified,lb,5,4,14.38
+CreativePea,client,CreativePea,unspecified,lb,5,5,15.78
+CreativePea,client,CreativePea,unspecified,lb,5,6,16.35
+CreativePea,client,CreativePea,unspecified,lb,5,7,17.27
+CreativePea,client,CreativePea,unspecified,lb,5,8,18.14
+CreativePea,client,CreativePea,unspecified,lb,6,1,14.02
+CreativePea,client,CreativePea,unspecified,lb,6,2,14.40
+CreativePea,client,CreativePea,unspecified,lb,6,3,14.78
+CreativePea,client,CreativePea,unspecified,lb,6,4,14.99
+CreativePea,client,CreativePea,unspecified,lb,6,5,17.53
+CreativePea,client,CreativePea,unspecified,lb,6,6,18.22
+CreativePea,client,CreativePea,unspecified,lb,6,7,19.33
+CreativePea,client,CreativePea,unspecified,lb,6,8,20.44
+CreativePea,client,CreativePea,unspecified,lb,7,1,15.31
+CreativePea,client,CreativePea,unspecified,lb,7,2,15.40
+CreativePea,client,CreativePea,unspecified,lb,7,3,16.78
+CreativePea,client,CreativePea,unspecified,lb,7,4,17.70
+CreativePea,client,CreativePea,unspecified,lb,7,5,18.79
+CreativePea,client,CreativePea,unspecified,lb,7,6,19.58
+CreativePea,client,CreativePea,unspecified,lb,7,7,20.88
+CreativePea,client,CreativePea,unspecified,lb,7,8,22.21
+CreativePea,client,CreativePea,unspecified,lb,8,1,15.76
+CreativePea,client,CreativePea,unspecified,lb,8,2,15.83
+CreativePea,client,CreativePea,unspecified,lb,8,3,17.36
+CreativePea,client,CreativePea,unspecified,lb,8,4,18.40
+CreativePea,client,CreativePea,unspecified,lb,8,5,20.01
+CreativePea,client,CreativePea,unspecified,lb,8,6,20.92
+CreativePea,client,CreativePea,unspecified,lb,8,7,22.40
+CreativePea,client,CreativePea,unspecified,lb,8,8,23.95
+CreativePea,client,CreativePea,unspecified,lb,9,1,16.39
+CreativePea,client,CreativePea,unspecified,lb,9,2,16.47
+CreativePea,client,CreativePea,unspecified,lb,9,3,18.01
+CreativePea,client,CreativePea,unspecified,lb,9,4,19.14
+CreativePea,client,CreativePea,unspecified,lb,9,5,21.03
+CreativePea,client,CreativePea,unspecified,lb,9,6,22.52
+CreativePea,client,CreativePea,unspecified,lb,9,7,24.02
+CreativePea,client,CreativePea,unspecified,lb,9,8,26.23
+CreativePea,client,CreativePea,unspecified,lb,10,1,17.16
+CreativePea,client,CreativePea,unspecified,lb,10,2,17.25
+CreativePea,client,CreativePea,unspecified,lb,10,3,18.67
+CreativePea,client,CreativePea,unspecified,lb,10,4,19.91
+CreativePea,client,CreativePea,unspecified,lb,10,5,21.82
+CreativePea,client,CreativePea,unspecified,lb,10,6,22.72
+CreativePea,client,CreativePea,unspecified,lb,10,7,24.94
+CreativePea,client,CreativePea,unspecified,lb,10,8,28.01
+CreativePea,client,CreativePea,unspecified,lb,11,1,19.62
+CreativePea,client,CreativePea,unspecified,lb,11,2,19.69
+CreativePea,client,CreativePea,unspecified,lb,11,3,20.68
+CreativePea,client,CreativePea,unspecified,lb,11,4,22.02
+CreativePea,client,CreativePea,unspecified,lb,11,5,23.50
+CreativePea,client,CreativePea,unspecified,lb,11,6,24.51
+CreativePea,client,CreativePea,unspecified,lb,11,7,27.80
+CreativePea,client,CreativePea,unspecified,lb,11,8,31.17
+CreativePea,client,CreativePea,unspecified,lb,12,1,20.31
+CreativePea,client,CreativePea,unspecified,lb,12,2,20.34
+CreativePea,client,CreativePea,unspecified,lb,12,3,21.31
+CreativePea,client,CreativePea,unspecified,lb,12,4,22.79
+CreativePea,client,CreativePea,unspecified,lb,12,5,23.70
+CreativePea,client,CreativePea,unspecified,lb,12,6,25.16
+CreativePea,client,CreativePea,unspecified,lb,12,7,28.67
+CreativePea,client,CreativePea,unspecified,lb,12,8,32.94
+CreativePea,client,CreativePea,unspecified,lb,13,1,20.40
+CreativePea,client,CreativePea,unspecified,lb,13,2,20.40
+CreativePea,client,CreativePea,unspecified,lb,13,3,21.37
+CreativePea,client,CreativePea,unspecified,lb,13,4,23.52
+CreativePea,client,CreativePea,unspecified,lb,13,5,24.04
+CreativePea,client,CreativePea,unspecified,lb,13,6,25.77
+CreativePea,client,CreativePea,unspecified,lb,13,7,30.15
+CreativePea,client,CreativePea,unspecified,lb,13,8,34.74
+CreativePea,client,CreativePea,unspecified,lb,14,1,20.93
+CreativePea,client,CreativePea,unspecified,lb,14,2,20.93
+CreativePea,client,CreativePea,unspecified,lb,14,3,21.79
+CreativePea,client,CreativePea,unspecified,lb,14,4,24.19
+CreativePea,client,CreativePea,unspecified,lb,14,5,24.48
+CreativePea,client,CreativePea,unspecified,lb,14,6,26.91
+CreativePea,client,CreativePea,unspecified,lb,14,7,31.78
+CreativePea,client,CreativePea,unspecified,lb,14,8,36.51
+CreativePea,client,CreativePea,unspecified,lb,15,1,20.93
+CreativePea,client,CreativePea,unspecified,lb,15,2,20.93
+CreativePea,client,CreativePea,unspecified,lb,15,3,22.14
+CreativePea,client,CreativePea,unspecified,lb,15,4,24.80
+CreativePea,client,CreativePea,unspecified,lb,15,5,25.14
+CreativePea,client,CreativePea,unspecified,lb,15,6,28.07
+CreativePea,client,CreativePea,unspecified,lb,15,7,32.60
+CreativePea,client,CreativePea,unspecified,lb,15,8,38.29
+CreativePea,client,CreativePea,unspecified,lb,16,1,21.32
+CreativePea,client,CreativePea,unspecified,lb,16,2,21.32
+CreativePea,client,CreativePea,unspecified,lb,16,3,22.59
+CreativePea,client,CreativePea,unspecified,lb,16,4,25.31
+CreativePea,client,CreativePea,unspecified,lb,16,5,25.48
+CreativePea,client,CreativePea,unspecified,lb,16,6,28.78
+CreativePea,client,CreativePea,unspecified,lb,16,7,33.98
+CreativePea,client,CreativePea,unspecified,lb,16,8,38.71
+CreativePea,client,CreativePea,unspecified,lb,17,1,21.42
+CreativePea,client,CreativePea,unspecified,lb,17,2,21.42
+CreativePea,client,CreativePea,unspecified,lb,17,3,22.93
+CreativePea,client,CreativePea,unspecified,lb,17,4,25.84
+CreativePea,client,CreativePea,unspecified,lb,17,5,26.02
+CreativePea,client,CreativePea,unspecified,lb,17,6,29.75
+CreativePea,client,CreativePea,unspecified,lb,17,7,35.41
+CreativePea,client,CreativePea,unspecified,lb,17,8,39.80
+CreativePea,client,CreativePea,unspecified,lb,18,1,21.58
+CreativePea,client,CreativePea,unspecified,lb,18,2,21.58
+CreativePea,client,CreativePea,unspecified,lb,18,3,23.18
+CreativePea,client,CreativePea,unspecified,lb,18,4,26.40
+CreativePea,client,CreativePea,unspecified,lb,18,5,26.98
+CreativePea,client,CreativePea,unspecified,lb,18,6,31.00
+CreativePea,client,CreativePea,unspecified,lb,18,7,36.29
+CreativePea,client,CreativePea,unspecified,lb,18,8,40.66
+CreativePea,client,CreativePea,unspecified,lb,19,1,21.97
+CreativePea,client,CreativePea,unspecified,lb,19,2,21.97
+CreativePea,client,CreativePea,unspecified,lb,19,3,23.97
+CreativePea,client,CreativePea,unspecified,lb,19,4,26.93
+CreativePea,client,CreativePea,unspecified,lb,19,5,27.91
+CreativePea,client,CreativePea,unspecified,lb,19,6,31.64
+CreativePea,client,CreativePea,unspecified,lb,19,7,37.12
+CreativePea,client,CreativePea,unspecified,lb,19,8,41.78
+CreativePea,client,CreativePea,unspecified,lb,20,1,22.09
+CreativePea,client,CreativePea,unspecified,lb,20,2,22.09
+CreativePea,client,CreativePea,unspecified,lb,20,3,24.10
+CreativePea,client,CreativePea,unspecified,lb,20,4,27.44
+CreativePea,client,CreativePea,unspecified,lb,20,5,28.75
+CreativePea,client,CreativePea,unspecified,lb,20,6,32.52
+CreativePea,client,CreativePea,unspecified,lb,20,7,38.28
+CreativePea,client,CreativePea,unspecified,lb,20,8,42.45
+ICL Regular,icl,,regular,lb,1,1&2,9.45
+ICL Regular,icl,,regular,lb,1,3,9.89
+ICL Regular,icl,,regular,lb,1,4,12.40
+ICL Regular,icl,,regular,lb,1,5,13.47
+ICL Regular,icl,,regular,lb,1,6,14.20
+ICL Regular,icl,,regular,lb,1,7,14.62
+ICL Regular,icl,,regular,lb,1,8,15.45
+ICL Regular,icl,,regular,lb,2,1&2,10.32
+ICL Regular,icl,,regular,lb,2,3,10.32
+ICL Regular,icl,,regular,lb,2,4,13.63
+ICL Regular,icl,,regular,lb,2,5,14.35
+ICL Regular,icl,,regular,lb,2,6,14.95
+ICL Regular,icl,,regular,lb,2,7,15.53
+ICL Regular,icl,,regular,lb,2,8,16.50
+ICL Regular,icl,,regular,lb,3,1&2,10.87
+ICL Regular,icl,,regular,lb,3,3,11.00
+ICL Regular,icl,,regular,lb,3,4,14.35
+ICL Regular,icl,,regular,lb,3,5,15.27
+ICL Regular,icl,,regular,lb,3,6,15.56
+ICL Regular,icl,,regular,lb,3,7,16.43
+ICL Regular,icl,,regular,lb,3,8,17.23
+ICL Regular,icl,,regular,lb,4,1&2,11.03
+ICL Regular,icl,,regular,lb,4,3,11.71
+ICL Regular,icl,,regular,lb,4,4,15.31
+ICL Regular,icl,,regular,lb,4,5,15.72
+ICL Regular,icl,,regular,lb,4,6,16.51
+ICL Regular,icl,,regular,lb,4,7,17.15
+ICL Regular,icl,,regular,lb,4,8,18.01
+ICL Regular,icl,,regular,lb,5,1&2,11.90
+ICL Regular,icl,,regular,lb,5,3,12.13
+ICL Regular,icl,,regular,lb,5,4,15.91
+ICL Regular,icl,,regular,lb,5,5,16.54
+ICL Regular,icl,,regular,lb,5,6,17.61
+ICL Regular,icl,,regular,lb,5,7,17.78
+ICL Regular,icl,,regular,lb,5,8,18.91
+ICL Regular,icl,,regular,lb,6,1&2,12.05
+ICL Regular,icl,,regular,lb,6,3,13.10
+ICL Regular,icl,,regular,lb,6,4,16.59
+ICL Regular,icl,,regular,lb,6,5,17.61
+ICL Regular,icl,,regular,lb,6,6,18.36
+ICL Regular,icl,,regular,lb,6,7,19.09
+ICL Regular,icl,,regular,lb,6,8,20.09
+ICL Regular,icl,,regular,lb,7,1&2,12.40
+ICL Regular,icl,,regular,lb,7,3,14.02
+ICL Regular,icl,,regular,lb,7,4,17.37
+ICL Regular,icl,,regular,lb,7,5,18.78
+ICL Regular,icl,,regular,lb,7,6,19.59
+ICL Regular,icl,,regular,lb,7,7,19.87
+ICL Regular,icl,,regular,lb,7,8,23.07
+ICL Regular,icl,,regular,lb,8,1&2,12.49
+ICL Regular,icl,,regular,lb,8,3,14.71
+ICL Regular,icl,,regular,lb,8,4,19.71
+ICL Regular,icl,,regular,lb,8,5,20.13
+ICL Regular,icl,,regular,lb,8,6,21.45
+ICL Regular,icl,,regular,lb,8,7,23.04
+ICL Regular,icl,,regular,lb,8,8,24.31
+ICL Regular,icl,,regular,lb,9,1&2,13.43
+ICL Regular,icl,,regular,lb,9,3,15.26
+ICL Regular,icl,,regular,lb,9,4,20.54
+ICL Regular,icl,,regular,lb,9,5,20.92
+ICL Regular,icl,,regular,lb,9,6,22.07
+ICL Regular,icl,,regular,lb,9,7,23.68
+ICL Regular,icl,,regular,lb,9,8,25.21
+ICL Regular,icl,,regular,lb,10,1&2,13.98
+ICL Regular,icl,,regular,lb,10,3,15.90
+ICL Regular,icl,,regular,lb,10,4,20.64
+ICL Regular,icl,,regular,lb,10,5,21.21
+ICL Regular,icl,,regular,lb,10,6,22.79
+ICL Regular,icl,,regular,lb,10,7,24.26
+ICL Regular,icl,,regular,lb,10,8,25.98
+ICL Regular,icl,,regular,lb,11,1&2,16.05
+ICL Regular,icl,,regular,lb,11,3,17.02
+ICL Regular,icl,,regular,lb,11,4,22.04
+ICL Regular,icl,,regular,lb,11,5,22.56
+ICL Regular,icl,,regular,lb,11,6,23.33
+ICL Regular,icl,,regular,lb,11,7,25.25
+ICL Regular,icl,,regular,lb,11,8,27.20
+ICL Regular,icl,,regular,lb,12,1&2,16.63
+ICL Regular,icl,,regular,lb,12,3,17.75
+ICL Regular,icl,,regular,lb,12,4,22.46
+ICL Regular,icl,,regular,lb,12,5,23.04
+ICL Regular,icl,,regular,lb,12,6,24.24
+ICL Regular,icl,,regular,lb,12,7,26.28
+ICL Regular,icl,,regular,lb,12,8,28.45
+ICL Regular,icl,,regular,lb,13,1&2,17.02
+ICL Regular,icl,,regular,lb,13,3,18.17
+ICL Regular,icl,,regular,lb,13,4,23.28
+ICL Regular,icl,,regular,lb,13,5,23.87
+ICL Regular,icl,,regular,lb,13,6,25.03
+ICL Regular,icl,,regular,lb,13,7,27.72
+ICL Regular,icl,,regular,lb,13,8,30.31
+ICL Regular,icl,,regular,lb,14,1&2,17.45
+ICL Regular,icl,,regular,lb,14,3,18.48
+ICL Regular,icl,,regular,lb,14,4,23.58
+ICL Regular,icl,,regular,lb,14,5,24.35
+ICL Regular,icl,,regular,lb,14,6,25.49
+ICL Regular,icl,,regular,lb,14,7,28.65
+ICL Regular,icl,,regular,lb,14,8,32.29
+ICL Regular,icl,,regular,lb,15,1&2,17.56
+ICL Regular,icl,,regular,lb,15,3,19.06
+ICL Regular,icl,,regular,lb,15,4,24.22
+ICL Regular,icl,,regular,lb,15,5,25.12
+ICL Regular,icl,,regular,lb,15,6,26.31
+ICL Regular,icl,,regular,lb,15,7,30.79
+ICL Regular,icl,,regular,lb,15,8,34.47
+ICL Regular,icl,,regular,lb,16,1&2,17.89
+ICL Regular,icl,,regular,lb,16,3,20.03
+ICL Regular,icl,,regular,lb,16,4,25.08
+ICL Regular,icl,,regular,lb,16,5,26.05
+ICL Regular,icl,,regular,lb,16,6,27.02
+ICL Regular,icl,,regular,lb,16,7,32.09
+ICL Regular,icl,,regular,lb,16,8,35.95
+ICL Regular,icl,,regular,lb,17,1&2,20.02
+ICL Regular,icl,,regular,lb,17,3,20.79
+ICL Regular,icl,,regular,lb,17,4,25.87
+ICL Regular,icl,,regular,lb,17,5,26.78
+ICL Regular,icl,,regular,lb,17,6,27.91
+ICL Regular,icl,,regular,lb,17,7,34.12
+ICL Regular,icl,,regular,lb,17,8,37.16
+ICL Regular,icl,,regular,lb,18,1&2,20.02
+ICL Regular,icl,,regular,lb,18,3,20.79
+ICL Regular,icl,,regular,lb,18,4,26.00
+ICL Regular,icl,,regular,lb,18,5,27.18
+ICL Regular,icl,,regular,lb,18,6,28.62
+ICL Regular,icl,,regular,lb,18,7,34.76
+ICL Regular,icl,,regular,lb,18,8,38.91
+ICL Regular,icl,,regular,lb,19,1&2,20.02
+ICL Regular,icl,,regular,lb,19,3,20.79
+ICL Regular,icl,,regular,lb,19,4,26.71
+ICL Regular,icl,,regular,lb,19,5,27.89
+ICL Regular,icl,,regular,lb,19,6,29.55
+ICL Regular,icl,,regular,lb,19,7,35.44
+ICL Regular,icl,,regular,lb,19,8,40.08
+ICL Regular,icl,,regular,lb,20,1&2,20.02
+ICL Regular,icl,,regular,lb,20,3,20.79
+ICL Regular,icl,,regular,lb,20,4,26.77
+ICL Regular,icl,,regular,lb,20,5,28.62
+ICL Regular,icl,,regular,lb,20,6,30.10
+ICL Regular,icl,,regular,lb,20,7,36.58
+ICL Regular,icl,,regular,lb,20,8,41.00
+ICL Regular,icl,,regular,lb,21,1&2,21.25
+ICL Regular,icl,,regular,lb,21,3,23.48
+ICL Regular,icl,,regular,lb,21,4,27.56
+ICL Regular,icl,,regular,lb,21,5,28.98
+ICL Regular,icl,,regular,lb,21,6,31.59
+ICL Regular,icl,,regular,lb,21,7,37.23
+ICL Regular,icl,,regular,lb,21,8,43.93
+ICL Regular,icl,,regular,lb,22,1&2,21.62
+ICL Regular,icl,,regular,lb,22,3,23.83
+ICL Regular,icl,,regular,lb,22,4,28.44
+ICL Regular,icl,,regular,lb,22,5,29.09
+ICL Regular,icl,,regular,lb,22,6,32.92
+ICL Regular,icl,,regular,lb,22,7,38.43
+ICL Regular,icl,,regular,lb,22,8,45.54
+ICL Regular,icl,,regular,lb,23,1&2,21.66
+ICL Regular,icl,,regular,lb,23,3,24.22
+ICL Regular,icl,,regular,lb,23,4,29.07
+ICL Regular,icl,,regular,lb,23,5,30.11
+ICL Regular,icl,,regular,lb,23,6,33.99
+ICL Regular,icl,,regular,lb,23,7,39.55
+ICL Regular,icl,,regular,lb,23,8,47.04
+ICL Regular,icl,,regular,lb,24,1&2,22.12
+ICL Regular,icl,,regular,lb,24,3,24.98
+ICL Regular,icl,,regular,lb,24,4,29.73
+ICL Regular,icl,,regular,lb,24,5,30.87
+ICL Regular,icl,,regular,lb,24,6,35.09
+ICL Regular,icl,,regular,lb,24,7,40.41
+ICL Regular,icl,,regular,lb,24,8,48.89
+ICL Regular,icl,,regular,lb,25,1&2,22.32
+ICL Regular,icl,,regular,lb,25,3,25.19
+ICL Regular,icl,,regular,lb,25,4,29.95
+ICL Regular,icl,,regular,lb,25,5,31.58
+ICL Regular,icl,,regular,lb,25,6,35.64
+ICL Regular,icl,,regular,lb,25,7,41.94
+ICL Regular,icl,,regular,lb,25,8,50.13
+ICL Regular,icl,,regular,lb,26,1&2,22.97
+ICL Regular,icl,,regular,lb,26,3,25.87
+ICL Regular,icl,,regular,lb,26,4,30.85
+ICL Regular,icl,,regular,lb,26,5,32.37
+ICL Regular,icl,,regular,lb,26,6,36.76
+ICL Regular,icl,,regular,lb,26,7,43.45
+ICL Regular,icl,,regular,lb,26,8,51.86
+ICL Regular,icl,,regular,lb,27,1&2,23.40
+ICL Regular,icl,,regular,lb,27,3,26.36
+ICL Regular,icl,,regular,lb,27,4,31.10
+ICL Regular,icl,,regular,lb,27,5,32.82
+ICL Regular,icl,,regular,lb,27,6,38.00
+ICL Regular,icl,,regular,lb,27,7,44.15
+ICL Regular,icl,,regular,lb,27,8,52.61
+ICL Regular,icl,,regular,lb,28,1&2,23.71
+ICL Regular,icl,,regular,lb,28,3,26.87
+ICL Regular,icl,,regular,lb,28,4,32.32
+ICL Regular,icl,,regular,lb,28,5,34.25
+ICL Regular,icl,,regular,lb,28,6,39.64
+ICL Regular,icl,,regular,lb,28,7,45.91
+ICL Regular,icl,,regular,lb,28,8,54.63
+ICL Regular,icl,,regular,lb,29,1&2,24.10
+ICL Regular,icl,,regular,lb,29,3,27.28
+ICL Regular,icl,,regular,lb,29,4,33.00
+ICL Regular,icl,,regular,lb,29,5,34.62
+ICL Regular,icl,,regular,lb,29,6,40.65
+ICL Regular,icl,,regular,lb,29,7,47.23
+ICL Regular,icl,,regular,lb,29,8,55.18
+ICL Regular,icl,,regular,lb,30,1&2,24.30
+ICL Regular,icl,,regular,lb,30,3,27.61
+ICL Regular,icl,,regular,lb,30,4,33.69
+ICL Regular,icl,,regular,lb,30,5,35.76
+ICL Regular,icl,,regular,lb,30,6,41.19
+ICL Regular,icl,,regular,lb,30,7,47.43
+ICL Regular,icl,,regular,lb,30,8,58.21
+ICL Regular,icl,,regular,lb,31,1&2,27.65
+ICL Regular,icl,,regular,lb,31,3,30.78
+ICL Regular,icl,,regular,lb,31,4,32.86
+ICL Regular,icl,,regular,lb,31,5,37.53
+ICL Regular,icl,,regular,lb,31,6,47.81
+ICL Regular,icl,,regular,lb,31,7,51.12
+ICL Regular,icl,,regular,lb,31,8,58.60
+ICL Regular,icl,,regular,lb,32,1&2,27.66
+ICL Regular,icl,,regular,lb,32,3,30.84
+ICL Regular,icl,,regular,lb,32,4,32.88
+ICL Regular,icl,,regular,lb,32,5,37.54
+ICL Regular,icl,,regular,lb,32,6,47.82
+ICL Regular,icl,,regular,lb,32,7,51.13
+ICL Regular,icl,,regular,lb,32,8,59.18
+ICL Regular,icl,,regular,lb,33,1&2,27.73
+ICL Regular,icl,,regular,lb,33,3,31.16
+ICL Regular,icl,,regular,lb,33,4,33.94
+ICL Regular,icl,,regular,lb,33,5,38.87
+ICL Regular,icl,,regular,lb,33,6,50.07
+ICL Regular,icl,,regular,lb,33,7,52.51
+ICL Regular,icl,,regular,lb,33,8,60.54
+ICL Regular,icl,,regular,lb,34,1&2,27.74
+ICL Regular,icl,,regular,lb,34,3,31.65
+ICL Regular,icl,,regular,lb,34,4,34.72
+ICL Regular,icl,,regular,lb,34,5,39.90
+ICL Regular,icl,,regular,lb,34,6,50.08
+ICL Regular,icl,,regular,lb,34,7,53.81
+ICL Regular,icl,,regular,lb,34,8,63.01
+ICL Regular,icl,,regular,lb,35,1&2,28.09
+ICL Regular,icl,,regular,lb,35,3,32.67
+ICL Regular,icl,,regular,lb,35,4,35.37
+ICL Regular,icl,,regular,lb,35,5,40.41
+ICL Regular,icl,,regular,lb,35,6,50.73
+ICL Regular,icl,,regular,lb,35,7,54.95
+ICL Regular,icl,,regular,lb,35,8,63.40
+ICL Regular,icl,,regular,lb,36,1&2,29.50
+ICL Regular,icl,,regular,lb,36,3,33.88
+ICL Regular,icl,,regular,lb,36,4,37.08
+ICL Regular,icl,,regular,lb,36,5,42.83
+ICL Regular,icl,,regular,lb,36,6,53.64
+ICL Regular,icl,,regular,lb,36,7,58.03
+ICL Regular,icl,,regular,lb,36,8,66.99
+ICL Regular,icl,,regular,lb,37,1&2,30.00
+ICL Regular,icl,,regular,lb,37,3,34.45
+ICL Regular,icl,,regular,lb,37,4,37.63
+ICL Regular,icl,,regular,lb,37,5,43.58
+ICL Regular,icl,,regular,lb,37,6,54.24
+ICL Regular,icl,,regular,lb,37,7,59.61
+ICL Regular,icl,,regular,lb,37,8,68.12
+ICL Regular,icl,,regular,lb,38,1&2,30.31
+ICL Regular,icl,,regular,lb,38,3,34.86
+ICL Regular,icl,,regular,lb,38,4,38.26
+ICL Regular,icl,,regular,lb,38,5,44.41
+ICL Regular,icl,,regular,lb,38,6,55.23
+ICL Regular,icl,,regular,lb,38,7,60.29
+ICL Regular,icl,,regular,lb,38,8,69.23
+ICL Regular,icl,,regular,lb,39,1&2,30.62
+ICL Regular,icl,,regular,lb,39,3,35.36
+ICL Regular,icl,,regular,lb,39,4,38.94
+ICL Regular,icl,,regular,lb,39,5,44.83
+ICL Regular,icl,,regular,lb,39,6,56.32
+ICL Regular,icl,,regular,lb,39,7,61.81
+ICL Regular,icl,,regular,lb,39,8,70.46
+ICL Regular,icl,,regular,lb,40,1&2,30.65
+ICL Regular,icl,,regular,lb,40,3,35.47
+ICL Regular,icl,,regular,lb,40,4,39.04
+ICL Regular,icl,,regular,lb,40,5,45.24
+ICL Regular,icl,,regular,lb,40,6,57.25
+ICL Regular,icl,,regular,lb,40,7,61.83
+ICL Regular,icl,,regular,lb,40,8,70.91
+ICL Regular,icl,,regular,lb,41,1&2,30.93
+ICL Regular,icl,,regular,lb,41,3,36.35
+ICL Regular,icl,,regular,lb,41,4,39.84
+ICL Regular,icl,,regular,lb,41,5,46.12
+ICL Regular,icl,,regular,lb,41,6,58.26
+ICL Regular,icl,,regular,lb,41,7,63.46
+ICL Regular,icl,,regular,lb,41,8,72.22
+ICL Regular,icl,,regular,lb,42,1&2,31.05
+ICL Regular,icl,,regular,lb,42,3,36.96
+ICL Regular,icl,,regular,lb,42,4,41.05
+ICL Regular,icl,,regular,lb,42,5,46.97
+ICL Regular,icl,,regular,lb,42,6,59.35
+ICL Regular,icl,,regular,lb,42,7,64.91
+ICL Regular,icl,,regular,lb,42,8,73.13
+ICL Regular,icl,,regular,lb,43,1&2,31.57
+ICL Regular,icl,,regular,lb,43,3,37.11
+ICL Regular,icl,,regular,lb,43,4,41.09
+ICL Regular,icl,,regular,lb,43,5,48.13
+ICL Regular,icl,,regular,lb,43,6,60.98
+ICL Regular,icl,,regular,lb,43,7,66.38
+ICL Regular,icl,,regular,lb,43,8,74.26
+ICL Regular,icl,,regular,lb,44,1&2,31.89
+ICL Regular,icl,,regular,lb,44,3,37.65
+ICL Regular,icl,,regular,lb,44,4,42.23
+ICL Regular,icl,,regular,lb,44,5,49.22
+ICL Regular,icl,,regular,lb,44,6,61.42
+ICL Regular,icl,,regular,lb,44,7,67.61
+ICL Regular,icl,,regular,lb,44,8,74.95
+ICL Regular,icl,,regular,lb,45,1&2,31.92
+ICL Regular,icl,,regular,lb,45,3,37.83
+ICL Regular,icl,,regular,lb,45,4,42.24
+ICL Regular,icl,,regular,lb,45,5,49.23
+ICL Regular,icl,,regular,lb,45,6,62.25
+ICL Regular,icl,,regular,lb,45,7,69.35
+ICL Regular,icl,,regular,lb,45,8,75.01
+ICL Regular,icl,,regular,lb,46,1&2,32.43
+ICL Regular,icl,,regular,lb,46,3,37.84
+ICL Regular,icl,,regular,lb,46,4,43.01
+ICL Regular,icl,,regular,lb,46,5,50.01
+ICL Regular,icl,,regular,lb,46,6,63.57
+ICL Regular,icl,,regular,lb,46,7,69.99
+ICL Regular,icl,,regular,lb,46,8,77.18
+ICL Regular,icl,,regular,lb,47,1&2,32.48
+ICL Regular,icl,,regular,lb,47,3,38.21
+ICL Regular,icl,,regular,lb,47,4,43.53
+ICL Regular,icl,,regular,lb,47,5,50.29
+ICL Regular,icl,,regular,lb,47,6,63.78
+ICL Regular,icl,,regular,lb,47,7,71.19
+ICL Regular,icl,,regular,lb,47,8,78.26
+ICL Regular,icl,,regular,lb,48,1&2,32.50
+ICL Regular,icl,,regular,lb,48,3,38.47
+ICL Regular,icl,,regular,lb,48,4,44.00
+ICL Regular,icl,,regular,lb,48,5,51.43
+ICL Regular,icl,,regular,lb,48,6,64.56
+ICL Regular,icl,,regular,lb,48,7,71.77
+ICL Regular,icl,,regular,lb,48,8,79.38
+ICL Regular,icl,,regular,lb,49,1&2,32.54
+ICL Regular,icl,,regular,lb,49,3,38.49
+ICL Regular,icl,,regular,lb,49,4,44.03
+ICL Regular,icl,,regular,lb,49,5,51.44
+ICL Regular,icl,,regular,lb,49,6,65.21
+ICL Regular,icl,,regular,lb,49,7,72.86
+ICL Regular,icl,,regular,lb,49,8,79.78
+ICL Regular,icl,,regular,lb,50,1&2,32.55
+ICL Regular,icl,,regular,lb,50,3,38.50
+ICL Regular,icl,,regular,lb,50,4,44.62
+ICL Regular,icl,,regular,lb,50,5,51.46
+ICL Regular,icl,,regular,lb,50,6,65.42
+ICL Regular,icl,,regular,lb,50,7,73.04
+ICL Regular,icl,,regular,lb,50,8,80.87
+ICL Regular,icl,,regular,lb,51,1&2,48.51
+ICL Regular,icl,,regular,lb,51,3,55.71
+ICL Regular,icl,,regular,lb,51,4,62.61
+ICL Regular,icl,,regular,lb,51,5,71.74
+ICL Regular,icl,,regular,lb,51,6,88.13
+ICL Regular,icl,,regular,lb,51,7,97.30
+ICL Regular,icl,,regular,lb,51,8,105.15
+ICL Regular,icl,,regular,lb,52,1&2,48.52
+ICL Regular,icl,,regular,lb,52,3,55.73
+ICL Regular,icl,,regular,lb,52,4,62.63
+ICL Regular,icl,,regular,lb,52,5,71.76
+ICL Regular,icl,,regular,lb,52,6,88.14
+ICL Regular,icl,,regular,lb,52,7,97.31
+ICL Regular,icl,,regular,lb,52,8,105.16
+ICL Regular,icl,,regular,lb,53,1&2,48.54
+ICL Regular,icl,,regular,lb,53,3,55.74
+ICL Regular,icl,,regular,lb,53,4,62.64
+ICL Regular,icl,,regular,lb,53,5,72.28
+ICL Regular,icl,,regular,lb,53,6,88.15
+ICL Regular,icl,,regular,lb,53,7,97.32
+ICL Regular,icl,,regular,lb,53,8,105.17
+ICL Regular,icl,,regular,lb,54,1&2,48.55
+ICL Regular,icl,,regular,lb,54,3,55.74
+ICL Regular,icl,,regular,lb,54,4,62.73
+ICL Regular,icl,,regular,lb,54,5,72.37
+ICL Regular,icl,,regular,lb,54,6,88.16
+ICL Regular,icl,,regular,lb,54,7,97.34
+ICL Regular,icl,,regular,lb,54,8,105.71
+ICL Regular,icl,,regular,lb,55,1&2,48.55
+ICL Regular,icl,,regular,lb,55,3,55.76
+ICL Regular,icl,,regular,lb,55,4,62.73
+ICL Regular,icl,,regular,lb,55,5,72.38
+ICL Regular,icl,,regular,lb,55,6,88.17
+ICL Regular,icl,,regular,lb,55,7,97.35
+ICL Regular,icl,,regular,lb,55,8,106.56
+ICL Regular,icl,,regular,lb,56,1&2,48.57
+ICL Regular,icl,,regular,lb,56,3,55.73
+ICL Regular,icl,,regular,lb,56,4,62.75
+ICL Regular,icl,,regular,lb,56,5,72.40
+ICL Regular,icl,,regular,lb,56,6,88.19
+ICL Regular,icl,,regular,lb,56,7,97.36
+ICL Regular,icl,,regular,lb,56,8,107.48
+ICL Regular,icl,,regular,lb,57,1&2,49.10
+ICL Regular,icl,,regular,lb,57,3,55.96
+ICL Regular,icl,,regular,lb,57,4,62.76
+ICL Regular,icl,,regular,lb,57,5,73.97
+ICL Regular,icl,,regular,lb,57,6,88.21
+ICL Regular,icl,,regular,lb,57,7,97.37
+ICL Regular,icl,,regular,lb,57,8,108.24
+ICL Regular,icl,,regular,lb,58,1&2,49.10
+ICL Regular,icl,,regular,lb,58,3,55.98
+ICL Regular,icl,,regular,lb,58,4,62.86
+ICL Regular,icl,,regular,lb,58,5,73.98
+ICL Regular,icl,,regular,lb,58,6,88.22
+ICL Regular,icl,,regular,lb,58,7,97.38
+ICL Regular,icl,,regular,lb,58,8,109.59
+ICL Regular,icl,,regular,lb,59,1&2,49.12
+ICL Regular,icl,,regular,lb,59,3,56.01
+ICL Regular,icl,,regular,lb,59,4,63.07
+ICL Regular,icl,,regular,lb,59,5,74.01
+ICL Regular,icl,,regular,lb,59,6,88.68
+ICL Regular,icl,,regular,lb,59,7,98.05
+ICL Regular,icl,,regular,lb,59,8,110.14
+ICL Regular,icl,,regular,lb,60,1&2,49.94
+ICL Regular,icl,,regular,lb,60,3,57.41
+ICL Regular,icl,,regular,lb,60,4,63.81
+ICL Regular,icl,,regular,lb,60,5,75.93
+ICL Regular,icl,,regular,lb,60,6,89.91
+ICL Regular,icl,,regular,lb,60,7,98.42
+ICL Regular,icl,,regular,lb,60,8,110.63
+ICL Regular,icl,,regular,lb,61,1&2,49.94
+ICL Regular,icl,,regular,lb,61,3,57.50
+ICL Regular,icl,,regular,lb,61,4,64.23
+ICL Regular,icl,,regular,lb,61,5,75.94
+ICL Regular,icl,,regular,lb,61,6,89.92
+ICL Regular,icl,,regular,lb,61,7,98.80
+ICL Regular,icl,,regular,lb,61,8,111.10
+ICL Regular,icl,,regular,lb,62,1&2,51.19
+ICL Regular,icl,,regular,lb,62,3,60.20
+ICL Regular,icl,,regular,lb,62,4,64.96
+ICL Regular,icl,,regular,lb,62,5,77.23
+ICL Regular,icl,,regular,lb,62,6,90.95
+ICL Regular,icl,,regular,lb,62,7,99.81
+ICL Regular,icl,,regular,lb,62,8,111.59
+ICL Regular,icl,,regular,lb,63,1&2,51.21
+ICL Regular,icl,,regular,lb,63,3,60.20
+ICL Regular,icl,,regular,lb,63,4,65.39
+ICL Regular,icl,,regular,lb,63,5,77.24
+ICL Regular,icl,,regular,lb,63,6,91.42
+ICL Regular,icl,,regular,lb,63,7,99.92
+ICL Regular,icl,,regular,lb,63,8,112.07
+ICL Regular,icl,,regular,lb,64,1&2,52.04
+ICL Regular,icl,,regular,lb,64,3,60.23
+ICL Regular,icl,,regular,lb,64,4,65.79
+ICL Regular,icl,,regular,lb,64,5,77.26
+ICL Regular,icl,,regular,lb,64,6,91.90
+ICL Regular,icl,,regular,lb,64,7,100.36
+ICL Regular,icl,,regular,lb,64,8,113.27
+ICL Regular,icl,,regular,lb,65,1&2,52.40
+ICL Regular,icl,,regular,lb,65,3,60.92
+ICL Regular,icl,,regular,lb,65,4,65.80
+ICL Regular,icl,,regular,lb,65,5,77.26
+ICL Regular,icl,,regular,lb,65,6,92.52
+ICL Regular,icl,,regular,lb,65,7,100.52
+ICL Regular,icl,,regular,lb,65,8,113.40
+ICL Regular,icl,,regular,lb,66,1&2,52.55
+ICL Regular,icl,,regular,lb,66,3,61.72
+ICL Regular,icl,,regular,lb,66,4,66.16
+ICL Regular,icl,,regular,lb,66,5,77.71
+ICL Regular,icl,,regular,lb,66,6,92.56
+ICL Regular,icl,,regular,lb,66,7,100.71
+ICL Regular,icl,,regular,lb,66,8,113.58
+ICL Regular,icl,,regular,lb,67,1&2,52.56
+ICL Regular,icl,,regular,lb,67,3,61.75
+ICL Regular,icl,,regular,lb,67,4,66.18
+ICL Regular,icl,,regular,lb,67,5,77.82
+ICL Regular,icl,,regular,lb,67,6,93.10
+ICL Regular,icl,,regular,lb,67,7,101.06
+ICL Regular,icl,,regular,lb,67,8,113.76
+ICL Regular,icl,,regular,lb,68,1&2,52.93
+ICL Regular,icl,,regular,lb,68,3,62.45
+ICL Regular,icl,,regular,lb,68,4,68.98
+ICL Regular,icl,,regular,lb,68,5,79.15
+ICL Regular,icl,,regular,lb,68,6,94.14
+ICL Regular,icl,,regular,lb,68,7,101.44
+ICL Regular,icl,,regular,lb,68,8,113.77
+ICL Regular,icl,,regular,lb,69,1&2,53.63
+ICL Regular,icl,,regular,lb,69,3,62.86
+ICL Regular,icl,,regular,lb,69,4,69.46
+ICL Regular,icl,,regular,lb,69,5,79.56
+ICL Regular,icl,,regular,lb,69,6,94.96
+ICL Regular,icl,,regular,lb,69,7,101.46
+ICL Regular,icl,,regular,lb,69,8,114.20
+ICL Regular,icl,,regular,lb,70,1&2,53.64
+ICL Regular,icl,,regular,lb,70,3,63.46
+ICL Regular,icl,,regular,lb,70,4,70.16
+ICL Regular,icl,,regular,lb,70,5,81.97
+ICL Regular,icl,,regular,lb,70,6,96.11
+ICL Regular,icl,,regular,lb,70,7,101.47
+ICL Regular,icl,,regular,lb,70,8,114.90
+ICL Regular,icl,,regular,lb,71,1&2,61.68
+ICL Regular,icl,,regular,lb,71,3,69.95
+ICL Regular,icl,,regular,lb,71,4,75.50
+ICL Regular,icl,,regular,lb,71,5,84.79
+ICL Regular,icl,,regular,lb,71,6,97.19
+ICL Regular,icl,,regular,lb,71,7,103.36
+ICL Regular,icl,,regular,lb,71,8,115.06
+ICL Regular,icl,,regular,lb,72,1&2,62.34
+ICL Regular,icl,,regular,lb,72,3,70.02
+ICL Regular,icl,,regular,lb,72,4,76.50
+ICL Regular,icl,,regular,lb,72,5,85.15
+ICL Regular,icl,,regular,lb,72,6,97.62
+ICL Regular,icl,,regular,lb,72,7,105.69
+ICL Regular,icl,,regular,lb,72,8,115.65
+ICL Regular,icl,,regular,lb,73,1&2,62.78
+ICL Regular,icl,,regular,lb,73,3,70.04
+ICL Regular,icl,,regular,lb,73,4,76.51
+ICL Regular,icl,,regular,lb,73,5,85.60
+ICL Regular,icl,,regular,lb,73,6,97.71
+ICL Regular,icl,,regular,lb,73,7,105.70
+ICL Regular,icl,,regular,lb,73,8,115.79
+ICL Regular,icl,,regular,lb,74,1&2,63.89
+ICL Regular,icl,,regular,lb,74,3,70.06
+ICL Regular,icl,,regular,lb,74,4,76.82
+ICL Regular,icl,,regular,lb,74,5,85.92
+ICL Regular,icl,,regular,lb,74,6,99.26
+ICL Regular,icl,,regular,lb,74,7,106.50
+ICL Regular,icl,,regular,lb,74,8,115.97
+ICL Regular,icl,,regular,lb,75,1&2,65.31
+ICL Regular,icl,,regular,lb,75,3,70.56
+ICL Regular,icl,,regular,lb,75,4,76.83
+ICL Regular,icl,,regular,lb,75,5,86.87
+ICL Regular,icl,,regular,lb,75,6,99.86
+ICL Regular,icl,,regular,lb,75,7,107.24
+ICL Regular,icl,,regular,lb,75,8,115.98
+ICL Regular,icl,,regular,lb,76,1&2,66.84
+ICL Regular,icl,,regular,lb,76,3,72.49
+ICL Regular,icl,,regular,lb,76,4,77.09
+ICL Regular,icl,,regular,lb,76,5,87.67
+ICL Regular,icl,,regular,lb,76,6,100.66
+ICL Regular,icl,,regular,lb,76,7,108.45
+ICL Regular,icl,,regular,lb,76,8,116.00
+ICL Regular,icl,,regular,lb,77,1&2,68.17
+ICL Regular,icl,,regular,lb,77,3,73.45
+ICL Regular,icl,,regular,lb,77,4,78.44
+ICL Regular,icl,,regular,lb,77,5,87.91
+ICL Regular,icl,,regular,lb,77,6,101.03
+ICL Regular,icl,,regular,lb,77,7,109.87
+ICL Regular,icl,,regular,lb,77,8,116.01
+ICL Regular,icl,,regular,lb,78,1&2,68.88
+ICL Regular,icl,,regular,lb,78,3,74.77
+ICL Regular,icl,,regular,lb,78,4,79.36
+ICL Regular,icl,,regular,lb,78,5,88.53
+ICL Regular,icl,,regular,lb,78,6,101.44
+ICL Regular,icl,,regular,lb,78,7,111.17
+ICL Regular,icl,,regular,lb,78,8,116.02
+ICL Regular,icl,,regular,lb,79,1&2,70.48
+ICL Regular,icl,,regular,lb,79,3,75.87
+ICL Regular,icl,,regular,lb,79,4,80.07
+ICL Regular,icl,,regular,lb,79,5,89.38
+ICL Regular,icl,,regular,lb,79,6,102.80
+ICL Regular,icl,,regular,lb,79,7,112.38
+ICL Regular,icl,,regular,lb,79,8,117.39
+ICL Regular,icl,,regular,lb,80,1&2,71.50
+ICL Regular,icl,,regular,lb,80,3,77.09
+ICL Regular,icl,,regular,lb,80,4,81.17
+ICL Regular,icl,,regular,lb,80,5,90.70
+ICL Regular,icl,,regular,lb,80,6,103.92
+ICL Regular,icl,,regular,lb,80,7,112.71
+ICL Regular,icl,,regular,lb,80,8,118.02
+ICL Regular,icl,,regular,lb,81,1&2,72.43
+ICL Regular,icl,,regular,lb,81,3,77.90
+ICL Regular,icl,,regular,lb,81,4,82.34
+ICL Regular,icl,,regular,lb,81,5,91.11
+ICL Regular,icl,,regular,lb,81,6,104.80
+ICL Regular,icl,,regular,lb,81,7,113.96
+ICL Regular,icl,,regular,lb,81,8,119.10
+ICL Regular,icl,,regular,lb,82,1&2,73.71
+ICL Regular,icl,,regular,lb,82,3,78.91
+ICL Regular,icl,,regular,lb,82,4,83.91
+ICL Regular,icl,,regular,lb,82,5,92.20
+ICL Regular,icl,,regular,lb,82,6,104.98
+ICL Regular,icl,,regular,lb,82,7,116.02
+ICL Regular,icl,,regular,lb,82,8,119.11
+ICL Regular,icl,,regular,lb,83,1&2,74.10
+ICL Regular,icl,,regular,lb,83,3,79.40
+ICL Regular,icl,,regular,lb,83,4,84.58
+ICL Regular,icl,,regular,lb,83,5,92.62
+ICL Regular,icl,,regular,lb,83,6,105.83
+ICL Regular,icl,,regular,lb,83,7,116.04
+ICL Regular,icl,,regular,lb,83,8,119.13
+ICL Regular,icl,,regular,lb,84,1&2,75.32
+ICL Regular,icl,,regular,lb,84,3,80.95
+ICL Regular,icl,,regular,lb,84,4,85.56
+ICL Regular,icl,,regular,lb,84,5,93.18
+ICL Regular,icl,,regular,lb,84,6,106.89
+ICL Regular,icl,,regular,lb,84,7,117.04
+ICL Regular,icl,,regular,lb,84,8,119.79
+ICL Regular,icl,,regular,lb,85,1&2,76.48
+ICL Regular,icl,,regular,lb,85,3,81.27
+ICL Regular,icl,,regular,lb,85,4,86.12
+ICL Regular,icl,,regular,lb,85,5,94.14
+ICL Regular,icl,,regular,lb,85,6,107.99
+ICL Regular,icl,,regular,lb,85,7,117.95
+ICL Regular,icl,,regular,lb,85,8,120.75
+ICL Regular,icl,,regular,lb,86,1&2,77.93
+ICL Regular,icl,,regular,lb,86,3,83.46
+ICL Regular,icl,,regular,lb,86,4,88.20
+ICL Regular,icl,,regular,lb,86,5,95.29
+ICL Regular,icl,,regular,lb,86,6,108.87
+ICL Regular,icl,,regular,lb,86,7,119.54
+ICL Regular,icl,,regular,lb,86,8,122.56
+ICL Regular,icl,,regular,lb,87,1&2,78.98
+ICL Regular,icl,,regular,lb,87,3,83.47
+ICL Regular,icl,,regular,lb,87,4,89.34
+ICL Regular,icl,,regular,lb,87,5,95.30
+ICL Regular,icl,,regular,lb,87,6,109.81
+ICL Regular,icl,,regular,lb,87,7,119.61
+ICL Regular,icl,,regular,lb,87,8,122.69
+ICL Regular,icl,,regular,lb,88,1&2,80.37
+ICL Regular,icl,,regular,lb,88,3,85.11
+ICL Regular,icl,,regular,lb,88,4,90.46
+ICL Regular,icl,,regular,lb,88,5,97.31
+ICL Regular,icl,,regular,lb,88,6,110.76
+ICL Regular,icl,,regular,lb,88,7,120.50
+ICL Regular,icl,,regular,lb,88,8,124.56
+ICL Regular,icl,,regular,lb,89,1&2,82.62
+ICL Regular,icl,,regular,lb,89,3,86.07
+ICL Regular,icl,,regular,lb,89,4,91.05
+ICL Regular,icl,,regular,lb,89,5,97.52
+ICL Regular,icl,,regular,lb,89,6,111.70
+ICL Regular,icl,,regular,lb,89,7,121.41
+ICL Regular,icl,,regular,lb,89,8,126.46
+ICL Regular,icl,,regular,lb,90,1&2,84.25
+ICL Regular,icl,,regular,lb,90,3,87.39
+ICL Regular,icl,,regular,lb,90,4,91.85
+ICL Regular,icl,,regular,lb,90,5,98.16
+ICL Regular,icl,,regular,lb,90,6,112.04
+ICL Regular,icl,,regular,lb,90,7,121.77
+ICL Regular,icl,,regular,lb,90,8,126.51
+ICL Regular,icl,,regular,lb,91,1&2,84.59
+ICL Regular,icl,,regular,lb,91,3,87.85
+ICL Regular,icl,,regular,lb,91,4,91.93
+ICL Regular,icl,,regular,lb,91,5,98.25
+ICL Regular,icl,,regular,lb,91,6,112.93
+ICL Regular,icl,,regular,lb,91,7,121.78
+ICL Regular,icl,,regular,lb,91,8,126.64
+ICL Regular,icl,,regular,lb,92,1&2,85.78
+ICL Regular,icl,,regular,lb,92,3,88.87
+ICL Regular,icl,,regular,lb,92,4,93.31
+ICL Regular,icl,,regular,lb,92,5,99.24
+ICL Regular,icl,,regular,lb,92,6,113.85
+ICL Regular,icl,,regular,lb,92,7,122.16
+ICL Regular,icl,,regular,lb,92,8,127.64
+ICL Regular,icl,,regular,lb,93,1&2,87.46
+ICL Regular,icl,,regular,lb,93,3,89.95
+ICL Regular,icl,,regular,lb,93,4,95.04
+ICL Regular,icl,,regular,lb,93,5,100.14
+ICL Regular,icl,,regular,lb,93,6,114.55
+ICL Regular,icl,,regular,lb,93,7,122.50
+ICL Regular,icl,,regular,lb,93,8,128.61
+ICL Regular,icl,,regular,lb,94,1&2,88.25
+ICL Regular,icl,,regular,lb,94,3,90.91
+ICL Regular,icl,,regular,lb,94,4,95.32
+ICL Regular,icl,,regular,lb,94,5,101.00
+ICL Regular,icl,,regular,lb,94,6,115.43
+ICL Regular,icl,,regular,lb,94,7,122.66
+ICL Regular,icl,,regular,lb,94,8,129.60
+ICL Regular,icl,,regular,lb,95,1&2,89.31
+ICL Regular,icl,,regular,lb,95,3,91.96
+ICL Regular,icl,,regular,lb,95,4,95.75
+ICL Regular,icl,,regular,lb,95,5,101.92
+ICL Regular,icl,,regular,lb,95,6,115.98
+ICL Regular,icl,,regular,lb,95,7,122.96
+ICL Regular,icl,,regular,lb,95,8,130.63
+ICL Regular,icl,,regular,lb,96,1&2,90.55
+ICL Regular,icl,,regular,lb,96,3,92.37
+ICL Regular,icl,,regular,lb,96,4,98.05
+ICL Regular,icl,,regular,lb,96,5,103.36
+ICL Regular,icl,,regular,lb,96,6,116.45
+ICL Regular,icl,,regular,lb,96,7,123.59
+ICL Regular,icl,,regular,lb,96,8,132.51
+ICL Regular,icl,,regular,lb,97,1&2,91.78
+ICL Regular,icl,,regular,lb,97,3,93.65
+ICL Regular,icl,,regular,lb,97,4,98.07
+ICL Regular,icl,,regular,lb,97,5,103.72
+ICL Regular,icl,,regular,lb,97,6,117.95
+ICL Regular,icl,,regular,lb,97,7,123.61
+ICL Regular,icl,,regular,lb,97,8,132.59
+ICL Regular,icl,,regular,lb,98,1&2,93.04
+ICL Regular,icl,,regular,lb,98,3,94.48
+ICL Regular,icl,,regular,lb,98,4,99.00
+ICL Regular,icl,,regular,lb,98,5,104.55
+ICL Regular,icl,,regular,lb,98,6,118.23
+ICL Regular,icl,,regular,lb,98,7,124.27
+ICL Regular,icl,,regular,lb,98,8,133.58
+ICL Regular,icl,,regular,lb,99,1&2,94.36
+ICL Regular,icl,,regular,lb,99,3,95.34
+ICL Regular,icl,,regular,lb,99,4,100.92
+ICL Regular,icl,,regular,lb,99,5,105.45
+ICL Regular,icl,,regular,lb,99,6,119.18
+ICL Regular,icl,,regular,lb,99,7,125.20
+ICL Regular,icl,,regular,lb,99,8,134.55
+ICL Regular,icl,,regular,lb,100,1&2,95.64
+ICL Regular,icl,,regular,lb,100,3,96.50
+ICL Regular,icl,,regular,lb,100,4,101.50
+ICL Regular,icl,,regular,lb,100,5,106.61
+ICL Regular,icl,,regular,lb,100,6,120.18
+ICL Regular,icl,,regular,lb,100,7,126.10
+ICL Regular,icl,,regular,lb,100,8,135.58
+ICL 2ND DAY,icl,,2nd_day,lb,1,1&2,16.11
+ICL 2ND DAY,icl,,2nd_day,lb,1,3,16.48
+ICL 2ND DAY,icl,,2nd_day,lb,1,4,17.34
+ICL 2ND DAY,icl,,2nd_day,lb,1,5,17.74
+ICL 2ND DAY,icl,,2nd_day,lb,1,6,18.52
+ICL 2ND DAY,icl,,2nd_day,lb,1,7,18.90
+ICL 2ND DAY,icl,,2nd_day,lb,1,8,19.12
+ICL 2ND DAY,icl,,2nd_day,lb,2,1&2,17.83
+ICL 2ND DAY,icl,,2nd_day,lb,2,3,18.82
+ICL 2ND DAY,icl,,2nd_day,lb,2,4,19.67
+ICL 2ND DAY,icl,,2nd_day,lb,2,5,19.94
+ICL 2ND DAY,icl,,2nd_day,lb,2,6,20.45
+ICL 2ND DAY,icl,,2nd_day,lb,2,7,21.29
+ICL 2ND DAY,icl,,2nd_day,lb,2,8,21.52
+ICL 2ND DAY,icl,,2nd_day,lb,3,1&2,19.21
+ICL 2ND DAY,icl,,2nd_day,lb,3,3,20.39
+ICL 2ND DAY,icl,,2nd_day,lb,3,4,21.31
+ICL 2ND DAY,icl,,2nd_day,lb,3,5,23.29
+ICL 2ND DAY,icl,,2nd_day,lb,3,6,25.50
+ICL 2ND DAY,icl,,2nd_day,lb,3,7,27.70
+ICL 2ND DAY,icl,,2nd_day,lb,3,8,28.81
+ICL 2ND DAY,icl,,2nd_day,lb,4,1&2,20.52
+ICL 2ND DAY,icl,,2nd_day,lb,4,3,21.79
+ICL 2ND DAY,icl,,2nd_day,lb,4,4,23.16
+ICL 2ND DAY,icl,,2nd_day,lb,4,5,25.41
+ICL 2ND DAY,icl,,2nd_day,lb,4,6,27.45
+ICL 2ND DAY,icl,,2nd_day,lb,4,7,29.65
+ICL 2ND DAY,icl,,2nd_day,lb,4,8,32.25
+ICL 2ND DAY,icl,,2nd_day,lb,5,1&2,21.83
+ICL 2ND DAY,icl,,2nd_day,lb,5,3,23.35
+ICL 2ND DAY,icl,,2nd_day,lb,5,4,25.23
+ICL 2ND DAY,icl,,2nd_day,lb,5,5,27.32
+ICL 2ND DAY,icl,,2nd_day,lb,5,6,29.35
+ICL 2ND DAY,icl,,2nd_day,lb,5,7,33.65
+ICL 2ND DAY,icl,,2nd_day,lb,5,8,36.79
+ICL 2ND DAY,icl,,2nd_day,lb,6,1&2,24.24
+ICL 2ND DAY,icl,,2nd_day,lb,6,3,25.53
+ICL 2ND DAY,icl,,2nd_day,lb,6,4,28.33
+ICL 2ND DAY,icl,,2nd_day,lb,6,5,33.81
+ICL 2ND DAY,icl,,2nd_day,lb,6,6,43.91
+ICL 2ND DAY,icl,,2nd_day,lb,6,7,45.57
+ICL 2ND DAY,icl,,2nd_day,lb,6,8,47.19
+ICL 2ND DAY,icl,,2nd_day,lb,7,1&2,25.93
+ICL 2ND DAY,icl,,2nd_day,lb,7,3,27.63
+ICL 2ND DAY,icl,,2nd_day,lb,7,4,30.48
+ICL 2ND DAY,icl,,2nd_day,lb,7,5,36.56
+ICL 2ND DAY,icl,,2nd_day,lb,7,6,47.77
+ICL 2ND DAY,icl,,2nd_day,lb,7,7,49.55
+ICL 2ND DAY,icl,,2nd_day,lb,7,8,51.31
+ICL 2ND DAY,icl,,2nd_day,lb,8,1&2,27.60
+ICL 2ND DAY,icl,,2nd_day,lb,8,3,29.19
+ICL 2ND DAY,icl,,2nd_day,lb,8,4,32.63
+ICL 2ND DAY,icl,,2nd_day,lb,8,5,39.30
+ICL 2ND DAY,icl,,2nd_day,lb,8,6,51.62
+ICL 2ND DAY,icl,,2nd_day,lb,8,7,53.52
+ICL 2ND DAY,icl,,2nd_day,lb,8,8,55.44
+ICL 2ND DAY,icl,,2nd_day,lb,9,1&2,29.27
+ICL 2ND DAY,icl,,2nd_day,lb,9,3,31.03
+ICL 2ND DAY,icl,,2nd_day,lb,9,4,34.77
+ICL 2ND DAY,icl,,2nd_day,lb,9,5,42.02
+ICL 2ND DAY,icl,,2nd_day,lb,9,6,55.44
+ICL 2ND DAY,icl,,2nd_day,lb,9,7,57.50
+ICL 2ND DAY,icl,,2nd_day,lb,9,8,59.55
+ICL 2ND DAY,icl,,2nd_day,lb,10,1&2,30.95
+ICL 2ND DAY,icl,,2nd_day,lb,10,3,32.86
+ICL 2ND DAY,icl,,2nd_day,lb,10,4,36.93
+ICL 2ND DAY,icl,,2nd_day,lb,10,5,44.76
+ICL 2ND DAY,icl,,2nd_day,lb,10,6,59.28
+ICL 2ND DAY,icl,,2nd_day,lb,10,7,61.47
+ICL 2ND DAY,icl,,2nd_day,lb,10,8,63.68
+ICL 2ND DAY,icl,,2nd_day,lb,11,1&2,32.63
+ICL 2ND DAY,icl,,2nd_day,lb,11,3,34.68
+ICL 2ND DAY,icl,,2nd_day,lb,11,4,39.07
+ICL 2ND DAY,icl,,2nd_day,lb,11,5,47.51
+ICL 2ND DAY,icl,,2nd_day,lb,11,6,63.10
+ICL 2ND DAY,icl,,2nd_day,lb,11,7,65.44
+ICL 2ND DAY,icl,,2nd_day,lb,11,8,67.78
+ICL 2ND DAY,icl,,2nd_day,lb,12,1&2,34.31
+ICL 2ND DAY,icl,,2nd_day,lb,12,3,36.52
+ICL 2ND DAY,icl,,2nd_day,lb,12,4,41.24
+ICL 2ND DAY,icl,,2nd_day,lb,12,5,50.24
+ICL 2ND DAY,icl,,2nd_day,lb,12,6,66.94
+ICL 2ND DAY,icl,,2nd_day,lb,12,7,69.41
+ICL 2ND DAY,icl,,2nd_day,lb,12,8,71.91
+ICL 2ND DAY,icl,,2nd_day,lb,13,1&2,35.97
+ICL 2ND DAY,icl,,2nd_day,lb,13,3,38.36
+ICL 2ND DAY,icl,,2nd_day,lb,13,4,43.37
+ICL 2ND DAY,icl,,2nd_day,lb,13,5,52.80
+ICL 2ND DAY,icl,,2nd_day,lb,13,6,70.76
+ICL 2ND DAY,icl,,2nd_day,lb,13,7,73.39
+ICL 2ND DAY,icl,,2nd_day,lb,13,8,76.03
+ICL 2ND DAY,icl,,2nd_day,lb,14,1&2,37.64
+ICL 2ND DAY,icl,,2nd_day,lb,14,3,40.18
+ICL 2ND DAY,icl,,2nd_day,lb,14,4,45.53
+ICL 2ND DAY,icl,,2nd_day,lb,14,5,55.39
+ICL 2ND DAY,icl,,2nd_day,lb,14,6,74.60
+ICL 2ND DAY,icl,,2nd_day,lb,14,7,77.36
+ICL 2ND DAY,icl,,2nd_day,lb,14,8,80.15
+ICL 2ND DAY,icl,,2nd_day,lb,15,1&2,39.32
+ICL 2ND DAY,icl,,2nd_day,lb,15,3,42.01
+ICL 2ND DAY,icl,,2nd_day,lb,15,4,47.67
+ICL 2ND DAY,icl,,2nd_day,lb,15,5,57.97
+ICL 2ND DAY,icl,,2nd_day,lb,15,6,78.42
+ICL 2ND DAY,icl,,2nd_day,lb,15,7,81.33
+ICL 2ND DAY,icl,,2nd_day,lb,15,8,84.27
+ICL 2ND DAY,icl,,2nd_day,lb,16,1&2,41.00
+ICL 2ND DAY,icl,,2nd_day,lb,16,3,43.84
+ICL 2ND DAY,icl,,2nd_day,lb,16,4,49.82
+ICL 2ND DAY,icl,,2nd_day,lb,16,5,60.56
+ICL 2ND DAY,icl,,2nd_day,lb,16,6,82.26
+ICL 2ND DAY,icl,,2nd_day,lb,16,7,85.29
+ICL 2ND DAY,icl,,2nd_day,lb,16,8,88.39
+ICL 2ND DAY,icl,,2nd_day,lb,17,1&2,42.68
+ICL 2ND DAY,icl,,2nd_day,lb,17,3,45.67
+ICL 2ND DAY,icl,,2nd_day,lb,17,4,51.98
+ICL 2ND DAY,icl,,2nd_day,lb,17,5,63.14
+ICL 2ND DAY,icl,,2nd_day,lb,17,6,86.08
+ICL 2ND DAY,icl,,2nd_day,lb,17,7,89.26
+ICL 2ND DAY,icl,,2nd_day,lb,17,8,92.51
+ICL 2ND DAY,icl,,2nd_day,lb,18,1&2,44.35
+ICL 2ND DAY,icl,,2nd_day,lb,18,3,47.52
+ICL 2ND DAY,icl,,2nd_day,lb,18,4,54.12
+ICL 2ND DAY,icl,,2nd_day,lb,18,5,65.71
+ICL 2ND DAY,icl,,2nd_day,lb,18,6,89.93
+ICL 2ND DAY,icl,,2nd_day,lb,18,7,93.24
+ICL 2ND DAY,icl,,2nd_day,lb,18,8,96.64
+ICL 2ND DAY,icl,,2nd_day,lb,19,1&2,46.02
+ICL 2ND DAY,icl,,2nd_day,lb,19,3,49.35
+ICL 2ND DAY,icl,,2nd_day,lb,19,4,56.28
+ICL 2ND DAY,icl,,2nd_day,lb,19,5,68.29
+ICL 2ND DAY,icl,,2nd_day,lb,19,6,93.75
+ICL 2ND DAY,icl,,2nd_day,lb,19,7,97.21
+ICL 2ND DAY,icl,,2nd_day,lb,19,8,100.75
+ICL 2ND DAY,icl,,2nd_day,lb,20,1&2,47.71
+ICL 2ND DAY,icl,,2nd_day,lb,20,3,51.17
+ICL 2ND DAY,icl,,2nd_day,lb,20,4,58.41
+ICL 2ND DAY,icl,,2nd_day,lb,20,5,70.86
+ICL 2ND DAY,icl,,2nd_day,lb,20,6,97.59
+ICL 2ND DAY,icl,,2nd_day,lb,20,7,101.19
+ICL 2ND DAY,icl,,2nd_day,lb,20,8,104.88
+ICL 2ND DAY,icl,,2nd_day,lb,21,1&2,49.38
+ICL 2ND DAY,icl,,2nd_day,lb,21,3,53.00
+ICL 2ND DAY,icl,,2nd_day,lb,21,4,60.46
+ICL 2ND DAY,icl,,2nd_day,lb,21,5,73.45
+ICL 2ND DAY,icl,,2nd_day,lb,21,6,101.41
+ICL 2ND DAY,icl,,2nd_day,lb,21,7,105.15
+ICL 2ND DAY,icl,,2nd_day,lb,21,8,108.98
+ICL 2ND DAY,icl,,2nd_day,lb,22,1&2,51.06
+ICL 2ND DAY,icl,,2nd_day,lb,22,3,54.84
+ICL 2ND DAY,icl,,2nd_day,lb,22,4,62.51
+ICL 2ND DAY,icl,,2nd_day,lb,22,5,76.02
+ICL 2ND DAY,icl,,2nd_day,lb,22,6,105.24
+ICL 2ND DAY,icl,,2nd_day,lb,22,7,109.12
+ICL 2ND DAY,icl,,2nd_day,lb,22,8,113.11
+ICL 2ND DAY,icl,,2nd_day,lb,23,1&2,52.73
+ICL 2ND DAY,icl,,2nd_day,lb,23,3,56.67
+ICL 2ND DAY,icl,,2nd_day,lb,23,4,64.54
+ICL 2ND DAY,icl,,2nd_day,lb,23,5,78.60
+ICL 2ND DAY,icl,,2nd_day,lb,23,6,109.07
+ICL 2ND DAY,icl,,2nd_day,lb,23,7,113.10
+ICL 2ND DAY,icl,,2nd_day,lb,23,8,117.23
+ICL 2ND DAY,icl,,2nd_day,lb,24,1&2,54.40
+ICL 2ND DAY,icl,,2nd_day,lb,24,3,58.50
+ICL 2ND DAY,icl,,2nd_day,lb,24,4,66.59
+ICL 2ND DAY,icl,,2nd_day,lb,24,5,81.17
+ICL 2ND DAY,icl,,2nd_day,lb,24,6,112.91
+ICL 2ND DAY,icl,,2nd_day,lb,24,7,117.07
+ICL 2ND DAY,icl,,2nd_day,lb,24,8,121.35
+ICL 2ND DAY,icl,,2nd_day,lb,25,1&2,56.10
+ICL 2ND DAY,icl,,2nd_day,lb,25,3,60.33
+ICL 2ND DAY,icl,,2nd_day,lb,25,4,68.63
+ICL 2ND DAY,icl,,2nd_day,lb,25,5,83.76
+ICL 2ND DAY,icl,,2nd_day,lb,25,6,116.73
+ICL 2ND DAY,icl,,2nd_day,lb,25,7,121.05
+ICL 2ND DAY,icl,,2nd_day,lb,25,8,125.47
+ICL 2ND DAY,icl,,2nd_day,lb,26,1&2,57.77
+ICL 2ND DAY,icl,,2nd_day,lb,26,3,62.16
+ICL 2ND DAY,icl,,2nd_day,lb,26,4,70.68
+ICL 2ND DAY,icl,,2nd_day,lb,26,5,86.33
+ICL 2ND DAY,icl,,2nd_day,lb,26,6,120.57
+ICL 2ND DAY,icl,,2nd_day,lb,26,7,125.01
+ICL 2ND DAY,icl,,2nd_day,lb,26,8,129.59
+ICL 2ND DAY,icl,,2nd_day,lb,27,1&2,59.45
+ICL 2ND DAY,icl,,2nd_day,lb,27,3,64.00
+ICL 2ND DAY,icl,,2nd_day,lb,27,4,72.73
+ICL 2ND DAY,icl,,2nd_day,lb,27,5,88.92
+ICL 2ND DAY,icl,,2nd_day,lb,27,6,124.39
+ICL 2ND DAY,icl,,2nd_day,lb,27,7,128.99
+ICL 2ND DAY,icl,,2nd_day,lb,27,8,133.71
+ICL 2ND DAY,icl,,2nd_day,lb,28,1&2,61.12
+ICL 2ND DAY,icl,,2nd_day,lb,28,3,65.84
+ICL 2ND DAY,icl,,2nd_day,lb,28,4,74.77
+ICL 2ND DAY,icl,,2nd_day,lb,28,5,91.48
+ICL 2ND DAY,icl,,2nd_day,lb,28,6,128.24
+ICL 2ND DAY,icl,,2nd_day,lb,28,7,132.96
+ICL 2ND DAY,icl,,2nd_day,lb,28,8,137.84
+ICL 2ND DAY,icl,,2nd_day,lb,29,1&2,62.80
+ICL 2ND DAY,icl,,2nd_day,lb,29,3,67.63
+ICL 2ND DAY,icl,,2nd_day,lb,29,4,76.82
+ICL 2ND DAY,icl,,2nd_day,lb,29,5,94.07
+ICL 2ND DAY,icl,,2nd_day,lb,29,6,132.07
+ICL 2ND DAY,icl,,2nd_day,lb,29,7,136.93
+ICL 2ND DAY,icl,,2nd_day,lb,29,8,141.95
+ICL 2ND DAY,icl,,2nd_day,lb,30,1&2,64.48
+ICL 2ND DAY,icl,,2nd_day,lb,30,3,69.38
+ICL 2ND DAY,icl,,2nd_day,lb,30,4,78.86
+ICL 2ND DAY,icl,,2nd_day,lb,30,5,96.66
+ICL 2ND DAY,icl,,2nd_day,lb,30,6,135.90
+ICL 2ND DAY,icl,,2nd_day,lb,30,7,140.91
+ICL 2ND DAY,icl,,2nd_day,lb,30,8,146.08
+ICL 2ND DAY,icl,,2nd_day,lb,31,1&2,66.15
+ICL 2ND DAY,icl,,2nd_day,lb,31,3,71.14
+ICL 2ND DAY,icl,,2nd_day,lb,31,4,80.91
+ICL 2ND DAY,icl,,2nd_day,lb,31,5,99.23
+ICL 2ND DAY,icl,,2nd_day,lb,31,6,139.72
+ICL 2ND DAY,icl,,2nd_day,lb,31,7,144.87
+ICL 2ND DAY,icl,,2nd_day,lb,31,8,150.19
+ICL 2ND DAY,icl,,2nd_day,lb,32,1&2,67.83
+ICL 2ND DAY,icl,,2nd_day,lb,32,3,72.90
+ICL 2ND DAY,icl,,2nd_day,lb,32,4,82.95
+ICL 2ND DAY,icl,,2nd_day,lb,32,5,101.82
+ICL 2ND DAY,icl,,2nd_day,lb,32,6,143.55
+ICL 2ND DAY,icl,,2nd_day,lb,32,7,148.85
+ICL 2ND DAY,icl,,2nd_day,lb,32,8,154.31
+ICL 2ND DAY,icl,,2nd_day,lb,33,1&2,69.51
+ICL 2ND DAY,icl,,2nd_day,lb,33,3,74.64
+ICL 2ND DAY,icl,,2nd_day,lb,33,4,84.99
+ICL 2ND DAY,icl,,2nd_day,lb,33,5,104.38
+ICL 2ND DAY,icl,,2nd_day,lb,33,6,147.39
+ICL 2ND DAY,icl,,2nd_day,lb,33,7,152.82
+ICL 2ND DAY,icl,,2nd_day,lb,33,8,158.43
+ICL 2ND DAY,icl,,2nd_day,lb,34,1&2,71.18
+ICL 2ND DAY,icl,,2nd_day,lb,34,3,76.40
+ICL 2ND DAY,icl,,2nd_day,lb,34,4,87.04
+ICL 2ND DAY,icl,,2nd_day,lb,34,5,106.97
+ICL 2ND DAY,icl,,2nd_day,lb,34,6,151.22
+ICL 2ND DAY,icl,,2nd_day,lb,34,7,156.80
+ICL 2ND DAY,icl,,2nd_day,lb,34,8,162.55
+ICL 2ND DAY,icl,,2nd_day,lb,35,1&2,72.86
+ICL 2ND DAY,icl,,2nd_day,lb,35,3,78.15
+ICL 2ND DAY,icl,,2nd_day,lb,35,4,89.08
+ICL 2ND DAY,icl,,2nd_day,lb,35,5,109.54
+ICL 2ND DAY,icl,,2nd_day,lb,35,6,155.05
+ICL 2ND DAY,icl,,2nd_day,lb,35,7,160.77
+ICL 2ND DAY,icl,,2nd_day,lb,35,8,166.67
+ICL 2ND DAY,icl,,2nd_day,lb,36,1&2,74.51
+ICL 2ND DAY,icl,,2nd_day,lb,36,3,79.91
+ICL 2ND DAY,icl,,2nd_day,lb,36,4,91.13
+ICL 2ND DAY,icl,,2nd_day,lb,36,5,112.13
+ICL 2ND DAY,icl,,2nd_day,lb,36,6,158.87
+ICL 2ND DAY,icl,,2nd_day,lb,36,7,164.72
+ICL 2ND DAY,icl,,2nd_day,lb,36,8,170.79
+ICL 2ND DAY,icl,,2nd_day,lb,37,1&2,76.13
+ICL 2ND DAY,icl,,2nd_day,lb,37,3,81.67
+ICL 2ND DAY,icl,,2nd_day,lb,37,4,93.18
+ICL 2ND DAY,icl,,2nd_day,lb,37,5,114.70
+ICL 2ND DAY,icl,,2nd_day,lb,37,6,162.71
+ICL 2ND DAY,icl,,2nd_day,lb,37,7,168.70
+ICL 2ND DAY,icl,,2nd_day,lb,37,8,174.91
+ICL 2ND DAY,icl,,2nd_day,lb,38,1&2,77.74
+ICL 2ND DAY,icl,,2nd_day,lb,38,3,83.43
+ICL 2ND DAY,icl,,2nd_day,lb,38,4,95.22
+ICL 2ND DAY,icl,,2nd_day,lb,38,5,117.27
+ICL 2ND DAY,icl,,2nd_day,lb,38,6,166.55
+ICL 2ND DAY,icl,,2nd_day,lb,38,7,172.67
+ICL 2ND DAY,icl,,2nd_day,lb,38,8,179.04
+ICL 2ND DAY,icl,,2nd_day,lb,39,1&2,79.35
+ICL 2ND DAY,icl,,2nd_day,lb,39,3,85.19
+ICL 2ND DAY,icl,,2nd_day,lb,39,4,97.27
+ICL 2ND DAY,icl,,2nd_day,lb,39,5,119.85
+ICL 2ND DAY,icl,,2nd_day,lb,39,6,170.38
+ICL 2ND DAY,icl,,2nd_day,lb,39,7,176.65
+ICL 2ND DAY,icl,,2nd_day,lb,39,8,183.15
+ICL 2ND DAY,icl,,2nd_day,lb,40,1&2,80.97
+ICL 2ND DAY,icl,,2nd_day,lb,40,3,86.94
+ICL 2ND DAY,icl,,2nd_day,lb,40,4,99.29
+ICL 2ND DAY,icl,,2nd_day,lb,40,5,122.43
+ICL 2ND DAY,icl,,2nd_day,lb,40,6,174.19
+ICL 2ND DAY,icl,,2nd_day,lb,40,7,180.62
+ICL 2ND DAY,icl,,2nd_day,lb,40,8,187.28
+ICL 2ND DAY,icl,,2nd_day,lb,41,1&2,82.59
+ICL 2ND DAY,icl,,2nd_day,lb,41,3,88.69
+ICL 2ND DAY,icl,,2nd_day,lb,41,4,101.35
+ICL 2ND DAY,icl,,2nd_day,lb,41,5,125.02
+ICL 2ND DAY,icl,,2nd_day,lb,41,6,178.03
+ICL 2ND DAY,icl,,2nd_day,lb,41,7,184.59
+ICL 2ND DAY,icl,,2nd_day,lb,41,8,191.39
+ICL 2ND DAY,icl,,2nd_day,lb,42,1&2,84.21
+ICL 2ND DAY,icl,,2nd_day,lb,42,3,90.45
+ICL 2ND DAY,icl,,2nd_day,lb,42,4,103.40
+ICL 2ND DAY,icl,,2nd_day,lb,42,5,127.59
+ICL 2ND DAY,icl,,2nd_day,lb,42,6,181.85
+ICL 2ND DAY,icl,,2nd_day,lb,42,7,188.56
+ICL 2ND DAY,icl,,2nd_day,lb,42,8,195.50
+ICL 2ND DAY,icl,,2nd_day,lb,43,1&2,85.82
+ICL 2ND DAY,icl,,2nd_day,lb,43,3,92.21
+ICL 2ND DAY,icl,,2nd_day,lb,43,4,105.43
+ICL 2ND DAY,icl,,2nd_day,lb,43,5,130.18
+ICL 2ND DAY,icl,,2nd_day,lb,43,6,185.70
+ICL 2ND DAY,icl,,2nd_day,lb,43,7,192.52
+ICL 2ND DAY,icl,,2nd_day,lb,43,8,199.63
+ICL 2ND DAY,icl,,2nd_day,lb,44,1&2,87.43
+ICL 2ND DAY,icl,,2nd_day,lb,44,3,93.96
+ICL 2ND DAY,icl,,2nd_day,lb,44,4,107.48
+ICL 2ND DAY,icl,,2nd_day,lb,44,5,132.75
+ICL 2ND DAY,icl,,2nd_day,lb,44,6,189.52
+ICL 2ND DAY,icl,,2nd_day,lb,44,7,196.51
+ICL 2ND DAY,icl,,2nd_day,lb,44,8,203.74
+ICL 2ND DAY,icl,,2nd_day,lb,45,1&2,89.06
+ICL 2ND DAY,icl,,2nd_day,lb,45,3,95.71
+ICL 2ND DAY,icl,,2nd_day,lb,45,4,109.52
+ICL 2ND DAY,icl,,2nd_day,lb,45,5,135.34
+ICL 2ND DAY,icl,,2nd_day,lb,45,6,193.36
+ICL 2ND DAY,icl,,2nd_day,lb,45,7,200.48
+ICL 2ND DAY,icl,,2nd_day,lb,45,8,207.87
+ICL 2ND DAY,icl,,2nd_day,lb,46,1&2,90.67
+ICL 2ND DAY,icl,,2nd_day,lb,46,3,97.47
+ICL 2ND DAY,icl,,2nd_day,lb,46,4,111.57
+ICL 2ND DAY,icl,,2nd_day,lb,46,5,137.91
+ICL 2ND DAY,icl,,2nd_day,lb,46,6,197.18
+ICL 2ND DAY,icl,,2nd_day,lb,46,7,204.45
+ICL 2ND DAY,icl,,2nd_day,lb,46,8,211.98
+ICL 2ND DAY,icl,,2nd_day,lb,47,1&2,92.28
+ICL 2ND DAY,icl,,2nd_day,lb,47,3,99.23
+ICL 2ND DAY,icl,,2nd_day,lb,47,4,113.63
+ICL 2ND DAY,icl,,2nd_day,lb,47,5,140.49
+ICL 2ND DAY,icl,,2nd_day,lb,47,6,201.02
+ICL 2ND DAY,icl,,2nd_day,lb,47,7,208.42
+ICL 2ND DAY,icl,,2nd_day,lb,47,8,216.11
+ICL 2ND DAY,icl,,2nd_day,lb,48,1&2,93.89
+ICL 2ND DAY,icl,,2nd_day,lb,48,3,100.99
+ICL 2ND DAY,icl,,2nd_day,lb,48,4,115.65
+ICL 2ND DAY,icl,,2nd_day,lb,48,5,143.06
+ICL 2ND DAY,icl,,2nd_day,lb,48,6,204.85
+ICL 2ND DAY,icl,,2nd_day,lb,48,7,212.39
+ICL 2ND DAY,icl,,2nd_day,lb,48,8,220.24
+ICL 2ND DAY,icl,,2nd_day,lb,49,1&2,95.50
+ICL 2ND DAY,icl,,2nd_day,lb,49,3,102.74
+ICL 2ND DAY,icl,,2nd_day,lb,49,4,117.71
+ICL 2ND DAY,icl,,2nd_day,lb,49,5,145.64
+ICL 2ND DAY,icl,,2nd_day,lb,49,6,208.68
+ICL 2ND DAY,icl,,2nd_day,lb,49,7,216.37
+ICL 2ND DAY,icl,,2nd_day,lb,49,8,224.35
+ICL 2ND DAY,icl,,2nd_day,lb,50,1&2,97.11
+ICL 2ND DAY,icl,,2nd_day,lb,50,3,104.50
+ICL 2ND DAY,icl,,2nd_day,lb,50,4,119.75
+ICL 2ND DAY,icl,,2nd_day,lb,50,5,148.22
+ICL 2ND DAY,icl,,2nd_day,lb,50,6,212.50
+ICL 2ND DAY,icl,,2nd_day,lb,50,7,220.34
+ICL 2ND DAY,icl,,2nd_day,lb,50,8,228.48
+ICL Next Day,icl,,next_day,lb,1,1&2,21.41
+ICL Next Day,icl,,next_day,lb,1,3,38.07
+ICL Next Day,icl,,next_day,lb,1,4,39.53
+ICL Next Day,icl,,next_day,lb,1,5,43.05
+ICL Next Day,icl,,next_day,lb,1,6,45.84
+ICL Next Day,icl,,next_day,lb,1,7,48.61
+ICL Next Day,icl,,next_day,lb,1,8,59.06
+ICL Next Day,icl,,next_day,lb,2,1&2,23.45
+ICL Next Day,icl,,next_day,lb,2,3,40.83
+ICL Next Day,icl,,next_day,lb,2,4,43.70
+ICL Next Day,icl,,next_day,lb,2,5,47.60
+ICL Next Day,icl,,next_day,lb,2,6,50.63
+ICL Next Day,icl,,next_day,lb,2,7,53.67
+ICL Next Day,icl,,next_day,lb,2,8,64.38
+ICL Next Day,icl,,next_day,lb,3,1&2,25.49
+ICL Next Day,icl,,next_day,lb,3,3,43.45
+ICL Next Day,icl,,next_day,lb,3,4,47.79
+ICL Next Day,icl,,next_day,lb,3,5,52.15
+ICL Next Day,icl,,next_day,lb,3,6,55.43
+ICL Next Day,icl,,next_day,lb,3,7,58.71
+ICL Next Day,icl,,next_day,lb,3,8,69.74
+ICL Next Day,icl,,next_day,lb,4,1&2,26.96
+ICL Next Day,icl,,next_day,lb,4,3,46.05
+ICL Next Day,icl,,next_day,lb,4,4,51.91
+ICL Next Day,icl,,next_day,lb,4,5,56.70
+ICL Next Day,icl,,next_day,lb,4,6,60.21
+ICL Next Day,icl,,next_day,lb,4,7,63.77
+ICL Next Day,icl,,next_day,lb,4,8,75.08
+ICL Next Day,icl,,next_day,lb,5,1&2,29.54
+ICL Next Day,icl,,next_day,lb,5,3,48.63
+ICL Next Day,icl,,next_day,lb,5,4,55.99
+ICL Next Day,icl,,next_day,lb,5,5,61.24
+ICL Next Day,icl,,next_day,lb,5,6,65.02
+ICL Next Day,icl,,next_day,lb,5,7,68.81
+ICL Next Day,icl,,next_day,lb,5,8,80.41
+ICL Next Day,icl,,next_day,lb,6,1&2,31.57
+ICL Next Day,icl,,next_day,lb,6,3,51.21
+ICL Next Day,icl,,next_day,lb,6,4,60.09
+ICL Next Day,icl,,next_day,lb,6,5,65.80
+ICL Next Day,icl,,next_day,lb,6,6,69.81
+ICL Next Day,icl,,next_day,lb,6,7,73.87
+ICL Next Day,icl,,next_day,lb,6,8,85.76
+ICL Next Day,icl,,next_day,lb,7,1&2,33.60
+ICL Next Day,icl,,next_day,lb,7,3,53.80
+ICL Next Day,icl,,next_day,lb,7,4,64.19
+ICL Next Day,icl,,next_day,lb,7,5,70.34
+ICL Next Day,icl,,next_day,lb,7,6,74.60
+ICL Next Day,icl,,next_day,lb,7,7,78.93
+ICL Next Day,icl,,next_day,lb,7,8,91.11
+ICL Next Day,icl,,next_day,lb,8,1&2,35.65
+ICL Next Day,icl,,next_day,lb,8,3,56.39
+ICL Next Day,icl,,next_day,lb,8,4,68.29
+ICL Next Day,icl,,next_day,lb,8,5,74.89
+ICL Next Day,icl,,next_day,lb,8,6,79.39
+ICL Next Day,icl,,next_day,lb,8,7,83.97
+ICL Next Day,icl,,next_day,lb,8,8,96.45
+ICL Next Day,icl,,next_day,lb,9,1&2,37.67
+ICL Next Day,icl,,next_day,lb,9,3,58.99
+ICL Next Day,icl,,next_day,lb,9,4,72.39
+ICL Next Day,icl,,next_day,lb,9,5,79.44
+ICL Next Day,icl,,next_day,lb,9,6,84.18
+ICL Next Day,icl,,next_day,lb,9,7,89.02
+ICL Next Day,icl,,next_day,lb,9,8,101.79
+ICL Next Day,icl,,next_day,lb,10,1&2,39.71
+ICL Next Day,icl,,next_day,lb,10,3,61.56
+ICL Next Day,icl,,next_day,lb,10,4,76.49
+ICL Next Day,icl,,next_day,lb,10,5,83.99
+ICL Next Day,icl,,next_day,lb,10,6,88.99
+ICL Next Day,icl,,next_day,lb,10,7,94.08
+ICL Next Day,icl,,next_day,lb,10,8,107.13
+ICL Next Day,icl,,next_day,lb,11,1&2,41.73
+ICL Next Day,icl,,next_day,lb,11,3,64.15
+ICL Next Day,icl,,next_day,lb,11,4,80.60
+ICL Next Day,icl,,next_day,lb,11,5,88.55
+ICL Next Day,icl,,next_day,lb,11,6,93.79
+ICL Next Day,icl,,next_day,lb,11,7,99.14
+ICL Next Day,icl,,next_day,lb,11,8,112.49
+ICL Next Day,icl,,next_day,lb,12,1&2,43.77
+ICL Next Day,icl,,next_day,lb,12,3,66.75
+ICL Next Day,icl,,next_day,lb,12,4,84.69
+ICL Next Day,icl,,next_day,lb,12,5,93.09
+ICL Next Day,icl,,next_day,lb,12,6,98.57
+ICL Next Day,icl,,next_day,lb,12,7,104.20
+ICL Next Day,icl,,next_day,lb,12,8,117.82
+ICL Next Day,icl,,next_day,lb,13,1&2,45.80
+ICL Next Day,icl,,next_day,lb,13,3,69.33
+ICL Next Day,icl,,next_day,lb,13,4,88.78
+ICL Next Day,icl,,next_day,lb,13,5,97.64
+ICL Next Day,icl,,next_day,lb,13,6,103.37
+ICL Next Day,icl,,next_day,lb,13,7,109.24
+ICL Next Day,icl,,next_day,lb,13,8,123.18
+ICL Next Day,icl,,next_day,lb,14,1&2,47.84
+ICL Next Day,icl,,next_day,lb,14,3,71.92
+ICL Next Day,icl,,next_day,lb,14,4,92.89
+ICL Next Day,icl,,next_day,lb,14,5,102.18
+ICL Next Day,icl,,next_day,lb,14,6,108.15
+ICL Next Day,icl,,next_day,lb,14,7,114.29
+ICL Next Day,icl,,next_day,lb,14,8,128.51
+ICL Next Day,icl,,next_day,lb,15,1&2,49.86
+ICL Next Day,icl,,next_day,lb,15,3,74.49
+ICL Next Day,icl,,next_day,lb,15,4,96.99
+ICL Next Day,icl,,next_day,lb,15,5,106.73
+ICL Next Day,icl,,next_day,lb,15,6,112.96
+ICL Next Day,icl,,next_day,lb,15,7,119.36
+ICL Next Day,icl,,next_day,lb,15,8,133.85
+ICL Next Day,icl,,next_day,lb,16,1&2,51.90
+ICL Next Day,icl,,next_day,lb,16,3,77.09
+ICL Next Day,icl,,next_day,lb,16,4,101.09
+ICL Next Day,icl,,next_day,lb,16,5,111.28
+ICL Next Day,icl,,next_day,lb,16,6,117.75
+ICL Next Day,icl,,next_day,lb,16,7,124.40
+ICL Next Day,icl,,next_day,lb,16,8,139.20
+ICL Next Day,icl,,next_day,lb,17,1&2,53.93
+ICL Next Day,icl,,next_day,lb,17,3,79.69
+ICL Next Day,icl,,next_day,lb,17,4,105.18
+ICL Next Day,icl,,next_day,lb,17,5,115.83
+ICL Next Day,icl,,next_day,lb,17,6,122.54
+ICL Next Day,icl,,next_day,lb,17,7,129.46
+ICL Next Day,icl,,next_day,lb,17,8,144.53
+ICL Next Day,icl,,next_day,lb,18,1&2,55.97
+ICL Next Day,icl,,next_day,lb,18,3,82.26
+ICL Next Day,icl,,next_day,lb,18,4,109.27
+ICL Next Day,icl,,next_day,lb,18,5,120.38
+ICL Next Day,icl,,next_day,lb,18,6,127.35
+ICL Next Day,icl,,next_day,lb,18,7,134.50
+ICL Next Day,icl,,next_day,lb,18,8,149.89
+ICL Next Day,icl,,next_day,lb,19,1&2,58.01
+ICL Next Day,icl,,next_day,lb,19,3,84.87
+ICL Next Day,icl,,next_day,lb,19,4,113.38
+ICL Next Day,icl,,next_day,lb,19,5,124.94
+ICL Next Day,icl,,next_day,lb,19,6,132.13
+ICL Next Day,icl,,next_day,lb,19,7,139.56
+ICL Next Day,icl,,next_day,lb,19,8,155.23
+ICL Next Day,icl,,next_day,lb,20,1&2,59.96
+ICL Next Day,icl,,next_day,lb,20,3,87.44
+ICL Next Day,icl,,next_day,lb,20,4,117.48
+ICL Next Day,icl,,next_day,lb,20,5,129.48
+ICL Next Day,icl,,next_day,lb,20,6,136.93
+ICL Next Day,icl,,next_day,lb,20,7,144.62
+ICL Next Day,icl,,next_day,lb,20,8,160.57
+ICL Next Day,icl,,next_day,lb,21,1&2,61.91
+ICL Next Day,icl,,next_day,lb,21,3,90.04
+ICL Next Day,icl,,next_day,lb,21,4,121.58
+ICL Next Day,icl,,next_day,lb,21,5,134.03
+ICL Next Day,icl,,next_day,lb,21,6,141.72
+ICL Next Day,icl,,next_day,lb,21,7,149.67
+ICL Next Day,icl,,next_day,lb,21,8,165.91
+ICL Next Day,icl,,next_day,lb,22,1&2,63.83
+ICL Next Day,icl,,next_day,lb,22,3,92.62
+ICL Next Day,icl,,next_day,lb,22,4,125.68
+ICL Next Day,icl,,next_day,lb,22,5,138.59
+ICL Next Day,icl,,next_day,lb,22,6,146.50
+ICL Next Day,icl,,next_day,lb,22,7,154.73
+ICL Next Day,icl,,next_day,lb,22,8,171.25
+ICL Next Day,icl,,next_day,lb,23,1&2,65.79
+ICL Next Day,icl,,next_day,lb,23,3,95.21
+ICL Next Day,icl,,next_day,lb,23,4,129.78
+ICL Next Day,icl,,next_day,lb,23,5,143.13
+ICL Next Day,icl,,next_day,lb,23,6,151.30
+ICL Next Day,icl,,next_day,lb,23,7,159.77
+ICL Next Day,icl,,next_day,lb,23,8,176.61
+ICL Next Day,icl,,next_day,lb,24,1&2,67.72
+ICL Next Day,icl,,next_day,lb,24,3,97.80
+ICL Next Day,icl,,next_day,lb,24,4,133.88
+ICL Next Day,icl,,next_day,lb,24,5,147.68
+ICL Next Day,icl,,next_day,lb,24,6,156.08
+ICL Next Day,icl,,next_day,lb,24,7,164.84
+ICL Next Day,icl,,next_day,lb,24,8,181.95
+ICL Next Day,icl,,next_day,lb,25,1&2,69.66
+ICL Next Day,icl,,next_day,lb,25,3,100.37
+ICL Next Day,icl,,next_day,lb,25,4,137.97
+ICL Next Day,icl,,next_day,lb,25,5,152.24
+ICL Next Day,icl,,next_day,lb,25,6,160.89
+ICL Next Day,icl,,next_day,lb,25,7,169.87
+ICL Next Day,icl,,next_day,lb,25,8,187.27
+ICL Next Day,icl,,next_day,lb,26,1&2,71.60
+ICL Next Day,icl,,next_day,lb,26,3,102.96
+ICL Next Day,icl,,next_day,lb,26,4,142.08
+ICL Next Day,icl,,next_day,lb,26,5,156.78
+ICL Next Day,icl,,next_day,lb,26,6,165.69
+ICL Next Day,icl,,next_day,lb,26,7,174.94
+ICL Next Day,icl,,next_day,lb,26,8,192.63
+ICL Next Day,icl,,next_day,lb,27,1&2,73.52
+ICL Next Day,icl,,next_day,lb,27,3,105.55
+ICL Next Day,icl,,next_day,lb,27,4,146.19
+ICL Next Day,icl,,next_day,lb,27,5,161.34
+ICL Next Day,icl,,next_day,lb,27,6,170.48
+ICL Next Day,icl,,next_day,lb,27,7,180.00
+ICL Next Day,icl,,next_day,lb,27,8,198.13
+ICL Next Day,icl,,next_day,lb,28,1&2,75.48
+ICL Next Day,icl,,next_day,lb,28,3,108.16
+ICL Next Day,icl,,next_day,lb,28,4,150.27
+ICL Next Day,icl,,next_day,lb,28,5,165.89
+ICL Next Day,icl,,next_day,lb,28,6,175.28
+ICL Next Day,icl,,next_day,lb,28,7,185.03
+ICL Next Day,icl,,next_day,lb,28,8,203.69
+ICL Next Day,icl,,next_day,lb,29,1&2,77.43
+ICL Next Day,icl,,next_day,lb,29,3,110.74
+ICL Next Day,icl,,next_day,lb,29,4,154.36
+ICL Next Day,icl,,next_day,lb,29,5,170.43
+ICL Next Day,icl,,next_day,lb,29,6,180.06
+ICL Next Day,icl,,next_day,lb,29,7,190.11
+ICL Next Day,icl,,next_day,lb,29,8,209.26
+ICL Next Day,icl,,next_day,lb,30,1&2,79.35
+ICL Next Day,icl,,next_day,lb,30,3,113.31
+ICL Next Day,icl,,next_day,lb,30,4,158.47
+ICL Next Day,icl,,next_day,lb,30,5,174.99
+ICL Next Day,icl,,next_day,lb,30,6,184.87
+ICL Next Day,icl,,next_day,lb,30,7,195.14
+ICL Next Day,icl,,next_day,lb,30,8,214.82
+ICL Next Day,icl,,next_day,lb,31,1&2,81.28
+ICL Next Day,icl,,next_day,lb,31,3,115.91
+ICL Next Day,icl,,next_day,lb,31,4,162.57
+ICL Next Day,icl,,next_day,lb,31,5,179.54
+ICL Next Day,icl,,next_day,lb,31,6,189.65
+ICL Next Day,icl,,next_day,lb,31,7,200.20
+ICL Next Day,icl,,next_day,lb,31,8,220.37
+ICL Next Day,icl,,next_day,lb,32,1&2,83.23
+ICL Next Day,icl,,next_day,lb,32,3,118.50
+ICL Next Day,icl,,next_day,lb,32,4,166.67
+ICL Next Day,icl,,next_day,lb,32,5,184.08
+ICL Next Day,icl,,next_day,lb,32,6,194.45
+ICL Next Day,icl,,next_day,lb,32,7,205.26
+ICL Next Day,icl,,next_day,lb,32,8,225.94
+ICL Next Day,icl,,next_day,lb,33,1&2,85.17
+ICL Next Day,icl,,next_day,lb,33,3,121.08
+ICL Next Day,icl,,next_day,lb,33,4,170.77
+ICL Next Day,icl,,next_day,lb,33,5,188.64
+ICL Next Day,icl,,next_day,lb,33,6,199.24
+ICL Next Day,icl,,next_day,lb,33,7,210.30
+ICL Next Day,icl,,next_day,lb,33,8,231.49
+ICL Next Day,icl,,next_day,lb,34,1&2,87.12
+ICL Next Day,icl,,next_day,lb,34,3,123.68
+ICL Next Day,icl,,next_day,lb,34,4,174.87
+ICL Next Day,icl,,next_day,lb,34,5,193.19
+ICL Next Day,icl,,next_day,lb,34,6,204.03
+ICL Next Day,icl,,next_day,lb,34,7,215.37
+ICL Next Day,icl,,next_day,lb,34,8,237.06
+ICL Next Day,icl,,next_day,lb,35,1&2,89.04
+ICL Next Day,icl,,next_day,lb,35,3,126.25
+ICL Next Day,icl,,next_day,lb,35,4,178.96
+ICL Next Day,icl,,next_day,lb,35,5,197.71
+ICL Next Day,icl,,next_day,lb,35,6,208.84
+ICL Next Day,icl,,next_day,lb,35,7,220.41
+ICL Next Day,icl,,next_day,lb,35,8,242.61
+ICL Next Day,icl,,next_day,lb,36,1&2,90.98
+ICL Next Day,icl,,next_day,lb,36,3,128.85
+ICL Next Day,icl,,next_day,lb,36,4,183.08
+ICL Next Day,icl,,next_day,lb,36,5,202.28
+ICL Next Day,icl,,next_day,lb,36,6,213.63
+ICL Next Day,icl,,next_day,lb,36,7,225.47
+ICL Next Day,icl,,next_day,lb,36,8,248.18
+ICL Next Day,icl,,next_day,lb,37,1&2,92.92
+ICL Next Day,icl,,next_day,lb,37,3,131.42
+ICL Next Day,icl,,next_day,lb,37,4,187.18
+ICL Next Day,icl,,next_day,lb,37,5,206.81
+ICL Next Day,icl,,next_day,lb,37,6,218.42
+ICL Next Day,icl,,next_day,lb,37,7,230.53
+ICL Next Day,icl,,next_day,lb,37,8,253.74
+ICL Next Day,icl,,next_day,lb,38,1&2,94.87
+ICL Next Day,icl,,next_day,lb,38,3,134.03
+ICL Next Day,icl,,next_day,lb,38,4,191.26
+ICL Next Day,icl,,next_day,lb,38,5,211.38
+ICL Next Day,icl,,next_day,lb,38,6,223.21
+ICL Next Day,icl,,next_day,lb,38,7,235.58
+ICL Next Day,icl,,next_day,lb,38,8,259.30
+ICL Next Day,icl,,next_day,lb,39,1&2,96.81
+ICL Next Day,icl,,next_day,lb,39,3,136.62
+ICL Next Day,icl,,next_day,lb,39,4,195.36
+ICL Next Day,icl,,next_day,lb,39,5,215.92
+ICL Next Day,icl,,next_day,lb,39,6,227.99
+ICL Next Day,icl,,next_day,lb,39,7,240.63
+ICL Next Day,icl,,next_day,lb,39,8,264.85
+ICL Next Day,icl,,next_day,lb,40,1&2,98.73
+ICL Next Day,icl,,next_day,lb,40,3,139.20
+ICL Next Day,icl,,next_day,lb,40,4,199.47
+ICL Next Day,icl,,next_day,lb,40,5,220.46
+ICL Next Day,icl,,next_day,lb,40,6,232.90
+ICL Next Day,icl,,next_day,lb,40,7,245.68
+ICL Next Day,icl,,next_day,lb,40,8,270.41
+ICL Next Day,icl,,next_day,lb,41,1&2,100.67
+ICL Next Day,icl,,next_day,lb,41,3,141.78
+ICL Next Day,icl,,next_day,lb,41,4,203.57
+ICL Next Day,icl,,next_day,lb,41,5,225.02
+ICL Next Day,icl,,next_day,lb,41,6,237.58
+ICL Next Day,icl,,next_day,lb,41,7,250.73
+ICL Next Day,icl,,next_day,lb,41,8,275.98
+ICL Next Day,icl,,next_day,lb,42,1&2,102.62
+ICL Next Day,icl,,next_day,lb,42,3,144.37
+ICL Next Day,icl,,next_day,lb,42,4,207.66
+ICL Next Day,icl,,next_day,lb,42,5,229.57
+ICL Next Day,icl,,next_day,lb,42,6,242.38
+ICL Next Day,icl,,next_day,lb,42,7,255.79
+ICL Next Day,icl,,next_day,lb,42,8,281.54
+ICL Next Day,icl,,next_day,lb,43,1&2,104.56
+ICL Next Day,icl,,next_day,lb,43,3,146.97
+ICL Next Day,icl,,next_day,lb,43,4,211.75
+ICL Next Day,icl,,next_day,lb,43,5,234.11
+ICL Next Day,icl,,next_day,lb,43,6,247.18
+ICL Next Day,icl,,next_day,lb,43,7,260.84
+ICL Next Day,icl,,next_day,lb,43,8,287.09
+ICL Next Day,icl,,next_day,lb,44,1&2,106.51
+ICL Next Day,icl,,next_day,lb,44,3,149.55
+ICL Next Day,icl,,next_day,lb,44,4,215.86
+ICL Next Day,icl,,next_day,lb,44,5,238.67
+ICL Next Day,icl,,next_day,lb,44,6,251.97
+ICL Next Day,icl,,next_day,lb,44,7,265.90
+ICL Next Day,icl,,next_day,lb,44,8,292.66
+ICL Next Day,icl,,next_day,lb,45,1&2,108.42
+ICL Next Day,icl,,next_day,lb,45,3,152.12
+ICL Next Day,icl,,next_day,lb,45,4,219.95
+ICL Next Day,icl,,next_day,lb,45,5,243.22
+ICL Next Day,icl,,next_day,lb,45,6,256.77
+ICL Next Day,icl,,next_day,lb,45,7,270.95
+ICL Next Day,icl,,next_day,lb,45,8,298.22
+ICL Next Day,icl,,next_day,lb,46,1&2,110.38
+ICL Next Day,icl,,next_day,lb,46,3,154.72
+ICL Next Day,icl,,next_day,lb,46,4,224.06
+ICL Next Day,icl,,next_day,lb,46,5,247.77
+ICL Next Day,icl,,next_day,lb,46,6,261.56
+ICL Next Day,icl,,next_day,lb,46,7,276.00
+ICL Next Day,icl,,next_day,lb,46,8,303.79
+ICL Next Day,icl,,next_day,lb,47,1&2,112.31
+ICL Next Day,icl,,next_day,lb,47,3,157.32
+ICL Next Day,icl,,next_day,lb,47,4,228.17
+ICL Next Day,icl,,next_day,lb,47,5,252.32
+ICL Next Day,icl,,next_day,lb,47,6,266.35
+ICL Next Day,icl,,next_day,lb,47,7,281.07
+ICL Next Day,icl,,next_day,lb,47,8,309.33
+ICL Next Day,icl,,next_day,lb,48,1&2,114.26
+ICL Next Day,icl,,next_day,lb,48,3,159.91
+ICL Next Day,icl,,next_day,lb,48,4,232.25
+ICL Next Day,icl,,next_day,lb,48,5,256.87
+ICL Next Day,icl,,next_day,lb,48,6,271.15
+ICL Next Day,icl,,next_day,lb,48,7,286.11
+ICL Next Day,icl,,next_day,lb,48,8,314.90
+ICL Next Day,icl,,next_day,lb,49,1&2,116.20
+ICL Next Day,icl,,next_day,lb,49,3,162.49
+ICL Next Day,icl,,next_day,lb,49,4,236.36
+ICL Next Day,icl,,next_day,lb,49,5,261.42
+ICL Next Day,icl,,next_day,lb,49,6,275.93
+ICL Next Day,icl,,next_day,lb,49,7,291.17
+ICL Next Day,icl,,next_day,lb,49,8,320.46
+ICL Next Day,icl,,next_day,lb,50,1&2,118.12
+ICL Next Day,icl,,next_day,lb,50,3,165.07
+ICL Next Day,icl,,next_day,lb,50,4,240.45
+ICL Next Day,icl,,next_day,lb,50,5,265.97
+ICL Next Day,icl,,next_day,lb,50,6,280.74
+ICL Next Day,icl,,next_day,lb,50,7,296.20
+ICL Next Day,icl,,next_day,lb,50,8,326.03

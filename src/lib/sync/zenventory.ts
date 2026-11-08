@@ -1,8 +1,10 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { getCustomerOrders } from '@/lib/api/zenventory'
+import { readZenventoryClientCredentials } from '@/lib/zenventory/client-env'
 import { normaliseLines, NegativeQuantityError, PICKED_KEYS } from '@/lib/ledger/order-line'
 import { watermarkPickDate, watermarkIsEvidence } from '@/lib/ledger/pick-date'
 import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
+import { orderDateForImport } from '@/lib/zenventory/account-check'
 
 /**
  * Each client has their own Zenventory account.
@@ -13,10 +15,8 @@ export async function syncClientAssignments(daysBack = 30) {
   // Load all active clients that have Zenventory credentials
   const { data: clients, error: clientsErr } = await supabaseAdmin
     .from('clients')
-    .select('id, name, zenventory_api_key, zenventory_api_secret')
+    .select('id, name')
     .eq('active', true)
-    .not('zenventory_api_key', 'is', null)
-    .not('zenventory_api_secret', 'is', null)
 
   // The error is raised separately from the empty case on purpose. This query
   // used to discard it, so a database outage or a permissions problem left
@@ -27,7 +27,7 @@ export async function syncClientAssignments(daysBack = 30) {
   }
 
   if (!clients?.length) {
-    throw new Error('No active clients have Zenventory credentials. Add API keys on each client\'s page.')
+    throw new Error('No active clients to sync.')
   }
 
   const modifiedFrom = new Date()
@@ -108,8 +108,14 @@ export async function syncClientAssignments(daysBack = 30) {
   // having touched none of them, which is a worse lie than the failure it
   // avoided.
   const lockedClients: string[] = []
+  const notConfigured: string[] = []
 
   for (const client of clients) {
+    const creds = readZenventoryClientCredentials(client.name ?? '')
+    if (!creds.ok) {
+      notConfigured.push(creds.notice)
+      continue
+    }
     // Marks THIS CLIENT failed, in both of the places that have to know: the
     // set that counts clients and the list that names failures. Calling it
     // twice for one client adds a second message and leaves the count at one,
@@ -280,7 +286,7 @@ export async function syncClientAssignments(daysBack = 30) {
       while (hasMore) {
         let data: any
         try {
-          data = await getCustomerOrders(client.zenventory_api_key, client.zenventory_api_secret, {
+          data = await getCustomerOrders(creds.credentials.apiKey, creds.credentials.apiSecret, {
             page,
             perPage: 100,
             modifiedSince: modifiedFromISO,
@@ -312,7 +318,7 @@ export async function syncClientAssignments(daysBack = 30) {
                 order_key: orderNumber.toUpperCase(),
                 order_number: orderNumber,
                 source: 'zenventory',
-                order_date: order.orderDate ?? order.order_date ?? null,
+                order_date: orderDateForImport(order),
                 cancelled: Boolean(order.cancelled ?? false),
               }, { onConflict: 'client_id,order_key' })
               .select('id')
@@ -524,7 +530,8 @@ export async function syncClientAssignments(daysBack = 30) {
   // invented one on a partial. See the note on failedClients. The messages are
   // still what the thrown error CARRIES, since naming both halves of a double
   // failure is the useful part; they are just no longer what it counts.
-  if (failedClients.size === clients.length) {
+  const withCredentials = clients.length - notConfigured.length
+  if (withCredentials > 0 && lockedClients.length === 0 && failedClients.size === withCredentials) {
     throw new Error(`Zenventory sync failed for every client:\n${clientErrors.join('\n')}`)
   }
 
@@ -538,7 +545,9 @@ export async function syncClientAssignments(daysBack = 30) {
     // lock check `continue`s before anything can record a failure, and a client
     // that got a run row never reaches the locked branch. So these three
     // partition the client list and cannot imply a negative.
-    clients_synced: clients.length - failedClients.size - lockedClients.length,
+    clients_synced: clients.length - failedClients.size - lockedClients.length - notConfigured.length,
+    clients_not_configured: notConfigured.length,
+    not_configured: notConfigured,
     clients_failed: failedClients.size,
     // Separate from clients_failed so the monitor can say "skipped" rather
     // than "FAILED". Nothing is missing when this is non-zero -- the sibling

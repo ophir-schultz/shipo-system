@@ -6,12 +6,15 @@ import {
   readStatementCharges, readEarliestChargeDate,
 } from '@/lib/billing/statement-charges'
 import {
-  buildStatement, statementTotal, resolvePeriod,
+  buildStatement, resolvePeriod,
 } from '@/lib/billing/statement'
 import {
-  rateText, periodLabel, coverageNote, estimateNote,
+  rateText, periodLabel, coverageNote, estimateNote, statementFigures,
 } from '@/lib/billing/statement-view'
 import { totalOrUnknown, unpricedNote } from '@/lib/billing/unpriced'
+import { priceStatementCharges } from '@/lib/billing/statement-source'
+import { monthlyMinimumBill } from '@/lib/billing/monthly-minimum'
+import { loadAgreedMinimum } from '@/lib/billing/agreed-minimum'
 
 // One client's statement as JSON, for the Statement tab on /reports.
 //
@@ -134,7 +137,17 @@ export async function GET(req: Request) {
   const earliestRows = earliestRes.data ?? []
   const earliest = earliestRows.length === 0 ? null : earliestRows[0].charge_date
 
-  const statement = buildStatement(chargesRes.data ?? [], range)
+  const priced = await priceStatementCharges(clientId, client.row.name, chargesRes.data ?? [], range)
+  if (priced.error) return unreadable('shipment prices', priced.error.message)
+
+  const statement = buildStatement(priced.charges, range)
+  const minimum = monthlyMinimumBill({
+    from: range.from,
+    to: range.to,
+    rows: priced.charges,
+    agreed: await loadAgreedMinimum(client.row.name),
+  })
+  const figures = statementFigures(statement, minimum)
 
   return NextResponse.json({
     client: { id: client.row.id, name: client.row.name },
@@ -145,7 +158,7 @@ export async function GET(req: Request) {
       charge_type: line.charge_type,
       label: line.label,
       quantity: line.quantity,
-      // The rendered string and not the raw rate, because 'at cost', 'N rates'
+      // The rendered string and not the raw rate, because 'see amount', 'N rates'
       // and the unknown dash are three different sentences and rateText is
       // where the difference between them is tested.
       rate: rateText(line),
@@ -157,7 +170,15 @@ export async function GET(req: Request) {
       counted: line.sum.counted,
       estimated: line.estimated,
     })),
-    total: statementTotal(statement),
+    total: figures.knownSubtotal,
+    partial: figures.partial,
+    subtotalLabel: figures.subtotalLabel,
+    amountDue: figures.amountDue,
+    subtotalCents: minimum.subtotalCents,
+    minimumTopUpCents: minimum.topUpCents,
+    amountDueCents: figures.amountDue === null ? null : Math.round(figures.amountDue * 100),
+    minimumApplied: minimum.applies,
+    minimumReason: minimum.reason,
     unpriced: statement.sum.unpriced,
     counted: statement.sum.counted,
     estimated: statement.estimated,
@@ -165,9 +186,13 @@ export async function GET(req: Request) {
     // only the /statements page knows how to build does not exist on this tab,
     // and the figure it qualifies would be read without it.
     notes: [
-      coverageNote(earliest, range),
+      coverageNote(earliest, range, statement.lines.length),
       unpricedNote(statement.sum.unpriced, 'charge'),
       estimateNote(statement.estimated),
     ].filter(n => n !== ''),
+    // Staff only. This route is behind requireStaff. It says why pick & pack
+    // was billed or skipped (two live rates, the effective window, or the
+    // orders join). It is not on the spreadsheet a client receives.
+    pickPack: priced.pickPack,
   })
 }

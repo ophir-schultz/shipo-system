@@ -1,4 +1,6 @@
 import axios, { AxiosError } from 'axios'
+import { legacyMissReason, legacyOrderId, matchLegacyOrders } from '@/lib/scan/legacy-orders'
+import { readCustomerOrder } from '@/lib/scan/order-lines'
 
 // Zenventory has TWO APIs on two DIFFERENT paths. Neither of them is /api —
 // that path does not exist on the host and returns an Apache HTML 404 page,
@@ -10,11 +12,20 @@ const BASE_URL = 'https://app.zenventory.com/rest'
 // Legacy REST API — SecureKey header (endpoints not present in API 2.0)
 const LEGACY_BASE_URL = 'https://app.zenventory.com/services/rest'
 
-function makeClient(apiKey: string, apiSecret: string) {
+/** Basic header for API 2.0. The value is the key, then the secret, UTF-8. */
+export function v2Authorization(apiKey: string, apiSecret: string): string {
+  return 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`, 'utf8').toString('base64')
+}
+
+function makeClient(apiKey: string, apiSecret: string, baseURL = BASE_URL) {
+  // No Content-Type on these GETs. A JSON content type is for a body, and the
+  // read that returns the Nayax order does not send one.
   return axios.create({
-    baseURL: BASE_URL,
-    auth: { username: apiKey, password: apiSecret },
-    headers: { 'Content-Type': 'application/json' },
+    baseURL,
+    headers: {
+      Accept: 'application/json',
+      Authorization: v2Authorization(apiKey, apiSecret),
+    },
     timeout: 15000,
   })
 }
@@ -40,7 +51,7 @@ function extractError(err: unknown): string {
 export async function getCustomerOrders(
   apiKey: string,
   apiSecret: string,
-  params?: { page?: number; perPage?: number; modifiedSince?: string }
+  params?: { page?: number; perPage?: number; modifiedSince?: string; orderedSince?: string; orderNumber?: string }
 ) {
   const c = makeClient(apiKey, apiSecret)
   try {
@@ -55,9 +66,67 @@ export async function getCustomerOrders(
         ...(params?.modifiedSince
           ? { modifiedDate: params.modifiedSince, modifiedDateConditional: 'on_or_after' }
           : {}),
+        ...(params?.orderedSince
+          ? { orderedDate: params.orderedSince, orderedDateConditional: 'on_or_after' }
+          : {}),
+        ...(params?.orderNumber
+          ? { orderNumber: params.orderNumber, orderNumberConditional: 'matches' }
+          : {}),
       },
     })
     return res.data
+  } catch (err) {
+    throw new Error(`Zenventory API error: ${extractError(err)}`)
+  }
+}
+
+/** One read of GET /inventory. The count is meta.count when Zenventory sends it. */
+export async function getInventory(
+  apiKey: string,
+  apiSecret: string,
+  params?: { page?: number; perPage?: number },
+) {
+  const c = makeClient(apiKey, apiSecret)
+  try {
+    const res = await c.get('/inventory', {
+      params: { page: params?.page ?? 1, perPage: params?.perPage ?? 1 },
+    })
+    return res.data
+  } catch (err) {
+    throw new Error(`Zenventory API error: ${extractError(err)}`)
+  }
+}
+
+/**
+ * The scan read. The first request is the bare GET that returns this
+ * account's order. A filtered GET is a second read only when that page
+ * does not contain the number. A 401 on the bare GET stops there.
+ */
+export async function getScanCustomerOrder(
+  apiKey: string,
+  apiSecret: string,
+  orderRef: string,
+  baseURL = BASE_URL,
+): Promise<unknown> {
+  const c = makeClient(apiKey, apiSecret, baseURL)
+  let listed: unknown
+  try {
+    listed = (await c.get('/customer-orders')).data
+  } catch (err) {
+    throw new Error(`Zenventory API error: ${extractError(err)}`)
+  }
+  const read = readCustomerOrder(listed, orderRef)
+  if (read.ok || !read.reason.startsWith('No order matches')) return listed
+  try {
+    const filtered = await c.get('/customer-orders', {
+      params: {
+        page: 1,
+        perPage: 100,
+        orderNumber: orderRef,
+        orderNumberConditional: 'matches',
+      },
+    })
+    return filtered.data
   } catch (err) {
     throw new Error(`Zenventory API error: ${extractError(err)}`)
   }
@@ -93,6 +162,59 @@ export async function getShippingOrders(
       },
     })
     return res.data
+  } catch (err) {
+    throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
+  }
+}
+
+/**
+ * Read-only legacy customer order.
+ *
+ * GET /customerorders is the open-order window. A completed order is
+ * not in it. When the typed number is absent there, GET /shippingorders
+ * is the second read. Items are GET /{collection}/{id}/items. SecureKey
+ * is the header. Nothing is picked.
+ */
+export async function getLegacyCustomerOrder(secureKey: string, orderRef: string): Promise<unknown> {
+  const c = makeLegacyClient(secureKey)
+  let customerBody: unknown
+  try {
+    customerBody = (await c.get('/customerorders')).data
+  } catch (err) {
+    throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
+  }
+  const customer = matchLegacyOrders(customerBody, orderRef)
+  if (customer.kind === 'one') return withLegacyItems(c, 'customerorders', customer.order)
+  if (customer.kind === 'many') throw new Error(legacyMissReason(orderRef, customer, null))
+
+  let shipping: ReturnType<typeof matchLegacyOrders> | null = null
+  try {
+    const shippingBody = (await c.get('/shippingorders')).data
+    shipping = matchLegacyOrders(shippingBody, orderRef)
+    if (shipping.kind === 'one') return withLegacyItems(c, 'shippingorders', shipping.order)
+  } catch (err) {
+    if (customer.kind === 'unreadable') {
+      throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
+    }
+  }
+  throw new Error(legacyMissReason(orderRef, customer, shipping))
+}
+
+async function withLegacyItems(
+  client: ReturnType<typeof makeLegacyClient>,
+  collection: 'customerorders' | 'shippingorders',
+  order: Record<string, unknown>,
+): Promise<unknown> {
+  const id = legacyOrderId(order)
+  if (!id) return { customerorders: [order] }
+  try {
+    const items = await client.get(`/${collection}/${id}/items`)
+    const rows = Array.isArray(items.data)
+      ? items.data
+      : Array.isArray((items.data as { items?: unknown } | null)?.items)
+        ? (items.data as { items: unknown[] }).items
+        : []
+    return { customerorders: [{ ...order, items: rows }] }
   } catch (err) {
     throw new Error(`Zenventory Legacy API error: ${extractError(err)}`)
   }

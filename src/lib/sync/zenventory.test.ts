@@ -21,10 +21,30 @@ vi.mock('@/lib/api/zenventory', () => ({ getCustomerOrders: h.getCustomerOrders 
 
 const { syncClientAssignments } = await import('@/lib/sync/zenventory')
 
-const client = (id: string, name: string) => ({
-  id, name, active: true,
-  zenventory_api_key: `key-${id}`, zenventory_api_secret: `secret-${id}`,
-})
+const SLUGS: Record<string, string> = {
+  Nayax: 'NAYAX',
+  'Creative Pea': 'CREATIVEPEA',
+}
+
+function clearZenventoryEnv() {
+  for (const slug of Object.values(SLUGS)) {
+    delete process.env[`ZEN_${slug}_KEY`]
+    delete process.env[`ZEN_${slug}_SECRET`]
+    delete process.env[`ZEN_${slug}_SECURE`]
+    delete process.env[`ZENVENTORY_KEY_${slug}`]
+    delete process.env[`ZENVENTORY_SECRET_${slug}`]
+    delete process.env[`ZENVENTORY_SECURE_${slug}`]
+  }
+}
+
+const client = (id: string, name: string) => {
+  const slug = SLUGS[name]
+  if (slug) {
+    process.env[`ZEN_${slug}_KEY`] = `key-${id}`
+    process.env[`ZEN_${slug}_SECRET`] = `secret-${id}`
+  }
+  return { id, name, active: true }
+}
 
 const runs = () => (h.db.tables.sync_runs ?? []) as FakeRow[]
 const runFor = (clientId: string) => {
@@ -52,6 +72,7 @@ function throwOn(table: string, message: string) {
 }
 
 beforeEach(() => {
+  clearZenventoryEnv()
   h.db = createFakeSupabase({
     clients: [], sync_runs: [], orders: [], order_items: [], shipments: [],
   })
@@ -59,6 +80,17 @@ beforeEach(() => {
   h.getCustomerOrders.mockResolvedValue({
     customerOrders: [{ orderNumber: 'A-1', orderDate: '2026-09-01', items: [] }],
     meta: { totalPages: 1 },
+  })
+})
+
+describe('syncClientAssignments: a client without env credentials', () => {
+  it('skips that client with a not configured notice and syncs the rest', async () => {
+    h.db.tables.clients = [client('c1', 'Nayax'), { id: 'c2', name: 'Nobody', active: true }]
+    const result = await syncClientAssignments(30)
+    expect(result.clients_not_configured).toBe(1)
+    expect(result.not_configured[0]).toContain('not configured')
+    expect(result.clients_synced).toBe(1)
+    expect(h.getCustomerOrders).toHaveBeenCalledWith('key-c1', 'secret-c1', expect.anything())
   })
 })
 

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
+import { easternCalendarDay } from '@/lib/ledger/eastern-day'
 
 export default function AdjustmentsClient({ pending, resolved, pendingTotal }: {
   pending: any[]
@@ -84,7 +85,7 @@ export default function AdjustmentsClient({ pending, resolved, pendingTotal }: {
                     <td className="px-4 py-3 font-medium text-gray-200">{a.clients?.name ?? <span className="text-[#6B7A8D] italic">Unassigned</span>}</td>
                     <td className="px-4 py-3 text-[#3A4658]">{a.reason ?? 'Carrier reweigh / rate change'}</td>
                     <td className="px-4 py-3 text-[#4B4F58] text-xs">
-                      {a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                      {easternCalendarDay(a.adjustment_date) || '—'}
                     </td>
                     <td className="px-4 py-3 text-right text-[#4B4F58]">{a.original_cost != null ? `$${Number(a.original_cost).toFixed(2)}` : '—'}</td>
                     <td className="px-4 py-3 text-right text-[#3A4658]">{a.adjusted_cost != null ? `$${Number(a.adjusted_cost).toFixed(2)}` : '—'}</td>
@@ -161,7 +162,7 @@ export default function AdjustmentsClient({ pending, resolved, pendingTotal }: {
                   <td className="px-4 py-3 text-[#3A4658]">{a.clients?.name ?? '—'}</td>
                   <td className="px-4 py-3 text-[#4B4F58] text-xs">{a.reason ?? '—'}</td>
                   <td className="px-4 py-3 text-[#6B7A8D] text-xs">
-                    {a.adjustment_date ? new Date(a.adjustment_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                    {easternCalendarDay(a.adjustment_date) || '—'}
                   </td>
                   <td className="px-4 py-3 text-right text-[#6B7A8D] text-xs">{a.original_cost != null ? `$${Number(a.original_cost).toFixed(2)}` : '—'}</td>
                   <td className="px-4 py-3 text-right text-[#6B7A8D] text-xs">{a.adjusted_cost != null ? `$${Number(a.adjusted_cost).toFixed(2)}` : '—'}</td>

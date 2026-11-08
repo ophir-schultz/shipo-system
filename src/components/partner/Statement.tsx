@@ -31,6 +31,7 @@ import {
   type FbaActivityRow,
 } from '@/lib/partner-activity'
 import { CLAIM_PARTNER_TEXT, claimPartnerState } from '@/lib/partner-claims'
+import { projectPartnerStatement } from '@/lib/partner-facing'
 import SignOutButton from '@/components/partner/SignOutButton'
 import ClaimForm from '@/components/partner/ClaimForm'
 import BatchClaimForm from '@/components/partner/BatchClaimForm'
@@ -39,11 +40,10 @@ import W9Prompt from '@/components/partner/W9Prompt'
 // The partner-facing statement. Server component — every figure is
 // computed here and only the rendered numbers reach the browser.
 //
-// What a partner may see is fixed by Decision 1 of
-// docs/superpowers/specs/2026-10-11-partner-ledger-statements-design.md --
-// summary totals and the four cost CATEGORIES at month level -- as
-// AMENDED by finding 2 of the 2026-10-20 dashboard-v2 spec (§4.1), which
-// took the per-order AMOUNT off this screen entirely.
+// What a partner may see is their own commission and bonus amounts, the
+// status of each referral, and activity counts. Invoice totals, cost
+// buckets, net profit, margin and the commission rate stay in the server
+// calculation and are projected away before render.
 //
 // Never a rate card, never per-unit prices, never per-order cost.
 // `amount / quantity` on a single line item IS the rate card, and a
@@ -58,7 +58,6 @@ import W9Prompt from '@/components/partner/W9Prompt'
 // section and no executed agreement — do not re-cite one until there is.
 
 const fmt = (n: number) => `$${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`
-const fmtNeg = (n: number) => (n === 0 ? '—' : `-${fmt(n)}`)
 const fmtInt = (n: number) => n.toLocaleString('en-US')
 
 // prettyMonth and prettyDay both live in partner-roster.ts — ONE
@@ -226,7 +225,10 @@ export default async function Statement({ partner }: { partner: StatementPartner
   // in scope, one careless `{fmt(s.lifetimeEarned)}` from the screen.
   // `null` makes the compiler the guard instead of the reviewer.
   const lines = showMoney ? computeOwed([partner as ReferralPartner], clients, invoices, payouts) : null
-  const s = lines ? buildStatement(partner.id, clients, lines, invoices) : null
+  // Project immediately. The full statement carries billed amounts and
+  // cost buckets; binding it would leave those figures in this function
+  // for a later edit to print. The facing value has the commission only.
+  const s = lines ? projectPartnerStatement(buildStatement(partner.id, clients, lines, invoices)) : null
 
   // ---- The client roster (§4.1) ----
   //
@@ -255,7 +257,7 @@ export default async function Statement({ partner }: { partner: StatementPartner
         // 0 share would render a confident $0.00 for a month whose charges
         // are not priced yet.
         (thisMonth?.clients ?? []).map(
-          (c) => [c.clientId, { share: c.share, provisional: !!c.provisional }] as const,
+          (c) => [c.clientId, { share: c.commission, provisional: !!c.provisional }] as const,
         ),
       )
     : null
@@ -421,8 +423,7 @@ export default async function Statement({ partner }: { partner: StatementPartner
                   </div>
                   {c.provisional && (
                     <p className="text-xs text-gray-500 mb-3 -mt-1">
-                      Some charges for this month are not priced yet, so the figures below are not
-                      final and nothing is owed on them yet. They will settle on a later statement.
+                      This month is not final, so the commission below is not owed yet.
                     </p>
                   )}
                   <dl className="text-sm">
@@ -432,17 +433,7 @@ export default async function Statement({ partner }: { partner: StatementPartner
                         tells this partner their client shipped nothing. */}
                     {c.units !== null && <Row label="Units shipped" value={fmtInt(c.units)} />}
                     {c.orders !== null && <Row label="Orders shipped" value={fmtInt(c.orders)} />}
-                    <Row label="Total billed" value={fmt(c.billed)} />
-                    <Row label="Freight &amp; carrier" value={fmtNeg(c.costs.freight)} indent />
-                    <Row label="Packaging &amp; materials" value={fmtNeg(c.costs.materials)} indent />
-                    <Row label="Storage" value={fmtNeg(c.costs.storage)} indent />
-                    <Row label="Payment processing" value={fmtNeg(c.costs.processing)} indent />
-                    <Row label="Net profit" value={fmt(c.netProfit)} rule />
-                    <Row
-                      label={`Your share (${(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%)`}
-                      value={fmt(c.share)}
-                      emphasis
-                    />
+                    <Row label="Commission" value={fmt(c.commission)} emphasis />
                   </dl>
                 </div>
               ))}
@@ -491,80 +482,11 @@ export default async function Statement({ partner }: { partner: StatementPartner
       {/* ---- Your account (§4.4) ---- */}
       <AccountState partner={partner} />
 
-      {/* ---- How this is calculated ---- */}
-      {/* THE TWO GATES ARE GONE, AND THAT IS A CONTRACT CHANGE, NOT A
-          WORDING ONE. This read "after that client has been active 60
-          days, has billed $500 or more in a single calendar month". Both
-          clauses were removed from the Agreement on 2026-10-12 — Section
-          3.1's revenue threshold and 3.2's 60-day wait — leaving 3.9's
-          offset-only clawback as the only protection. The screen went on
-          stating both for eleven days, so a partner reading his own
-          statement was told he had to clear bars his signed agreement did
-          not impose. referral-agreement-terms.test.ts pinned the
-          AGREEMENT against their return and nothing pinned this file;
-          partner-bonus-copy.test.ts now does.
-
-          It is laid out rather than written out because this is the
-          section partners actually read: two earning streams, then the
-          one definition the money turns on. */}
       <section className="rounded-xl border border-gray-200 bg-[var(--brand-surface)] p-5 space-y-4">
-        <h2 className="font-semibold text-[var(--brand-ink)]">How this is calculated</h2>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">One-time</p>
-            <p className="mt-1 text-3xl font-bold text-[var(--brand-ink)]">${REFERRAL_TERMS.SIGNUP_BONUS}</p>
-            <p className="mt-1 text-sm leading-relaxed text-gray-600">
-              per referred client, once they have paid their first invoice
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Every month</p>
-            <p className="mt-1 text-3xl font-bold text-[var(--brand-ink)]">
-              {(REFERRAL_TERMS.COMMISSION_RATE * 100).toFixed(0)}%
-              <span className="ml-2 align-middle text-base font-semibold">of net profit</span>
-            </p>
-            <p className="mt-1 text-sm leading-relaxed text-gray-600">
-              {/* One template string, not `for {X} months`. JSX dropped the
-                  space after the closing brace -- SWC compiled that form to
-                  "for ", MONTHS, "months from..." and the screen read "for
-                  12months". Interpolating inside the string cannot lose it. */}
-              {`for ${REFERRAL_TERMS.COMMISSION_MONTHS} months from that client’s first paid invoice`}
-            </p>
-          </div>
-        </div>
-
-        {/* The definition the whole second stream turns on, set as the
-            subtraction it actually is. A partner checking a figure is
-            doing this arithmetic; prose made him assemble it himself. */}
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">What net profit means</p>
-          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
-            <span className="rounded-md bg-[var(--brand-surface)] px-2 py-1 font-semibold text-[var(--brand-ink)]">
-              Invoiced to the client
-            </span>
-            {['Freight & carrier', 'Packaging & prep', 'Storage', 'Payment processing'].map((cost) => (
-              <span key={cost} className="flex items-center gap-2">
-                <span aria-hidden="true" className="text-gray-500">
-                  −
-                </span>
-                <span className="rounded-md border border-gray-200 px-2 py-1 text-gray-600">{cost}</span>
-              </span>
-            ))}
-            <span aria-hidden="true" className="text-gray-500">
-              =
-            </span>
-            <span className="rounded-md bg-[var(--brand-ink)] px-2 py-1 font-semibold text-white">Net profit</span>
-          </div>
-          <p className="mt-3 text-sm leading-relaxed text-gray-600">
-            Charges billed at cost — freight, duties and Amazon fees — generate no profit and are excluded entirely.
-          </p>
-        </div>
-
+        <h2 className="font-semibold text-[var(--brand-ink)]">When you are paid</h2>
         <div className="grid gap-3 sm:grid-cols-3">
           {[
-            { k: 'When you are paid', v: 'Within 30 days', d: 'of the end of the month shown' },
+            { k: 'Timing', v: 'Within 30 days', d: 'of the end of the month shown' },
             {
               k: 'Minimum payout',
               v: fmt(REFERRAL_TERMS.MIN_PAYOUT),
@@ -579,9 +501,8 @@ export default async function Statement({ partner }: { partner: StatementPartner
             </div>
           ))}
         </div>
-
         <p className="text-sm leading-relaxed text-gray-500">
-          Figures are calculated in good faith from Shipo&apos;s books. If you disagree with a statement, tell us in
+          The amounts above are your commission and any sign-up bonus. If you disagree with a statement, tell us in
           writing within 30 days of receiving it.
         </p>
       </section>
@@ -1010,8 +931,7 @@ function OrderActivity({
       {truncated && (
         <p className="text-xs text-gray-500">
           This list shows the most recent {fmtInt(ORDER_UNITS_LIMIT)} orders. Older months may list
-          fewer orders than they contain — the monthly billing figures above are unaffected. Ask us
-          and we will send the full history.
+          fewer orders than they contain. Ask us and we will send the full history.
         </p>
       )}
     </section>
@@ -1034,8 +954,7 @@ function FbaPrepActivity({ rows }: { rows: FbaActivityRow[] }) {
       <div>
         <h2 className="font-semibold text-[var(--brand-ink)]">FBA prep activity</h2>
         <p className="text-sm text-gray-600 mt-1">
-          FBA prep is billed per unit rather than per order, so there is nothing order-by-order to
-          show here — just the units prepped in each month. These figures are recorded by our team,
+          Prep is counted in units, not as individual orders. These counts are recorded by our team,
           so a recent month may not be filled in yet.
         </p>
       </div>

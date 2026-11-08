@@ -1,5 +1,5 @@
-import { UNPRICED_DASH } from '@/lib/billing/unpriced'
-import { isGrain, type DateRange, type Grain, type StatementLine } from '@/lib/billing/statement'
+import { priceOf, totalOrUnknown, UNPRICED_CELL, UNPRICED_DASH } from '@/lib/billing/unpriced'
+import { isGrain, type DateRange, type Grain, type Statement, type StatementLine } from '@/lib/billing/statement'
 
 // The sentences the statement screen prints about its own figures.
 //
@@ -21,25 +21,48 @@ import { isGrain, type DateRange, type Grain, type StatementLine } from '@/lib/b
  * The three non-numeric answers are deliberately different sentences, because
  * they are three different facts and a shared dash would merge them:
  *
- *   'at cost'   the line has no rate-card rate by design -- at-cost freight is
- *               billed at whatever the carrier charged.
+ *   'see amount' the line has no single rate to print. The amount column is
+ *                the charge. The statement does not say the charge is our cost.
  *   'N rates'   the rate changed inside the period, so no single number is
  *               true of the whole line. Says how many rather than picking one.
  *   the dash    we hold a rate for some rows and could not read it. Unknown,
  *               and it uses the same dash as every other unknown figure in the
  *               app so it reads as one.
  */
+/** Rate column when the line has no single rate. Not a disclosure of our cost. */
+export const PASS_THROUGH_RATE = 'see amount'
+
 export function rateText(line: Pick<StatementLine, 'unit_rate' | 'rates'>): string {
   if (line.unit_rate !== null) {
     return `$${line.unit_rate.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`
   }
-  if (line.rates === 0) return 'at cost'
+  if (line.rates === 0) return PASS_THROUGH_RATE
   if (line.rates > 1) return `${line.rates} rates`
   // rates === 1 with a null unit_rate cannot happen -- buildStatement sets the
   // rate exactly when the count is 1 -- so this is the unreachable arm, and it
   // returns the unknown dash rather than asserting either of the two sentences
   // above about a state neither of them describes.
   return UNPRICED_DASH
+}
+
+/**
+ * Rate cell on one charge row.
+ *
+ * A known amount with no single unit rate is the same fact the summary
+ * prints as "see amount": Nayax pick rows store the price-list total and
+ * leave the unit rate empty because one order mixes a carton rate and an
+ * accessory rate. A shipping row keeps its ledger amount when no zone
+ * client price replaces it. Neither case is an unknown charge, and neither
+ * case is filled from carrier cost. Dividing the amount by the quantity
+ * would invent a rate the list did not state.
+ *
+ * UNPRICED is only for a row whose amount is itself unknown.
+ */
+export function chargeRateCell(row: { unit_rate: unknown; amount: unknown }): number | string {
+  const rate = priceOf(row.unit_rate)
+  if (rate !== null) return rate
+  if (priceOf(row.amount) !== null) return PASS_THROUGH_RATE
+  return UNPRICED_CELL
 }
 
 /**
@@ -121,7 +144,17 @@ export function grainChoice(asked: string | null | undefined, fallback: Grain): 
  * caveat printed on every statement is a caveat nobody reads -- same rule as
  * unpricedNote and undatedNote.
  */
-export function coverageNote(earliest: string | null, range: DateRange): string {
+export function coverageNote(
+  earliest: string | null,
+  range: DateRange,
+  shownLines = 0,
+): string {
+  // Charge rows already on the statement — ledger lines or shipment prices
+  // for this period — are the figures. A "no charges" sentence beside them
+  // contradicts the total. Creative Pea, with no rows, still gets the note.
+  if (shownLines > 0) {
+    if (earliest === null || earliest > range.to) return ''
+  }
   if (earliest === null) {
     return 'The ledger holds no charges for this client on any date, so the '
       + 'figures above are a sum over nothing rather than a quiet period.'
@@ -150,4 +183,71 @@ export function estimateNote(estimated: number): string {
   if (estimated <= 0) return ''
   return `${estimated} ${estimated === 1 ? 'charge' : 'charges'} priced from an `
     + `assumed rate, not a measured one`
+}
+
+export const COMPLETE_SUBTOTAL_LABEL = 'Subtotal'
+export const PARTIAL_SUBTOTAL_LABEL = 'Known subtotal (partial)'
+export const AMOUNT_DUE_LABEL = 'Amount due'
+/** A known sum exists, and a missing charge means it is not the bill. */
+export const AMOUNT_DUE_NOT_FINAL = 'not final'
+/** No known charge amount, or every counted charge is missing. Not $0. */
+export const AMOUNT_UNKNOWN = 'unknown'
+
+export interface StatementFigures {
+  /** Priced charges only. Null when every counted charge has no amount. */
+  knownSubtotal: number | null
+  /** A charge amount is missing. The known sum is not the period. */
+  partial: boolean
+  subtotalLabel: string
+  /**
+   * What could be billed. Null when a charge amount is missing, or when the
+   * known subtotal itself is unknown. A monthly-minimum top-up is included
+   * only when the period is fully priced and the minimum applies.
+   */
+  amountDue: number | null
+}
+
+/**
+ * Subtotal and amount due for one statement.
+ *
+ * A missing charge amount is not $0 and is not dropped from the bill. The
+ * dollars that were read stay visible, labeled partial. Amount due stays
+ * unfinished. A unit rate that was never stored does not make a known amount
+ * partial: that case is "see amount", and the amount is in the sum.
+ *
+ * A priced zero is a real zero. An empty period is $0. A full calendar month
+ * whose every amount is known still takes the monthly minimum.
+ */
+export function statementFigures(
+  statement: Pick<Statement, 'sum'>,
+  minimum: { applies: boolean; totalCents: number | null },
+): StatementFigures {
+  const partial = statement.sum.unpriced > 0
+  const knownSubtotal = partial && statement.sum.unpriced === statement.sum.counted
+    ? null
+    : totalOrUnknown(statement.sum)
+  if (partial) {
+    return {
+      knownSubtotal,
+      partial: true,
+      subtotalLabel: PARTIAL_SUBTOTAL_LABEL,
+      amountDue: null,
+    }
+  }
+  const amountDue = minimum.applies && minimum.totalCents !== null
+    ? minimum.totalCents / 100
+    : knownSubtotal
+  return {
+    knownSubtotal,
+    partial: false,
+    subtotalLabel: COMPLETE_SUBTOTAL_LABEL,
+    amountDue,
+  }
+}
+
+/** The amount-due cell. A number, "not final", or "unknown". Never a guessed total. */
+export function statementAmountDueCell(figures: StatementFigures): number | typeof AMOUNT_DUE_NOT_FINAL | typeof AMOUNT_UNKNOWN {
+  if (figures.amountDue !== null) return figures.amountDue
+  if (figures.partial && figures.knownSubtotal !== null) return AMOUNT_DUE_NOT_FINAL
+  return AMOUNT_UNKNOWN
 }

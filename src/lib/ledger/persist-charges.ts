@@ -1,7 +1,19 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { readAllPages } from '@/lib/db/page'
 import { canStart } from '@/lib/ledger/run-lock'
 import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
 import { buildCharges, type BuiltCharge, type ChargeInput } from '@/lib/ledger/calculate-charges'
+import { FREIGHT_SERVICE, freightColumnMissing, linkedFreightPrice } from '@/lib/billing/manual-freight'
+import {
+  APPROVED_ZONE_SOURCE,
+  PRESERVE_STORED_MODE,
+  preserveStoredCharges,
+  retainApprovedShipping,
+  type ApprovedManual,
+  type StoredChargeIdentity,
+  type StoredShippingCharge,
+} from '@/lib/ledger/approved-shipping'
+import { CHARGE_TYPES, type ChargeType } from '@/lib/ledger/charge-key'
 
 /**
  * How recently a charge run must have SUCCEEDED for this one to be skipped.
@@ -44,6 +56,100 @@ import { buildCharges, type BuiltCharge, type ChargeInput } from '@/lib/ledger/c
  *      claimed — by whoever happens to make the request.
  */
 export const CHARGE_THROTTLE_MINUTES = 60
+
+const PROVENANCE_CHUNK = 150
+
+function moneyOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return null
+  return Math.round(Number((n * 100).toPrecision(12))) / 100 + 0
+}
+
+function storedCharge(row: Record<string, unknown>): StoredChargeIdentity | null {
+  if (typeof row.order_id !== 'string' || typeof row.charge_key !== 'string') return null
+  if (typeof row.charge_type !== 'string' || !(CHARGE_TYPES as readonly string[]).includes(row.charge_type)) {
+    return null
+  }
+  const chargeDate = typeof row.charge_date === 'string' ? row.charge_date.slice(0, 10) : ''
+  if (!chargeDate) return null
+  return {
+    order_id: row.order_id,
+    client_id: typeof row.client_id === 'string' ? row.client_id : null,
+    charge_key: row.charge_key,
+    charge_type: row.charge_type as ChargeType,
+    label: typeof row.label === 'string' ? row.label : row.charge_type,
+    quantity: moneyOrNull(row.quantity),
+    unit_rate: moneyOrNull(row.unit_rate),
+    amount: moneyOrNull(row.amount),
+    cost: moneyOrNull(row.cost),
+    cost_basis: typeof row.cost_basis === 'string' ? row.cost_basis : null,
+    rate_id: typeof row.rate_id === 'string' ? row.rate_id : null,
+    cost_rate_id: typeof row.cost_rate_id === 'string' ? row.cost_rate_id : null,
+    charge_date: chargeDate,
+    charge_date_source: typeof row.charge_date_source === 'string' ? row.charge_date_source : 'ship_date',
+    source: typeof row.source === 'string' ? row.source : 'calculator',
+    is_estimate: row.is_estimate === true,
+  }
+}
+
+async function loadStoredCharges(
+  orderIds: readonly string[],
+): Promise<{ byOrder: Map<string, StoredChargeIdentity[]>; error: string | null }> {
+  const byOrder = new Map<string, StoredChargeIdentity[]>()
+  for (let i = 0; i < orderIds.length; i += PROVENANCE_CHUNK) {
+    const ids = orderIds.slice(i, i + PROVENANCE_CHUNK)
+    const loaded = await readAllPages<Record<string, unknown>>((from, to) => supabaseAdmin
+      .from('order_charges')
+      .select('order_id, client_id, charge_key, charge_type, label, quantity, unit_rate, amount, cost, cost_basis, rate_id, cost_rate_id, charge_date, charge_date_source, source, is_estimate')
+      .in('order_id', ids)
+      .order('id')
+      .range(from, to))
+    if (loaded.error) return { byOrder, error: loaded.error.message }
+    for (const row of loaded.data ?? []) {
+      const stored = storedCharge(row)
+      if (!stored) continue
+      const list = byOrder.get(stored.order_id) ?? []
+      list.push(stored)
+      byOrder.set(stored.order_id, list)
+    }
+  }
+  return { byOrder, error: null }
+}
+
+function zoneRows(rows: readonly StoredChargeIdentity[]): StoredShippingCharge[] {
+  return rows.filter((row): row is StoredShippingCharge =>
+    row.source === APPROVED_ZONE_SOURCE && row.charge_type === 'shipping')
+}
+
+async function loadManualFreight(): Promise<{ manuals: ApprovedManual[]; warning: string | null }> {
+  const loaded = await readAllPages<Record<string, unknown>>((from, to) => supabaseAdmin
+    .from('warehouse_daily_log')
+    .select('shipment_ref, total, log_date, client_id, service_type, freight_cost, freight_markup')
+    .eq('service_type', FREIGHT_SERVICE)
+    .order('id')
+    .range(from, to))
+  if (loaded.error) {
+    if (freightColumnMissing(loaded.error)) return { manuals: [], warning: null }
+    return {
+      manuals: [],
+      warning: `Could not read manual freight (${loaded.error.message}). Calculator amounts were not replaced by a freight total.`,
+    }
+  }
+  const manuals: ApprovedManual[] = []
+  for (const row of loaded.data ?? []) {
+    const clientId = typeof row.client_id === 'string' ? row.client_id : ''
+    const linked = linkedFreightPrice(row, clientId)
+    if (!linked) continue
+    manuals.push({
+      clientId,
+      shipmentId: linked.shipmentId,
+      amount: linked.amount,
+      logDate: linked.logDate,
+    })
+  }
+  return { manuals, warning: null }
+}
 
 /**
  * The UTC hours at which vercel.json fires /api/agent/monitor.
@@ -215,7 +321,7 @@ export async function recalculateCharges(
   // a concurrent run's fresh charges, which is not recoverable from the app.
   let run: Awaited<ReturnType<typeof openSyncRun>>
   try {
-    run = await openSyncRun({ source: 'charges', mode: 'live' })
+    run = await openSyncRun({ source: 'charges', mode: PRESERVE_STORED_MODE })
   } catch (err) {
     // Losing the race is NOT a failure, and it must not be reported as one.
     // canStart() above is advisory: it reads the open runs, decides, and only
@@ -278,7 +384,26 @@ export async function recalculateCharges(
     const rows: Array<BuiltCharge & { calculated_at: string }> = []
     const builtOk: string[] = []                  // orders safe to stale-delete
 
-    for (const input of await loadOrders((ctx, detail) => run.warn(ctx, detail))) {
+    const inputs = await loadOrders((ctx, detail) => run.warn(ctx, detail))
+    const provenance = inputs.length === 0
+      ? { byOrder: new Map<string, StoredChargeIdentity[]>(), error: null as string | null }
+      : await loadStoredCharges(inputs.map((input) => input.order.id))
+    if (provenance.error) {
+      run.fail('approved shipping unreadable', new Error(
+        `Could not read approved zone shipping charges (${provenance.error}). `
+        + `Nothing was written, because a calculator upsert would replace them.`,
+      ))
+      await run.close()
+      return {
+        skipped: false,
+        orders: 0, built: 0, upserted: 0, deleted: 0, staleDeleteRefused: 0,
+        failedOrders: 0, unknownCostCharges: 0, unknownCarrierCharges: 0, unpricedOrders: 0,
+      }
+    }
+    const freight = await loadManualFreight()
+    if (freight.warning) run.warn('manual freight unreadable', freight.warning)
+
+    for (const input of inputs) {
       run.seen()
       orders++
 
@@ -304,6 +429,19 @@ export async function recalculateCharges(
         // turn a bad line into a missing invoice.
         continue
       }
+
+      const stored = provenance.byOrder.get(input.order.id) ?? []
+      const retained = retainApprovedShipping(
+        charges,
+        zoneRows(stored),
+        freight.manuals,
+        { cancelled: input.order.cancelled },
+      )
+      const preserved = preserveStoredCharges(retained.charges, stored, {
+        cancelled: input.order.cancelled,
+      })
+      for (const flag of [...retained.flags, ...preserved.flags]) run.warn('approved shipping', flag)
+      charges = preserved.charges
 
       builtOk.push(input.order.id)
 
@@ -342,7 +480,7 @@ export async function recalculateCharges(
       // wrong cause for both.
       unknownCostCharges += charges.filter((c) => c.cost === null && c.is_estimate).length
       unknownCarrierCharges += charges.filter(
-        (c) => c.charge_type === 'shipping' && c.cost === null).length
+        (c) => c.charge_type === 'shipping' && c.cost === null && c.source !== APPROVED_ZONE_SOURCE).length
     }
 
     // Recorded once, here, where `rows` is final and before anything writes.

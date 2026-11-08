@@ -44,6 +44,7 @@ export async function GET() {
     activity.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
     return NextResponse.json({
+      connected: true,
       ...state,
       live: {
         blogPostsOnDisk: blogFiles.length,
@@ -52,6 +53,15 @@ export async function GET() {
       }
     })
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    const missing = detail.includes('ENOENT') || detail.includes('no such file')
+    console.error('[marketing] could not read state', missing ? 'state file is not on this server' : detail)
+    if (missing) {
+      return NextResponse.json({
+        connected: false,
+        message: 'marketing data source not connected',
+      })
+    }
     return NextResponse.json({ error: 'Could not read marketing state' }, { status: 500 })
   }
 }

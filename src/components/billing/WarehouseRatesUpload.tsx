@@ -260,11 +260,11 @@ export default function WarehouseRatesUpload(
             </p>
 
             <div className="space-y-2 mb-4">
-              <div className="grid grid-cols-3 gap-2 text-xs text-[#4B4F58] px-1">
+              <div className="grid grid-cols-1 gap-2 text-xs text-[#4B4F58] px-1 sm:grid-cols-3">
                 <span>Service</span><span>Rate ($)</span><span>Unit</span>
               </div>
               {rows.map((row, i) => (
-                <div key={i} className="grid grid-cols-3 gap-2 items-center">
+                <div key={i} className="grid grid-cols-1 gap-2 items-center sm:grid-cols-3">
                   <select
                     value={row.service_type}
                     onChange={e => updateRow(i, 'service_type', e.target.value)}

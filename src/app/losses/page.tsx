@@ -7,6 +7,9 @@ import { billedOz, weightBracket } from '@/lib/billing/weight-bracket'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
+import { SHIP_DAY_LABEL_NOTE } from '@/lib/billing/ship-day-label'
+import { ShipDay } from '@/components/shipments/ShipDay'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 
 // Read at REQUEST time, never at build time. Without this the App Router
 // prerenders this page during `next build`. The 2026-10-21 preview build
@@ -62,12 +65,13 @@ interface LossTotalsRow {
 
 async function getLossData() {
   const [lossRes, allRes] = await Promise.all([
-    supabaseAdmin
+    readAllPages((from, to) => supabaseAdmin
       .from('shipments')
-      .select('id, order_number, ship_date, carrier, service, weight, billed_weight, actual_cost, client_rate, profit_loss, zone, recipient_state, client_id, clients(name)')
+      .select('id, order_number, ship_date, carrier, service, weight, billed_weight, actual_cost, client_rate, profit_loss, zone, recipient_state, client_id, clients(name), raw_data')
       .eq('is_loss', true)
       .order('profit_loss', { ascending: true })
-      .limit(2000),
+      .order('id')
+      .range(from, to)),
     // PAGED. The denominator for every proportion on this page: "N of M
     // shipments are losses" means nothing if M is the first 1000 rows of 1823
     // and nothing on screen says so. PostgREST caps a select at `db-max-rows`
@@ -77,7 +81,7 @@ async function getLossData() {
     readAllPages<LossTotalsRow>((from, to) =>
       supabaseAdmin
         .from('shipments')
-        .select('actual_cost, client_rate, profit_loss, is_loss')
+        .select('actual_cost, client_rate, profit_loss, is_loss, raw_data')
         .not('client_id', 'is', null)
         .order('id').range(from, to)),
   ])
@@ -90,8 +94,8 @@ async function getLossData() {
   // byWeight breakdowns reading "no losses" should not exist in the program at
   // all, not even for long enough to be discarded.
   return loaded(unreadable, () => {
-    const losses = lossRead.rows
-    const all = allRead.rows
+    const losses = withoutVoided(lossRead.rows)
+    const all = withoutVoided(allRead.rows)
 
     const totalShipments = all.length
     // ONE reconciliation, not three sums. The previous version summed
@@ -324,7 +328,7 @@ export default async function LossesPage() {
       )}
 
       {/* Summary bar */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Loss Shipments" value={d.lossCount.toString()} sub={`${d.lossRate.toFixed(1)}% of all shipments`} color="red" />
         <StatCard label="Total Loss Amount" value={`-${fmt(d.totalLossAmt)}`} sub="Money we lost on those shipments" color="red" />
         {/* Both cards below are built from the SAME reconciled rows, so the
@@ -359,7 +363,7 @@ export default async function LossesPage() {
       </div>
 
       {/* Breakdown panels */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* By Client */}
         <div className="bg-white rounded-xl p-5">
           <h3 className="font-semibold text-[#0B1220] mb-3">By Client</h3>
@@ -485,6 +489,7 @@ export default async function LossesPage() {
           <h3 className="font-semibold text-[#0B1220]">All Loss Shipments</h3>
           <span className="text-xs text-[#4B4F58]">{d.lossCount} shipments · sorted by biggest loss first</span>
         </div>
+        <p className="text-[11px] text-[#6B7A8D] mb-3">{SHIP_DAY_LABEL_NOTE}</p>
         {d.losses.length === 0
           ? (
             <div className="text-center py-12">
@@ -498,7 +503,7 @@ export default async function LossesPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] uppercase">
-                    <th className="pb-2 pr-3">Date</th>
+                    <th className="pb-2 pr-3">Ship date</th>
                     <th className="pb-2 pr-3">Order #</th>
                     <th className="pb-2 pr-3">Client</th>
                     <th className="pb-2 pr-3">Carrier · Service</th>
@@ -513,7 +518,7 @@ export default async function LossesPage() {
                 <tbody>
                   {d.losses.map((s: any) => (
                     <tr key={s.id} className="border-b border-[#E2E8F0]/30 hover:bg-red-50">
-                      <td className="py-2 pr-3 text-[#4B4F58]">{s.ship_date?.split('T')[0] ?? '—'}</td>
+                      <td className="py-2 pr-3 text-[#4B4F58]"><ShipDay stored={s.ship_date} raw={s.raw_data} /></td>
                       <td className="py-2 pr-3 font-mono text-[#3A4658]">{s.order_number}</td>
                       <td className="py-2 pr-3 text-[#3A4658]">{(s.clients as any)?.name ?? <span className="text-[#6B7A8D] italic">unassigned</span>}</td>
                       <td className="py-2 pr-3 text-[#4B4F58]">{s.carrier} · {s.service}</td>

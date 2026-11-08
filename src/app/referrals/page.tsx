@@ -2,9 +2,14 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { computeOwed, summarize, REFERRAL_TERMS } from '@/lib/referrals'
 import type { ReferralPartner, ReferredClient, FbaInvoice, PayoutRecord } from '@/lib/referrals'
 import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import ReferralsManager from '@/components/referrals/ReferralsManager'
+import DocusignNotice from '@/components/partner/DocusignNotice'
 import ClaimsQueue from '@/components/referrals/ClaimsQueue'
+import UnmatchedAgreements, { type UnmatchedAgreementEvent } from '@/components/referrals/UnmatchedAgreements'
+import { UNMATCHED_EVENT_COLUMNS } from '@/lib/partner-agreement-match'
+import { REFERRALS_MONEY_SOURCE, STORED_COMMISSION_IGNORED, emptyReferralBooks } from '@/lib/partner-money-source'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,28 +62,36 @@ interface QueuePartnerRow {
 
 async function getData() {
   const [partnersRes, clientsRes, invoicesRes, payoutsRes, claimsRes] = await Promise.all([
-    supabaseAdmin
+    readAllPages((from, to) => supabaseAdmin
       .from('referral_partners')
       .select(
         'id, name, company, email, phone, partner_type, refer_method, status, notes, source, created_at, portal_last_seen_at, portal_invited_at, agreement_status, agreement_signed_at, w9_received_at, tax_status, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue, founding_partner',
       )
-      .order('created_at', { ascending: false }),
-    supabaseAdmin
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(from, to)),
+    readAllPages((from, to) => supabaseAdmin
       .from('clients')
       .select(
         'id, name, active, referral_partner_id, referral_signup_date, referral_first_payment_date, founding_bonus_seq',
       )
-      .order('name'),
-    supabaseAdmin
+      .order('name')
+      .order('id')
+      .range(from, to)),
+    readAllPages((from, to) => supabaseAdmin
       .from('fba_invoices')
       .select(
         'id, client_id, period, amount, units_shipped, orders_shipped, cost_freight, cost_materials, cost_storage, cost_processing, notes',
       )
-      .order('period', { ascending: false }),
-    supabaseAdmin
+      .order('period', { ascending: false })
+      .order('id')
+      .range(from, to)),
+    readAllPages((from, to) => supabaseAdmin
       .from('referral_payouts')
       .select('id, dedupe_key, status, amount, approved_at, paid_at, kind, period, client_id, referral_partner_id')
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(from, to)),
     // The claims queue (§3.4). Its own read, deliberately NOT folded into
     // the four above: those four feed computeOwed and are gated together,
     // because a wrong amount owed is worse than no screen. A claim is not
@@ -88,7 +101,7 @@ async function getData() {
     //
     // `decision_note` is selected because STAFF may see it (§3.3 forbids
     // it on the PARTNER surface only). Columns named, never '*'.
-    supabaseAdmin
+    readAllPages((from, to) => supabaseAdmin
       .from('partner_client_claims')
       .select(
         // `over_cap` marks a claim that arrived past the partner's daily
@@ -101,7 +114,9 @@ async function getData() {
         // is most of them.
         'id, referral_partner_id, company_name, website, contact_name, contact_email, note, status, client_id, decided_by, decided_at, decision_note, over_cap, batch_id, created_at',
       )
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(from, to)),
   ])
 
   // `referral_partners` and `fba_invoices` are the two tables the migration
@@ -150,6 +165,7 @@ async function getData() {
         partners: partners.rows,
         clients: clients.rows,
         invoices: invoices.rows,
+        payoutCount: payouts.rows.length,
         owed,
         totals: summarize(owed),
       }
@@ -157,11 +173,26 @@ async function getData() {
   }
 }
 
+async function loadUnmatched(): Promise<{ events: UnmatchedAgreementEvent[]; readFailed: boolean }> {
+  // Its own read. A missing events table must not blank the payout figures,
+  // and the payload column is not selected: Connect bodies are not a staff list.
+  const res = await supabaseAdmin
+    .from('partner_agreement_events')
+    .select(UNMATCHED_EVENT_COLUMNS)
+    .is('referral_partner_id', null)
+    .order('processed_at', { ascending: false })
+    .limit(20)
+  if (res.error) return { events: [], readFailed: true }
+  return { events: (res.data ?? []) as UnmatchedAgreementEvent[], readFailed: false }
+}
+
 export default async function ReferralsPage() {
-  const d = await getData()
+  const [d, unmatched] = await Promise.all([getData(), loadUnmatched()])
 
   return (
     <div className="space-y-6">
+      <DocusignNotice audience="staff" />
+      <UnmatchedAgreements events={unmatched.events} readFailed={unmatched.readFailed} />
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Referral Payouts</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
@@ -171,6 +202,19 @@ export default async function ReferralsPage() {
           <span className="text-[#3A4658]">{REFERRAL_TERMS.COMMISSION_MONTHS} months</span> from their first paid invoice. Every payout
           stays <span className="text-amber-700">pending</span> until you approve it — nothing is ever paid automatically.
         </p>
+        <p className="text-[#4B4F58] text-sm mt-2">{REFERRALS_MONEY_SOURCE}</p>
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {STORED_COMMISSION_IGNORED}
+        </p>
+        {d.page.ok && (
+          <p className="mt-2 text-sm text-[#4B4F58]">
+            {emptyReferralBooks({
+              linkedClients: d.page.data.clients.filter((client) => client.referral_partner_id).length,
+              invoiceRows: d.page.data.invoices.length,
+              payoutRows: d.page.data.payoutCount,
+            }).text}
+          </p>
+        )}
       </div>
 
       {d.migrationMissing && (

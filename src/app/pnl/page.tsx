@@ -8,6 +8,12 @@ import { pnlFigures, campaignFigures, attributedRevenue } from '@/lib/billing/ma
 import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
+import { isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
+import { DASHBOARD_SHIPPING_BASIS, FULFILLMENT_PNL_BASIS } from '@/lib/billing/pnl-basis'
+import { NO_PERIOD_FULFILLMENT, fullPicture, type FullPicture } from '@/lib/billing/full-picture'
+import { BANK_OPEX_LABEL, BANK_OPEX_SEPARATE_FROM_DIRECT } from '@/lib/ledger/bank-operating-labels'
+import { bankOperatingFor, dollars, loadBankLines } from '@/lib/ledger/bank-operating-costs'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
 import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 
 export const dynamic = 'force-dynamic'
@@ -18,6 +24,43 @@ interface PnlShipmentRow {
   client_rate: number | null
   actual_cost: number | null
   profit_loss: number | null
+  raw_data?: unknown
+  clients: { name: string } | { name: string }[] | null
+}
+
+/** Paged the same way as shipments. An unpaged read stops at db-max-rows. */
+interface PnlWarehouseRow {
+  client_id: string | null
+  total: number | null
+  notes: string | null
+}
+
+interface PnlInboundRow {
+  id: string
+  client_id: string | null
+  reference: string | null
+  received_date: string | null
+  units: number | null
+  our_cost: number | null
+  billed_amount: number | null
+  notes: string | null
+  clients: { name: string } | { name: string }[] | null
+}
+
+interface PnlClientRow {
+  id: string
+  name: string
+  acquisition_campaign_id: string | null
+  referral_partner_id: string | null
+}
+
+interface PnlPayoutRow {
+  id: string
+  amount: number | string | null
+  period: string | null
+  status: string | null
+  notes: string | null
+  referral_partners: { name: string } | { name: string }[] | null
   clients: { name: string } | { name: string }[] | null
 }
 
@@ -57,29 +100,53 @@ async function getPnlData() {
     readAllPages<PnlShipmentRow>((from, to) =>
       supabaseAdmin
         .from('shipments')
-        .select('client_id, client_rate, actual_cost, profit_loss, clients(name)')
+        .select('client_id, client_rate, actual_cost, profit_loss, raw_data, clients(name)')
         .order('id').range(from, to)),
-    supabaseAdmin
-      .from('warehouse_daily_log')
-      .select('client_id, total'),
+    // PAGED. Same defect as shipments above: PostgREST stops at db-max-rows
+    // (1000) and reports nothing, and this total is warehouse revenue. A
+    // daily log past a thousand rows was a finished-looking short number.
+    readAllPages<PnlWarehouseRow>((from, to) =>
+      supabaseAdmin
+        .from('warehouse_daily_log')
+        .select('client_id, total, notes')
+        .order('id')
+        .range(from, to)),
     // The three tables campaigns_pnl.sql creates: may legitimately not exist
     // yet, which is asked about by error code below -- NOT excused wholesale.
-    supabaseAdmin
-      .from('inbound_shipments')
-      .select('id, client_id, reference, received_date, units, our_cost, billed_amount, notes, clients(name)')
-      .order('received_date', { ascending: false })
-      .limit(500),
+    //
+    // PAGED, and the old `.limit(500)` is gone. That cap was not a top-N
+    // list: inbound billed_amount and our_cost are summed into Net Profit.
+    // Newest-first display order is kept; `id` is the unique tiebreaker
+    // readAllPages requires.
+    readAllPages<PnlInboundRow>((from, to) =>
+      supabaseAdmin
+        .from('inbound_shipments')
+        .select('id, client_id, reference, received_date, units, our_cost, billed_amount, notes, clients(name)')
+        .order('received_date', { ascending: false })
+        .order('id')
+        .range(from, to)),
     supabaseAdmin
       .from('campaigns')
       .select('id, name, channel, status, start_date, monthly_cost, one_time_cost, notes'),
-    supabaseAdmin
-      .from('clients')
-      .select('id, name, acquisition_campaign_id, referral_partner_id'),
-    supabaseAdmin
-      .from('referral_payouts')
-      .select('id, amount, period, status, notes, referral_partners(name), clients(name)')
-      .order('created_at', { ascending: false })
-      .limit(200),
+    // PAGED. Nine clients today does not make an unpaged read safe: the cap
+    // is silent the day the table crosses it, and this read decides which
+    // clients exist for campaign attribution.
+    readAllPages<PnlClientRow>((from, to) =>
+      supabaseAdmin
+        .from('clients')
+        .select('id, name, acquisition_campaign_id, referral_partner_id')
+        .order('id')
+        .range(from, to)),
+    // PAGED. `.limit(200)` fed both the payout table and the pending/paid
+    // totals, so a payout past row 200 was money owed that this page did
+    // not count. The table now shows the whole ledger.
+    readAllPages<PnlPayoutRow>((from, to) =>
+      supabaseAdmin
+        .from('referral_payouts')
+        .select('id, amount, period, status, notes, referral_partners(name), clients(name)')
+        .order('created_at', { ascending: false })
+        .order('id')
+        .range(from, to)),
   ])
 
   // Asked per table rather than inferred from `campaigns` alone. Those three
@@ -172,7 +239,7 @@ async function getPnlData() {
     // of their costs could be read, and then said so again in the next
     // sentence; one of the two had to be the dash.
     const unassignedCostTally = pricedTally()
-    for (const s of shipments) {
+    for (const s of withoutVoided(shipments)) {
       if (!s.client_id) {
         unassignedCount++
         unassignedCostTally.take(s.actual_cost)
@@ -190,8 +257,9 @@ async function getPnlData() {
     }
     for (const w of warehouse) {
       const a = ensure(w.client_id, 'Unassigned')
-      // warehouse_daily_log.total is nullable for the same reason: the daily-log
-      // route writes null for a line whose rate is not on the card.
+      // A recorded-only automatic line is already on the order charge.
+      // Counting its null total here would flag work that was billed.
+      if (isRecordedOnlyNote(w.notes)) continue
       a.whRev.take(w.total)
     }
     for (const i of inbound) {
@@ -422,11 +490,62 @@ async function getPnlData() {
   }) }
 }
 
+function pictureMoney(cents: number | null): string {
+  return cents === null ? 'unknown' : dollars(cents)
+}
+
+function FullPictureSection() {
+  const months = ['2026-09', '2026-10'].map((period) => fullPicture(
+    period,
+    bankOperatingFor(period, loadBankLines(period)),
+    NO_PERIOD_FULFILLMENT,
+    null,
+  ))
+  const rows: { label: string; value: (picture: FullPicture) => string }[] = [
+    { label: 'Shipping revenue', value: (picture) => pictureMoney(picture.shippingRevenueCents) },
+    { label: 'Fulfillment direct costs', value: (picture) => pictureMoney(picture.fulfillmentDirectCents) },
+    { label: 'Bank operating sample, provisional', value: (picture) => pictureMoney(picture.bankOperatingSampleCents) },
+    {
+      label: 'Bank postage, separate',
+      value: (picture) => picture.bankPostageCents === 0 ? '$0.00 none on this statement' : pictureMoney(picture.bankPostageCents),
+    },
+    { label: 'Other invoice costs', value: (picture) => picture.invoiceCostsCents === null ? 'unknown, not $0' : pictureMoney(picture.invoiceCostsCents) },
+    { label: 'Observed contribution before incomplete costs', value: (picture) => pictureMoney(picture.observedContributionCents) },
+    { label: 'Genuine net profit', value: () => 'unknown' },
+  ]
+  return (
+    <div className="bg-white rounded-xl p-5">
+      <h3 className="font-semibold text-[#0B1220]">Full picture</h3>
+      <p className="mt-1 text-xs text-[#4B4F58]">{BANK_OPEX_LABEL} {BANK_OPEX_SEPARATE_FROM_DIRECT} Genuine net profit is unknown until shipping revenue, complete fulfillment coverage, recognized operating costs, and supplied invoices are all present for that month. The bank sample is not subtracted from fulfillment margin.</p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-[#4B4F58] border-b border-[#E2E8F0]">
+              <th className="pb-2 pr-3">Line</th>
+              {months.map((picture) => <th key={picture.period} className="pb-2 pr-3 text-right">{picture.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label} className="border-b border-[#E2E8F0]/60">
+                <td className="py-2 pr-3 text-[#0B1220]">{row.label}</td>
+                {months.map((picture) => (
+                  <td key={picture.period} className="py-2 pr-3 text-right font-mono text-[#0B1220]">{row.value(picture)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function Header() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Campaigns + P&amp;L</h2>
-      <p className="text-[#4B4F58] text-sm mt-1">Marketing ROI by campaign, fulfillment margin by client, referral payouts, and the inbound receiving log.</p>
+      <p className="text-[#4B4F58] text-sm mt-1">{FULFILLMENT_PNL_BASIS} {DASHBOARD_SHIPPING_BASIS} {BANK_OPEX_SEPARATE_FROM_DIRECT}</p>
     </div>
   )
 }
@@ -465,8 +584,10 @@ export default async function PnlPage() {
         </div>
       )}
 
+      <FullPictureSection />
+
       {/* Summary bar */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total Revenue" value={fmtOrDash(d.totalRevenue)}
           sub={d.unreadRevenue > 0
             ? `${d.clientCount} active clients — ${d.unreadRevenue} revenue figure${d.unreadRevenue === 1 ? '' : 's'} unreadable, excluded`
@@ -482,8 +603,8 @@ export default async function PnlPage() {
             said when every figure under it had been withheld. */}
         <StatCard label="Net Profit" value={fmtOrDash(d.totalProfit)}
           sub={d.totalProfit === null
-            ? 'No readable revenue or cost to compute it from'
-            : 'Gross of warehouse labor'}
+            ? 'Unknown amounts were excluded. Not $0, and not a full ledger P&L.'
+            : 'Shipment + warehouse + inbound, gross of labor. Not the dashboard shipping margin.'}
           color={d.totalProfit === null ? 'unknown' : d.totalProfit >= 0 ? 'green' : 'red'} />
         {/* A dash, not $0.00, when not one campaign has a spend entered. The
             count in `sub` was already telling the truth underneath a figure
@@ -582,7 +703,7 @@ export default async function PnlPage() {
       <div className="bg-white rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-[#0B1220]">Per-Client Fulfillment P&amp;L</h3>
-          <span className="text-xs text-[#4B4F58]">Revenue = shipping + warehouse + inbound · Cost = carrier + receiving · gross of labor</span>
+          <span className="text-xs text-[#4B4F58]">Shipment + warehouse + inbound. Unknown charges excluded, not $0. Not the dashboard shipping-only margin.</span>
         </div>
         {d.unassignedCount > 0 && (
           <div className="mb-4 rounded-lg px-4 py-3 border border-amber-200 bg-amber-50 text-xs text-amber-700">
@@ -701,7 +822,7 @@ export default async function PnlPage() {
       </div>
 
       {/* ---- Referral payouts + Inbound log ---- */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {/* Referral payouts */}
         <div className="bg-white rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">

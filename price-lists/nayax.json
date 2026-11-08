@@ -1,0 +1,4105 @@
+{
+  "name": "Nayax",
+  "clientName": "Nayax",
+  "devicePick": {
+    "cartonSize": 20,
+    "cartonRate": 1.5,
+    "remainderRate": 0.32,
+    "skuPrefixes": [
+      "R",
+      "D"
+    ]
+  },
+  "accessoryPick": {
+    "unitRate": 0.2
+  },
+  "boxes": [
+    {
+      "code": "7/6/6",
+      "rate": 0.92
+    },
+    {
+      "code": "10/8/6",
+      "rate": 0.81
+    },
+    {
+      "code": "14/10/6",
+      "rate": 1.11
+    },
+    {
+      "code": "14/6/6",
+      "rate": 1.11
+    },
+    {
+      "code": "14/12/10",
+      "rate": 2.25
+    },
+    {
+      "code": "14/12/8",
+      "rate": 1.44
+    },
+    {
+      "code": "20/16/14",
+      "rate": 2.88
+    },
+    {
+      "code": "21/19/8",
+      "rate": 0
+    },
+    {
+      "code": "12/19/8",
+      "rate": 0
+    },
+    {
+      "code": "21/14/10",
+      "rate": 0
+    }
+  ],
+  "noBoxListed": {
+    "weightLabel": "1lb",
+    "rate": 0.8
+  },
+  "receiving": {
+    "perCarton": 0.85
+  },
+  "storage": {
+    "perPallet": 25,
+    "perShelf": 12
+  },
+  "labour": {
+    "perHour": 48
+  },
+  "materials": {
+    "markupPct": 15
+  },
+  "peak": {
+    "pct": 8,
+    "fromMonthDay": "10-15",
+    "toMonthDay": "01-15",
+    "appliesTo": [
+      "device_pick",
+      "accessory_pick",
+      "box",
+      "receiving",
+      "storage",
+      "labour",
+      "materials"
+    ]
+  },
+  "shipping": {
+    "schedules": [
+      {
+        "effectiveFrom": null,
+        "effectiveTo": "2026-05-19",
+        "divideBy": 1.03
+      },
+      {
+        "effectiveFrom": "2026-05-19",
+        "effectiveTo": null,
+        "divideBy": 1
+      }
+    ],
+    "cells": [
+      {
+        "weightLb": 1,
+        "zone": 1,
+        "rate": 9.45
+      },
+      {
+        "weightLb": 1,
+        "zone": 2,
+        "rate": 9.45
+      },
+      {
+        "weightLb": 1,
+        "zone": 3,
+        "rate": 9.89
+      },
+      {
+        "weightLb": 1,
+        "zone": 4,
+        "rate": 12.4
+      },
+      {
+        "weightLb": 1,
+        "zone": 5,
+        "rate": 13.47
+      },
+      {
+        "weightLb": 1,
+        "zone": 6,
+        "rate": 14.2
+      },
+      {
+        "weightLb": 1,
+        "zone": 7,
+        "rate": 14.62
+      },
+      {
+        "weightLb": 1,
+        "zone": 8,
+        "rate": 15.45
+      },
+      {
+        "weightLb": 2,
+        "zone": 1,
+        "rate": 10.32
+      },
+      {
+        "weightLb": 2,
+        "zone": 2,
+        "rate": 10.32
+      },
+      {
+        "weightLb": 2,
+        "zone": 3,
+        "rate": 10.32
+      },
+      {
+        "weightLb": 2,
+        "zone": 4,
+        "rate": 13.63
+      },
+      {
+        "weightLb": 2,
+        "zone": 5,
+        "rate": 14.35
+      },
+      {
+        "weightLb": 2,
+        "zone": 6,
+        "rate": 14.95
+      },
+      {
+        "weightLb": 2,
+        "zone": 7,
+        "rate": 15.53
+      },
+      {
+        "weightLb": 2,
+        "zone": 8,
+        "rate": 16.5
+      },
+      {
+        "weightLb": 3,
+        "zone": 1,
+        "rate": 10.87
+      },
+      {
+        "weightLb": 3,
+        "zone": 2,
+        "rate": 10.87
+      },
+      {
+        "weightLb": 3,
+        "zone": 3,
+        "rate": 11.0
+      },
+      {
+        "weightLb": 3,
+        "zone": 4,
+        "rate": 14.35
+      },
+      {
+        "weightLb": 3,
+        "zone": 5,
+        "rate": 15.27
+      },
+      {
+        "weightLb": 3,
+        "zone": 6,
+        "rate": 15.56
+      },
+      {
+        "weightLb": 3,
+        "zone": 7,
+        "rate": 16.43
+      },
+      {
+        "weightLb": 3,
+        "zone": 8,
+        "rate": 17.23
+      },
+      {
+        "weightLb": 4,
+        "zone": 1,
+        "rate": 11.03
+      },
+      {
+        "weightLb": 4,
+        "zone": 2,
+        "rate": 11.03
+      },
+      {
+        "weightLb": 4,
+        "zone": 3,
+        "rate": 11.71
+      },
+      {
+        "weightLb": 4,
+        "zone": 4,
+        "rate": 15.31
+      },
+      {
+        "weightLb": 4,
+        "zone": 5,
+        "rate": 15.72
+      },
+      {
+        "weightLb": 4,
+        "zone": 6,
+        "rate": 16.51
+      },
+      {
+        "weightLb": 4,
+        "zone": 7,
+        "rate": 17.15
+      },
+      {
+        "weightLb": 4,
+        "zone": 8,
+        "rate": 18.01
+      },
+      {
+        "weightLb": 5,
+        "zone": 1,
+        "rate": 11.9
+      },
+      {
+        "weightLb": 5,
+        "zone": 2,
+        "rate": 11.9
+      },
+      {
+        "weightLb": 5,
+        "zone": 3,
+        "rate": 12.13
+      },
+      {
+        "weightLb": 5,
+        "zone": 4,
+        "rate": 15.91
+      },
+      {
+        "weightLb": 5,
+        "zone": 5,
+        "rate": 16.54
+      },
+      {
+        "weightLb": 5,
+        "zone": 6,
+        "rate": 17.61
+      },
+      {
+        "weightLb": 5,
+        "zone": 7,
+        "rate": 17.78
+      },
+      {
+        "weightLb": 5,
+        "zone": 8,
+        "rate": 18.91
+      },
+      {
+        "weightLb": 6,
+        "zone": 1,
+        "rate": 12.05
+      },
+      {
+        "weightLb": 6,
+        "zone": 2,
+        "rate": 12.05
+      },
+      {
+        "weightLb": 6,
+        "zone": 3,
+        "rate": 13.1
+      },
+      {
+        "weightLb": 6,
+        "zone": 4,
+        "rate": 16.59
+      },
+      {
+        "weightLb": 6,
+        "zone": 5,
+        "rate": 17.61
+      },
+      {
+        "weightLb": 6,
+        "zone": 6,
+        "rate": 18.36
+      },
+      {
+        "weightLb": 6,
+        "zone": 7,
+        "rate": 19.09
+      },
+      {
+        "weightLb": 6,
+        "zone": 8,
+        "rate": 20.09
+      },
+      {
+        "weightLb": 7,
+        "zone": 1,
+        "rate": 12.4
+      },
+      {
+        "weightLb": 7,
+        "zone": 2,
+        "rate": 12.4
+      },
+      {
+        "weightLb": 7,
+        "zone": 3,
+        "rate": 14.02
+      },
+      {
+        "weightLb": 7,
+        "zone": 4,
+        "rate": 17.37
+      },
+      {
+        "weightLb": 7,
+        "zone": 5,
+        "rate": 18.78
+      },
+      {
+        "weightLb": 7,
+        "zone": 6,
+        "rate": 19.59
+      },
+      {
+        "weightLb": 7,
+        "zone": 7,
+        "rate": 19.87
+      },
+      {
+        "weightLb": 7,
+        "zone": 8,
+        "rate": 23.07
+      },
+      {
+        "weightLb": 8,
+        "zone": 1,
+        "rate": 12.49
+      },
+      {
+        "weightLb": 8,
+        "zone": 2,
+        "rate": 12.49
+      },
+      {
+        "weightLb": 8,
+        "zone": 3,
+        "rate": 14.71
+      },
+      {
+        "weightLb": 8,
+        "zone": 4,
+        "rate": 19.71
+      },
+      {
+        "weightLb": 8,
+        "zone": 5,
+        "rate": 20.13
+      },
+      {
+        "weightLb": 8,
+        "zone": 6,
+        "rate": 21.45
+      },
+      {
+        "weightLb": 8,
+        "zone": 7,
+        "rate": 23.04
+      },
+      {
+        "weightLb": 8,
+        "zone": 8,
+        "rate": 24.31
+      },
+      {
+        "weightLb": 9,
+        "zone": 1,
+        "rate": 13.43
+      },
+      {
+        "weightLb": 9,
+        "zone": 2,
+        "rate": 13.43
+      },
+      {
+        "weightLb": 9,
+        "zone": 3,
+        "rate": 15.26
+      },
+      {
+        "weightLb": 9,
+        "zone": 4,
+        "rate": 20.54
+      },
+      {
+        "weightLb": 9,
+        "zone": 5,
+        "rate": 20.92
+      },
+      {
+        "weightLb": 9,
+        "zone": 6,
+        "rate": 22.07
+      },
+      {
+        "weightLb": 9,
+        "zone": 7,
+        "rate": 23.68
+      },
+      {
+        "weightLb": 9,
+        "zone": 8,
+        "rate": 25.21
+      },
+      {
+        "weightLb": 10,
+        "zone": 1,
+        "rate": 13.98
+      },
+      {
+        "weightLb": 10,
+        "zone": 2,
+        "rate": 13.98
+      },
+      {
+        "weightLb": 10,
+        "zone": 3,
+        "rate": 15.9
+      },
+      {
+        "weightLb": 10,
+        "zone": 4,
+        "rate": 20.64
+      },
+      {
+        "weightLb": 10,
+        "zone": 5,
+        "rate": 21.21
+      },
+      {
+        "weightLb": 10,
+        "zone": 6,
+        "rate": 22.79
+      },
+      {
+        "weightLb": 10,
+        "zone": 7,
+        "rate": 24.26
+      },
+      {
+        "weightLb": 10,
+        "zone": 8,
+        "rate": 25.98
+      },
+      {
+        "weightLb": 11,
+        "zone": 1,
+        "rate": 16.05
+      },
+      {
+        "weightLb": 11,
+        "zone": 2,
+        "rate": 16.05
+      },
+      {
+        "weightLb": 11,
+        "zone": 3,
+        "rate": 17.02
+      },
+      {
+        "weightLb": 11,
+        "zone": 4,
+        "rate": 22.04
+      },
+      {
+        "weightLb": 11,
+        "zone": 5,
+        "rate": 22.56
+      },
+      {
+        "weightLb": 11,
+        "zone": 6,
+        "rate": 23.33
+      },
+      {
+        "weightLb": 11,
+        "zone": 7,
+        "rate": 25.25
+      },
+      {
+        "weightLb": 11,
+        "zone": 8,
+        "rate": 27.2
+      },
+      {
+        "weightLb": 12,
+        "zone": 1,
+        "rate": 16.63
+      },
+      {
+        "weightLb": 12,
+        "zone": 2,
+        "rate": 16.63
+      },
+      {
+        "weightLb": 12,
+        "zone": 3,
+        "rate": 17.75
+      },
+      {
+        "weightLb": 12,
+        "zone": 4,
+        "rate": 22.46
+      },
+      {
+        "weightLb": 12,
+        "zone": 5,
+        "rate": 23.04
+      },
+      {
+        "weightLb": 12,
+        "zone": 6,
+        "rate": 24.24
+      },
+      {
+        "weightLb": 12,
+        "zone": 7,
+        "rate": 26.28
+      },
+      {
+        "weightLb": 12,
+        "zone": 8,
+        "rate": 28.45
+      },
+      {
+        "weightLb": 13,
+        "zone": 1,
+        "rate": 17.02
+      },
+      {
+        "weightLb": 13,
+        "zone": 2,
+        "rate": 17.02
+      },
+      {
+        "weightLb": 13,
+        "zone": 3,
+        "rate": 18.17
+      },
+      {
+        "weightLb": 13,
+        "zone": 4,
+        "rate": 23.28
+      },
+      {
+        "weightLb": 13,
+        "zone": 5,
+        "rate": 23.87
+      },
+      {
+        "weightLb": 13,
+        "zone": 6,
+        "rate": 25.03
+      },
+      {
+        "weightLb": 13,
+        "zone": 7,
+        "rate": 27.72
+      },
+      {
+        "weightLb": 13,
+        "zone": 8,
+        "rate": 30.31
+      },
+      {
+        "weightLb": 14,
+        "zone": 1,
+        "rate": 17.45
+      },
+      {
+        "weightLb": 14,
+        "zone": 2,
+        "rate": 17.45
+      },
+      {
+        "weightLb": 14,
+        "zone": 3,
+        "rate": 18.48
+      },
+      {
+        "weightLb": 14,
+        "zone": 4,
+        "rate": 23.58
+      },
+      {
+        "weightLb": 14,
+        "zone": 5,
+        "rate": 24.35
+      },
+      {
+        "weightLb": 14,
+        "zone": 6,
+        "rate": 25.49
+      },
+      {
+        "weightLb": 14,
+        "zone": 7,
+        "rate": 28.65
+      },
+      {
+        "weightLb": 14,
+        "zone": 8,
+        "rate": 32.29
+      },
+      {
+        "weightLb": 15,
+        "zone": 1,
+        "rate": 17.56
+      },
+      {
+        "weightLb": 15,
+        "zone": 2,
+        "rate": 17.56
+      },
+      {
+        "weightLb": 15,
+        "zone": 3,
+        "rate": 19.06
+      },
+      {
+        "weightLb": 15,
+        "zone": 4,
+        "rate": 24.22
+      },
+      {
+        "weightLb": 15,
+        "zone": 5,
+        "rate": 25.12
+      },
+      {
+        "weightLb": 15,
+        "zone": 6,
+        "rate": 26.31
+      },
+      {
+        "weightLb": 15,
+        "zone": 7,
+        "rate": 30.79
+      },
+      {
+        "weightLb": 15,
+        "zone": 8,
+        "rate": 34.47
+      },
+      {
+        "weightLb": 16,
+        "zone": 1,
+        "rate": 17.89
+      },
+      {
+        "weightLb": 16,
+        "zone": 2,
+        "rate": 17.89
+      },
+      {
+        "weightLb": 16,
+        "zone": 3,
+        "rate": 20.03
+      },
+      {
+        "weightLb": 16,
+        "zone": 4,
+        "rate": 25.08
+      },
+      {
+        "weightLb": 16,
+        "zone": 5,
+        "rate": 26.05
+      },
+      {
+        "weightLb": 16,
+        "zone": 6,
+        "rate": 27.02
+      },
+      {
+        "weightLb": 16,
+        "zone": 7,
+        "rate": 32.09
+      },
+      {
+        "weightLb": 16,
+        "zone": 8,
+        "rate": 35.95
+      },
+      {
+        "weightLb": 17,
+        "zone": 1,
+        "rate": 20.02
+      },
+      {
+        "weightLb": 17,
+        "zone": 2,
+        "rate": 20.02
+      },
+      {
+        "weightLb": 17,
+        "zone": 3,
+        "rate": 20.79
+      },
+      {
+        "weightLb": 17,
+        "zone": 4,
+        "rate": 25.87
+      },
+      {
+        "weightLb": 17,
+        "zone": 5,
+        "rate": 26.78
+      },
+      {
+        "weightLb": 17,
+        "zone": 6,
+        "rate": 27.91
+      },
+      {
+        "weightLb": 17,
+        "zone": 7,
+        "rate": 34.12
+      },
+      {
+        "weightLb": 17,
+        "zone": 8,
+        "rate": 37.16
+      },
+      {
+        "weightLb": 18,
+        "zone": 1,
+        "rate": 20.02
+      },
+      {
+        "weightLb": 18,
+        "zone": 2,
+        "rate": 20.02
+      },
+      {
+        "weightLb": 18,
+        "zone": 3,
+        "rate": 20.79
+      },
+      {
+        "weightLb": 18,
+        "zone": 4,
+        "rate": 26.0
+      },
+      {
+        "weightLb": 18,
+        "zone": 5,
+        "rate": 27.18
+      },
+      {
+        "weightLb": 18,
+        "zone": 6,
+        "rate": 28.62
+      },
+      {
+        "weightLb": 18,
+        "zone": 7,
+        "rate": 34.76
+      },
+      {
+        "weightLb": 18,
+        "zone": 8,
+        "rate": 38.91
+      },
+      {
+        "weightLb": 19,
+        "zone": 1,
+        "rate": 20.02
+      },
+      {
+        "weightLb": 19,
+        "zone": 2,
+        "rate": 20.02
+      },
+      {
+        "weightLb": 19,
+        "zone": 3,
+        "rate": 20.79
+      },
+      {
+        "weightLb": 19,
+        "zone": 4,
+        "rate": 26.71
+      },
+      {
+        "weightLb": 19,
+        "zone": 5,
+        "rate": 27.89
+      },
+      {
+        "weightLb": 19,
+        "zone": 6,
+        "rate": 29.55
+      },
+      {
+        "weightLb": 19,
+        "zone": 7,
+        "rate": 35.44
+      },
+      {
+        "weightLb": 19,
+        "zone": 8,
+        "rate": 40.08
+      },
+      {
+        "weightLb": 20,
+        "zone": 1,
+        "rate": 20.02
+      },
+      {
+        "weightLb": 20,
+        "zone": 2,
+        "rate": 20.02
+      },
+      {
+        "weightLb": 20,
+        "zone": 3,
+        "rate": 20.79
+      },
+      {
+        "weightLb": 20,
+        "zone": 4,
+        "rate": 26.77
+      },
+      {
+        "weightLb": 20,
+        "zone": 5,
+        "rate": 28.62
+      },
+      {
+        "weightLb": 20,
+        "zone": 6,
+        "rate": 30.1
+      },
+      {
+        "weightLb": 20,
+        "zone": 7,
+        "rate": 36.58
+      },
+      {
+        "weightLb": 20,
+        "zone": 8,
+        "rate": 41.0
+      },
+      {
+        "weightLb": 21,
+        "zone": 1,
+        "rate": 21.25
+      },
+      {
+        "weightLb": 21,
+        "zone": 2,
+        "rate": 21.25
+      },
+      {
+        "weightLb": 21,
+        "zone": 3,
+        "rate": 23.48
+      },
+      {
+        "weightLb": 21,
+        "zone": 4,
+        "rate": 27.56
+      },
+      {
+        "weightLb": 21,
+        "zone": 5,
+        "rate": 28.98
+      },
+      {
+        "weightLb": 21,
+        "zone": 6,
+        "rate": 31.59
+      },
+      {
+        "weightLb": 21,
+        "zone": 7,
+        "rate": 37.23
+      },
+      {
+        "weightLb": 21,
+        "zone": 8,
+        "rate": 43.93
+      },
+      {
+        "weightLb": 22,
+        "zone": 1,
+        "rate": 21.62
+      },
+      {
+        "weightLb": 22,
+        "zone": 2,
+        "rate": 21.62
+      },
+      {
+        "weightLb": 22,
+        "zone": 3,
+        "rate": 23.83
+      },
+      {
+        "weightLb": 22,
+        "zone": 4,
+        "rate": 28.44
+      },
+      {
+        "weightLb": 22,
+        "zone": 5,
+        "rate": 29.09
+      },
+      {
+        "weightLb": 22,
+        "zone": 6,
+        "rate": 32.92
+      },
+      {
+        "weightLb": 22,
+        "zone": 7,
+        "rate": 38.43
+      },
+      {
+        "weightLb": 22,
+        "zone": 8,
+        "rate": 45.54
+      },
+      {
+        "weightLb": 23,
+        "zone": 1,
+        "rate": 21.66
+      },
+      {
+        "weightLb": 23,
+        "zone": 2,
+        "rate": 21.66
+      },
+      {
+        "weightLb": 23,
+        "zone": 3,
+        "rate": 24.22
+      },
+      {
+        "weightLb": 23,
+        "zone": 4,
+        "rate": 29.07
+      },
+      {
+        "weightLb": 23,
+        "zone": 5,
+        "rate": 30.11
+      },
+      {
+        "weightLb": 23,
+        "zone": 6,
+        "rate": 33.99
+      },
+      {
+        "weightLb": 23,
+        "zone": 7,
+        "rate": 39.55
+      },
+      {
+        "weightLb": 23,
+        "zone": 8,
+        "rate": 47.04
+      },
+      {
+        "weightLb": 24,
+        "zone": 1,
+        "rate": 22.12
+      },
+      {
+        "weightLb": 24,
+        "zone": 2,
+        "rate": 22.12
+      },
+      {
+        "weightLb": 24,
+        "zone": 3,
+        "rate": 24.98
+      },
+      {
+        "weightLb": 24,
+        "zone": 4,
+        "rate": 29.73
+      },
+      {
+        "weightLb": 24,
+        "zone": 5,
+        "rate": 30.87
+      },
+      {
+        "weightLb": 24,
+        "zone": 6,
+        "rate": 35.09
+      },
+      {
+        "weightLb": 24,
+        "zone": 7,
+        "rate": 40.41
+      },
+      {
+        "weightLb": 24,
+        "zone": 8,
+        "rate": 48.89
+      },
+      {
+        "weightLb": 25,
+        "zone": 1,
+        "rate": 22.32
+      },
+      {
+        "weightLb": 25,
+        "zone": 2,
+        "rate": 22.32
+      },
+      {
+        "weightLb": 25,
+        "zone": 3,
+        "rate": 25.19
+      },
+      {
+        "weightLb": 25,
+        "zone": 4,
+        "rate": 29.95
+      },
+      {
+        "weightLb": 25,
+        "zone": 5,
+        "rate": 31.58
+      },
+      {
+        "weightLb": 25,
+        "zone": 6,
+        "rate": 35.64
+      },
+      {
+        "weightLb": 25,
+        "zone": 7,
+        "rate": 41.94
+      },
+      {
+        "weightLb": 25,
+        "zone": 8,
+        "rate": 50.13
+      },
+      {
+        "weightLb": 26,
+        "zone": 1,
+        "rate": 22.97
+      },
+      {
+        "weightLb": 26,
+        "zone": 2,
+        "rate": 22.97
+      },
+      {
+        "weightLb": 26,
+        "zone": 3,
+        "rate": 25.87
+      },
+      {
+        "weightLb": 26,
+        "zone": 4,
+        "rate": 30.85
+      },
+      {
+        "weightLb": 26,
+        "zone": 5,
+        "rate": 32.37
+      },
+      {
+        "weightLb": 26,
+        "zone": 6,
+        "rate": 36.76
+      },
+      {
+        "weightLb": 26,
+        "zone": 7,
+        "rate": 43.45
+      },
+      {
+        "weightLb": 26,
+        "zone": 8,
+        "rate": 51.86
+      },
+      {
+        "weightLb": 27,
+        "zone": 1,
+        "rate": 23.4
+      },
+      {
+        "weightLb": 27,
+        "zone": 2,
+        "rate": 23.4
+      },
+      {
+        "weightLb": 27,
+        "zone": 3,
+        "rate": 26.36
+      },
+      {
+        "weightLb": 27,
+        "zone": 4,
+        "rate": 31.1
+      },
+      {
+        "weightLb": 27,
+        "zone": 5,
+        "rate": 32.82
+      },
+      {
+        "weightLb": 27,
+        "zone": 6,
+        "rate": 38.0
+      },
+      {
+        "weightLb": 27,
+        "zone": 7,
+        "rate": 44.15
+      },
+      {
+        "weightLb": 27,
+        "zone": 8,
+        "rate": 52.61
+      },
+      {
+        "weightLb": 28,
+        "zone": 1,
+        "rate": 23.71
+      },
+      {
+        "weightLb": 28,
+        "zone": 2,
+        "rate": 23.71
+      },
+      {
+        "weightLb": 28,
+        "zone": 3,
+        "rate": 26.87
+      },
+      {
+        "weightLb": 28,
+        "zone": 4,
+        "rate": 32.32
+      },
+      {
+        "weightLb": 28,
+        "zone": 5,
+        "rate": 34.25
+      },
+      {
+        "weightLb": 28,
+        "zone": 6,
+        "rate": 39.64
+      },
+      {
+        "weightLb": 28,
+        "zone": 7,
+        "rate": 45.91
+      },
+      {
+        "weightLb": 28,
+        "zone": 8,
+        "rate": 54.63
+      },
+      {
+        "weightLb": 29,
+        "zone": 1,
+        "rate": 24.1
+      },
+      {
+        "weightLb": 29,
+        "zone": 2,
+        "rate": 24.1
+      },
+      {
+        "weightLb": 29,
+        "zone": 3,
+        "rate": 27.28
+      },
+      {
+        "weightLb": 29,
+        "zone": 4,
+        "rate": 33.0
+      },
+      {
+        "weightLb": 29,
+        "zone": 5,
+        "rate": 34.62
+      },
+      {
+        "weightLb": 29,
+        "zone": 6,
+        "rate": 40.65
+      },
+      {
+        "weightLb": 29,
+        "zone": 7,
+        "rate": 47.23
+      },
+      {
+        "weightLb": 29,
+        "zone": 8,
+        "rate": 55.18
+      },
+      {
+        "weightLb": 30,
+        "zone": 1,
+        "rate": 24.3
+      },
+      {
+        "weightLb": 30,
+        "zone": 2,
+        "rate": 24.3
+      },
+      {
+        "weightLb": 30,
+        "zone": 3,
+        "rate": 27.61
+      },
+      {
+        "weightLb": 30,
+        "zone": 4,
+        "rate": 33.69
+      },
+      {
+        "weightLb": 30,
+        "zone": 5,
+        "rate": 35.76
+      },
+      {
+        "weightLb": 30,
+        "zone": 6,
+        "rate": 41.19
+      },
+      {
+        "weightLb": 30,
+        "zone": 7,
+        "rate": 47.43
+      },
+      {
+        "weightLb": 30,
+        "zone": 8,
+        "rate": 58.21
+      },
+      {
+        "weightLb": 31,
+        "zone": 1,
+        "rate": 27.65
+      },
+      {
+        "weightLb": 31,
+        "zone": 2,
+        "rate": 27.65
+      },
+      {
+        "weightLb": 31,
+        "zone": 3,
+        "rate": 30.78
+      },
+      {
+        "weightLb": 31,
+        "zone": 4,
+        "rate": 32.86
+      },
+      {
+        "weightLb": 31,
+        "zone": 5,
+        "rate": 37.53
+      },
+      {
+        "weightLb": 31,
+        "zone": 6,
+        "rate": 47.81
+      },
+      {
+        "weightLb": 31,
+        "zone": 7,
+        "rate": 51.12
+      },
+      {
+        "weightLb": 31,
+        "zone": 8,
+        "rate": 58.6
+      },
+      {
+        "weightLb": 32,
+        "zone": 1,
+        "rate": 27.66
+      },
+      {
+        "weightLb": 32,
+        "zone": 2,
+        "rate": 27.66
+      },
+      {
+        "weightLb": 32,
+        "zone": 3,
+        "rate": 30.84
+      },
+      {
+        "weightLb": 32,
+        "zone": 4,
+        "rate": 32.88
+      },
+      {
+        "weightLb": 32,
+        "zone": 5,
+        "rate": 37.54
+      },
+      {
+        "weightLb": 32,
+        "zone": 6,
+        "rate": 47.82
+      },
+      {
+        "weightLb": 32,
+        "zone": 7,
+        "rate": 51.13
+      },
+      {
+        "weightLb": 32,
+        "zone": 8,
+        "rate": 59.18
+      },
+      {
+        "weightLb": 33,
+        "zone": 1,
+        "rate": 27.73
+      },
+      {
+        "weightLb": 33,
+        "zone": 2,
+        "rate": 27.73
+      },
+      {
+        "weightLb": 33,
+        "zone": 3,
+        "rate": 31.16
+      },
+      {
+        "weightLb": 33,
+        "zone": 4,
+        "rate": 33.94
+      },
+      {
+        "weightLb": 33,
+        "zone": 5,
+        "rate": 38.87
+      },
+      {
+        "weightLb": 33,
+        "zone": 6,
+        "rate": 50.07
+      },
+      {
+        "weightLb": 33,
+        "zone": 7,
+        "rate": 52.51
+      },
+      {
+        "weightLb": 33,
+        "zone": 8,
+        "rate": 60.54
+      },
+      {
+        "weightLb": 34,
+        "zone": 1,
+        "rate": 27.74
+      },
+      {
+        "weightLb": 34,
+        "zone": 2,
+        "rate": 27.74
+      },
+      {
+        "weightLb": 34,
+        "zone": 3,
+        "rate": 31.65
+      },
+      {
+        "weightLb": 34,
+        "zone": 4,
+        "rate": 34.72
+      },
+      {
+        "weightLb": 34,
+        "zone": 5,
+        "rate": 39.9
+      },
+      {
+        "weightLb": 34,
+        "zone": 6,
+        "rate": 50.08
+      },
+      {
+        "weightLb": 34,
+        "zone": 7,
+        "rate": 53.81
+      },
+      {
+        "weightLb": 34,
+        "zone": 8,
+        "rate": 63.01
+      },
+      {
+        "weightLb": 35,
+        "zone": 1,
+        "rate": 28.09
+      },
+      {
+        "weightLb": 35,
+        "zone": 2,
+        "rate": 28.09
+      },
+      {
+        "weightLb": 35,
+        "zone": 3,
+        "rate": 32.67
+      },
+      {
+        "weightLb": 35,
+        "zone": 4,
+        "rate": 35.37
+      },
+      {
+        "weightLb": 35,
+        "zone": 5,
+        "rate": 40.41
+      },
+      {
+        "weightLb": 35,
+        "zone": 6,
+        "rate": 50.73
+      },
+      {
+        "weightLb": 35,
+        "zone": 7,
+        "rate": 54.95
+      },
+      {
+        "weightLb": 35,
+        "zone": 8,
+        "rate": 63.4
+      },
+      {
+        "weightLb": 36,
+        "zone": 1,
+        "rate": 29.5
+      },
+      {
+        "weightLb": 36,
+        "zone": 2,
+        "rate": 29.5
+      },
+      {
+        "weightLb": 36,
+        "zone": 3,
+        "rate": 33.88
+      },
+      {
+        "weightLb": 36,
+        "zone": 4,
+        "rate": 37.08
+      },
+      {
+        "weightLb": 36,
+        "zone": 5,
+        "rate": 42.83
+      },
+      {
+        "weightLb": 36,
+        "zone": 6,
+        "rate": 53.64
+      },
+      {
+        "weightLb": 36,
+        "zone": 7,
+        "rate": 58.03
+      },
+      {
+        "weightLb": 36,
+        "zone": 8,
+        "rate": 66.99
+      },
+      {
+        "weightLb": 37,
+        "zone": 1,
+        "rate": 30.0
+      },
+      {
+        "weightLb": 37,
+        "zone": 2,
+        "rate": 30.0
+      },
+      {
+        "weightLb": 37,
+        "zone": 3,
+        "rate": 34.45
+      },
+      {
+        "weightLb": 37,
+        "zone": 4,
+        "rate": 37.63
+      },
+      {
+        "weightLb": 37,
+        "zone": 5,
+        "rate": 43.58
+      },
+      {
+        "weightLb": 37,
+        "zone": 6,
+        "rate": 54.24
+      },
+      {
+        "weightLb": 37,
+        "zone": 7,
+        "rate": 59.61
+      },
+      {
+        "weightLb": 37,
+        "zone": 8,
+        "rate": 68.12
+      },
+      {
+        "weightLb": 38,
+        "zone": 1,
+        "rate": 30.31
+      },
+      {
+        "weightLb": 38,
+        "zone": 2,
+        "rate": 30.31
+      },
+      {
+        "weightLb": 38,
+        "zone": 3,
+        "rate": 34.86
+      },
+      {
+        "weightLb": 38,
+        "zone": 4,
+        "rate": 38.26
+      },
+      {
+        "weightLb": 38,
+        "zone": 5,
+        "rate": 44.41
+      },
+      {
+        "weightLb": 38,
+        "zone": 6,
+        "rate": 55.23
+      },
+      {
+        "weightLb": 38,
+        "zone": 7,
+        "rate": 60.29
+      },
+      {
+        "weightLb": 38,
+        "zone": 8,
+        "rate": 69.23
+      },
+      {
+        "weightLb": 39,
+        "zone": 1,
+        "rate": 30.62
+      },
+      {
+        "weightLb": 39,
+        "zone": 2,
+        "rate": 30.62
+      },
+      {
+        "weightLb": 39,
+        "zone": 3,
+        "rate": 35.36
+      },
+      {
+        "weightLb": 39,
+        "zone": 4,
+        "rate": 38.94
+      },
+      {
+        "weightLb": 39,
+        "zone": 5,
+        "rate": 44.83
+      },
+      {
+        "weightLb": 39,
+        "zone": 6,
+        "rate": 56.32
+      },
+      {
+        "weightLb": 39,
+        "zone": 7,
+        "rate": 61.81
+      },
+      {
+        "weightLb": 39,
+        "zone": 8,
+        "rate": 70.46
+      },
+      {
+        "weightLb": 40,
+        "zone": 1,
+        "rate": 30.65
+      },
+      {
+        "weightLb": 40,
+        "zone": 2,
+        "rate": 30.65
+      },
+      {
+        "weightLb": 40,
+        "zone": 3,
+        "rate": 35.47
+      },
+      {
+        "weightLb": 40,
+        "zone": 4,
+        "rate": 39.04
+      },
+      {
+        "weightLb": 40,
+        "zone": 5,
+        "rate": 45.24
+      },
+      {
+        "weightLb": 40,
+        "zone": 6,
+        "rate": 57.25
+      },
+      {
+        "weightLb": 40,
+        "zone": 7,
+        "rate": 61.83
+      },
+      {
+        "weightLb": 40,
+        "zone": 8,
+        "rate": 70.91
+      },
+      {
+        "weightLb": 41,
+        "zone": 1,
+        "rate": 30.93
+      },
+      {
+        "weightLb": 41,
+        "zone": 2,
+        "rate": 30.93
+      },
+      {
+        "weightLb": 41,
+        "zone": 3,
+        "rate": 36.35
+      },
+      {
+        "weightLb": 41,
+        "zone": 4,
+        "rate": 39.84
+      },
+      {
+        "weightLb": 41,
+        "zone": 5,
+        "rate": 46.12
+      },
+      {
+        "weightLb": 41,
+        "zone": 6,
+        "rate": 58.26
+      },
+      {
+        "weightLb": 41,
+        "zone": 7,
+        "rate": 63.46
+      },
+      {
+        "weightLb": 41,
+        "zone": 8,
+        "rate": 72.22
+      },
+      {
+        "weightLb": 42,
+        "zone": 1,
+        "rate": 31.05
+      },
+      {
+        "weightLb": 42,
+        "zone": 2,
+        "rate": 31.05
+      },
+      {
+        "weightLb": 42,
+        "zone": 3,
+        "rate": 36.96
+      },
+      {
+        "weightLb": 42,
+        "zone": 4,
+        "rate": 41.05
+      },
+      {
+        "weightLb": 42,
+        "zone": 5,
+        "rate": 46.97
+      },
+      {
+        "weightLb": 42,
+        "zone": 6,
+        "rate": 59.35
+      },
+      {
+        "weightLb": 42,
+        "zone": 7,
+        "rate": 64.91
+      },
+      {
+        "weightLb": 42,
+        "zone": 8,
+        "rate": 73.13
+      },
+      {
+        "weightLb": 43,
+        "zone": 1,
+        "rate": 31.57
+      },
+      {
+        "weightLb": 43,
+        "zone": 2,
+        "rate": 31.57
+      },
+      {
+        "weightLb": 43,
+        "zone": 3,
+        "rate": 37.11
+      },
+      {
+        "weightLb": 43,
+        "zone": 4,
+        "rate": 41.09
+      },
+      {
+        "weightLb": 43,
+        "zone": 5,
+        "rate": 48.13
+      },
+      {
+        "weightLb": 43,
+        "zone": 6,
+        "rate": 60.98
+      },
+      {
+        "weightLb": 43,
+        "zone": 7,
+        "rate": 66.38
+      },
+      {
+        "weightLb": 43,
+        "zone": 8,
+        "rate": 74.26
+      },
+      {
+        "weightLb": 44,
+        "zone": 1,
+        "rate": 31.89
+      },
+      {
+        "weightLb": 44,
+        "zone": 2,
+        "rate": 31.89
+      },
+      {
+        "weightLb": 44,
+        "zone": 3,
+        "rate": 37.65
+      },
+      {
+        "weightLb": 44,
+        "zone": 4,
+        "rate": 42.23
+      },
+      {
+        "weightLb": 44,
+        "zone": 5,
+        "rate": 49.22
+      },
+      {
+        "weightLb": 44,
+        "zone": 6,
+        "rate": 61.42
+      },
+      {
+        "weightLb": 44,
+        "zone": 7,
+        "rate": 67.61
+      },
+      {
+        "weightLb": 44,
+        "zone": 8,
+        "rate": 74.95
+      },
+      {
+        "weightLb": 45,
+        "zone": 1,
+        "rate": 31.92
+      },
+      {
+        "weightLb": 45,
+        "zone": 2,
+        "rate": 31.92
+      },
+      {
+        "weightLb": 45,
+        "zone": 3,
+        "rate": 37.83
+      },
+      {
+        "weightLb": 45,
+        "zone": 4,
+        "rate": 42.24
+      },
+      {
+        "weightLb": 45,
+        "zone": 5,
+        "rate": 49.23
+      },
+      {
+        "weightLb": 45,
+        "zone": 6,
+        "rate": 62.25
+      },
+      {
+        "weightLb": 45,
+        "zone": 7,
+        "rate": 69.35
+      },
+      {
+        "weightLb": 45,
+        "zone": 8,
+        "rate": 75.01
+      },
+      {
+        "weightLb": 46,
+        "zone": 1,
+        "rate": 32.43
+      },
+      {
+        "weightLb": 46,
+        "zone": 2,
+        "rate": 32.43
+      },
+      {
+        "weightLb": 46,
+        "zone": 3,
+        "rate": 37.84
+      },
+      {
+        "weightLb": 46,
+        "zone": 4,
+        "rate": 43.01
+      },
+      {
+        "weightLb": 46,
+        "zone": 5,
+        "rate": 50.01
+      },
+      {
+        "weightLb": 46,
+        "zone": 6,
+        "rate": 63.57
+      },
+      {
+        "weightLb": 46,
+        "zone": 7,
+        "rate": 69.99
+      },
+      {
+        "weightLb": 46,
+        "zone": 8,
+        "rate": 77.18
+      },
+      {
+        "weightLb": 47,
+        "zone": 1,
+        "rate": 32.48
+      },
+      {
+        "weightLb": 47,
+        "zone": 2,
+        "rate": 32.48
+      },
+      {
+        "weightLb": 47,
+        "zone": 3,
+        "rate": 38.21
+      },
+      {
+        "weightLb": 47,
+        "zone": 4,
+        "rate": 43.53
+      },
+      {
+        "weightLb": 47,
+        "zone": 5,
+        "rate": 50.29
+      },
+      {
+        "weightLb": 47,
+        "zone": 6,
+        "rate": 63.78
+      },
+      {
+        "weightLb": 47,
+        "zone": 7,
+        "rate": 71.19
+      },
+      {
+        "weightLb": 47,
+        "zone": 8,
+        "rate": 78.26
+      },
+      {
+        "weightLb": 48,
+        "zone": 1,
+        "rate": 32.5
+      },
+      {
+        "weightLb": 48,
+        "zone": 2,
+        "rate": 32.5
+      },
+      {
+        "weightLb": 48,
+        "zone": 3,
+        "rate": 38.47
+      },
+      {
+        "weightLb": 48,
+        "zone": 4,
+        "rate": 44.0
+      },
+      {
+        "weightLb": 48,
+        "zone": 5,
+        "rate": 51.43
+      },
+      {
+        "weightLb": 48,
+        "zone": 6,
+        "rate": 64.56
+      },
+      {
+        "weightLb": 48,
+        "zone": 7,
+        "rate": 71.77
+      },
+      {
+        "weightLb": 48,
+        "zone": 8,
+        "rate": 79.38
+      },
+      {
+        "weightLb": 49,
+        "zone": 1,
+        "rate": 32.54
+      },
+      {
+        "weightLb": 49,
+        "zone": 2,
+        "rate": 32.54
+      },
+      {
+        "weightLb": 49,
+        "zone": 3,
+        "rate": 38.49
+      },
+      {
+        "weightLb": 49,
+        "zone": 4,
+        "rate": 44.03
+      },
+      {
+        "weightLb": 49,
+        "zone": 5,
+        "rate": 51.44
+      },
+      {
+        "weightLb": 49,
+        "zone": 6,
+        "rate": 65.21
+      },
+      {
+        "weightLb": 49,
+        "zone": 7,
+        "rate": 72.86
+      },
+      {
+        "weightLb": 49,
+        "zone": 8,
+        "rate": 79.78
+      },
+      {
+        "weightLb": 50,
+        "zone": 1,
+        "rate": 32.55
+      },
+      {
+        "weightLb": 50,
+        "zone": 2,
+        "rate": 32.55
+      },
+      {
+        "weightLb": 50,
+        "zone": 3,
+        "rate": 38.5
+      },
+      {
+        "weightLb": 50,
+        "zone": 4,
+        "rate": 44.62
+      },
+      {
+        "weightLb": 50,
+        "zone": 5,
+        "rate": 51.46
+      },
+      {
+        "weightLb": 50,
+        "zone": 6,
+        "rate": 65.42
+      },
+      {
+        "weightLb": 50,
+        "zone": 7,
+        "rate": 73.04
+      },
+      {
+        "weightLb": 50,
+        "zone": 8,
+        "rate": 80.87
+      },
+      {
+        "weightLb": 51,
+        "zone": 1,
+        "rate": 48.51
+      },
+      {
+        "weightLb": 51,
+        "zone": 2,
+        "rate": 48.51
+      },
+      {
+        "weightLb": 51,
+        "zone": 3,
+        "rate": 55.71
+      },
+      {
+        "weightLb": 51,
+        "zone": 4,
+        "rate": 62.61
+      },
+      {
+        "weightLb": 51,
+        "zone": 5,
+        "rate": 71.74
+      },
+      {
+        "weightLb": 51,
+        "zone": 6,
+        "rate": 88.13
+      },
+      {
+        "weightLb": 51,
+        "zone": 7,
+        "rate": 97.3
+      },
+      {
+        "weightLb": 51,
+        "zone": 8,
+        "rate": 105.15
+      },
+      {
+        "weightLb": 52,
+        "zone": 1,
+        "rate": 48.52
+      },
+      {
+        "weightLb": 52,
+        "zone": 2,
+        "rate": 48.52
+      },
+      {
+        "weightLb": 52,
+        "zone": 3,
+        "rate": 55.73
+      },
+      {
+        "weightLb": 52,
+        "zone": 4,
+        "rate": 62.63
+      },
+      {
+        "weightLb": 52,
+        "zone": 5,
+        "rate": 71.76
+      },
+      {
+        "weightLb": 52,
+        "zone": 6,
+        "rate": 88.14
+      },
+      {
+        "weightLb": 52,
+        "zone": 7,
+        "rate": 97.31
+      },
+      {
+        "weightLb": 52,
+        "zone": 8,
+        "rate": 105.16
+      },
+      {
+        "weightLb": 53,
+        "zone": 1,
+        "rate": 48.54
+      },
+      {
+        "weightLb": 53,
+        "zone": 2,
+        "rate": 48.54
+      },
+      {
+        "weightLb": 53,
+        "zone": 3,
+        "rate": 55.74
+      },
+      {
+        "weightLb": 53,
+        "zone": 4,
+        "rate": 62.64
+      },
+      {
+        "weightLb": 53,
+        "zone": 5,
+        "rate": 72.28
+      },
+      {
+        "weightLb": 53,
+        "zone": 6,
+        "rate": 88.15
+      },
+      {
+        "weightLb": 53,
+        "zone": 7,
+        "rate": 97.32
+      },
+      {
+        "weightLb": 53,
+        "zone": 8,
+        "rate": 105.17
+      },
+      {
+        "weightLb": 54,
+        "zone": 1,
+        "rate": 48.55
+      },
+      {
+        "weightLb": 54,
+        "zone": 2,
+        "rate": 48.55
+      },
+      {
+        "weightLb": 54,
+        "zone": 3,
+        "rate": 55.74
+      },
+      {
+        "weightLb": 54,
+        "zone": 4,
+        "rate": 62.73
+      },
+      {
+        "weightLb": 54,
+        "zone": 5,
+        "rate": 72.37
+      },
+      {
+        "weightLb": 54,
+        "zone": 6,
+        "rate": 88.16
+      },
+      {
+        "weightLb": 54,
+        "zone": 7,
+        "rate": 97.34
+      },
+      {
+        "weightLb": 54,
+        "zone": 8,
+        "rate": 105.71
+      },
+      {
+        "weightLb": 55,
+        "zone": 1,
+        "rate": 48.55
+      },
+      {
+        "weightLb": 55,
+        "zone": 2,
+        "rate": 48.55
+      },
+      {
+        "weightLb": 55,
+        "zone": 3,
+        "rate": 55.76
+      },
+      {
+        "weightLb": 55,
+        "zone": 4,
+        "rate": 62.73
+      },
+      {
+        "weightLb": 55,
+        "zone": 5,
+        "rate": 72.38
+      },
+      {
+        "weightLb": 55,
+        "zone": 6,
+        "rate": 88.17
+      },
+      {
+        "weightLb": 55,
+        "zone": 7,
+        "rate": 97.35
+      },
+      {
+        "weightLb": 55,
+        "zone": 8,
+        "rate": 106.56
+      },
+      {
+        "weightLb": 56,
+        "zone": 1,
+        "rate": 48.57
+      },
+      {
+        "weightLb": 56,
+        "zone": 2,
+        "rate": 48.57
+      },
+      {
+        "weightLb": 56,
+        "zone": 3,
+        "rate": 55.73
+      },
+      {
+        "weightLb": 56,
+        "zone": 4,
+        "rate": 62.75
+      },
+      {
+        "weightLb": 56,
+        "zone": 5,
+        "rate": 72.4
+      },
+      {
+        "weightLb": 56,
+        "zone": 6,
+        "rate": 88.19
+      },
+      {
+        "weightLb": 56,
+        "zone": 7,
+        "rate": 97.36
+      },
+      {
+        "weightLb": 56,
+        "zone": 8,
+        "rate": 107.48
+      },
+      {
+        "weightLb": 57,
+        "zone": 1,
+        "rate": 49.1
+      },
+      {
+        "weightLb": 57,
+        "zone": 2,
+        "rate": 49.1
+      },
+      {
+        "weightLb": 57,
+        "zone": 3,
+        "rate": 55.96
+      },
+      {
+        "weightLb": 57,
+        "zone": 4,
+        "rate": 62.76
+      },
+      {
+        "weightLb": 57,
+        "zone": 5,
+        "rate": 73.97
+      },
+      {
+        "weightLb": 57,
+        "zone": 6,
+        "rate": 88.21
+      },
+      {
+        "weightLb": 57,
+        "zone": 7,
+        "rate": 97.37
+      },
+      {
+        "weightLb": 57,
+        "zone": 8,
+        "rate": 108.24
+      },
+      {
+        "weightLb": 58,
+        "zone": 1,
+        "rate": 49.1
+      },
+      {
+        "weightLb": 58,
+        "zone": 2,
+        "rate": 49.1
+      },
+      {
+        "weightLb": 58,
+        "zone": 3,
+        "rate": 55.98
+      },
+      {
+        "weightLb": 58,
+        "zone": 4,
+        "rate": 62.86
+      },
+      {
+        "weightLb": 58,
+        "zone": 5,
+        "rate": 73.98
+      },
+      {
+        "weightLb": 58,
+        "zone": 6,
+        "rate": 88.22
+      },
+      {
+        "weightLb": 58,
+        "zone": 7,
+        "rate": 97.38
+      },
+      {
+        "weightLb": 58,
+        "zone": 8,
+        "rate": 109.59
+      },
+      {
+        "weightLb": 59,
+        "zone": 1,
+        "rate": 49.12
+      },
+      {
+        "weightLb": 59,
+        "zone": 2,
+        "rate": 49.12
+      },
+      {
+        "weightLb": 59,
+        "zone": 3,
+        "rate": 56.01
+      },
+      {
+        "weightLb": 59,
+        "zone": 4,
+        "rate": 63.07
+      },
+      {
+        "weightLb": 59,
+        "zone": 5,
+        "rate": 74.01
+      },
+      {
+        "weightLb": 59,
+        "zone": 6,
+        "rate": 88.68
+      },
+      {
+        "weightLb": 59,
+        "zone": 7,
+        "rate": 98.05
+      },
+      {
+        "weightLb": 59,
+        "zone": 8,
+        "rate": 110.14
+      },
+      {
+        "weightLb": 60,
+        "zone": 1,
+        "rate": 49.94
+      },
+      {
+        "weightLb": 60,
+        "zone": 2,
+        "rate": 49.94
+      },
+      {
+        "weightLb": 60,
+        "zone": 3,
+        "rate": 57.41
+      },
+      {
+        "weightLb": 60,
+        "zone": 4,
+        "rate": 63.81
+      },
+      {
+        "weightLb": 60,
+        "zone": 5,
+        "rate": 75.93
+      },
+      {
+        "weightLb": 60,
+        "zone": 6,
+        "rate": 89.91
+      },
+      {
+        "weightLb": 60,
+        "zone": 7,
+        "rate": 98.42
+      },
+      {
+        "weightLb": 60,
+        "zone": 8,
+        "rate": 110.63
+      },
+      {
+        "weightLb": 61,
+        "zone": 1,
+        "rate": 49.94
+      },
+      {
+        "weightLb": 61,
+        "zone": 2,
+        "rate": 49.94
+      },
+      {
+        "weightLb": 61,
+        "zone": 3,
+        "rate": 57.5
+      },
+      {
+        "weightLb": 61,
+        "zone": 4,
+        "rate": 64.23
+      },
+      {
+        "weightLb": 61,
+        "zone": 5,
+        "rate": 75.94
+      },
+      {
+        "weightLb": 61,
+        "zone": 6,
+        "rate": 89.92
+      },
+      {
+        "weightLb": 61,
+        "zone": 7,
+        "rate": 98.8
+      },
+      {
+        "weightLb": 61,
+        "zone": 8,
+        "rate": 111.1
+      },
+      {
+        "weightLb": 62,
+        "zone": 1,
+        "rate": 51.19
+      },
+      {
+        "weightLb": 62,
+        "zone": 2,
+        "rate": 51.19
+      },
+      {
+        "weightLb": 62,
+        "zone": 3,
+        "rate": 60.2
+      },
+      {
+        "weightLb": 62,
+        "zone": 4,
+        "rate": 64.96
+      },
+      {
+        "weightLb": 62,
+        "zone": 5,
+        "rate": 77.23
+      },
+      {
+        "weightLb": 62,
+        "zone": 6,
+        "rate": 90.95
+      },
+      {
+        "weightLb": 62,
+        "zone": 7,
+        "rate": 99.81
+      },
+      {
+        "weightLb": 62,
+        "zone": 8,
+        "rate": 111.59
+      },
+      {
+        "weightLb": 63,
+        "zone": 1,
+        "rate": 51.21
+      },
+      {
+        "weightLb": 63,
+        "zone": 2,
+        "rate": 51.21
+      },
+      {
+        "weightLb": 63,
+        "zone": 3,
+        "rate": 60.2
+      },
+      {
+        "weightLb": 63,
+        "zone": 4,
+        "rate": 65.39
+      },
+      {
+        "weightLb": 63,
+        "zone": 5,
+        "rate": 77.24
+      },
+      {
+        "weightLb": 63,
+        "zone": 6,
+        "rate": 91.42
+      },
+      {
+        "weightLb": 63,
+        "zone": 7,
+        "rate": 99.92
+      },
+      {
+        "weightLb": 63,
+        "zone": 8,
+        "rate": 112.07
+      },
+      {
+        "weightLb": 64,
+        "zone": 1,
+        "rate": 52.04
+      },
+      {
+        "weightLb": 64,
+        "zone": 2,
+        "rate": 52.04
+      },
+      {
+        "weightLb": 64,
+        "zone": 3,
+        "rate": 60.23
+      },
+      {
+        "weightLb": 64,
+        "zone": 4,
+        "rate": 65.79
+      },
+      {
+        "weightLb": 64,
+        "zone": 5,
+        "rate": 77.26
+      },
+      {
+        "weightLb": 64,
+        "zone": 6,
+        "rate": 91.9
+      },
+      {
+        "weightLb": 64,
+        "zone": 7,
+        "rate": 100.36
+      },
+      {
+        "weightLb": 64,
+        "zone": 8,
+        "rate": 113.27
+      },
+      {
+        "weightLb": 65,
+        "zone": 1,
+        "rate": 52.4
+      },
+      {
+        "weightLb": 65,
+        "zone": 2,
+        "rate": 52.4
+      },
+      {
+        "weightLb": 65,
+        "zone": 3,
+        "rate": 60.92
+      },
+      {
+        "weightLb": 65,
+        "zone": 4,
+        "rate": 65.8
+      },
+      {
+        "weightLb": 65,
+        "zone": 5,
+        "rate": 77.26
+      },
+      {
+        "weightLb": 65,
+        "zone": 6,
+        "rate": 92.52
+      },
+      {
+        "weightLb": 65,
+        "zone": 7,
+        "rate": 100.52
+      },
+      {
+        "weightLb": 65,
+        "zone": 8,
+        "rate": 113.4
+      },
+      {
+        "weightLb": 66,
+        "zone": 1,
+        "rate": 52.55
+      },
+      {
+        "weightLb": 66,
+        "zone": 2,
+        "rate": 52.55
+      },
+      {
+        "weightLb": 66,
+        "zone": 3,
+        "rate": 61.72
+      },
+      {
+        "weightLb": 66,
+        "zone": 4,
+        "rate": 66.16
+      },
+      {
+        "weightLb": 66,
+        "zone": 5,
+        "rate": 77.71
+      },
+      {
+        "weightLb": 66,
+        "zone": 6,
+        "rate": 92.56
+      },
+      {
+        "weightLb": 66,
+        "zone": 7,
+        "rate": 100.71
+      },
+      {
+        "weightLb": 66,
+        "zone": 8,
+        "rate": 113.58
+      },
+      {
+        "weightLb": 67,
+        "zone": 1,
+        "rate": 52.56
+      },
+      {
+        "weightLb": 67,
+        "zone": 2,
+        "rate": 52.56
+      },
+      {
+        "weightLb": 67,
+        "zone": 3,
+        "rate": 61.75
+      },
+      {
+        "weightLb": 67,
+        "zone": 4,
+        "rate": 66.18
+      },
+      {
+        "weightLb": 67,
+        "zone": 5,
+        "rate": 77.82
+      },
+      {
+        "weightLb": 67,
+        "zone": 6,
+        "rate": 93.1
+      },
+      {
+        "weightLb": 67,
+        "zone": 7,
+        "rate": 101.06
+      },
+      {
+        "weightLb": 67,
+        "zone": 8,
+        "rate": 113.76
+      },
+      {
+        "weightLb": 68,
+        "zone": 1,
+        "rate": 52.93
+      },
+      {
+        "weightLb": 68,
+        "zone": 2,
+        "rate": 52.93
+      },
+      {
+        "weightLb": 68,
+        "zone": 3,
+        "rate": 62.45
+      },
+      {
+        "weightLb": 68,
+        "zone": 4,
+        "rate": 68.98
+      },
+      {
+        "weightLb": 68,
+        "zone": 5,
+        "rate": 79.15
+      },
+      {
+        "weightLb": 68,
+        "zone": 6,
+        "rate": 94.14
+      },
+      {
+        "weightLb": 68,
+        "zone": 7,
+        "rate": 101.44
+      },
+      {
+        "weightLb": 68,
+        "zone": 8,
+        "rate": 113.77
+      },
+      {
+        "weightLb": 69,
+        "zone": 1,
+        "rate": 53.63
+      },
+      {
+        "weightLb": 69,
+        "zone": 2,
+        "rate": 53.63
+      },
+      {
+        "weightLb": 69,
+        "zone": 3,
+        "rate": 62.86
+      },
+      {
+        "weightLb": 69,
+        "zone": 4,
+        "rate": 69.46
+      },
+      {
+        "weightLb": 69,
+        "zone": 5,
+        "rate": 79.56
+      },
+      {
+        "weightLb": 69,
+        "zone": 6,
+        "rate": 94.96
+      },
+      {
+        "weightLb": 69,
+        "zone": 7,
+        "rate": 101.46
+      },
+      {
+        "weightLb": 69,
+        "zone": 8,
+        "rate": 114.2
+      },
+      {
+        "weightLb": 70,
+        "zone": 1,
+        "rate": 53.64
+      },
+      {
+        "weightLb": 70,
+        "zone": 2,
+        "rate": 53.64
+      },
+      {
+        "weightLb": 70,
+        "zone": 3,
+        "rate": 63.46
+      },
+      {
+        "weightLb": 70,
+        "zone": 4,
+        "rate": 70.16
+      },
+      {
+        "weightLb": 70,
+        "zone": 5,
+        "rate": 81.97
+      },
+      {
+        "weightLb": 70,
+        "zone": 6,
+        "rate": 96.11
+      },
+      {
+        "weightLb": 70,
+        "zone": 7,
+        "rate": 101.47
+      },
+      {
+        "weightLb": 70,
+        "zone": 8,
+        "rate": 114.9
+      },
+      {
+        "weightLb": 71,
+        "zone": 1,
+        "rate": 61.68
+      },
+      {
+        "weightLb": 71,
+        "zone": 2,
+        "rate": 61.68
+      },
+      {
+        "weightLb": 71,
+        "zone": 3,
+        "rate": 69.95
+      },
+      {
+        "weightLb": 71,
+        "zone": 4,
+        "rate": 75.5
+      },
+      {
+        "weightLb": 71,
+        "zone": 5,
+        "rate": 84.79
+      },
+      {
+        "weightLb": 71,
+        "zone": 6,
+        "rate": 97.19
+      },
+      {
+        "weightLb": 71,
+        "zone": 7,
+        "rate": 103.36
+      },
+      {
+        "weightLb": 71,
+        "zone": 8,
+        "rate": 115.06
+      },
+      {
+        "weightLb": 72,
+        "zone": 1,
+        "rate": 62.34
+      },
+      {
+        "weightLb": 72,
+        "zone": 2,
+        "rate": 62.34
+      },
+      {
+        "weightLb": 72,
+        "zone": 3,
+        "rate": 70.02
+      },
+      {
+        "weightLb": 72,
+        "zone": 4,
+        "rate": 76.5
+      },
+      {
+        "weightLb": 72,
+        "zone": 5,
+        "rate": 85.15
+      },
+      {
+        "weightLb": 72,
+        "zone": 6,
+        "rate": 97.62
+      },
+      {
+        "weightLb": 72,
+        "zone": 7,
+        "rate": 105.69
+      },
+      {
+        "weightLb": 72,
+        "zone": 8,
+        "rate": 115.65
+      },
+      {
+        "weightLb": 73,
+        "zone": 1,
+        "rate": 62.78
+      },
+      {
+        "weightLb": 73,
+        "zone": 2,
+        "rate": 62.78
+      },
+      {
+        "weightLb": 73,
+        "zone": 3,
+        "rate": 70.04
+      },
+      {
+        "weightLb": 73,
+        "zone": 4,
+        "rate": 76.51
+      },
+      {
+        "weightLb": 73,
+        "zone": 5,
+        "rate": 85.6
+      },
+      {
+        "weightLb": 73,
+        "zone": 6,
+        "rate": 97.71
+      },
+      {
+        "weightLb": 73,
+        "zone": 7,
+        "rate": 105.7
+      },
+      {
+        "weightLb": 73,
+        "zone": 8,
+        "rate": 115.79
+      },
+      {
+        "weightLb": 74,
+        "zone": 1,
+        "rate": 63.89
+      },
+      {
+        "weightLb": 74,
+        "zone": 2,
+        "rate": 63.89
+      },
+      {
+        "weightLb": 74,
+        "zone": 3,
+        "rate": 70.06
+      },
+      {
+        "weightLb": 74,
+        "zone": 4,
+        "rate": 76.82
+      },
+      {
+        "weightLb": 74,
+        "zone": 5,
+        "rate": 85.92
+      },
+      {
+        "weightLb": 74,
+        "zone": 6,
+        "rate": 99.26
+      },
+      {
+        "weightLb": 74,
+        "zone": 7,
+        "rate": 106.5
+      },
+      {
+        "weightLb": 74,
+        "zone": 8,
+        "rate": 115.97
+      },
+      {
+        "weightLb": 75,
+        "zone": 1,
+        "rate": 65.31
+      },
+      {
+        "weightLb": 75,
+        "zone": 2,
+        "rate": 65.31
+      },
+      {
+        "weightLb": 75,
+        "zone": 3,
+        "rate": 70.56
+      },
+      {
+        "weightLb": 75,
+        "zone": 4,
+        "rate": 76.83
+      },
+      {
+        "weightLb": 75,
+        "zone": 5,
+        "rate": 86.87
+      },
+      {
+        "weightLb": 75,
+        "zone": 6,
+        "rate": 99.86
+      },
+      {
+        "weightLb": 75,
+        "zone": 7,
+        "rate": 107.24
+      },
+      {
+        "weightLb": 75,
+        "zone": 8,
+        "rate": 115.98
+      },
+      {
+        "weightLb": 76,
+        "zone": 1,
+        "rate": 66.84
+      },
+      {
+        "weightLb": 76,
+        "zone": 2,
+        "rate": 66.84
+      },
+      {
+        "weightLb": 76,
+        "zone": 3,
+        "rate": 72.49
+      },
+      {
+        "weightLb": 76,
+        "zone": 4,
+        "rate": 77.09
+      },
+      {
+        "weightLb": 76,
+        "zone": 5,
+        "rate": 87.67
+      },
+      {
+        "weightLb": 76,
+        "zone": 6,
+        "rate": 100.66
+      },
+      {
+        "weightLb": 76,
+        "zone": 7,
+        "rate": 108.45
+      },
+      {
+        "weightLb": 76,
+        "zone": 8,
+        "rate": 116.0
+      },
+      {
+        "weightLb": 77,
+        "zone": 1,
+        "rate": 68.17
+      },
+      {
+        "weightLb": 77,
+        "zone": 2,
+        "rate": 68.17
+      },
+      {
+        "weightLb": 77,
+        "zone": 3,
+        "rate": 73.45
+      },
+      {
+        "weightLb": 77,
+        "zone": 4,
+        "rate": 78.44
+      },
+      {
+        "weightLb": 77,
+        "zone": 5,
+        "rate": 87.91
+      },
+      {
+        "weightLb": 77,
+        "zone": 6,
+        "rate": 101.03
+      },
+      {
+        "weightLb": 77,
+        "zone": 7,
+        "rate": 109.87
+      },
+      {
+        "weightLb": 77,
+        "zone": 8,
+        "rate": 116.01
+      },
+      {
+        "weightLb": 78,
+        "zone": 1,
+        "rate": 68.88
+      },
+      {
+        "weightLb": 78,
+        "zone": 2,
+        "rate": 68.88
+      },
+      {
+        "weightLb": 78,
+        "zone": 3,
+        "rate": 74.77
+      },
+      {
+        "weightLb": 78,
+        "zone": 4,
+        "rate": 79.36
+      },
+      {
+        "weightLb": 78,
+        "zone": 5,
+        "rate": 88.53
+      },
+      {
+        "weightLb": 78,
+        "zone": 6,
+        "rate": 101.44
+      },
+      {
+        "weightLb": 78,
+        "zone": 7,
+        "rate": 111.17
+      },
+      {
+        "weightLb": 78,
+        "zone": 8,
+        "rate": 116.02
+      },
+      {
+        "weightLb": 79,
+        "zone": 1,
+        "rate": 70.48
+      },
+      {
+        "weightLb": 79,
+        "zone": 2,
+        "rate": 70.48
+      },
+      {
+        "weightLb": 79,
+        "zone": 3,
+        "rate": 75.87
+      },
+      {
+        "weightLb": 79,
+        "zone": 4,
+        "rate": 80.07
+      },
+      {
+        "weightLb": 79,
+        "zone": 5,
+        "rate": 89.38
+      },
+      {
+        "weightLb": 79,
+        "zone": 6,
+        "rate": 102.8
+      },
+      {
+        "weightLb": 79,
+        "zone": 7,
+        "rate": 112.38
+      },
+      {
+        "weightLb": 79,
+        "zone": 8,
+        "rate": 117.39
+      },
+      {
+        "weightLb": 80,
+        "zone": 1,
+        "rate": 71.5
+      },
+      {
+        "weightLb": 80,
+        "zone": 2,
+        "rate": 71.5
+      },
+      {
+        "weightLb": 80,
+        "zone": 3,
+        "rate": 77.09
+      },
+      {
+        "weightLb": 80,
+        "zone": 4,
+        "rate": 81.17
+      },
+      {
+        "weightLb": 80,
+        "zone": 5,
+        "rate": 90.7
+      },
+      {
+        "weightLb": 80,
+        "zone": 6,
+        "rate": 103.92
+      },
+      {
+        "weightLb": 80,
+        "zone": 7,
+        "rate": 112.71
+      },
+      {
+        "weightLb": 80,
+        "zone": 8,
+        "rate": 118.02
+      },
+      {
+        "weightLb": 81,
+        "zone": 1,
+        "rate": 72.43
+      },
+      {
+        "weightLb": 81,
+        "zone": 2,
+        "rate": 72.43
+      },
+      {
+        "weightLb": 81,
+        "zone": 3,
+        "rate": 77.9
+      },
+      {
+        "weightLb": 81,
+        "zone": 4,
+        "rate": 82.34
+      },
+      {
+        "weightLb": 81,
+        "zone": 5,
+        "rate": 91.11
+      },
+      {
+        "weightLb": 81,
+        "zone": 6,
+        "rate": 104.8
+      },
+      {
+        "weightLb": 81,
+        "zone": 7,
+        "rate": 113.96
+      },
+      {
+        "weightLb": 81,
+        "zone": 8,
+        "rate": 119.1
+      },
+      {
+        "weightLb": 82,
+        "zone": 1,
+        "rate": 73.71
+      },
+      {
+        "weightLb": 82,
+        "zone": 2,
+        "rate": 73.71
+      },
+      {
+        "weightLb": 82,
+        "zone": 3,
+        "rate": 78.91
+      },
+      {
+        "weightLb": 82,
+        "zone": 4,
+        "rate": 83.91
+      },
+      {
+        "weightLb": 82,
+        "zone": 5,
+        "rate": 92.2
+      },
+      {
+        "weightLb": 82,
+        "zone": 6,
+        "rate": 104.98
+      },
+      {
+        "weightLb": 82,
+        "zone": 7,
+        "rate": 116.02
+      },
+      {
+        "weightLb": 82,
+        "zone": 8,
+        "rate": 119.11
+      },
+      {
+        "weightLb": 83,
+        "zone": 1,
+        "rate": 74.1
+      },
+      {
+        "weightLb": 83,
+        "zone": 2,
+        "rate": 74.1
+      },
+      {
+        "weightLb": 83,
+        "zone": 3,
+        "rate": 79.4
+      },
+      {
+        "weightLb": 83,
+        "zone": 4,
+        "rate": 84.58
+      },
+      {
+        "weightLb": 83,
+        "zone": 5,
+        "rate": 92.62
+      },
+      {
+        "weightLb": 83,
+        "zone": 6,
+        "rate": 105.83
+      },
+      {
+        "weightLb": 83,
+        "zone": 7,
+        "rate": 116.04
+      },
+      {
+        "weightLb": 83,
+        "zone": 8,
+        "rate": 119.13
+      },
+      {
+        "weightLb": 84,
+        "zone": 1,
+        "rate": 75.32
+      },
+      {
+        "weightLb": 84,
+        "zone": 2,
+        "rate": 75.32
+      },
+      {
+        "weightLb": 84,
+        "zone": 3,
+        "rate": 80.95
+      },
+      {
+        "weightLb": 84,
+        "zone": 4,
+        "rate": 85.56
+      },
+      {
+        "weightLb": 84,
+        "zone": 5,
+        "rate": 93.18
+      },
+      {
+        "weightLb": 84,
+        "zone": 6,
+        "rate": 106.89
+      },
+      {
+        "weightLb": 84,
+        "zone": 7,
+        "rate": 117.04
+      },
+      {
+        "weightLb": 84,
+        "zone": 8,
+        "rate": 119.79
+      },
+      {
+        "weightLb": 85,
+        "zone": 1,
+        "rate": 76.48
+      },
+      {
+        "weightLb": 85,
+        "zone": 2,
+        "rate": 76.48
+      },
+      {
+        "weightLb": 85,
+        "zone": 3,
+        "rate": 81.27
+      },
+      {
+        "weightLb": 85,
+        "zone": 4,
+        "rate": 86.12
+      },
+      {
+        "weightLb": 85,
+        "zone": 5,
+        "rate": 94.14
+      },
+      {
+        "weightLb": 85,
+        "zone": 6,
+        "rate": 107.99
+      },
+      {
+        "weightLb": 85,
+        "zone": 7,
+        "rate": 117.95
+      },
+      {
+        "weightLb": 85,
+        "zone": 8,
+        "rate": 120.75
+      },
+      {
+        "weightLb": 86,
+        "zone": 1,
+        "rate": 77.93
+      },
+      {
+        "weightLb": 86,
+        "zone": 2,
+        "rate": 77.93
+      },
+      {
+        "weightLb": 86,
+        "zone": 3,
+        "rate": 83.46
+      },
+      {
+        "weightLb": 86,
+        "zone": 4,
+        "rate": 88.2
+      },
+      {
+        "weightLb": 86,
+        "zone": 5,
+        "rate": 95.29
+      },
+      {
+        "weightLb": 86,
+        "zone": 6,
+        "rate": 108.87
+      },
+      {
+        "weightLb": 86,
+        "zone": 7,
+        "rate": 119.54
+      },
+      {
+        "weightLb": 86,
+        "zone": 8,
+        "rate": 122.56
+      },
+      {
+        "weightLb": 87,
+        "zone": 1,
+        "rate": 78.98
+      },
+      {
+        "weightLb": 87,
+        "zone": 2,
+        "rate": 78.98
+      },
+      {
+        "weightLb": 87,
+        "zone": 3,
+        "rate": 83.47
+      },
+      {
+        "weightLb": 87,
+        "zone": 4,
+        "rate": 89.34
+      },
+      {
+        "weightLb": 87,
+        "zone": 5,
+        "rate": 95.3
+      },
+      {
+        "weightLb": 87,
+        "zone": 6,
+        "rate": 109.81
+      },
+      {
+        "weightLb": 87,
+        "zone": 7,
+        "rate": 119.61
+      },
+      {
+        "weightLb": 87,
+        "zone": 8,
+        "rate": 122.69
+      },
+      {
+        "weightLb": 88,
+        "zone": 1,
+        "rate": 80.37
+      },
+      {
+        "weightLb": 88,
+        "zone": 2,
+        "rate": 80.37
+      },
+      {
+        "weightLb": 88,
+        "zone": 3,
+        "rate": 85.11
+      },
+      {
+        "weightLb": 88,
+        "zone": 4,
+        "rate": 90.46
+      },
+      {
+        "weightLb": 88,
+        "zone": 5,
+        "rate": 97.31
+      },
+      {
+        "weightLb": 88,
+        "zone": 6,
+        "rate": 110.76
+      },
+      {
+        "weightLb": 88,
+        "zone": 7,
+        "rate": 120.5
+      },
+      {
+        "weightLb": 88,
+        "zone": 8,
+        "rate": 124.56
+      },
+      {
+        "weightLb": 89,
+        "zone": 1,
+        "rate": 82.62
+      },
+      {
+        "weightLb": 89,
+        "zone": 2,
+        "rate": 82.62
+      },
+      {
+        "weightLb": 89,
+        "zone": 3,
+        "rate": 86.07
+      },
+      {
+        "weightLb": 89,
+        "zone": 4,
+        "rate": 91.05
+      },
+      {
+        "weightLb": 89,
+        "zone": 5,
+        "rate": 97.52
+      },
+      {
+        "weightLb": 89,
+        "zone": 6,
+        "rate": 111.7
+      },
+      {
+        "weightLb": 89,
+        "zone": 7,
+        "rate": 121.41
+      },
+      {
+        "weightLb": 89,
+        "zone": 8,
+        "rate": 126.46
+      },
+      {
+        "weightLb": 90,
+        "zone": 1,
+        "rate": 84.25
+      },
+      {
+        "weightLb": 90,
+        "zone": 2,
+        "rate": 84.25
+      },
+      {
+        "weightLb": 90,
+        "zone": 3,
+        "rate": 87.39
+      },
+      {
+        "weightLb": 90,
+        "zone": 4,
+        "rate": 91.85
+      },
+      {
+        "weightLb": 90,
+        "zone": 5,
+        "rate": 98.16
+      },
+      {
+        "weightLb": 90,
+        "zone": 6,
+        "rate": 112.04
+      },
+      {
+        "weightLb": 90,
+        "zone": 7,
+        "rate": 121.77
+      },
+      {
+        "weightLb": 90,
+        "zone": 8,
+        "rate": 126.51
+      },
+      {
+        "weightLb": 91,
+        "zone": 1,
+        "rate": 84.59
+      },
+      {
+        "weightLb": 91,
+        "zone": 2,
+        "rate": 84.59
+      },
+      {
+        "weightLb": 91,
+        "zone": 3,
+        "rate": 87.85
+      },
+      {
+        "weightLb": 91,
+        "zone": 4,
+        "rate": 91.93
+      },
+      {
+        "weightLb": 91,
+        "zone": 5,
+        "rate": 98.25
+      },
+      {
+        "weightLb": 91,
+        "zone": 6,
+        "rate": 112.93
+      },
+      {
+        "weightLb": 91,
+        "zone": 7,
+        "rate": 121.78
+      },
+      {
+        "weightLb": 91,
+        "zone": 8,
+        "rate": 126.64
+      },
+      {
+        "weightLb": 92,
+        "zone": 1,
+        "rate": 85.78
+      },
+      {
+        "weightLb": 92,
+        "zone": 2,
+        "rate": 85.78
+      },
+      {
+        "weightLb": 92,
+        "zone": 3,
+        "rate": 88.87
+      },
+      {
+        "weightLb": 92,
+        "zone": 4,
+        "rate": 93.31
+      },
+      {
+        "weightLb": 92,
+        "zone": 5,
+        "rate": 99.24
+      },
+      {
+        "weightLb": 92,
+        "zone": 6,
+        "rate": 113.85
+      },
+      {
+        "weightLb": 92,
+        "zone": 7,
+        "rate": 122.16
+      },
+      {
+        "weightLb": 92,
+        "zone": 8,
+        "rate": 127.64
+      },
+      {
+        "weightLb": 93,
+        "zone": 1,
+        "rate": 87.46
+      },
+      {
+        "weightLb": 93,
+        "zone": 2,
+        "rate": 87.46
+      },
+      {
+        "weightLb": 93,
+        "zone": 3,
+        "rate": 89.95
+      },
+      {
+        "weightLb": 93,
+        "zone": 4,
+        "rate": 95.04
+      },
+      {
+        "weightLb": 93,
+        "zone": 5,
+        "rate": 100.14
+      },
+      {
+        "weightLb": 93,
+        "zone": 6,
+        "rate": 114.55
+      },
+      {
+        "weightLb": 93,
+        "zone": 7,
+        "rate": 122.5
+      },
+      {
+        "weightLb": 93,
+        "zone": 8,
+        "rate": 128.61
+      },
+      {
+        "weightLb": 94,
+        "zone": 1,
+        "rate": 88.25
+      },
+      {
+        "weightLb": 94,
+        "zone": 2,
+        "rate": 88.25
+      },
+      {
+        "weightLb": 94,
+        "zone": 3,
+        "rate": 90.91
+      },
+      {
+        "weightLb": 94,
+        "zone": 4,
+        "rate": 95.32
+      },
+      {
+        "weightLb": 94,
+        "zone": 5,
+        "rate": 101.0
+      },
+      {
+        "weightLb": 94,
+        "zone": 6,
+        "rate": 115.43
+      },
+      {
+        "weightLb": 94,
+        "zone": 7,
+        "rate": 122.66
+      },
+      {
+        "weightLb": 94,
+        "zone": 8,
+        "rate": 129.6
+      },
+      {
+        "weightLb": 95,
+        "zone": 1,
+        "rate": 89.31
+      },
+      {
+        "weightLb": 95,
+        "zone": 2,
+        "rate": 89.31
+      },
+      {
+        "weightLb": 95,
+        "zone": 3,
+        "rate": 91.96
+      },
+      {
+        "weightLb": 95,
+        "zone": 4,
+        "rate": 95.75
+      },
+      {
+        "weightLb": 95,
+        "zone": 5,
+        "rate": 101.92
+      },
+      {
+        "weightLb": 95,
+        "zone": 6,
+        "rate": 115.98
+      },
+      {
+        "weightLb": 95,
+        "zone": 7,
+        "rate": 122.96
+      },
+      {
+        "weightLb": 95,
+        "zone": 8,
+        "rate": 130.63
+      },
+      {
+        "weightLb": 96,
+        "zone": 1,
+        "rate": 90.55
+      },
+      {
+        "weightLb": 96,
+        "zone": 2,
+        "rate": 90.55
+      },
+      {
+        "weightLb": 96,
+        "zone": 3,
+        "rate": 92.37
+      },
+      {
+        "weightLb": 96,
+        "zone": 4,
+        "rate": 98.05
+      },
+      {
+        "weightLb": 96,
+        "zone": 5,
+        "rate": 103.36
+      },
+      {
+        "weightLb": 96,
+        "zone": 6,
+        "rate": 116.45
+      },
+      {
+        "weightLb": 96,
+        "zone": 7,
+        "rate": 123.59
+      },
+      {
+        "weightLb": 96,
+        "zone": 8,
+        "rate": 132.51
+      },
+      {
+        "weightLb": 97,
+        "zone": 1,
+        "rate": 91.78
+      },
+      {
+        "weightLb": 97,
+        "zone": 2,
+        "rate": 91.78
+      },
+      {
+        "weightLb": 97,
+        "zone": 3,
+        "rate": 93.65
+      },
+      {
+        "weightLb": 97,
+        "zone": 4,
+        "rate": 98.07
+      },
+      {
+        "weightLb": 97,
+        "zone": 5,
+        "rate": 103.72
+      },
+      {
+        "weightLb": 97,
+        "zone": 6,
+        "rate": 117.95
+      },
+      {
+        "weightLb": 97,
+        "zone": 7,
+        "rate": 123.61
+      },
+      {
+        "weightLb": 97,
+        "zone": 8,
+        "rate": 132.59
+      },
+      {
+        "weightLb": 98,
+        "zone": 1,
+        "rate": 93.04
+      },
+      {
+        "weightLb": 98,
+        "zone": 2,
+        "rate": 93.04
+      },
+      {
+        "weightLb": 98,
+        "zone": 3,
+        "rate": 94.48
+      },
+      {
+        "weightLb": 98,
+        "zone": 4,
+        "rate": 99.0
+      },
+      {
+        "weightLb": 98,
+        "zone": 5,
+        "rate": 104.55
+      },
+      {
+        "weightLb": 98,
+        "zone": 6,
+        "rate": 118.23
+      },
+      {
+        "weightLb": 98,
+        "zone": 7,
+        "rate": 124.27
+      },
+      {
+        "weightLb": 98,
+        "zone": 8,
+        "rate": 133.58
+      },
+      {
+        "weightLb": 99,
+        "zone": 1,
+        "rate": 94.36
+      },
+      {
+        "weightLb": 99,
+        "zone": 2,
+        "rate": 94.36
+      },
+      {
+        "weightLb": 99,
+        "zone": 3,
+        "rate": 95.34
+      },
+      {
+        "weightLb": 99,
+        "zone": 4,
+        "rate": 100.92
+      },
+      {
+        "weightLb": 99,
+        "zone": 5,
+        "rate": 105.45
+      },
+      {
+        "weightLb": 99,
+        "zone": 6,
+        "rate": 119.18
+      },
+      {
+        "weightLb": 99,
+        "zone": 7,
+        "rate": 125.2
+      },
+      {
+        "weightLb": 99,
+        "zone": 8,
+        "rate": 134.55
+      },
+      {
+        "weightLb": 100,
+        "zone": 1,
+        "rate": 95.64
+      },
+      {
+        "weightLb": 100,
+        "zone": 2,
+        "rate": 95.64
+      },
+      {
+        "weightLb": 100,
+        "zone": 3,
+        "rate": 96.5
+      },
+      {
+        "weightLb": 100,
+        "zone": 4,
+        "rate": 101.5
+      },
+      {
+        "weightLb": 100,
+        "zone": 5,
+        "rate": 106.61
+      },
+      {
+        "weightLb": 100,
+        "zone": 6,
+        "rate": 120.18
+      },
+      {
+        "weightLb": 100,
+        "zone": 7,
+        "rate": 126.1
+      },
+      {
+        "weightLb": 100,
+        "zone": 8,
+        "rate": 135.58
+      }
+    ]
+  }
+}

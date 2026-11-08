@@ -3,6 +3,10 @@ import { supabaseAdmin } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
+import { easternAddDays, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { shipmentDateColumns } from '@/lib/billing/ship-day-label'
+import { withoutVoided } from '@/lib/billing/voided-shipment'
+import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 // `priceOf` is no longer imported here. The profit-loss branch was its only
 // consumer in this file, and that branch now goes through profit-rollup, which
 // calls priceOf itself on every column before any arithmetic. The per-shipment
@@ -12,6 +16,7 @@ import { readAllPages } from '@/lib/db/page'
 import { isReportType, REPORT_TYPES } from '@/lib/billing/report-types'
 import {
   combineReconciled, marginPct, reconcile, reconciledOrUnknown,
+  SHIPMENT_MARGIN_HEADER, SHIPMENT_RATE_BASIS, SHIPMENT_RATE_HEADER,
 } from '@/lib/billing/profit-rollup'
 
 // The per-shipment sheets pass `s.client_rate` straight through, which is
@@ -153,17 +158,17 @@ export async function GET(req: Request) {
     const { data, error } = await readAllPages((from, to) => {
       let q = supabaseAdmin
         .from('shipments')
-        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, recipient_city, recipient_state, weight, actual_cost, client_rate, profit_loss, is_loss, source')
-        .gte('ship_date', dateFrom!)
-        .lte('ship_date', dateTo!)
+        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, recipient_city, recipient_state, weight, actual_cost, client_rate, profit_loss, is_loss, source, raw_data')
+        .gte('ship_date', easternMidnightIso(dateFrom!))
+        .lt('ship_date', easternMidnightIso(easternAddDays(dateTo!, 1)))
       if (clientId) q = q.eq('client_id', clientId)
       return q.order('ship_date', { ascending: false }).order('id').range(from, to)
     })
     if (error) return unreadable('shipments', error.message)
-    rows = (data ?? []).map((s: any) => ({
+    rows = withoutVoided(data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
-      'Ship Date': s.ship_date,
+      ...shipmentDateColumns(s.ship_date, s.raw_data),
       'Carrier': s.carrier,
       'Service': s.service,
       'Tracking': s.tracking_number,
@@ -180,15 +185,15 @@ export async function GET(req: Request) {
   }
 
   else if (type === 'profit-loss') {
-    sheetName = 'Profit & Loss'
+    sheetName = 'Shipment rate'
     const { data, error } = await readAllPages((from, to) => {
       let q = supabaseAdmin
         .from('shipments')
         // `client_id` is NEW here and is the point of the rewrite below: this
         // branch used to roll up by `clients.name`, which is not a key.
-        .select('client_id, clients(name), ship_date, actual_cost, client_rate, profit_loss, is_loss')
-        .gte('ship_date', dateFrom!)
-        .lte('ship_date', dateTo!)
+        .select('client_id, clients(name), ship_date, actual_cost, client_rate, profit_loss, is_loss, raw_data')
+        .gte('ship_date', easternMidnightIso(dateFrom!))
+        .lt('ship_date', easternMidnightIso(easternAddDays(dateTo!, 1)))
       if (clientId) q = q.eq('client_id', clientId)
       // This branch does not order its OUTPUT -- it rolls every row up by
       // client -- but it still has to order its INPUT, or paging it is
@@ -228,7 +233,7 @@ export async function GET(req: Request) {
     // construction. Rows it cannot reconcile are counted into three named
     // columns rather than being absorbed at 0.
     const groups = new Map<string, { name: string | null; rows: typeof data }>()
-    for (const s of data ?? []) {
+    for (const s of withoutVoided(data ?? [])) {
       // The empty string is the bucket for rows with no client. A real key, so
       // it cannot collide with a uuid and cannot be read as a client's name.
       const key = typeof s.client_id === 'string' ? s.client_id : ''
@@ -268,11 +273,11 @@ export async function GET(req: Request) {
         'No agreed rate (excluded)': l.r.unrated,
         'Awaiting carrier cost (excluded)': l.r.uncosted,
         'Neither known (excluded)': l.r.unmeasured,
-        'Revenue ($)': money(v.revenue),
+        [SHIPMENT_RATE_HEADER]: money(v.revenue),
         'Carrier Cost ($)': money(v.cost),
         // Derived by subtraction, in cents, from the two columns to its left.
-        // Revenue - Carrier Cost equals this exactly, for every row.
-        'Profit ($)': money(v.profit),
+        // Shipment client rate minus carrier cost equals this exactly.
+        [SHIPMENT_MARGIN_HEADER]: money(v.profit),
         // Blank and not '0%' when there is no revenue to be a ratio of.
         // `profit / 0` is Infinity or NaN and both render through toFixed
         // without complaint; the old code printed '0%', which reads as "we
@@ -307,6 +312,11 @@ export async function GET(req: Request) {
           key: '', label: 'TOTAL', unattributed: false,
           r: totals, losses: lines.reduce((s, l) => s + l.losses, 0),
         }),
+        {
+          ...Object.fromEntries(columns.map(k => [k, ''])),
+          'Client': 'NOTE',
+          [SHIPMENT_RATE_HEADER]: SHIPMENT_RATE_BASIS,
+        },
       ]
     }
   }
@@ -316,18 +326,18 @@ export async function GET(req: Request) {
     const { data, error } = await readAllPages((from, to) => {
       let q = supabaseAdmin
         .from('shipments')
-        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, actual_cost, client_rate, profit_loss')
+        .select('order_number, clients(name), ship_date, carrier, service, tracking_number, recipient_name, actual_cost, client_rate, profit_loss, raw_data')
         .eq('is_loss', true)
-        .gte('ship_date', dateFrom!)
-        .lte('ship_date', dateTo!)
+        .gte('ship_date', easternMidnightIso(dateFrom!))
+        .lt('ship_date', easternMidnightIso(easternAddDays(dateTo!, 1)))
       if (clientId) q = q.eq('client_id', clientId)
       return q.order('profit_loss', { ascending: true }).order('id').range(from, to)
     })
     if (error) return unreadable('shipments (losses)', error.message)
-    rows = (data ?? []).map((s: any) => ({
+    rows = withoutVoided(data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
-      'Ship Date': s.ship_date,
+      ...shipmentDateColumns(s.ship_date, s.raw_data),
       'Carrier': s.carrier,
       'Service': s.service,
       'Recipient': s.recipient_name,
@@ -420,12 +430,35 @@ export async function GET(req: Request) {
   ws['!cols'] = colWidths
 
   XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  const format = searchParams.get('format') ?? 'xlsx'
+  if (format !== 'xlsx' && format !== 'csv' && format !== 'pdf') {
+    return NextResponse.json({ error: 'format must be xlsx, csv or pdf' }, { status: 400 })
+  }
+  const filename = `${type}-report-${dateFrom}-to-${dateTo}`
+  if (format === 'csv') {
+    return new NextResponse(recordsToCsv(rows), {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}.csv"`,
+      },
+    })
+  }
+  if (format === 'pdf') {
+    const pdf = await recordsToPdf(rows, `${sheetName} ${dateFrom} to ${dateTo}`)
+    return new NextResponse(new Uint8Array(pdf), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${filename}.pdf"`,
+      },
+    })
+  }
+
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
   return new NextResponse(buf, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${type}-report.xlsx"`,
+      'Content-Disposition': `attachment; filename="${filename}.xlsx"`,
     },
   })
 }

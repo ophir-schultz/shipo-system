@@ -19,7 +19,9 @@ import { fbaActivity } from './partner-activity'
 import { rosterRows } from './partner-roster'
 
 const { loadPartnerLedger } = await import('./partner-ledger')
-import type { PartnerStatement, StatementClientLine, StatementMonth } from './referrals'
+import type { PartnerFacingClient, PartnerFacingMonth, PartnerFacingStatement } from './partner-facing'
+import { partnerMoneyLeaks, projectPartnerStatement } from './partner-facing'
+import type { PartnerStatement, StatementClientLine } from './referrals'
 import type { RosterRow } from './partner-roster'
 import type { OrderUnitsRow, FbaActivityRow } from './partner-activity'
 import type { BonusState } from './partner-bonus-state'
@@ -38,24 +40,20 @@ import type { BonusState } from './partner-bonus-state'
 // columns it expected would pass with an extra column beside them.
 // ============================================================
 
-function line(over: Partial<StatementClientLine> = {}): StatementClientLine {
+function line(over: Partial<PartnerFacingClient> = {}): PartnerFacingClient {
   return {
     clientId: 'c1',
     clientName: 'Acme Goods',
     units: null,
     orders: null,
-    billed: 1000,
-    costs: { freight: 100, materials: 20, storage: 30, processing: 50 },
-    totalCosts: 200,
-    netProfit: 800,
-    share: 40,
+    commission: 40,
     status: 'computed',
     dedupeKey: 'c1:2026-09',
     ...over,
   }
 }
 
-function month(over: Partial<StatementMonth> = {}): StatementMonth {
+function month(over: Partial<PartnerFacingMonth> = {}): PartnerFacingMonth {
   return {
     period: '2026-09',
     clients: [line()],
@@ -68,14 +66,13 @@ function month(over: Partial<StatementMonth> = {}): StatementMonth {
   }
 }
 
-function statement(over: Partial<PartnerStatement> = {}): PartnerStatement {
+function statement(over: Partial<PartnerFacingStatement> = {}): PartnerFacingStatement {
   return {
     months: [month()],
     lifetimeEarned: 40,
     paidToDate: 0,
     awaitingPayment: 40,
     carryForward: 0,
-    activeClients: 1,
     ...over,
   }
 }
@@ -209,59 +206,38 @@ describe('buildPartnerReport — the two named exclusions', () => {
 })
 
 describe('buildPartnerReport — monthly section', () => {
-  it('carries revenue, the four deducted costs, net profit and the share', () => {
+  it('carries the commission and its status, and nothing the commission was computed from', () => {
     const rows = section(buildPartnerReport(input()), 'Monthly')
-    expect(rows[0]).toEqual([
-      'Period',
-      'Client',
-      'Revenue',
-      'Freight',
-      'Materials',
-      'Storage',
-      'Processing',
-      'Net profit',
-      'Your share (5%)',
-      'Payable',
-    ])
-    expect(rows[1].slice(0, 9)).toEqual([
-      '2026-09',
-      'Acme Goods',
-      '1000.00',
-      '100.00',
-      '20.00',
-      '30.00',
-      '50.00',
-      '800.00',
-      '40.00',
-    ])
+    expect(rows[0]).toEqual(['Period', 'Client', 'Commission', 'Status'])
+    expect(rows[1]).toEqual(['2026-09', 'Acme Goods', '40.00', 'Payable'])
+    expect(partnerMoneyLeaks(buildPartnerReport(input()))).toEqual([])
   })
 
-  it('writes figures unformatted so a spreadsheet reads them as numbers', () => {
-    // No `$`, no thousands separator, in the money cells. A P&L is what
-    // this reconciles against (§5) and `$1,000.00` imports as text --
-    // which silently sums to zero in the column the accountant totals.
-    const rows = section(buildPartnerReport(input({ statement: statement({ months: [month({ clients: [line({ billed: 12345.5 })] })] }) })), 'Monthly')
+  it('writes the commission unformatted so a spreadsheet reads it as a number', () => {
+    const rows = section(
+      buildPartnerReport(
+        input({ statement: statement({ months: [month({ clients: [line({ commission: 12345.5 })] })] }) }),
+      ),
+      'Monthly',
+    )
     expect(rows[1][2]).toBe('12345.50')
   })
 
   it('says a month under the minimum is carried forward, and names the minimum', () => {
     const csv = buildPartnerReport(
-      input({ statement: statement({ months: [month({ payable: 0, clients: [line({ share: 12 })] })] }) }),
+      input({ statement: statement({ months: [month({ payable: 0, clients: [line({ commission: 12 })] })] }) }),
     )
-    expect(section(csv, 'Monthly')[1][9]).toBe('Carried forward — under the $50 minimum')
+    expect(section(csv, 'Monthly')[1][3]).toBe('Carried forward — under the $50 minimum')
   })
 
-  it('says a provisional month is still being priced, and not that it is payable', () => {
-    // `share` is 0 on a provisional line, so the row already reads $0.00.
-    // A "Payable" beside that 0 is a statement that the month is settled
-    // at nothing, which is the one thing it is not.
+  it('says a provisional month is not final, and not that it is payable', () => {
     const csv = buildPartnerReport(
       input({
-        statement: statement({ months: [month({ clients: [line({ provisional: true, share: 0 })] })] }),
+        statement: statement({ months: [month({ clients: [line({ provisional: true, commission: 0 })] })] }),
       }),
     )
-    const cell = section(csv, 'Monthly')[1][9]
-    expect(cell).toBe('Still being priced')
+    const cell = section(csv, 'Monthly')[1][3]
+    expect(cell).toBe('Not final')
     expect(cell).not.toContain('Payable')
   })
 
@@ -269,7 +245,52 @@ describe('buildPartnerReport — monthly section', () => {
     const csv = buildPartnerReport(
       input({ statement: statement({ months: [month({ clients: [line({ status: 'paid' })] })] }) }),
     )
-    expect(section(csv, 'Monthly')[1][9]).toBe('Paid')
+    expect(section(csv, 'Monthly')[1][3]).toBe('Paid')
+  })
+
+  it('drops cost inputs when a full statement is projected into the file', () => {
+    const full: PartnerStatement = {
+      months: [
+        {
+          period: '2026-09',
+          clients: [
+            {
+              clientId: 'c1',
+              clientName: 'Acme Goods',
+              units: 4,
+              orders: null,
+              billed: 1111.11,
+              costs: { freight: 222.22, materials: 33.33, storage: 44.44, processing: 55.55 },
+              totalCosts: 355.54,
+              netProfit: 666.66,
+              share: 7.77,
+              status: 'computed',
+              dedupeKey: 'c1:2026-09',
+            } satisfies StatementClientLine,
+          ],
+          bonuses: [],
+          earned: 7.77,
+          carriedIn: 0,
+          payable: 7.77,
+          carriedOut: 0,
+        },
+      ],
+      lifetimeEarned: 7.77,
+      paidToDate: 0,
+      awaitingPayment: 7.77,
+      carryForward: 0,
+      activeClients: 1,
+    }
+    const csv = buildPartnerReport(input({ statement: projectPartnerStatement(full) }))
+    expect(csv).toContain('7.77')
+    for (const secret of ['1111.11', '222.22', '33.33', '44.44', '55.55', '666.66', '355.54']) {
+      expect(csv, secret).not.toContain(secret)
+    }
+    expect(partnerMoneyLeaks(csv)).toEqual([])
+    const projected = JSON.stringify(projectPartnerStatement(full))
+    expect(projected).not.toContain('1111.11')
+    expect(projected).not.toContain('freight')
+    expect(projected).not.toContain('netProfit')
   })
 })
 

@@ -17,10 +17,12 @@ import {
 // ZERO combinations were billable, because the cards use the price list's
 // names and the constant used its own. The long version is in the lib header.
 import {
-  rowsFromCard, rowsInGroup, groupsToRender, filledRows, clearedEntries, money,
+  rowsFromLines, rowsInGroup, groupsToRender, filledRows, clearedEntries, money,
   cardStateNotice, structuredNote, type ClientEntry,
 } from '@/lib/billing/warehouse-log-form'
-import type { ClientCard } from '@/lib/billing/warehouse-priced-services'
+import { easternToday } from '@/lib/ledger/eastern-day'
+import { isRecordedOnlyNote, type CardLine } from '@/lib/billing/warehouse-card-lines'
+import type { CardState } from '@/lib/billing/warehouse-priced-services'
 
 type Unpriced = { client_id: string; service_type: string; reason: string }
 
@@ -28,11 +30,17 @@ type Unpriced = { client_id: string; service_type: string; reason: string }
  *  ClientCard plus the client's identity rather than re-declared, so a change
  *  to the card shape fails the typecheck here instead of silently handing
  *  rowsFromCard a field that no longer exists. */
-type ServicesRow = { id: string; name: string } & ClientCard
+type ServicesRow = {
+  id: string
+  name: string
+  state: CardState
+  lines: CardLine[]
+  structuredCount: number
+}
 
 export default function WarehousePage() {
   const [clients, setClients] = useState<any[]>([])
-  const [today] = useState(new Date().toISOString().split('T')[0])
+  const [today] = useState(() => easternToday())
   // Every client stays in state even though one is on screen. Switching the
   // dropdown must not discard what was already typed for another client, and
   // submit covers all of them -- see the summary above the button.
@@ -51,6 +59,9 @@ export default function WarehousePage() {
   // rather than as still loading. `entries.length === 0` cannot tell those
   // apart, and the dropdown said "Loading clients…" for both.
   const [loaded, setLoaded] = useState(false)
+  const [freight, setFreight] = useState<{ key: string; date: string; shipmentRef: string; cost: string; markup: string }[]>([])
+  const [linkReady, setLinkReady] = useState<boolean | null>(null)
+  const [shipmentChoices, setShipmentChoices] = useState<{ shipmentRef: string; orderNumber: string; carrier: string; zonePriced: boolean }[]>([])
 
   useEffect(() => {
     let live = true
@@ -76,7 +87,7 @@ export default function WarehousePage() {
         setEntries(list.map(c => ({
           client_id: c.id,
           name: c.name,
-          rows: rowsFromCard(c.services ?? []),
+          rows: rowsFromLines(c.lines ?? []),
           state: c.state,
           // `?? 0` only for a route that predates the field. Not a default
           // meaning "none": a card we could not count is counted as nothing to
@@ -92,11 +103,26 @@ export default function WarehousePage() {
     return () => { live = false }
   }, [today])
 
+  useEffect(() => {
+    if (!selected) return
+    const date = freight.find((line) => line.date)?.date || today
+    let live = true
+    fetch(`/api/warehouse/freight-shipments?client_id=${encodeURIComponent(selected)}&date=${date}`)
+      .then((response) => response.json())
+      .then((payload) => {
+        if (!live) return
+        setLinkReady(payload?.linkReady === true)
+        setShipmentChoices(payload?.shipments ?? [])
+      })
+      .catch(() => { if (live) setLinkReady(null) })
+    return () => { live = false }
+  }, [selected, today, freight])
+
   // Keyed on client_id and service_type rather than array indices. The form
   // renders a filtered, grouped subset, so a row's position on screen is not
   // its position in `rows` -- index-based updates would write to whichever
   // service happened to sit at that offset in the full list.
-  function updateRow(clientId: string, serviceType: string, field: 'quantity' | 'notes', value: string) {
+  function updateRow(clientId: string, serviceType: string, field: 'quantity' | 'notes' | 'amount', value: string) {
     setEntries(e => e.map(entry =>
       entry.client_id !== clientId ? entry : {
         ...entry,
@@ -136,20 +162,31 @@ export default function WarehousePage() {
           client_id: entry.client_id,
           service_type: row.service_type,
           quantity: row.quantity,
-          // Ticked steps land here, in the one column a human reads. They
-          // cannot affect the charge: the route computes total = rate x
-          // quantity from the single rate named by service_type.
+          amount: row.amount === '' ? null : row.amount,
           notes: composeServiceNotes(row.steps, row.notes),
         })
       }
     }
 
-    if (!rows.length) { setError('Fill in at least one service quantity'); setLoading(false); return }
+    const freightPayload = freight
+      .filter((line) => line.shipmentRef || line.cost || line.markup)
+      .map((line) => ({
+        clientId: selected,
+        date: line.date,
+        shipmentRef: line.shipmentRef,
+        carrierCost: line.cost,
+        markup: line.markup,
+      }))
+    if (!rows.length && freightPayload.length === 0) {
+      setError('Fill in at least one service quantity or freight line')
+      setLoading(false)
+      return
+    }
 
     const res = await fetch('/api/warehouse/log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date: today, rows }),
+      body: JSON.stringify({ date: today, rows, freight: freightPayload }),
     })
 
     // The route's message says whether anything was written, which the old
@@ -164,6 +201,11 @@ export default function WarehousePage() {
       return
     }
     setUnpriced(payload?.unpriced ?? [])
+    if (payload?.freightSetup === 'absent') {
+      setError('Service lines were saved. Freight lines were not: the shipment link is not on the warehouse log yet.')
+      setLoading(false)
+      return
+    }
     setSubmitted(true)
     setLoading(false)
   }
@@ -391,9 +433,20 @@ export default function WarehousePage() {
                               agreed to.
                             */}
                             <span className="block text-[11px] text-[#6B7A8D] mt-0.5">
-                              {money(row.rate)}
+                              {row.rateText || (row.rate === null ? '' : money(row.rate))}
                               {row.unit ? ` ${row.unit.replace(/_/g, ' ')}` : ''}
                             </span>
+                            {row.automatic && (
+                              <span
+                                title={row.automaticReason ?? undefined}
+                                className="inline-block mt-1 text-[10px] font-semibold uppercase tracking-wide text-[#1A73E8] bg-[#1A73E8]/10 border border-[#1A73E8]/30 rounded px-1.5 py-0.5"
+                              >
+                                Automatic
+                              </span>
+                            )}
+                            {row.problem && (
+                              <span className="block text-[11px] text-amber-700 mt-0.5">{row.problem}</span>
+                            )}
                           </span>
                           <div className="relative">
                             <input
@@ -407,6 +460,18 @@ export default function WarehousePage() {
                             />
                             {row.service_type === 'labor_hours' && (
                               <span className="absolute right-2 top-2 text-xs text-[#4B4F58]">hrs</span>
+                            )}
+                            {row.pricing === 'entered' && !row.automatic && (
+                              <input
+                                type="number"
+                                min="0.01"
+                                step="0.01"
+                                placeholder="Amount"
+                                aria-label={`Amount for ${row.label}`}
+                                value={row.amount}
+                                onChange={e => updateRow(current.client_id, row.service_type, 'amount', e.target.value)}
+                                className="mt-2 w-full bg-[#EEF3FA] border border-[#CBD5E1] rounded-lg px-3 py-2 text-[#0B1220] text-sm focus:outline-none focus:border-[#1A73E8]"
+                              />
                             )}
                           </div>
                           <input
@@ -469,6 +534,122 @@ export default function WarehousePage() {
 
         {/* Shown before submit, not after. Afterwards the rows are written and
             the only remedy is an edit. */}
+        {current && (
+          <div className="bg-white rounded-xl p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-[#0B1220] text-sm">Freight</h3>
+                <p className="text-xs text-[#6B7A8D] mt-1">
+                  One line per shipment. The date is the staff date. Another shipment on that date is another line.
+                  The client is billed the full total only. Carrier cost and markup stay on this log.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFreight((lines) => [...lines, {
+                  key: `${Date.now()}-${lines.length}`,
+                  date: today,
+                  shipmentRef: '',
+                  cost: '',
+                  markup: '',
+                }])}
+                className="shrink-0 rounded-lg border border-[#1A73E8] px-3 py-2 text-xs font-semibold text-[#1A73E8]"
+              >
+                Add another line
+              </button>
+            </div>
+            {linkReady === false && (
+              <p className="text-xs text-amber-700">
+                The shipment link is not on the warehouse log yet. You can fill these lines, and they will not be saved until that column is approved. Service lines still save.
+              </p>
+            )}
+            {freight.map((line, index) => {
+              const cost = Number(line.cost)
+              const markup = Number(line.markup)
+              const full = line.cost !== '' && line.markup !== '' && Number.isFinite(cost) && Number.isFinite(markup)
+                ? (Math.round((cost + markup) * 100) / 100).toFixed(2)
+                : ''
+              const chosen = shipmentChoices.find((choice) => choice.shipmentRef === line.shipmentRef)
+              return (
+                <div key={line.key} className="grid gap-2 border-t border-[#E2E8F0] pt-3 md:grid-cols-5">
+                  <label className="text-xs text-[#6B7A8D]">
+                    Staff date
+                    <input
+                      type="date"
+                      value={line.date}
+                      onChange={(event) => {
+                        const date = event.target.value
+                        setFreight((lines) => lines.map((item) => item.key === line.key ? { ...item, date } : item))
+                        if (!selected || !date) return
+                        fetch(`/api/warehouse/freight-shipments?client_id=${encodeURIComponent(selected)}&date=${date}`)
+                          .then((response) => response.json())
+                          .then((payload) => {
+                            setLinkReady(payload?.linkReady === true)
+                            setShipmentChoices(payload?.shipments ?? [])
+                          })
+                          .catch(() => setLinkReady(null))
+                      }}
+                      className="mt-1 w-full rounded-lg border border-[#CBD5E1] bg-[#EEF3FA] px-2 py-2 text-sm text-[#0B1220]"
+                    />
+                  </label>
+                  <label className="text-xs text-[#6B7A8D] md:col-span-2">
+                    Shipment
+                    <select
+                      value={line.shipmentRef}
+                      onChange={(event) => setFreight((lines) => lines.map((item) => item.key === line.key ? { ...item, shipmentRef: event.target.value } : item))}
+                      className="mt-1 w-full rounded-lg border border-[#CBD5E1] bg-[#EEF3FA] px-2 py-2 text-sm text-[#0B1220]"
+                    >
+                      <option value="">Choose a shipment…</option>
+                      {shipmentChoices.map((choice) => (
+                        <option key={choice.shipmentRef} value={choice.shipmentRef}>
+                          {choice.orderNumber || choice.shipmentRef} · {choice.carrier || 'carrier'} · {choice.shipmentRef}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs text-[#6B7A8D]">
+                    Carrier cost
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={line.cost}
+                      onChange={(event) => setFreight((lines) => lines.map((item) => item.key === line.key ? { ...item, cost: event.target.value } : item))}
+                      className="mt-1 w-full rounded-lg border border-[#CBD5E1] bg-[#EEF3FA] px-2 py-2 text-sm text-[#0B1220]"
+                    />
+                  </label>
+                  <label className="text-xs text-[#6B7A8D]">
+                    Markup
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={line.markup}
+                      onChange={(event) => setFreight((lines) => lines.map((item) => item.key === line.key ? { ...item, markup: event.target.value } : item))}
+                      className="mt-1 w-full rounded-lg border border-[#CBD5E1] bg-[#EEF3FA] px-2 py-2 text-sm text-[#0B1220]"
+                    />
+                  </label>
+                  <div className="md:col-span-5 flex items-center justify-between text-xs text-[#3A4658]">
+                    <span>Line {index + 1} full client total {full ? `$${full}` : '—'}</span>
+                    <button
+                      type="button"
+                      className="text-red-700"
+                      onClick={() => setFreight((lines) => lines.filter((item) => item.key !== line.key))}
+                    >
+                      Remove line
+                    </button>
+                  </div>
+                  {chosen?.zonePriced && (
+                    <p className="md:col-span-5 text-xs text-amber-700">
+                      This shipment already has a zone price. Saving the line does not replace that price. The statement keeps the zone price for review.
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         {currentOverlap && (
           <div className="bg-amber-500/10 border border-amber-500/40 rounded-xl px-5 py-3">
             <p className="text-amber-700 text-xs font-semibold mb-1">Check this before submitting</p>
@@ -544,7 +725,8 @@ function TodayLog({ date }: { date: string }) {
   // A null total is an unpriced line, not a free one, so it is counted rather
   // than added. `reduce((s, e) => s + (e.total ?? 0))` on its own reports a
   // day total that silently excludes it and still looks authoritative.
-  const unpricedCount = entries.filter((e: any) => e.total === null || e.total === undefined).length
+  const unpricedCount = entries.filter((e: any) =>
+    (e.total === null || e.total === undefined) && !isRecordedOnlyNote(e.notes)).length
 
   const byClient: Record<string, any[]> = {}
   for (const e of entries) {
@@ -577,8 +759,14 @@ function TodayLog({ date }: { date: string }) {
                     <td className="py-1.5">{e.quantity}</td>
                     <td className="py-1.5 text-[#6B7A8D] text-xs">{e.notes ?? '—'}</td>
                     <td className="py-1.5 text-right text-[#4B4F58]">{money(e.rate)}</td>
-                    <td className={`py-1.5 text-right font-semibold ${e.total === null || e.total === undefined ? 'text-amber-700' : 'text-emerald-700'}`}>
-                      {e.total === null || e.total === undefined ? 'unpriced' : money(e.total)}
+                    <td className={`py-1.5 text-right font-semibold ${
+                      isRecordedOnlyNote(e.notes) ? 'text-[#1A73E8]'
+                        : e.total === null || e.total === undefined ? 'text-amber-700'
+                        : 'text-emerald-700'
+                    }`}>
+                      {isRecordedOnlyNote(e.notes)
+                        ? 'Recorded'
+                        : e.total === null || e.total === undefined ? 'unpriced' : money(e.total)}
                     </td>
                   </tr>
                 ))}
@@ -587,7 +775,8 @@ function TodayLog({ date }: { date: string }) {
                 <tr>
                   <td colSpan={4} className="pt-2 text-[#6B7A8D] text-xs">
                     Subtotal
-                    {clientEntries.some((e: any) => e.total === null || e.total === undefined) && (
+                    {clientEntries.some((e: any) =>
+                      (e.total === null || e.total === undefined) && !isRecordedOnlyNote(e.notes)) && (
                       <span className="text-amber-700"> (excludes unpriced lines)</span>
                     )}
                   </td>

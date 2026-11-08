@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { normalise } from '@/lib/rate-sheets-db'
 import type { RateSheet } from '@/lib/rate-sheets'
 import { read, loaded, isMigrationMissing } from '@/lib/db/read'
+import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import QuotesManager from '@/components/rate-sheets/QuotesManager'
 
@@ -13,10 +14,12 @@ import QuotesManager from '@/components/rate-sheets/QuotesManager'
 export const dynamic = 'force-dynamic'
 
 export default async function QuotesPage() {
-  const res = await supabaseAdmin
+  const res = await readAllPages((from, to) => supabaseAdmin
     .from('rate_sheets')
     .select('*')
     .order('created_at', { ascending: false })
+    .order('id')
+    .range(from, to))
 
   // A missing table means the migration has not been applied yet, which is a
   // setup step rather than a failure — say so instead of throwing.
