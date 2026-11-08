@@ -319,35 +319,46 @@ async function api(
   return text ? JSON.parse(text) : {}
 }
 
+export type EnvelopeRead =
+  | { outcome: 'status'; status: string }
+  | { outcome: 'not_found' }
+  | { outcome: 'failed' }
+
+/** A finished HTTP response, classified without calling DocuSign again. */
+export function classifyEnvelopeHttp(status: number, bodyStatus: string | null | undefined): EnvelopeRead {
+  if (status === 404) return { outcome: 'not_found' }
+  if (status < 200 || status >= 300) return { outcome: 'failed' }
+  if (!bodyStatus) return { outcome: 'failed' }
+  return { outcome: 'status', status: bodyStatus }
+}
+
 /**
- * What DocuSign says about one envelope, or null when it cannot say.
+ * One GET of an envelope. Nothing is created and nobody is emailed.
  *
- * NULL IS A REAL ANSWER HERE, not an error to swallow. The agreement
- * audit treats "could not ask" as a finding of its own, because the
- * failure it exists to catch is a check that goes quiet — and the
- * likeliest reason this returns null today is that the configured
- * credentials point at a DIFFERENT DocuSign world from the envelope
- * (demo credentials, production envelope), which answers 404 and looks
- * exactly like "no such envelope".
- *
- * Returns DocuSign's own status string: sent, delivered, completed,
- * declined, voided. Mapping that to a verdict is the caller's business.
+ * `not_found` is only HTTP 404. A token failure, a network failure, or any
+ * other status is `failed` — the lookup did not finish, and that is not
+ * the same as DocuSign saying the envelope is absent.
  */
-export async function envelopeStatus(envelopeId: string, cfg: DocusignConfig): Promise<string | null> {
+export async function envelopeStatus(envelopeId: string, cfg: DocusignConfig): Promise<EnvelopeRead> {
   let token: string
   try {
     token = await accessToken(cfg)
   } catch {
-    return null
+    return { outcome: 'failed' }
   }
 
-  const res = await fetch(`${cfg.restBase}/v2.1/accounts/${cfg.accountId}/envelopes/${envelopeId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!res.ok) return null
-
-  const body = (await res.json().catch(() => null)) as { status?: string } | null
-  return body?.status ?? null
+  let res: Response
+  try {
+    res = await fetch(`${cfg.restBase}/v2.1/accounts/${cfg.accountId}/envelopes/${envelopeId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+  } catch {
+    return { outcome: 'failed' }
+  }
+  const body = res.ok
+    ? (await res.json().catch(() => null)) as { status?: string } | null
+    : null
+  return classifyEnvelopeHttp(res.status, body?.status)
 }
 
 /**

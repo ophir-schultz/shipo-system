@@ -96,16 +96,45 @@ describe('auditAgreements', () => {
     expect(found[0].severity).toBe('critical')
   })
 
-  it('treats an unanswerable envelope as a finding, not as agreement', () => {
-    // No verdict for env-1 at all — the lookup failed, the credentials
-    // point at the wrong DocuSign world, the envelope was purged. Any of
-    // those means we DO NOT KNOW, and not knowing is the state this audit
-    // exists to make visible.
-    const found = auditAgreements([row()], verdicts({}), NOW)
+  it('keeps unknown_envelope when a completed lookup does not have the envelope', () => {
+    const found = auditAgreements([row()], verdicts({}), NOW, 7, {
+      configured: true,
+      notFound: new Set(['env-1']),
+    })
 
     expect(found).toHaveLength(1)
     expect(found[0].kind).toBe('unknown_envelope')
-    expect(found[0].severity).toBe('warn')
+    expect(found[0].detail).toContain('did not have this envelope')
+    expect(found[0].detail).not.toMatch(/not configured/i)
+  })
+
+  it('does not call a failed lookup a missing envelope', () => {
+    const found = auditAgreements([row()], verdicts({}), NOW, 7, {
+      configured: true,
+      failed: new Set(['env-1']),
+    })
+
+    expect(found).toHaveLength(1)
+    expect(found[0].kind).toBe('lookup_failed')
+    expect(found[0].detail).not.toMatch(/not found|unknown envelope|invalid/i)
+    expect(found[0].envelopeId).toBe('env-1')
+  })
+
+  it('says DocuSign was not checked, once, when it was not configured', () => {
+    const rows = [
+      row({ id: 'p1', agreement_envelope_id: 'env-1' }),
+      row({ id: 'p2', name: 'Other', agreement_status: 'signed', agreement_envelope_id: 'env-2' }),
+    ]
+    const before = rows.map((r) => ({ ...r }))
+    const found = auditAgreements(rows, verdicts({ 'env-1': 'completed' }), NOW, 7, {
+      configured: false,
+    })
+
+    expect(rows).toEqual(before)
+    expect(found.map((f) => f.kind)).toEqual(['not_configured'])
+    expect(found[0].detail).toBe('not checked — DocuSign not configured')
+    expect(found[0].partnerId).toBe('')
+    expect(JSON.stringify(found)).not.toMatch(/unknown_envelope|not found|invalid/i)
   })
 
   it('reports a sent agreement that carries no envelope id to check', () => {
@@ -176,7 +205,8 @@ describe('docusignVerdict', () => {
   it.each([null, '', 'correcting', 'something-new'])('returns null for %j rather than guessing', (status) => {
     // A status nobody has seen before must NOT fall through to pending:
     // pending is an all-clear, and an unrecognised state is exactly when
-    // a human should look. Null becomes unknown_envelope upstream.
+    // a human should look. The monitor records that completed read as
+    // unrecognized, which is unknown_envelope. It is not a missing configuration.
     expect(docusignVerdict(status)).toBeNull()
   })
 })

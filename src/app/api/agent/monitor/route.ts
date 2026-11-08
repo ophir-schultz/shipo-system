@@ -629,7 +629,7 @@ async function runMonitor(write: boolean) {
   if (unpricedRes.error) {
     scanFailed('unpriced shipments', unpricedRes.error)
   } else if (unpricedRes.count && unpricedRes.count > 0) {
-    errors.push(`⚠ ${unpricedRes.count} shipments have a client assigned but NO rate (client_rate is NULL -- the rate card does not cover them; they are not $0)`)
+    errors.push(`⚠ ${unpricedRes.count} shipments have a client assigned and client_rate NULL. They are not $0. This count is not one rate-card error, and a voided shipment stays in it.`)
     log.push(`⚠ ${unpricedRes.count} unpriced shipments`)
   }
 
@@ -768,17 +768,35 @@ async function runMonitor(write: boolean) {
       const rows = (agreementRows ?? []) as AgreementRow[]
       const cfg = docusignConfig(process.env)
       const verdicts = new Map<string, EnvelopeVerdict>()
+      const notFound = new Set<string>()
+      const failed = new Set<string>()
+      const unrecognized = new Set<string>()
 
       if (cfg) {
         const ids = [...new Set(rows.map((r) => r.agreement_envelope_id).filter((v): v is string => !!v))]
         for (const id of ids) {
-          const v = docusignVerdict(await envelopeStatus(id, cfg))
-          if (v) verdicts.set(id, v)
+          const read = await envelopeStatus(id, cfg)
+          if (read.outcome === 'not_found') notFound.add(id)
+          else if (read.outcome === 'failed') failed.add(id)
+          else {
+            const verdict = docusignVerdict(read.status)
+            if (verdict) verdicts.set(id, verdict)
+            else unrecognized.add(id)
+          }
         }
       }
 
-      const findings = auditAgreements(rows, verdicts, new Date())
+      const findings = auditAgreements(rows, verdicts, new Date(), 7, {
+        configured: cfg !== null,
+        notFound,
+        failed,
+        unrecognized,
+      })
       for (const f of findings) {
+        if (f.kind === 'not_configured') {
+          log.push(`⚠ Partner agreements: ${f.detail}`)
+          continue
+        }
         const line = `${f.severity === 'critical' ? '✗' : '⚠'} Partner agreement (${f.kind}): ${f.name} — ${f.detail}`
         // Criticals go to errors, which is what turns the subject line
         // red. A warning only reaches the body.
@@ -786,7 +804,9 @@ async function runMonitor(write: boolean) {
         else log.push(line)
       }
       if (findings.length === 0) {
-        log.push(`✓ Partner agreements: ${rows.length} checked, Shipo and DocuSign agree`)
+        log.push(cfg
+          ? `✓ Partner agreements: ${rows.length} checked, Shipo and DocuSign agree`
+          : `⚠ Partner agreements: not checked — DocuSign not configured`)
       }
     }
   } catch (err) {

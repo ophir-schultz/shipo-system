@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DOCUSIGN_ENV_VARS,
+  classifyEnvelopeHttp,
   docusignConfig,
   docusignConfigMissing,
   missingDocusignSetup,
@@ -255,6 +256,14 @@ describe('tokenFailureReason', () => {
     const reason = tokenFailureReason(502, '<html>Bad Gateway</html>')
     expect(reason).toMatch(/502/)
     expect(reason.trim()).not.toBe('')
+  })
+
+  it('classifies a finished envelope read without treating every failure as missing', () => {
+    expect(classifyEnvelopeHttp(404, null)).toEqual({ outcome: 'not_found' })
+    expect(classifyEnvelopeHttp(200, 'completed')).toEqual({ outcome: 'status', status: 'completed' })
+    expect(classifyEnvelopeHttp(401, null)).toEqual({ outcome: 'failed' })
+    expect(classifyEnvelopeHttp(500, null)).toEqual({ outcome: 'failed' })
+    expect(classifyEnvelopeHttp(200, '')).toEqual({ outcome: 'failed' })
   })
 
   it('never echoes the response body, which is where a token would be', () => {
