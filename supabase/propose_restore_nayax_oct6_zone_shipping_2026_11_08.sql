@@ -1,6 +1,7 @@
 -- RESTORE PROPOSAL. Do not run.
 --
 -- Name: propose_restore_nayax_oct6_zone_shipping_2026_11_08
+-- The denied 701 backfill is not this file.
 -- Deletes the 23 zone shipping rows only while each one still matches
 -- the inserted image: zone source, client rate, carrier day, null
 -- rate link, and cost equal to the shipment carrier cost.
@@ -19,6 +20,69 @@ begin
   end if;
 end
 $gate$;
+
+-- The production cron must already be keeping stored charge dates.
+-- preserve_stored is written on sync_runs.mode by that cron. A latest
+-- successful charges run in any other mode, including live, refuses
+-- this file. A charges run that is still open also refuses. The
+-- advisory lock stops two of these files from committing together.
+-- It does not stop the application cron.
+do $cron$
+declare
+  latest text;
+  running integer;
+begin
+  perform pg_advisory_xact_lock(hashtext('shipo.order_charges'));
+  select count(*) into running
+  from public.sync_runs
+  where source = 'charges' and status = 'running' and client_id is null;
+  if running <> 0 then
+    raise exception 'a charges run is in progress (% rows). Nothing was changed.', running;
+  end if;
+  select mode into latest
+  from public.sync_runs
+  where source = 'charges' and status = 'ok' and client_id is null
+  order by finished_at desc nulls last
+  limit 1;
+  if latest is distinct from 'preserve_stored' then
+    raise exception 'latest successful charges run mode is %, not preserve_stored. Refusing so the production cron cannot undo this file.', coalesce(latest, 'none');
+  end if;
+end
+$cron$;
+
+-- Cost, rate, and the raw payload column must exist before this file
+-- reads them. voided is a value inside raw_data, not its own column.
+-- voidDate and voideDate are not proved void signals and are not gates.
+do $columns$
+declare
+  missing text;
+begin
+  select string_agg(format('%s.%s', needed.tbl, needed.col), ', ' order by needed.tbl, needed.col)
+    into missing
+  from (values
+    ('order_charges', 'amount'),
+    ('order_charges', 'unit_rate'),
+    ('order_charges', 'cost'),
+    ('order_charges', 'cost_basis'),
+    ('order_charges', 'rate_id'),
+    ('order_charges', 'charge_key'),
+    ('order_charges', 'charge_date'),
+    ('order_charges', 'source'),
+    ('shipments', 'actual_cost'),
+    ('shipments', 'raw_data')
+  ) as needed(tbl, col)
+  where not exists (
+    select 1
+    from information_schema.columns c
+    where c.table_schema = 'public'
+      and c.table_name = needed.tbl
+      and c.column_name = needed.col
+  );
+  if missing is not null then
+    raise exception 'required columns missing: %. Nothing was changed.', missing;
+  end if;
+end
+$columns$;
 
 create temporary table nayax_oct6_snapshot (
   order_id uuid not null,
@@ -100,7 +164,11 @@ where s.id = snap.shipment_id
   and oc.unit_rate = snap.client_rate
   and oc.charge_date = date '2026-10-07'
   and oc.rate_id is null
-  and oc.cost is not distinct from s.actual_cost;
+  and oc.cost is not distinct from s.actual_cost
+  and (
+    (oc.cost is null and oc.cost_basis is null)
+    or (oc.cost is not null and oc.cost_basis = 'measured')
+  );
 
 do $after$
 declare
