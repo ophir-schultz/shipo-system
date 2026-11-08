@@ -105,6 +105,9 @@ type PeriodFigures = {
   shipments: number | null
   reconciled: number
   excluded: number
+  unrated: number
+  uncosted: number
+  unmeasured: number
   exclusions: string
   stale: number
   billable: number | null
@@ -224,6 +227,8 @@ async function getDashboardData() {
         .order('id').range(from, to)),
     // NOT paged, deliberately: this is the worst-50 list, and `.limit(50)` is
     // the answer rather than a truncation of it.
+    // ship_date is selected and not printed. Week, month, and year totals stay
+    // on the stored ship instant. This panel has no ship-date cell.
     supabaseAdmin.from('shipments')
       .select('order_number, client_id, actual_cost, client_rate, profit_loss, clients(name), ship_date, carrier, service, tracking_number, raw_data')
       .eq('is_loss', true).order('profit_loss', { ascending: true }).limit(50),
@@ -344,6 +349,9 @@ async function getDashboardData() {
       // in these figures" note under a figure that is not a figure.
       reconciled: unreadable ? 0 : r.reconciled,
       excluded: unreadable ? 0 : excludedCount(r),
+      unrated: unreadable ? 0 : r.unrated,
+      uncosted: unreadable ? 0 : r.uncosted,
+      unmeasured: unreadable ? 0 : r.unmeasured,
       exclusions: unreadable ? '' : exclusionNote(r),
       // Rows whose stored `profit_loss` disagrees with rate minus cost. The
       // old profit line WAS that column, so this count is a measure of how
@@ -396,6 +404,10 @@ async function getDashboardData() {
   return {
     // null, not 0. "Active Clients: 0" on a failed read is a number somebody
     // can act on, and the action is to go looking for deleted clients.
+    today,
+    weekStart,
+    monthStart,
+    yearStart,
     activeClients: clients.error ? null : clients.rows.length,
     activeClientsError: clients.error,
     allTime: period(allShipments),
@@ -434,7 +446,9 @@ export default async function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-[#0B1220]">Dashboard</h2>
-          <p className="text-[#4B4F58] text-sm mt-1">Live billing & operations overview</p>
+          <p className="text-[#4B4F58] text-sm mt-1">
+            America/New_York. This week {d.weekStart} (Monday) through {d.today}. This month {d.monthStart} through {d.today}. Year to date {d.yearStart} through {d.today}.
+          </p>
         </div>
         <div className="flex items-center gap-4">
           <AutoSync />
@@ -446,7 +460,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── ALERTS SECTION ── */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
         {/* Loss Shipments Panel */}
         <div className="rounded-xl overflow-hidden border border-red-200" style={{ background: '#FEF2F2' }}>
@@ -590,14 +604,14 @@ export default async function DashboardPage() {
       </div>
 
       {/* Period Revenue Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <PeriodCard title="This Week" p={d.week} />
         <PeriodCard title="This Month" p={d.month} />
         <PeriodCard title="This Year" p={d.year} />
       </div>
 
       {/* All Time Summary */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {/* These three are the same reconciling triple as the period cards --
             one row set, margin derived -- so the headline tiles subtract the
             same way the cards above them do. They used to be three independent
@@ -922,6 +936,11 @@ function PeriodCard({ title, p }: { title: string; p: PeriodFigures }) {
             <p className="text-[#6B7A8D] text-xs pt-1">
               Over {p.reconciled} of {p.shipments} shipments
             </p>
+            {p.unrated > 0 && (
+              <p className="text-amber-700 text-xs">
+                Excluded this period: {p.unrated} unrated shipment{p.unrated === 1 ? '' : 's'} with no agreed rate. That cost is left out of the margin. It is not $0.
+              </p>
+            )}
             <p className="text-amber-700 text-xs">⚠ {p.exclusions}</p>
           </>
         )}

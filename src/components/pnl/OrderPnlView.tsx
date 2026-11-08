@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { rollupClients, type OrderProfit } from '@/lib/pricing/order-profit'
+import { SHIP_DATE_FILTER_NOTE } from '@/lib/billing/ship-day-label'
 
 const fmt = (n: number | null) => (n === null ? '—' : `${n < 0 ? '-' : ''}$${Math.abs(n).toFixed(2)}`)
 
@@ -23,6 +24,7 @@ export default function OrderPnlView({ orders }: { orders: OrderProfit[] }) {
 
   return (
     <div className="space-y-6">
+      <p className="text-[11px] text-[#6B7A8D]">{SHIP_DATE_FILTER_NOTE}</p>
       <div className="bg-white rounded-xl p-5">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <label className="text-xs text-[#4B4F58]">
@@ -86,7 +88,7 @@ export default function OrderPnlView({ orders }: { orders: OrderProfit[] }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
-              <th className="pb-2 pr-3">Date</th>
+              <th className="pb-2 pr-3">Ship date</th>
               <th className="pb-2 pr-3">Order #</th>
               <th className="pb-2 pr-3">Client</th>
               <th className="pb-2 pr-3 text-right">Boxes</th>
@@ -98,7 +100,13 @@ export default function OrderPnlView({ orders }: { orders: OrderProfit[] }) {
           <tbody>
             {filteredOrders.slice(0, 300).map((order) => (
               <tr key={order.key} className="border-b border-[#E2E8F0]/40">
-                <td className="py-2 pr-3 text-[#4B4F58]">{order.shipDate ?? '—'}</td>
+                <td className="py-2 pr-3 text-[#4B4F58]">
+                  <div>
+                    {order.carrierShipDate && order.shipDate && order.carrierShipDate !== order.shipDate
+                      ? `${order.carrierShipDate} (stored ${order.shipDate})`
+                      : (order.carrierShipDate ?? '—')}
+                  </div>
+                </td>
                 <td className="py-2 pr-3 text-[#0B1220]">{order.orderNumber}</td>
                 <td className="py-2 pr-3 text-[#4B4F58]">{order.clientName}</td>
                 <td className="py-2 pr-3 text-right text-[#4B4F58]">{order.shipments}</td>

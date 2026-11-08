@@ -5,7 +5,8 @@ import {
   formatPrice, formatSignedPrice, isPriced, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 import { exclusionNote, reconcile, reconciledOrUnknown } from '@/lib/billing/profit-rollup'
-import { easternAddDays, easternCalendarDay, easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
+import { easternAddDays, easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
+import { SHIP_DATE_FILTER_NOTE, shipDateWithStored, shipmentMatchesStoredRange } from '@/lib/billing/ship-day-label'
 
 // The rate and profit columns are nullable: recalculate.ts writes null when
 // the rate card does not cover a shipment. `?? 0` printed those as "$0.00",
@@ -24,10 +25,6 @@ const QUICK_RANGES = [
   { label: 'This Month', days: -1 },
   { label: 'All Time', days: -2 },
 ]
-
-function shipDay(value: string | null | undefined): string {
-  return easternCalendarDay(value)
-}
 
 function getQuickRange(days: number) {
   const to = easternToday()
@@ -68,9 +65,7 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
 
   const filtered = useMemo(() => {
     return shipments.filter(s => {
-      const d = shipDay(s.ship_date)
-      if (dateFrom && d < dateFrom) return false
-      if (dateTo && d > dateTo) return false
+      if (!shipmentMatchesStoredRange(s.ship_date, dateFrom, dateTo)) return false
       if (clientId && s.client_id !== clientId) return false
       if (carrier && s.carrier !== carrier) return false
       if (lossOnly && !s.is_loss) return false
@@ -178,10 +173,11 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
             Clear
           </button>
         </div>
+        <p className="text-xs text-[#6B7A8D]">{SHIP_DATE_FILTER_NOTE}</p>
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="bg-white rounded-xl px-4 py-3">
           <p className="text-xs text-[#4B4F58]">Shipments</p>
           <p className="text-xl font-bold text-[#0B1220]">{filtered.length}</p>
@@ -240,7 +236,9 @@ export default function ShipmentsTable({ shipments, clients, initialFilter }: {
                 <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                   <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                   <td className="px-4 py-2.5 font-medium text-sm">{s.clients?.name ?? <span className="text-[#6B7A8D]">Unassigned</span>}</td>
-                  <td className="px-4 py-2.5 text-[#4B4F58] text-xs whitespace-nowrap">{shipDay(s.ship_date) || '—'}</td>
+                  <td className="px-4 py-2.5 text-[#4B4F58] text-xs whitespace-nowrap">
+                    {shipDateWithStored(s.ship_date, s.raw_data) || '—'}
+                  </td>
                   <td className="px-4 py-2.5 text-[#3A4658] text-xs whitespace-nowrap">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-[#6B7A8D]">{s.tracking_number ?? '—'}</td>
                   <td className="px-4 py-2.5 text-right text-xs text-[#3A4658]">

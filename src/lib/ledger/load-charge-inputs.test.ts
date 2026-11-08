@@ -151,7 +151,7 @@ describe('loadChargeInputs — the shipment join', () => {
 
     const shipmentReads = h.db.calls.filter((c) => c.table === 'shipments')
     expect(shipmentReads.length).toBeGreaterThan(0)
-    const filter = shipmentReads[0].filters.find((f) => f.op === 'in')
+    const filter = shipmentReads.flatMap((call) => call.filters).find((f) => f.column === 'order_number_key')
     expect(filter?.column).toBe('order_number_key')
     expect(filter?.value).toContain('A1')
   })
@@ -247,6 +247,56 @@ describe('loadChargeInputs — the shipment join', () => {
     const [input] = await loadChargeInputs(WINDOW)
 
     expect(input.shipments[0].shipDate).toBe('2026-09-30')
+  })
+
+  it('loads an order placed before the window when its date-only ship day is inside it', async () => {
+    seed({
+      orders: [dated({ id: 'o-early', order_key: 'SO601060842', order_number: 'SO601060842', order_date: '2026-10-06' })],
+      order_items: [
+        { id: 'i-old', order_id: 'o-early', sku: 'R1', quantity_picked: 1, is_component: false, pick_date: '2026-10-06' },
+        { id: 'i-new', order_id: 'o-early', sku: 'R2', quantity_picked: 1, is_component: false, pick_date: '2026-10-07' },
+      ],
+      shipments: [
+        { id: 's-old', client_id: 'client-a', shipstation_shipment_id: 1,
+          order_number: 'SO601060842', order_number_key: 'SO601060842',
+          ship_date: '2026-10-01T00:00:00.000Z', actual_cost: 4,
+          raw_data: { shipDate: '2026-10-01' } },
+        { id: 's-new', client_id: 'client-a', shipstation_shipment_id: 2,
+          order_number: 'SO601060842', order_number_key: 'SO601060842',
+          ship_date: '2026-10-07T00:00:00.000Z', actual_cost: 41,
+          raw_data: { shipDate: '2026-10-07', secretCost: 'secret-cost-87873' } },
+      ],
+    })
+
+    const [input] = await loadChargeInputs('2026-10-07')
+
+    expect(input.order.id).toBe('o-early')
+    expect(input.shipments.map((row) => row.shipmentId)).toEqual([2])
+    expect(input.shipments[0].shipDate).toBe('2026-10-07')
+    expect(input.items.map((row) => row.id)).toEqual(['i-new'])
+    expect(JSON.stringify(input)).not.toContain('secret-cost-87873')
+  })
+
+  it('keeps a date-only source stored at UTC midnight, and shifts a real midnight', async () => {
+    seed({
+      orders: [dated({ order_date: '2026-09-30' })],
+      shipments: [
+        { id: 's1', client_id: 'client-a', shipstation_shipment_id: 900,
+          order_number: 'A1', order_number_key: 'A1',
+          ship_date: '2026-10-01T00:00:00.000Z', actual_cost: 7.25,
+          raw_data: { shipDate: '2026-10-01' } },
+        { id: 's2', client_id: 'client-a', shipstation_shipment_id: 901,
+          order_number: 'A1', order_number_key: 'A1',
+          ship_date: '2026-10-01T00:00:00.000Z', actual_cost: 8,
+          raw_data: { shipDate: '2026-10-01T00:00:00.000Z' } },
+      ],
+    })
+
+    const [input] = await loadChargeInputs(WINDOW)
+
+    const days = new Map(input.shipments.map((row) => [row.shipmentId, row.shipDate]))
+    expect(days.get(900)).toBe('2026-10-01')
+    expect(days.get(901)).toBe('2026-09-30')
   })
 })
 

@@ -25,8 +25,8 @@ export default function ClientReportView({
 }) {
   const router = useRouter()
   const [clientId, setClientId] = useState('')
-  const [dateFrom, setDateFrom] = useState('2026-05-01')
-  const [dateTo, setDateTo] = useState('2026-08-31')
+  const [dateFrom, setDateFrom] = useState('2026-10-01')
+  const [dateTo, setDateTo] = useState('2026-10-31')
   const [busy, setBusy] = useState<'csv' | 'xlsx' | 'pdf' | 'approve' | 'import' | null>(null)
   const [importClientId, setImportClientId] = useState('')
 
@@ -178,7 +178,7 @@ export default function ClientReportView({
           >
             {busy === 'pdf' ? 'Preparing…' : 'Download PDF'}
           </button>
-          <span className="text-xs text-[#6B7A8D]">{filtered.length} orders in this range. Download is not emailed.</span>
+          <span className="text-xs text-[#6B7A8D]">{filtered.length} imported lines in this range. Download is not emailed.</span>
         </div>
       </div>
 
@@ -231,7 +231,7 @@ export default function ClientReportView({
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={CLIENT_REPORT_COLUMNS.length} className="py-6 text-[#6B7A8D]">
-                  No billing lines in this range.
+                  No imported billing lines for this client and these dates. This table is client_billing_lines, not live shipments or order charges. Empty is not a finding that the client had no shipments, and it is not an approved report. Nothing was generated.
                 </td>
               </tr>
             ) : filtered.slice(0, 200).map((row, index) => (

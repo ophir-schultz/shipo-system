@@ -3,6 +3,7 @@ import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { loadRateCheck } from '@/lib/billing/rate-check-load'
 import { DEFAULT_RATE_CHECK_FLAGS } from '@/lib/billing/rate-sheet'
+import { SHIP_DATE_FILTER_NOTE } from '@/lib/billing/ship-day-label'
 
 export const dynamic = 'force-dynamic'
 
@@ -92,10 +93,12 @@ export default async function RateCheckPage({
                   <th className="px-4 py-2.5 font-medium">Client</th>
                   <th className="px-4 py-2.5 font-medium">Shipments</th>
                   <th className="px-4 py-2.5 font-medium">Matched</th>
+                  <th className="px-4 py-2.5 font-medium">Price gaps</th>
+                  <th className="px-4 py-2.5 font-medium">Unknown billed</th>
                   <th className="px-4 py-2.5 font-medium">Not compared</th>
                   <th className="px-4 py-2.5 font-medium">Billed</th>
                   <th className="px-4 py-2.5 font-medium">Sheet</th>
-                  <th className="px-4 py-2.5 font-medium">Difference</th>
+                  <th className="px-4 py-2.5 font-medium">Leakage</th>
                 </tr>
               </thead>
               <tbody>
@@ -104,22 +107,25 @@ export default async function RateCheckPage({
                     <td className="px-4 py-2.5">{row.clientName}</td>
                     <td className="px-4 py-2.5">{row.shipments}</td>
                     <td className="px-4 py-2.5">{row.matched}</td>
+                    <td className="px-4 py-2.5">{row.priceGaps}</td>
+                    <td className="px-4 py-2.5">{row.unknownBilled}</td>
                     <td className="px-4 py-2.5">{row.notCompared}</td>
                     <td className="px-4 py-2.5">{money(row.billedTotal)}</td>
                     <td className="px-4 py-2.5">{money(row.sheetTotal)}</td>
-                    <td className="px-4 py-2.5">{money(row.difference)}</td>
+                    <td className="px-4 py-2.5">{row.difference == null ? '—' : row.difference === 0 ? money(0) : `${money(row.difference)} leakage`}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <p className="text-[11px] text-[#6B7A8D]">{SHIP_DATE_FILTER_NOTE}</p>
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
             <table className="min-w-full text-sm">
               <thead className="bg-[#F4F6F8] text-left text-[#4B4F58]">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Order</th>
                   <th className="px-4 py-2.5 font-medium">Client</th>
-                  <th className="px-4 py-2.5 font-medium">Date</th>
+                  <th className="px-4 py-2.5 font-medium">Ship date</th>
                   <th className="px-4 py-2.5 font-medium">Weight (oz)</th>
                   <th className="px-4 py-2.5 font-medium">Zone</th>
                   <th className="px-4 py-2.5 font-medium">Service</th>
@@ -134,7 +140,13 @@ export default async function RateCheckPage({
                   <tr key={row.id} className="border-t border-slate-100">
                     <td className="px-4 py-2.5">{row.orderNumber}</td>
                     <td className="px-4 py-2.5">{row.clientName}</td>
-                    <td className="px-4 py-2.5">{row.shipDate}</td>
+                    <td className="px-4 py-2.5">
+                      <div>
+                        {row.storedShipDay
+                          ? `${row.shipDate} (stored ${row.storedShipDay})`
+                          : (row.shipDate ?? '—')}
+                      </div>
+                    </td>
                     <td className="px-4 py-2.5">{row.weightOz ?? '—'}</td>
                     <td className="px-4 py-2.5">{row.zone ?? '—'}</td>
                     <td className="px-4 py-2.5">{row.service}</td>

@@ -81,6 +81,19 @@
   color: var(--brand-ink);
 }
 
+/* Phone tables scroll inside their own box. A min-width on every table
+   widened the page, so Rate and Amount sat past the screen with no
+   local scrollbar. */
+@media (max-width: 767px) {
+  .staff-main {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  .staff-main .overflow-x-auto {
+    max-width: 100%;
+  }
+}
+
 body {
   background: #ffffff;
   color: var(--shipo-ink);

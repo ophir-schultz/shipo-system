@@ -8,16 +8,20 @@ import {
   readStatementCharges, readEarliestChargeDate,
 } from '@/lib/billing/statement-charges'
 import {
-  buildStatement, statementTotal, resolvePeriod,
+  buildStatement, resolvePeriod,
 } from '@/lib/billing/statement'
 import {
-  rateText, periodLabel, coverageNote, estimateNote,
+  rateText, periodLabel, coverageNote, estimateNote, chargeRateCell,
+  statementAmountDueCell, statementFigures,
 } from '@/lib/billing/statement-view'
 import {
   readOrderNumbers, readShipmentFacts, shipmentIdFromChargeKey,
   factsByShipmentId, buildShipmentLines, unmatchedParcelNote,
+  countOutsideShipDates, outsideShipDateNote,
 } from '@/lib/billing/statement-detail'
 import { priceOf, totalOrUnknown, unpricedNote, UNPRICED_CELL } from '@/lib/billing/unpriced'
+import { monthlyMinimumBill } from '@/lib/billing/monthly-minimum'
+import { loadAgreedMinimum } from '@/lib/billing/agreed-minimum'
 import { priceStatementCharges } from '@/lib/billing/statement-source'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
 
@@ -193,7 +197,15 @@ export async function GET(req: Request) {
     ? null
     : (earliestRes.data ?? [])[0].charge_date
   const statement = buildStatement(charges, range)
-  const total = statementTotal(statement)
+  const minimum = monthlyMinimumBill({
+    from: range.from,
+    to: range.to,
+    rows: charges,
+    agreed: await loadAgreedMinimum(name),
+  })
+  const figures = statementFigures(statement, minimum)
+  const total = figures.knownSubtotal
+  const amountDue = statementAmountDueCell(figures)
 
   // ---- The two lookups that turn the detail into something checkable ----
   //
@@ -256,10 +268,30 @@ export async function GET(req: Request) {
   } else {
     summary.push({
       'Charge': '',
-      'Line': 'TOTAL',
+      'Line': figures.subtotalLabel,
       'Units': '',
       'Rate': '',
-      'Amount ($)': moneyCell(total),
+      'Amount ($)': total === null ? 'unknown' : total,
+      'Unpriced rows': statement.sum.unpriced,
+      'Estimated rows': statement.estimated,
+    })
+    summary.push({
+      'Charge': 'minimum',
+      'Line': 'Monthly minimum top-up',
+      'Units': '',
+      'Rate': '',
+      'Amount ($)': minimum.applies && minimum.topUpCents !== null
+        ? minimum.topUpCents / 100
+        : minimum.reason,
+      'Unpriced rows': 0,
+      'Estimated rows': 0,
+    })
+    summary.push({
+      'Charge': '',
+      'Line': 'Amount due',
+      'Units': '',
+      'Rate': '',
+      'Amount ($)': amountDue,
       'Unpriced rows': statement.sum.unpriced,
       'Estimated rows': statement.estimated,
     })
@@ -269,13 +301,14 @@ export async function GET(req: Request) {
   // A note that only exists on the screen does not survive the download, and
   // this file is the artefact that gets read six weeks later.
   const notes = [
-    coverageNote(earliest, range),
+    coverageNote(earliest, range, statement.lines.length),
     unpricedNote(statement.sum.unpriced, 'charge'),
     estimateNote(statement.estimated),
     // On sheet 1 and not only on sheet 3, because a blank carrier column is
     // noticed by whoever opens the file first, and the one sentence that
     // explains it has to be where they are looking.
     unmatchedParcelNote(unmatched),
+    outsideShipDateNote(countOutsideShipDates(shipmentLines, range)),
   ].filter(n => n !== '')
 
   for (const note of notes) {
@@ -301,7 +334,10 @@ export async function GET(req: Request) {
     'Charge': c.charge_type,
     'Line': c.label,
     'Quantity': moneyCell(priceOf(c.quantity)),
-    'Rate': moneyCell(priceOf(c.unit_rate)),
+    // A blank unit rate is not an unpriced amount. chargeRateCell keeps
+    // "see amount" for a known client charge and UNPRICED only when the
+    // amount itself is missing. It does not divide amount by quantity.
+    'Rate': chargeRateCell(c),
     'Amount ($)': moneyCell(priceOf(c.amount)),
     'Priced from an assumed rate': c.is_estimate === true ? 'yes' : 'no',
   }))

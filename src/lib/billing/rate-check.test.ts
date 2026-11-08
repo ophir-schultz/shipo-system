@@ -25,9 +25,32 @@ describe('rate check rows', () => {
     })
     expect(row.sheetPrice).toBe(24.51)
     expect(row.difference).toBe(0.49)
-    expect(row.reason).toBeNull()
+    expect(row.reason).toMatch(/Not a pass/)
+    expect(row.shipDate).toBe('2026-10-27')
+    expect(row.storedShipDay).toBeNull()
     expect(row).not.toHaveProperty('iclCost')
     expect(row).not.toHaveProperty('actualCost')
+  })
+
+  it('shows a date-only ship day and does not copy a raw cost onto the row', () => {
+    const dated = checkShipment(sheet(), {
+      id: 's-date', clientName: 'SitnStand', orderNumber: 'SO1',
+      shipDate: '2026-10-01T00:00:00.000Z', weight: 16, weightUnit: 'ounces',
+      length: 1, width: 1, height: 1, dimWeight: null, carrier: 'usps', zone: 3,
+      raw: { shipDate: '2026-10-01', secretCost: 'secret-cost-87873' },
+      service: 'usps_ground_advantage', clientRate: 25,
+    })
+    expect(dated.shipDate).toBe('2026-10-01')
+    expect(dated.storedShipDay).toBe('2026-09-30')
+    expect(JSON.stringify(dated)).not.toContain('secret-cost-87873')
+    const late = checkShipment(sheet(), {
+      id: 's-late', clientName: 'SitnStand', orderNumber: 'SO2',
+      shipDate: '2026-11-01T03:30:00.000Z', weight: 16, weightUnit: 'ounces',
+      length: 1, width: 1, height: 1, dimWeight: null, carrier: 'usps', zone: 3,
+      raw: {}, service: 'usps_ground_advantage', clientRate: 25,
+    })
+    expect(late.shipDate).toBe('2026-10-31')
+    expect(late.storedShipDay).toBeNull()
   })
 
   it('names the reason when the zone was never stored', () => {
@@ -104,6 +127,8 @@ describe('rate check rows', () => {
       shipments: 2,
       matched: 1,
       notCompared: 0,
+      priceGaps: 0,
+      unknownBilled: 0,
       billedTotal: 33.31,
       sheetTotal: 33.31,
       difference: 0,
@@ -115,5 +140,40 @@ describe('rate check rows', () => {
     expect(byName.Suteka.notCompared).toBe(1)
     expect(byName.Suteka.matched).toBe(0)
     expect(rows.find((row) => row.id === 'd')?.reason).toBe('Needs manual price (client approval)')
+    expect(byName.Nayax.priceGaps).toBe(0)
+    expect(byName.Nayax.billedTotal).toBeNull()
+  })
+
+  it('reports Suteka sheet leakage without calling the matched rows a pass', () => {
+    const gaps = Array.from({ length: 26 }, (_, index) => ({
+      id: `s${index}`,
+      clientName: 'Suteka',
+      orderNumber: String(index),
+      shipDate: '2026-10-27',
+      weightOz: 16,
+      zone: 4,
+      service: 'ground',
+      sheetPrice: 10,
+      clientRate: index === 0 ? 213.87 : 10,
+      difference: index === 0 ? 203.87 : 0,
+      reason: index === 0 ? 'Billed rate differs from the sheet. Not a pass.' : null,
+      kind: 'matched' as const,
+    }))
+    const aside = [
+      { ...gaps[0], id: 'nayax', clientName: 'Nayax', kind: 'no_sheet' as const, sheetPrice: null, clientRate: 12, difference: null, reason: 'no sheet rates' },
+      { ...gaps[0], id: 'orcam', clientName: 'Orcam', kind: 'no_sheet' as const, sheetPrice: null, clientRate: 8, difference: null, reason: 'no sheet rates' },
+      { ...gaps[0], id: 'none', clientName: null, kind: 'no_sheet' as const, sheetPrice: null, clientRate: null, difference: null, reason: 'no sheet rates' },
+    ]
+    const byName = Object.fromEntries(summarizeRateCheck([...gaps, ...aside]).map((row) => [row.clientName, row]))
+    expect(byName.Suteka.matched).toBe(26)
+    expect(byName.Suteka.priceGaps).toBe(1)
+    expect(byName.Suteka.difference).toBe(203.87)
+    expect(byName.Suteka.difference).not.toBe(0)
+    expect(byName.Nayax.notCompared).toBe(1)
+    expect(byName.Nayax.matched).toBe(0)
+    expect(byName.Nayax.difference).toBeNull()
+    expect(byName.Orcam.difference).toBeNull()
+    expect(byName['No client'].difference).toBeNull()
+    expect(byName['No client'].notCompared).toBe(1)
   })
 })

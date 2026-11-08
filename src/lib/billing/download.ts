@@ -4,6 +4,7 @@ import {
   UNPRICED_CELL,
 } from './unpriced'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { shipmentDateColumns, shipDateWithStored } from '@/lib/billing/ship-day-label'
 
 // These two produce the files a client actually receives, which is why `?? 0`
 // mattered more here than anywhere: a 0 in a spreadsheet cell is not "we do not
@@ -52,20 +53,24 @@ export function downloadBillingExcel({
 
   // Shipments sheet
   const shipRows = [
-    ['Order #', 'Ship Date', 'Carrier', 'Service', 'We Paid', 'Charged', 'P/L'],
-    ...shipments.map((s: any) => [
-      s.order_number,
-      easternCalendarDay(s.ship_date),
-      s.carrier ?? '',
-      s.service ?? '',
-      priceOf(s.actual_cost) ?? UNPRICED_CELL,
-      priceOf(s.client_rate) ?? UNPRICED_CELL,
-      priceOf(s.profit_loss) ?? UNPRICED_CELL,
-    ]),
+    ['Order #', 'Ship Date', 'Stored ship day', 'Carrier', 'Service', 'We Paid', 'Charged', 'P/L'],
+    ...shipments.map((s: any) => {
+      const dates = shipmentDateColumns(s.ship_date, s.raw_data)
+      return [
+        s.order_number,
+        dates['Ship Date'],
+        dates['Stored ship day'],
+        s.carrier ?? '',
+        s.service ?? '',
+        priceOf(s.actual_cost) ?? UNPRICED_CELL,
+        priceOf(s.client_rate) ?? UNPRICED_CELL,
+        priceOf(s.profit_loss) ?? UNPRICED_CELL,
+      ]
+    }),
     [],
-    ['', '', '', 'TOTAL', sumPriced(shipments, 'actual_cost').total, shippingRevenue],
+    ['', '', '', '', 'TOTAL', sumPriced(shipments, 'actual_cost').total, shippingRevenue],
     ...(unpricedShipments > 0
-      ? [['', '', '', '', '', `⚠ ${unpricedNote(unpricedShipments)}`]]
+      ? [['', '', '', '', '', '', `⚠ ${unpricedNote(unpricedShipments)}`]]
       : []),
   ]
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(shipRows), 'Shipments')
@@ -251,7 +256,7 @@ export async function downloadBillingPDF({
       if (y > 270) { doc.addPage(); y = 20 }
       tableRow([
         s.order_number ?? '',
-        easternCalendarDay(s.ship_date),
+        shipDateWithStored(s.ship_date, s.raw_data),
         [s.carrier, s.service].filter(Boolean).join(' '),
         formatPrice(s.actual_cost),
         formatPrice(s.client_rate),

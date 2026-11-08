@@ -1,7 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { readAllPages, type PageResult } from '@/lib/db/page'
 import { classifySku } from '@/lib/billing/classify-sku'
-import { warehouseParts } from '@/lib/ledger/pick-date'
+import { easternAddDays, easternMidnightIso, shipCalendarDay } from '@/lib/ledger/eastern-day'
+import { lateOrderNumbers, shipmentInChargeWindow } from '@/lib/ledger/charge-window'
 import type { ChargeInput } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
 
@@ -115,13 +116,11 @@ const num = (v: unknown): number | null =>
  * and declines to charge — the same outcome as a null column, and better than
  * inventing today's date for a shipment nobody can date.
  */
-const warehouseDate = (v: unknown): string => {
-  const raw = String(v ?? '').trim()
-  if (raw === '') return ''
-  const at = new Date(raw)
-  if (!Number.isFinite(at.getTime())) return ''
-  return warehouseParts(at).date
-}
+const warehouseDate = (v: unknown, sourceDay?: unknown): string =>
+  shipCalendarDay(
+    v == null || v === '' ? null : String(v),
+    typeof sourceDay === 'string' ? sourceDay : null,
+  )
 
 interface OrderRow {
   id: string
@@ -187,14 +186,57 @@ export async function loadChargeInputs(
       .order('id', { ascending: true })
       .range(from, to))
 
-  if (orders.length === 0) return []
-
   const undated = orders.filter((o) => o.order_date == null).length
   if (undated > 0) {
     warn?.('orders with no order_date', `${undated} orders have a null order_date. `
       + `They are charged (charge_date comes from pick and ship dates) but they `
       + `are outside every date window, so fix the source in sync/zenventory.ts.`)
   }
+
+  // An order placed before the window is still loaded when one of its labels
+  // has a carrier day inside the window. The scan starts a day early so a
+  // date-only ship day stored at UTC midnight is not missed. The carrier day,
+  // not the order date, decides. Pick dates are not moved onto the ship day.
+  const scanned = await fetchAllPages<ShipmentRow>('shipments (window)', (from, to) =>
+    supabaseAdmin
+      .from('shipments')
+      .select('id, client_id, shipstation_shipment_id, order_number, ship_date, actual_cost, raw_data')
+      .gte('ship_date', easternMidnightIso(easternAddDays(windowStart, -1)))
+      .order('id', { ascending: true })
+      .range(from, to))
+  const lateNumbers = lateOrderNumbers(
+    windowStart,
+    orders.flatMap((o) => [o.order_key, o.order_number ?? '']),
+    scanned.map((s) => ({
+      orderNumber: s.order_number,
+      shipDate: s.ship_date,
+      raw: s.raw_data,
+    })),
+  )
+  if (lateNumbers.length > 0) {
+    const seen = new Set(orders.map((o) => o.id))
+    for (const batch of chunk(lateNumbers, IN_CHUNK)) {
+      const extra = await fetchAllPages<OrderRow>('orders (shipped in window)', (from, to) =>
+        supabaseAdmin
+          .from('orders')
+          .select('id, client_id, order_key, order_number, cancelled, order_date')
+          .in('order_key', batch)
+          .order('id', { ascending: true })
+          .range(from, to))
+      for (const row of extra) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        orders.push(row)
+      }
+    }
+  }
+  const shipmentOnly = new Set(
+    orders
+      .filter((o) => o.order_date != null && o.order_date < windowStart)
+      .map((o) => o.id),
+  )
+
+  if (orders.length === 0) return []
 
   const items: ItemRow[] = []
   for (const ids of chunk(orders.map((o) => o.id), IN_CHUNK)) {
@@ -395,7 +437,10 @@ export async function loadChargeInputs(
         // "unknown" — there is no third state to preserve.
         cancelled: o.cancelled === true,
       },
-      items: (itemsByOrder.get(o.id) ?? []).map((it) => ({
+      items: (itemsByOrder.get(o.id) ?? [])
+        .filter((it) => !shipmentOnly.has(o.id)
+          || (it.pick_date != null && it.pick_date.slice(0, 10) >= windowStart))
+        .map((it) => ({
         id: it.id,
         sku: it.sku,
         quantityPicked: num(it.quantity_picked),
@@ -409,7 +454,13 @@ export async function loadChargeInputs(
           classifySku({ sku: it.sku ?? '' }).skuClass === 'component'),
         pickDate: it.pick_date,
       })),
-      shipments: (shipmentsForOrder.get(o.id) ?? []).map((s) => ({
+      shipments: (shipmentsForOrder.get(o.id) ?? [])
+        .filter((s) => !shipmentOnly.has(o.id) || shipmentInChargeWindow({
+          orderNumber: s.order_number,
+          shipDate: s.ship_date,
+          raw: s.raw_data,
+        }, windowStart))
+        .map((s) => ({
         id: s.id,
         // NaN when the column is null. buildCharges refuses it rather than
         // keying the charge on the string 'null'; see the comment there.
@@ -419,7 +470,11 @@ export async function loadChargeInputs(
         // in Task 15 groups on, and a label bought at 20:00 ET on the 31st
         // belongs to that month, not the next. Resolved through Intl in
         // America/New_York, never a hardcoded offset.
-        shipDate: warehouseDate(s.ship_date),
+        // A date-only raw_data.shipDate keeps that day when ship_date is the
+        // same day or that day stored at UTC midnight. A real clock time,
+        // including 00:00:00Z with no date-only source, uses New York.
+        // Existing charge_date rows are not rewritten here.
+        shipDate: warehouseDate(s.ship_date, s.raw_data?.shipDate),
         actualCost: num(s.actual_cost),
         // ShipStation reports a void on the shipment payload. There is no
         // column for it yet, so it is read from raw_data. Presence, not

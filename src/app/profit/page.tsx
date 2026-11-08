@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { easternToday } from '@/lib/ledger/eastern-day'
+import { SHIP_DATE_FILTER_NOTE } from '@/lib/billing/ship-day-label'
 import { profitPeriod, profitRows, type ProfitLevel } from '@/lib/pricing/profit-view'
 import { loadProfitShipments } from '@/app/api/profit/download/route'
 
@@ -27,7 +28,7 @@ export default async function ProfitPage({
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Profit</h2>
         <p className="text-[#4B4F58] text-sm mt-1">
-          Staff only. Price is what the client is charged. ShipStation cost is what we paid. Profit is the difference, and it stays blank when either figure is missing. A week opens Monday at 12:00 AM Eastern.
+          Staff only. Price is what the client is charged. ShipStation cost is what we paid. Profit is the difference, and it stays blank when either figure is missing. A week opens Monday at 12:00 AM Eastern. {SHIP_DATE_FILTER_NOTE}
         </p>
       </div>
       <form method="GET" className="bg-white rounded-xl p-5 flex flex-wrap items-end gap-3">

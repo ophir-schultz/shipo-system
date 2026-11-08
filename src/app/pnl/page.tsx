@@ -9,6 +9,10 @@ import { read, readErrors, loaded, isMigrationMissing, type LoadedData } from '@
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
+import { DASHBOARD_SHIPPING_BASIS, FULFILLMENT_PNL_BASIS } from '@/lib/billing/pnl-basis'
+import { NO_PERIOD_FULFILLMENT, fullPicture, type FullPicture } from '@/lib/billing/full-picture'
+import { BANK_OPEX_LABEL, BANK_OPEX_SEPARATE_FROM_DIRECT } from '@/lib/ledger/bank-operating-labels'
+import { bankOperatingFor, dollars, loadBankLines } from '@/lib/ledger/bank-operating-costs'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
 import PartnerPayouts from '@/components/pnl/PartnerPayouts'
 
@@ -486,11 +490,62 @@ async function getPnlData() {
   }) }
 }
 
+function pictureMoney(cents: number | null): string {
+  return cents === null ? 'unknown' : dollars(cents)
+}
+
+function FullPictureSection() {
+  const months = ['2026-09', '2026-10'].map((period) => fullPicture(
+    period,
+    bankOperatingFor(period, loadBankLines(period)),
+    NO_PERIOD_FULFILLMENT,
+    null,
+  ))
+  const rows: { label: string; value: (picture: FullPicture) => string }[] = [
+    { label: 'Shipping revenue', value: (picture) => pictureMoney(picture.shippingRevenueCents) },
+    { label: 'Fulfillment direct costs', value: (picture) => pictureMoney(picture.fulfillmentDirectCents) },
+    { label: 'Bank operating sample, provisional', value: (picture) => pictureMoney(picture.bankOperatingSampleCents) },
+    {
+      label: 'Bank postage, separate',
+      value: (picture) => picture.bankPostageCents === 0 ? '$0.00 none on this statement' : pictureMoney(picture.bankPostageCents),
+    },
+    { label: 'Other invoice costs', value: (picture) => picture.invoiceCostsCents === null ? 'unknown, not $0' : pictureMoney(picture.invoiceCostsCents) },
+    { label: 'Observed contribution before incomplete costs', value: (picture) => pictureMoney(picture.observedContributionCents) },
+    { label: 'Genuine net profit', value: () => 'unknown' },
+  ]
+  return (
+    <div className="bg-white rounded-xl p-5">
+      <h3 className="font-semibold text-[#0B1220]">Full picture</h3>
+      <p className="mt-1 text-xs text-[#4B4F58]">{BANK_OPEX_LABEL} {BANK_OPEX_SEPARATE_FROM_DIRECT} Genuine net profit is unknown until shipping revenue, complete fulfillment coverage, recognized operating costs, and supplied invoices are all present for that month. The bank sample is not subtracted from fulfillment margin.</p>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-[#4B4F58] border-b border-[#E2E8F0]">
+              <th className="pb-2 pr-3">Line</th>
+              {months.map((picture) => <th key={picture.period} className="pb-2 pr-3 text-right">{picture.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label} className="border-b border-[#E2E8F0]/60">
+                <td className="py-2 pr-3 text-[#0B1220]">{row.label}</td>
+                {months.map((picture) => (
+                  <td key={picture.period} className="py-2 pr-3 text-right font-mono text-[#0B1220]">{row.value(picture)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function Header() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Campaigns + P&amp;L</h2>
-      <p className="text-[#4B4F58] text-sm mt-1">Marketing ROI by campaign, fulfillment margin by client, referral payouts, and the inbound receiving log.</p>
+      <p className="text-[#4B4F58] text-sm mt-1">{FULFILLMENT_PNL_BASIS} {DASHBOARD_SHIPPING_BASIS} {BANK_OPEX_SEPARATE_FROM_DIRECT}</p>
     </div>
   )
 }
@@ -529,8 +584,10 @@ export default async function PnlPage() {
         </div>
       )}
 
+      <FullPictureSection />
+
       {/* Summary bar */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total Revenue" value={fmtOrDash(d.totalRevenue)}
           sub={d.unreadRevenue > 0
             ? `${d.clientCount} active clients — ${d.unreadRevenue} revenue figure${d.unreadRevenue === 1 ? '' : 's'} unreadable, excluded`
@@ -546,8 +603,8 @@ export default async function PnlPage() {
             said when every figure under it had been withheld. */}
         <StatCard label="Net Profit" value={fmtOrDash(d.totalProfit)}
           sub={d.totalProfit === null
-            ? 'No readable revenue or cost to compute it from'
-            : 'Gross of warehouse labor'}
+            ? 'Unknown amounts were excluded. Not $0, and not a full ledger P&L.'
+            : 'Shipment + warehouse + inbound, gross of labor. Not the dashboard shipping margin.'}
           color={d.totalProfit === null ? 'unknown' : d.totalProfit >= 0 ? 'green' : 'red'} />
         {/* A dash, not $0.00, when not one campaign has a spend entered. The
             count in `sub` was already telling the truth underneath a figure
@@ -646,7 +703,7 @@ export default async function PnlPage() {
       <div className="bg-white rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-[#0B1220]">Per-Client Fulfillment P&amp;L</h3>
-          <span className="text-xs text-[#4B4F58]">Revenue = shipping + warehouse + inbound · Cost = carrier + receiving · gross of labor</span>
+          <span className="text-xs text-[#4B4F58]">Shipment + warehouse + inbound. Unknown charges excluded, not $0. Not the dashboard shipping-only margin.</span>
         </div>
         {d.unassignedCount > 0 && (
           <div className="mb-4 rounded-lg px-4 py-3 border border-amber-200 bg-amber-50 text-xs text-amber-700">
@@ -765,7 +822,7 @@ export default async function PnlPage() {
       </div>
 
       {/* ---- Referral payouts + Inbound log ---- */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {/* Referral payouts */}
         <div className="bg-white rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">

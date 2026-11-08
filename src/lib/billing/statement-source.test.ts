@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty, pickOrdersFromShipments,
-  pickPackRows, pickRateOnCard, pickRowsFromCard, shippingChargesFromShipments,
+  applyManualFullFreight, applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty,
+  nayaxManualFreight, pickOrdersFromShipments, pickPackRows, pickRateOnCard, pickRowsFromCard,
+  shippingChargesFromShipments,
 } from './statement-source'
+import { statementAmountDueCell, statementFigures } from './statement-view'
+import { monthlyMinimumBill } from './monthly-minimum'
 import { buildStatement } from './statement'
-import { rateText } from './statement-view'
+import { chargeRateCell, rateText } from './statement-view'
+import { pricePick } from '@/lib/pricing/engine'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import type { StatementChargeRow } from './statement-charges'
 
@@ -41,6 +45,117 @@ describe('statement shipping uses the zone-matrix price', () => {
   })
 })
 
+describe('Nayax freight with no zone price', () => {
+  const atCost = (id: string, amount: number, date = '2026-10-09'): StatementChargeRow => charge({
+    charge_key: `shipment:${id}`,
+    amount,
+    unit_rate: null,
+    label: 'Shipping',
+    charge_date: date,
+  })
+  const october = { from: '2026-10-01', to: '2026-10-31' }
+  const agreed = {
+    status: 'standard' as const,
+    dollars: 395,
+    reason: 'The matching rate sheet uses the standard monthly minimum.',
+  }
+
+  it('is only the Nayax approval, not every at-cost client', () => {
+    expect(nayaxManualFreight('Nayax')).toBe(true)
+    expect(nayaxManualFreight('Orcam')).toBe(false)
+  })
+
+  it('does not bill the carrier cost when no manual full price is linked', () => {
+    const costs = [437.08, 105.65, 140.88, 77.75, 117.37]
+    const rows = applyManualFullFreight(
+      costs.map((amount, index) => atCost(String(1600 + index), amount)),
+      [],
+    ).charges
+    expect(rows.map((row) => row.amount)).toEqual([null, null, null, null, null])
+    expect(rows.every((row) => row.label === 'Shipping (full price pending)')).toBe(true)
+    expect(JSON.stringify(rows)).not.toContain('437.08')
+    expect(JSON.stringify(rows)).not.toContain('actual_cost')
+    const statement = buildStatement([
+      ...rows,
+      charge({ charge_type: 'pick', label: 'Pick & pack', amount: 1548.64, unit_rate: 0.5, charge_key: 'pick:1' }),
+    ], october)
+    const figures = statementFigures(statement, monthlyMinimumBill({
+      from: october.from, to: october.to, rows: statement.lines.flatMap(() => []), agreed,
+    }))
+    expect(statement.sum.unpriced).toBe(5)
+    expect(statement.sum.total).toBeCloseTo(1548.64, 2)
+    expect(figures.subtotalLabel).toBe('Known subtotal (partial)')
+    expect(statementAmountDueCell(figures)).toBe('not final')
+  })
+
+  it('uses one linked full price and does not also keep the carrier cost', () => {
+    const rows = applyManualFullFreight(
+      [atCost('900', 437.08)],
+      [{ shipmentId: '900', amount: 510, logDate: '2026-10-09' }],
+    ).charges
+    expect(rows).toEqual([expect.objectContaining({ amount: 510, unit_rate: null, label: 'Shipping' })])
+    expect(JSON.stringify(rows)).not.toContain('437.08')
+    expect(JSON.stringify(rows)).not.toContain('freight_cost')
+  })
+
+  it('leaves the charge unknown when two manual prices name the same shipment', () => {
+    const rows = applyManualFullFreight(
+      [atCost('900', 437.08)],
+      [
+        { shipmentId: '900', amount: 510, logDate: '2026-10-09' },
+        { shipmentId: '900', amount: 520, logDate: '2026-10-09' },
+      ],
+    ).charges
+    expect(rows[0].amount).toBeNull()
+    expect(rows[0].label).toBe('Shipping (full price pending)')
+    expect(JSON.stringify(rows)).not.toMatch(/510|520|437\.08/)
+  })
+
+  it('does not match a manual price by amount or by a missing shipment id', () => {
+    const rows = applyManualFullFreight(
+      [atCost('900', 437.08)],
+      [
+        { shipmentId: '', amount: 437.08, logDate: '2026-10-09' },
+        { shipmentId: '901', amount: 999, logDate: '2026-10-09' },
+      ],
+    ).charges
+    expect(rows[0].amount).toBeNull()
+    expect(JSON.stringify(rows)).not.toContain('999')
+  })
+
+  it('leaves a zone price in place and does not add the manual charge beside it', () => {
+    const zoned = applyZonePrices(
+      [atCost('900', 437.08)],
+      new Map([['900', 22.4]]),
+    )
+    const applied = applyManualFullFreight(zoned, [{ shipmentId: '900', amount: 510, logDate: '2026-10-09' }])
+    const rows = applied.charges
+    expect(applied.reviews[0]).toMatch(/zone price/)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].amount).toBe(22.4)
+    expect(rows[0].unit_rate).toBe(22.4)
+  })
+
+  it('does not drop a voided zero, a pick, or a non-freight shipping line', () => {
+    const rows = applyManualFullFreight([
+      charge({ charge_key: 'shipment:1', label: 'Shipping (voided)', amount: 0, unit_rate: null, charge_date: '2026-10-09' }),
+      charge({ charge_type: 'pick', label: 'Pick & pack', amount: 4.2, unit_rate: null, charge_key: 'pickpack:1' }),
+      charge({ charge_key: 'shipment:2', label: 'Delivery area', amount: 3.95, unit_rate: null, charge_date: '2026-10-09' }),
+    ], []).charges
+    expect(rows.map((row) => row.amount)).toEqual([0, 4.2, 3.95])
+  })
+
+  it('does not apply a manual total when the staff date is a different day', () => {
+    const applied = applyManualFullFreight(
+      [atCost('900', 437.08, '2026-10-09')],
+      [{ shipmentId: '900', amount: 510, logDate: '2026-10-10' }],
+    )
+    expect(applied.charges[0].amount).toBeNull()
+    expect(applied.reviews[0]).toMatch(/2026-10-10/)
+    expect(JSON.stringify(applied.charges)).not.toContain('510')
+  })
+})
+
 describe('statement pick & pack', () => {
   const orcam = loadRepoPriceList('Orcam').list
 
@@ -72,6 +187,18 @@ describe('statement pick & pack', () => {
       { label: 'Additional items', quantity: 2, rate: '$0.1000', amount: 0.2 },
       { label: 'Pick & pack', quantity: 2, rate: '$0.5000', amount: 1 },
     ])
+  })
+
+  it('prices a Nayax order from the price list without storing one unit rate', () => {
+    const nayax = loadRepoPriceList('Nayax').list
+    expect(nayax).not.toBeNull()
+    const lines = [{ sku: 'R100', qty: 21 }, { sku: 'CABLE', qty: 2 }]
+    const rows = pickPackRows([{ orderId: 'o1', chargeDate: '2026-10-08', lines }], nayax)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].unit_rate).toBeNull()
+    expect(rows[0].amount).toBe(pricePick(nayax!, lines).amount)
+    expect(rows[0].amount).not.toBeNull()
+    expect(chargeRateCell(rows[0])).toBe('see amount')
   })
 
   it('uses the picked quantity when one was recorded', () => {
@@ -112,6 +239,25 @@ describe('statement shipping when the ledger has no charges', () => {
       charge_key: 'shipment:11',
     })
     expect(rows[1].amount).toBeNull()
+  })
+
+  it('keeps a date-only ship day stored at UTC midnight, and shifts a real midnight', () => {
+    const rows = shippingChargesFromShipments([
+      {
+        shipstation_shipment_id: 21,
+        order_number: 'N-1',
+        ship_date: '2026-10-01T00:00:00.000Z',
+        client_rate: 10,
+        raw_data: { shipDate: '2026-10-01' },
+      },
+      {
+        shipstation_shipment_id: 22,
+        order_number: 'N-2',
+        ship_date: '2026-10-01T00:00:00.000Z',
+        client_rate: 11,
+      },
+    ])
+    expect(rows.map((row) => row.charge_date)).toEqual(['2026-10-01', '2026-09-30'])
   })
 })
 
@@ -181,6 +327,22 @@ describe('pick & pack from the warehouse rate card', () => {
     expect(decision.reason).toContain('orders_(picks_n_pack)')
   })
 
+  it('bills Orcam from the base pick rate and leaves the additional item off that rate', () => {
+    expect(isPickPackService('pick_pack')).toBe(true)
+    expect(isPickPackService('pick_pack_additional_item')).toBe(false)
+    const rows = [
+      { service_type: 'pick_pack', rate: 0.5, effective_from: '2026-11-03' },
+      { service_type: 'pick_pack_additional_item', rate: 0.1, effective_from: '2026-11-03' },
+    ]
+    const decision = decidePickRate(rows, '2026-11-06')
+    expect(decision.billed).toBe(true)
+    expect(decision.rate).toBe(0.5)
+    expect(decision.reason).toContain('pick_pack')
+    expect(decision.reason).not.toContain('additional')
+    expect(rows[0].rate).toBe(0.5)
+    expect(rows[1].rate).toBe(0.1)
+  })
+
   it('keeps Kivema skipped and names both live rates', () => {
     const decision = decidePickRate([
       { service_type: 'orders_(picks_n_pack)', rate: 1.2 },
@@ -219,6 +381,7 @@ describe('pick & pack from the warehouse rate card', () => {
     for (const service of [
       'storage',
       'additional_item',
+      'pick_pack_additional_item',
       'inbound_pallet_handling',
       'special_tasks_(kitting,_bundling,_counting,_repackaging,_labelling)',
       'loose_case',

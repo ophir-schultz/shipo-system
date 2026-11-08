@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { readAllPages, type PageResult } from '@/lib/db/page'
 import { priceOf, type Money } from '@/lib/billing/unpriced'
-import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { easternCalendarDay, rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
 
 // The two lookups that turn a statement from a total into a document a client
 // can CHECK.
@@ -125,6 +125,8 @@ export interface ShipmentFactsRow {
   recipient_city: string | null
   recipient_state: string | null
   recipient_zip: string | null
+  /** Present so the ship day can be read from raw_data.shipDate. Not exported. */
+  raw_data?: unknown
 }
 
 /**
@@ -154,7 +156,7 @@ export function readShipmentFacts(
     // short silently collapses the inferred row to GenericStringError and every
     // field read off it becomes an error instead of a column. Kept on one line
     // for that reason; the return annotation above is what catches it.
-    .select('shipstation_shipment_id, ship_date, carrier, service, tracking_number, weight, recipient_city, recipient_state, recipient_zip')
+    .select('shipstation_shipment_id, ship_date, carrier, service, tracking_number, weight, recipient_city, recipient_state, recipient_zip, raw_data')
     .in('shipstation_shipment_id', chunk)
     .order('shipstation_shipment_id')
     .order('id')
@@ -186,6 +188,46 @@ export function destinationOf(row: ShipmentFactsRow): string {
   const zip = (row.recipient_zip ?? '').trim()
   const tail = [state, zip].filter(p => p !== '').join(' ')
   return [city, tail].filter(p => p !== '').join(', ')
+}
+
+/**
+ * The day printed in the Shipments sheet.
+ *
+ * A date-only raw shipDate wins when the stored instant is that same day at
+ * UTC midnight. A real clock time, including exactly 00:00:00Z with no
+ * date-only source, is the New York day. A charge with no parcel keeps the
+ * stored charge date. This does not change which period the charge belongs to.
+ */
+export function parcelShipDay(
+  parcel: ShipmentFactsRow | undefined,
+  chargeDate: string,
+): string {
+  if (!parcel) return easternCalendarDay(chargeDate)
+  const day = shipCalendarDay(parcel.ship_date, rawShipDate(parcel.raw_data))
+  return day || easternCalendarDay(chargeDate)
+}
+
+/** How many printed ship days fall outside the period the charges were filtered on. */
+export function countOutsideShipDates(
+  lines: readonly { ship_date: string }[],
+  range: { from: string; to: string },
+): number {
+  return lines.filter((line) =>
+    line.ship_date !== '' && (line.ship_date < range.from || line.ship_date > range.to),
+  ).length
+}
+
+/**
+ * The charge stays in the period its stored charge date selected.
+ * Printing the carrier's calendar day does not move it.
+ */
+export function outsideShipDateNote(count: number): string {
+  if (count <= 0) return ''
+  const noun = count === 1
+    ? '1 shipment date falls'
+    : `${count} shipment dates fall`
+  return `${noun} outside this period. The charges stay in this period. `
+    + `Their stored charge dates were not moved.`
 }
 
 /** A shipping charge, with the parcel it billed where we could find it. */
@@ -242,12 +284,11 @@ export function buildShipmentLines(
     if (parcel === undefined) unmatched += 1
 
     lines.push({
-      // The CHARGE's date, not the parcel's `ship_date`. They are the same fact
-      // -- the ledger stamps charge_date from the ship date
-      // (calculate-charges.ts:384-385) -- but only charge_date is what the
-      // period was filtered on, so only it is guaranteed to fall inside the
-      // period this sheet is headed with.
-      ship_date: easternCalendarDay(charge.charge_date),
+      // The parcel's calendar day when we have one. charge_date is a stored
+      // date and can be the previous Eastern day of a date-only ship date.
+      // The period filter still uses charge_date, so this display does not
+      // move the charge into another month.
+      ship_date: parcelShipDay(parcel, charge.charge_date),
       order_number: charge.order_id === null
         ? ''
         : orderNumbers.get(charge.order_id) ?? '',

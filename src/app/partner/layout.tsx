@@ -41,17 +41,17 @@ export default function PartnerLayout({ children }: { children: React.ReactNode 
           part a partner recognises and the layout is one narrow column
           on a phone either way. */}
       <header className="bg-[var(--brand-ink)] border-b-[5px] border-[var(--brand-accent)]">
-        <div className="mx-auto max-w-4xl px-6 py-4 flex items-center justify-between gap-4">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
           <a href="https://shipousa.com" className="shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/shipo-logo.png" alt="Shipo" width={111} height={42} />
           </a>
-          <span className="text-xs font-bold uppercase tracking-widest text-[#0B1220]">
+          <span className="text-right text-xs font-bold uppercase tracking-wide text-[#C7D8F0]">
             Partner Portal
           </span>
         </div>
       </header>
-      <main className="mx-auto max-w-4xl px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
       <footer className="mx-auto max-w-4xl px-6 py-10 mt-8 text-xs text-[#6B7A8D] leading-relaxed border-t border-[var(--brand-surface)]">
         <p>
           Questions about a figure on this page? Email{' '}

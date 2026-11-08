@@ -35,12 +35,14 @@ export default function UnmatchedAgreements({
     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
       <p className="font-semibold">DocuSign events that matched no partner</p>
       <p className="mt-1 text-xs">
-        These were recorded and did not grant portal access. They are not applied by name or email.
+        These were recorded and did not grant portal access. A voided event is not a signature.
+        A completed event stays unmatched until a person names the partner. This screen does not
+        write that match, and it does not mark an agreement signed or a W-9 received.
       </p>
       <ul className="mt-2 space-y-1 font-mono text-xs">
         {events.map((event) => (
           <li key={`${event.envelope_id}:${event.event}:${event.processed_at ?? ''}`}>
-            {event.processed_at?.slice(0, 10) ?? 'undated'} · {event.event} · {event.envelope_id}
+            {event.processed_at?.slice(0, 10) ?? 'undated'} · DocuSign {event.event} · match pending · not a W-9 · {event.envelope_id}
           </li>
         ))}
       </ul>

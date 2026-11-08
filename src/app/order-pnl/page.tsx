@@ -51,6 +51,7 @@ async function getOrderPnl() {
       clientName: clientName(row.clients),
       orderNumber: row.order_number,
       shipDate: row.ship_date,
+      raw: row.raw_data,
       trackingNumber: row.tracking_number,
       clientRate: asNumber(row.client_rate),
       actualCost: asNumber(row.actual_cost),

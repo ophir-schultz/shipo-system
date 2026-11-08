@@ -5,7 +5,7 @@
 // A missing rate or a missing cost is null. It is not zero, and it is not
 // dropped into a sum that then looks finished.
 
-import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { presentShipDay } from '@/lib/billing/ship-day-label'
 import { money } from './engine'
 
 export interface ShipmentMoney {
@@ -14,6 +14,8 @@ export interface ShipmentMoney {
   clientName: string | null
   orderNumber: string
   shipDate: string | null
+  /** Carrier payload, used only to read a date-only shipDate. Not a money field. */
+  raw?: unknown
   trackingNumber: string | null
   /** What the client is charged for this label. Null when it has not been priced. */
   clientRate: number | null
@@ -26,7 +28,10 @@ export interface OrderProfit {
   orderNumber: string
   clientId: string | null
   clientName: string
+  /** Eastern day of the earliest stored ship instant. The date filter uses this. */
   shipDate: string | null
+  /** Carrier calendar day of that same shipment. */
+  carrierShipDate: string | null
   shipments: number
   clientPrice: number | null
   shipstationCost: number | null
@@ -65,7 +70,8 @@ export function rollupOrders(rows: ShipmentMoney[]): OrderProfit[] {
     let costCents = 0
     let priceKnown = true
     let costKnown = true
-    let shipDate: string | null = null
+    let earliest: string | null = null
+    let earliestRaw: unknown = null
     for (const shipment of shipments) {
       const price = num(shipment.clientRate)
       const cost = num(shipment.actualCost)
@@ -73,12 +79,13 @@ export function rollupOrders(rows: ShipmentMoney[]): OrderProfit[] {
       else priceCents += Math.round(price * 100)
       if (cost === null) costKnown = false
       else costCents += Math.round(cost * 100)
-      if (shipment.shipDate && (shipDate === null || shipment.shipDate < shipDate)) {
-        shipDate = shipment.shipDate
+      if (shipment.shipDate && (earliest === null || shipment.shipDate < earliest)) {
+        earliest = shipment.shipDate
+        earliestRaw = shipment.raw
       }
     }
     const clientPrice = priceKnown ? money(priceCents / 100) : null
-    const day = easternCalendarDay(shipDate)
+    const presented = presentShipDay(earliest, earliestRaw)
     const shipstationCost = costKnown ? money(costCents / 100) : null
     const first = shipments[0]
     orders.push({
@@ -86,7 +93,8 @@ export function rollupOrders(rows: ShipmentMoney[]): OrderProfit[] {
       orderNumber: first.orderNumber,
       clientId: first.clientId,
       clientName: first.clientName ?? 'Unassigned',
-      shipDate: day || null,
+      shipDate: presented.storedShipDay || null,
+      carrierShipDate: presented.shipDate || null,
       shipments: shipments.length,
       clientPrice,
       shipstationCost,

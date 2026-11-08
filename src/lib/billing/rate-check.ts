@@ -1,4 +1,4 @@
-import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { presentShipDay } from '@/lib/billing/ship-day-label'
 import {
   chargeableOunces,
   DEFAULT_RATE_CHECK_FLAGS,
@@ -17,6 +17,8 @@ export interface RateCheckShipment {
   clientName: string | null
   orderNumber: string | null
   shipDate: string | null
+  /** Eastern day of the stored instant, only when it is not the carrier day. */
+  storedShipDay: string | null
   weightOz: number | null
   zone: number | null
   service: string | null
@@ -33,6 +35,10 @@ export interface RateCheckSummary {
   matched: number
   /** Clients with no tab, and Suteka parcels over 6 lb. Not mismatches. */
   notCompared: number
+  /** Matched rows whose billed rate is not the sheet price. Not a pass. */
+  priceGaps: number
+  /** Matched rows with no billed rate. Unknown, not $0. */
+  unknownBilled: number
   billedTotal: number | null
   sheetTotal: number | null
   difference: number | null
@@ -102,11 +108,13 @@ export function checkShipment(
     if (!charged.note) return reason
     return reason ? `${reason} ${charged.note}` : charged.note
   }
+  const presented = presentShipDay(row.shipDate, row.raw)
   const base = {
     id: row.id,
     clientName: row.clientName,
     orderNumber: row.orderNumber,
-    shipDate: row.shipDate ? easternCalendarDay(row.shipDate) : null,
+    shipDate: presented.shipDate || null,
+    storedShipDay: presented.differs ? presented.storedShipDay : null,
     weightOz,
     zone,
     service: row.service,
@@ -128,13 +136,18 @@ export function checkShipment(
     return { ...base, kind: match.kind, reason }
   }
   const difference = row.clientRate == null ? null : fromCents(cents(row.clientRate) - cents(match.price))
+  const gap = row.clientRate == null
+    ? 'Billed rate is unknown. Not $0.'
+    : difference !== 0
+      ? 'Billed rate differs from the sheet. Not a pass.'
+      : null
   return {
     ...base,
     zone: zone,
     sheetPrice: match.price,
     difference,
     kind: 'matched',
-    reason: withNote(null),
+    reason: withNote(gap),
   }
 }
 
@@ -151,6 +164,8 @@ export function summarizeRateCheck(rows: readonly RateCheckShipment[]): RateChec
     const notCompared = list.filter((row) => row.kind === 'no_sheet' || row.kind === 'manual').length
     const billed = matched.filter((row) => row.clientRate != null)
     const compared = matched.filter((row) => row.clientRate != null)
+    const priceGaps = compared.filter((row) => row.difference !== 0).length
+    const unknownBilled = matched.filter((row) => row.clientRate == null).length
     const billedTotal = billed.length === 0 ? null : fromCents(billed.reduce((sum, row) => sum + cents(row.clientRate ?? 0), 0))
     const sheetTotal = matched.length === 0 ? null : fromCents(matched.reduce((sum, row) => sum + cents(row.sheetPrice ?? 0), 0))
     const difference = compared.length === 0 ? null : fromCents(compared.reduce((sum, row) => sum + cents((row.clientRate ?? 0) - (row.sheetPrice ?? 0)), 0))
@@ -159,6 +174,8 @@ export function summarizeRateCheck(rows: readonly RateCheckShipment[]): RateChec
       shipments: list.length,
       matched: matched.length,
       notCompared,
+      priceGaps,
+      unknownBilled,
       billedTotal,
       sheetTotal,
       difference,

@@ -98,7 +98,7 @@ function Summary({ data }: { data: LoadedData<Awaited<ReturnType<typeof getAdjus
   return (
     <>
       {/* Summary cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl p-4 border border-amber-200" style={{ background: '#FFFBEB' }}>
           <p className="text-amber-700 text-xs uppercase tracking-wider">Pending</p>
           <p className="text-2xl font-bold text-amber-700 mt-1">{pending.length}</p>

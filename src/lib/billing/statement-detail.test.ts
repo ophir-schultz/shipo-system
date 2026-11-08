@@ -10,6 +10,7 @@ vi.mock('@/lib/supabase', () => ({
 const {
   shipmentIdFromChargeKey, readOrderNumbers, readShipmentFacts,
   factsByShipmentId, destinationOf, buildShipmentLines, unmatchedParcelNote,
+  parcelShipDay, countOutsideShipDates, outsideShipDateNote,
   IN_CHUNK,
 } = await import('@/lib/billing/statement-detail')
 
@@ -182,7 +183,8 @@ describe('the parcel read is scoped to what a client may see', () => {
     // The converse, so the test above cannot be satisfied by selecting nothing.
     const code = codeOnly(src())
     for (const column of ['carrier', 'service', 'tracking_number', 'weight',
-                          'recipient_city', 'recipient_state', 'recipient_zip']) {
+                          'recipient_city', 'recipient_state', 'recipient_zip',
+                          'raw_data']) {
       expect(code, column).toContain(column)
     }
   })
@@ -276,13 +278,42 @@ describe('the shipments sheet is built from the charges', () => {
     expect(unknown.lines[0].order_number).toBe('')
   })
 
-  it('dates the row from the charge, which is what the period filtered on', () => {
-    // The parcel's ship_date is the same fact but was not the filter, so a
-    // timezone boundary could put it outside the period the sheet is headed
-    // with. Fixture deliberately disagrees to prove which one is used.
+  it('prints the raw ship calendar and leaves a genuine midnight on the Eastern day', () => {
+    const dated = factsByShipmentId([
+      parcel({
+        shipstation_shipment_id: 9,
+        ship_date: '2026-10-09T00:00:00.000Z',
+        raw_data: { shipDate: '2026-10-09' },
+      }),
+      parcel({
+        shipstation_shipment_id: 1,
+        ship_date: '2026-10-01T00:00:00.000Z',
+        raw_data: { shipDate: '2026-10-01T00:00:00.000Z' },
+      }),
+    ] as never)
+    const { lines } = buildShipmentLines([
+      charge({ charge_key: 'shipment:9', charge_date: '2026-10-08' }),
+      charge({ charge_key: 'shipment:1', charge_date: '2026-09-30' }),
+    ], numbers, dated)
+    expect(lines.map((line) => line.ship_date)).toEqual(['2026-10-09', '2026-09-30'])
+    expect(JSON.stringify(lines)).not.toContain('shipDate')
+  })
+
+  it('keeps the stored charge date when the parcel was not found', () => {
     const { lines } = buildShipmentLines(
-      [charge({ charge_date: '2026-10-05' })], numbers, facts)
-    expect(lines[0].ship_date).toBe('2026-10-05')
+      [charge({ charge_key: 'shipment:999', charge_date: '2026-10-08' })], numbers, facts)
+    expect(lines[0].ship_date).toBe('2026-10-08')
+    expect(parcelShipDay(undefined, '2026-10-08')).toBe('2026-10-08')
+  })
+
+  it('counts a printed ship day that falls outside the filtered period', () => {
+    const outside = countOutsideShipDates(
+      [{ ship_date: '2026-10-01' }, { ship_date: '2026-09-30' }],
+      { from: '2026-09-01', to: '2026-09-30' },
+    )
+    expect(outside).toBe(1)
+    expect(outsideShipDateNote(outside)).toMatch(/stored charge dates were not moved/)
+    expect(outsideShipDateNote(0)).toBe('')
   })
 
   it('reports a charge whose parcel is missing, and still bills it', () => {

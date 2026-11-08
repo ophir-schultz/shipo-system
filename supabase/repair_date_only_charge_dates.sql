@@ -1,0 +1,26 @@
+-- GATED. Do not run.
+--
+-- Some ShipStation ship dates were calendar days. They were stored as
+-- timestamptz at 00:00:00+00 and then read as America/New_York, so
+-- order_charges.charge_date moved to the previous day. October 1 became
+-- September 30. The five Nayax freight rows checked on 2026-11-08 moved
+-- from the 9th, 13th, 21st, 23rd and 28th to the day before. All five
+-- stayed inside October, so that month's total did not change. A date on
+-- the 1st would change the month.
+--
+-- New reads keep a date-only value as that day. This file would repair
+-- charge_date only where raw_data.shipDate is still that date-only source.
+-- It is not applied. Running it rewrites historical cohorts and needs a
+-- separate approval, plus a count of rows that would leave their month.
+--
+-- Review only:
+--   select c.id, c.charge_date, s.raw_data->>'shipDate' as source_day
+--   from order_charges c
+--   join shipments s
+--     on s.shipstation_shipment_id::text = substring(c.charge_key from 10)
+--   where c.charge_date_source = 'ship_date'
+--     and s.raw_data->>'shipDate' ~ '^\d{4}-\d{2}-\d{2}$'
+--     and c.charge_date is distinct from (s.raw_data->>'shipDate')::date;
+--
+-- There is no automatic rollback of a charge_date change. Do not run an
+-- update from this file.

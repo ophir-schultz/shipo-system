@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { liveCampaign, MARKETING_NOT_CONNECTED } from '@/lib/marketing-connection'
 
 interface VideoScript {
   title: string
@@ -102,10 +103,7 @@ function timeUntil(dateStr: string) {
 }
 
 function WebsiteStatus({ website }: { website: WebsiteData | null }) {
-  if (!website) {
-    return <p style={{ color: '#4B4F58', fontSize: 14 }}>Loading website stats...</p>
-  }
-  if (website.connected) return null
+  if (!website || website.connected) return null
   return (
     <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 28 }}>
       <div style={{ color: '#1A73E8', fontSize: 18, fontWeight: 700 }}>Website stats not connected</div>
@@ -173,7 +171,6 @@ export default function MarketingDashboard() {
   const [data, setData] = useState<MarketingState | null>(null)
   const [website, setWebsite] = useState<WebsiteData | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const fetchData = async () => {
@@ -192,12 +189,11 @@ export default function MarketingDashboard() {
         setError(null)
         setData(await marketingRes.json())
       }
-      setLastRefresh(new Date())
     } catch (e) {
       setData(null)
       setError(e instanceof Error ? e.message : 'Marketing data could not be read.')
     } finally {
-      setLoading(false)
+      setLastRefresh(new Date())
     }
 
     try {
@@ -224,32 +220,40 @@ export default function MarketingDashboard() {
     return () => clearInterval(interval)
   }, [])
 
-  if (loading) return (
+  if (!liveCampaign(data)) {
+    if (error) return (
     <div style={{ background: '#FFFFFF', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ color: '#1A73E8', fontSize: 18 }}>Loading marketing dashboard...</div>
+      <div style={{ textAlign: 'center', maxWidth: 420 }}>
+        <div style={{ color: '#b91c1c', fontSize: 18 }}>Marketing data could not be read</div>
+        <p style={{ color: '#4B4F58', fontSize: 14, marginTop: 8 }}>{error}</p>
+        <button type="button" onClick={() => { setError(null); fetchData() }}
+          style={{ marginTop: 16, background: '#1A73E8', color: 'white', border: 0, borderRadius: 8, padding: '8px 16px', fontWeight: 600 }}>
+          Try again
+        </button>
+      </div>
     </div>
-  )
-
-  if (data && data.connected === false) return (
+    )
+    return (
     <div style={{ background: '#FFFFFF', minHeight: '100vh', padding: '48px 24px' }}>
       <div style={{ maxWidth: 720, margin: '0 auto', display: 'grid', gap: 20 }}>
         <div style={{ textAlign: 'center', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 32 }}>
-          <div style={{ color: '#1A73E8', fontSize: 18, fontWeight: 700 }}>Marketing data source not connected</div>
+          <div style={{ color: '#1A73E8', fontSize: 18, fontWeight: 700 }}>{MARKETING_NOT_CONNECTED}</div>
           <p style={{ color: '#4B4F58', fontSize: 14, marginTop: 8, lineHeight: 1.5 }}>
-            {data.message || 'marketing data source not connected'}. The dashboard will fill in once that source is available. Nothing else on this screen is failing.
+            No live campaign data was read, so no campaign spend is shown.
           </p>
         </div>
         <WebsiteStatus website={website} />
       </div>
     </div>
-  )
+    )
+  }
 
   if (error || !data) return (
     <div style={{ background: '#FFFFFF', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ textAlign: 'center', maxWidth: 420 }}>
         <div style={{ color: '#b91c1c', fontSize: 18 }}>Marketing data could not be read</div>
         <p style={{ color: '#4B4F58', fontSize: 14, marginTop: 8 }}>{error || 'The marketing service did not return a dashboard.'}</p>
-        <button type="button" onClick={() => { setLoading(true); setError(null); fetchData() }}
+        <button type="button" onClick={() => { setError(null); fetchData() }}
           style={{ marginTop: 16, background: '#1A73E8', color: 'white', border: 0, borderRadius: 8, padding: '8px 16px', fontWeight: 600 }}>
           Try again
         </button>

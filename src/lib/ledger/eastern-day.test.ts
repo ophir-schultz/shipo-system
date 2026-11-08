@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
   easternAddDays,
+  dateOnlyLiteral,
   easternCalendarDay,
+  shipCalendarDay,
+  storedShipInstant,
   easternMidnightIso,
   easternMonthStart,
   easternToday,
   easternWeekStart,
   easternYearStart,
+  utcMidnightDay,
 } from './eastern-day'
 
 describe('eastern calendar', () => {
@@ -30,6 +34,38 @@ describe('eastern calendar', () => {
     // September is EDT, UTC-4. November is EST, UTC-5.
     expect(easternMidnightIso('2026-09-29')).toBe('2026-09-29T04:00:00.000Z')
     expect(easternMidnightIso('2026-11-03')).toBe('2026-11-03T05:00:00.000Z')
+  })
+
+  it('keeps a date-only October 1, and reads a real midnight UTC as the Eastern day', () => {
+    expect(dateOnlyLiteral('2026-10-01')).toBe('2026-10-01')
+    expect(dateOnlyLiteral('2026-10-01T00:00:00.000Z')).toBeNull()
+    expect(easternCalendarDay('2026-10-01')).toBe('2026-10-01')
+    expect(easternCalendarDay('2026-11-01')).toBe('2026-11-01')
+    expect(easternCalendarDay('2026-03-08')).toBe('2026-03-08')
+    expect(easternCalendarDay('2026-10-01T00:00:00Z')).toBe('2026-09-30')
+    expect(easternCalendarDay('2026-10-01T00:00:00.000Z')).toBe('2026-09-30')
+    expect(easternCalendarDay('2026-10-09 00:00:00+00')).toBe('2026-10-08')
+    expect(easternCalendarDay('2026-11-01T00:00:00.000Z')).toBe('2026-10-31')
+    expect(easternCalendarDay('2026-03-08T00:00:00.000Z')).toBe('2026-03-07')
+    expect(easternWeekStart(easternCalendarDay('2026-10-05'))).toBe('2026-10-05')
+    expect(easternWeekStart(easternCalendarDay('2026-10-05T00:00:00.000Z'))).toBe('2026-09-28')
+    expect(utcMidnightDay('2026-10-01T00:00:00.000Z')).toBe('2026-10-01')
+    expect(utcMidnightDay('2026-10-01T00:00:00.001Z')).toBeNull()
+    expect(shipCalendarDay('2026-10-01T00:00:00.000Z', '2026-10-01')).toBe('2026-10-01')
+    expect(shipCalendarDay('2026-10-01 00:00:00+00', '2026-10-01')).toBe('2026-10-01')
+    expect(shipCalendarDay('2026-10-01T00:00:00.000Z')).toBe('2026-09-30')
+    expect(shipCalendarDay('2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z')).toBe('2026-09-30')
+    expect(shipCalendarDay('2026-10-01T03:30:00.000Z', '2026-10-01')).toBe('2026-09-30')
+    expect(shipCalendarDay('2026-10-02T12:00:00.000Z', '2026-10-01')).toBe('2026-10-02')
+    expect(shipCalendarDay(storedShipInstant('2026-10-01'), '2026-10-01')).toBe('2026-10-01')
+    expect(easternCalendarDay(storedShipInstant('2026-10-01'))).toBe('2026-10-01')
+    expect(storedShipInstant('2026-10-01T00:00:00.000Z')).toBe('2026-10-01T00:00:00.000Z')
+    expect(storedShipInstant('2026-10-27T15:00:00.000Z')).toBe('2026-10-27T15:00:00.000Z')
+  })
+
+  it('still converts a real clock time to the Eastern day', () => {
+    expect(easternCalendarDay('2026-10-01T03:30:00.000Z')).toBe('2026-09-30')
+    expect(easternCalendarDay('2026-11-01T03:30:00.000Z')).toBe('2026-10-31')
   })
 
   it('reads a timestamptz as the New York calendar day', () => {

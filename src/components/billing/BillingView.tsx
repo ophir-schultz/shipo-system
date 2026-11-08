@@ -9,6 +9,8 @@ import {
 import { exclusionNote, reconcile, reconciledOrUnknown } from '@/lib/billing/profit-rollup'
 import { filterByDate, undatedNote } from '@/lib/billing/date-range'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { SHIP_DATE_FILTER_NOTE } from '@/lib/billing/ship-day-label'
+import { ShipDay } from '@/components/shipments/ShipDay'
 import { billableWarehouse, isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 
 // `client_rate` and `warehouse_daily_log.total` are nullable: recalculate.ts
@@ -65,6 +67,7 @@ type BillingShipment = {
   client_rate: Money
   profit_loss: Money
   is_loss: boolean | null
+  raw_data?: unknown
 }
 
 type BillingWarehouseLine = {
@@ -331,7 +334,7 @@ export default function BillingView({ data }: { data: BillingData }) {
 
       {/* Client summary cards */}
       {client && (
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
           {/* Each `sub` carries BOTH reasons the figure above it can be short:
               lines with no price, and lines left out for having no date. The
               `||` fallback is only reached when there is nothing to report. */}
@@ -344,10 +347,10 @@ export default function BillingView({ data }: { data: BillingData }) {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-[#F1F5FB] rounded-xl p-1">
+      <div className="grid grid-cols-2 gap-1 rounded-xl bg-[#F1F5FB] p-1 sm:flex">
         {tabs.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition ${
+            className={`flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition sm:flex-1 ${
               activeTab === tab.id ? 'text-[#0B1220]' : 'text-[#4B4F58] hover:text-[#0B1220]'
             }`}
             style={activeTab === tab.id ? { background: '#1A73E8' } : {}}>
@@ -367,7 +370,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                 whose carrier cost has not landed, because those have no
                 knowable margin. Two questions, two figures, two labels; the
                 note underneath says which rows are held back and why. */}
-            <div className="grid grid-cols-4 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+            <div className="grid grid-cols-2 divide-[#E2E8F0] border-b border-[#E2E8F0] lg:grid-cols-4 lg:divide-x">
               <Stat label="Shipments" value={shipments.length} />
               <Stat label="We Paid (Carrier)" value={fig(known.cost)} />
               <Stat label="Charged Client" value={fig(known.revenue)} />
@@ -380,6 +383,7 @@ export default function BillingView({ data }: { data: BillingData }) {
             {marginNote && (
               <p className="px-5 py-2 text-xs text-amber-700 border-b border-[#E2E8F0]">⚠ {marginNote}</p>
             )}
+            <p className="px-5 py-2 text-[11px] text-[#6B7A8D] border-b border-[#E2E8F0]">{SHIP_DATE_FILTER_NOTE}</p>
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-[#F1F5FB]">
@@ -398,7 +402,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                     : shipments.map(s => (
                       <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                         <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
-                        <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{easternCalendarDay(s.ship_date) || '—'}</td>
+                        <td className="px-4 py-2.5 text-[#4B4F58] text-xs"><ShipDay stored={s.ship_date} raw={s.raw_data} /></td>
                         <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                         <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
                         <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-700 font-semibold'}`}
@@ -421,7 +425,7 @@ export default function BillingView({ data }: { data: BillingData }) {
 
         {activeTab === 'warehouse' && (
           <>
-            <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+            <div className="grid grid-cols-1 divide-[#E2E8F0] border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x">
               <Stat label="Entries" value={warehouse.length} />
               <Stat label="Total Charges" value={`$${warehouseTotal.toFixed(2)}`} />
               <Stat label="Unique Days" value={new Set(warehouse.map(w => w.log_date)).size} />
@@ -467,7 +471,7 @@ export default function BillingView({ data }: { data: BillingData }) {
 
         {activeTab === 'adjustments' && (
           <>
-            <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+            <div className="grid grid-cols-1 divide-[#E2E8F0] border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x">
               <Stat label="Total Adjustments" value={adjustments.length} />
               <Stat label="Pending" value={formatSignedPrice(totalOrUnknown(pendingAdjSum))} note={unpricedNote(pendingAdjSum.unpriced, 'adjustment')} color="orange" />
               <Stat label="Resolved" value={adjustments.filter(a => a.status !== 'pending').length} />
@@ -509,7 +513,7 @@ export default function BillingView({ data }: { data: BillingData }) {
 
         {activeTab === 'bills' && (
           <>
-            <div className="grid grid-cols-3 divide-x divide-[#E2E8F0] border-b border-[#E2E8F0]">
+            <div className="grid grid-cols-1 divide-[#E2E8F0] border-b border-[#E2E8F0] sm:grid-cols-3 sm:divide-x">
               <Stat label="Bills Generated" value={bills.length} />
               <Stat label="Total Billed" value={formatPrice(totalOrUnknown(billedSum))} note={unpricedNote(billedSum.unpriced, 'bill')} />
               <Stat label="Paid" value={bills.filter(b => b.status === 'paid').length} color="green" />

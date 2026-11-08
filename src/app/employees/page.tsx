@@ -1,8 +1,10 @@
 import { supabaseAdmin } from '@/lib/supabase'
+import { createClient } from '@/lib/supabase-server'
 import type { User } from '@supabase/supabase-js'
 import EmployeesClient from './EmployeesClient'
 import MfaSetup from '@/components/auth/MfaSetup'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
+import { isEmployeeAdmin, ownerAdminEmails } from '@/lib/employee-admin'
 
 // Without this line Next prerendered this page at build time, so the staff list
 // was the list as of the last deploy: an employee added through this screen did
@@ -57,13 +59,17 @@ export default async function EmployeesPage() {
     page += 1
   }
 
+  const session = await createClient()
+  const { data: { user } } = await session.auth.getUser()
+  const canManage = !!user && isEmployeeAdmin(user, ownerAdminEmails(process.env.OWNER_ADMIN_EMAILS))
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Employees</h2>
         <p className="text-[#4B4F58] text-sm mt-1">{employees.length} user{employees.length !== 1 ? 's' : ''} with access</p>
       </div>
-      <EmployeesClient employees={employees} />
+      <EmployeesClient employees={employees} canManage={canManage} />
 
       <div>
         <h3 className="text-lg font-semibold text-[#0B1220] mb-3">My Security</h3>

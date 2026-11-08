@@ -3,7 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
-import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { easternAddDays, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { shipmentDateColumns } from '@/lib/billing/ship-day-label'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
 import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 // `priceOf` is no longer imported here. The profit-loss branch was its only
@@ -15,6 +16,7 @@ import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 import { isReportType, REPORT_TYPES } from '@/lib/billing/report-types'
 import {
   combineReconciled, marginPct, reconcile, reconciledOrUnknown,
+  SHIPMENT_MARGIN_HEADER, SHIPMENT_RATE_BASIS, SHIPMENT_RATE_HEADER,
 } from '@/lib/billing/profit-rollup'
 
 // The per-shipment sheets pass `s.client_rate` straight through, which is
@@ -166,7 +168,7 @@ export async function GET(req: Request) {
     rows = withoutVoided(data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
-      'Ship Date': easternCalendarDay(s.ship_date),
+      ...shipmentDateColumns(s.ship_date, s.raw_data),
       'Carrier': s.carrier,
       'Service': s.service,
       'Tracking': s.tracking_number,
@@ -183,7 +185,7 @@ export async function GET(req: Request) {
   }
 
   else if (type === 'profit-loss') {
-    sheetName = 'Profit & Loss'
+    sheetName = 'Shipment rate'
     const { data, error } = await readAllPages((from, to) => {
       let q = supabaseAdmin
         .from('shipments')
@@ -271,11 +273,11 @@ export async function GET(req: Request) {
         'No agreed rate (excluded)': l.r.unrated,
         'Awaiting carrier cost (excluded)': l.r.uncosted,
         'Neither known (excluded)': l.r.unmeasured,
-        'Revenue ($)': money(v.revenue),
+        [SHIPMENT_RATE_HEADER]: money(v.revenue),
         'Carrier Cost ($)': money(v.cost),
         // Derived by subtraction, in cents, from the two columns to its left.
-        // Revenue - Carrier Cost equals this exactly, for every row.
-        'Profit ($)': money(v.profit),
+        // Shipment client rate minus carrier cost equals this exactly.
+        [SHIPMENT_MARGIN_HEADER]: money(v.profit),
         // Blank and not '0%' when there is no revenue to be a ratio of.
         // `profit / 0` is Infinity or NaN and both render through toFixed
         // without complaint; the old code printed '0%', which reads as "we
@@ -310,6 +312,11 @@ export async function GET(req: Request) {
           key: '', label: 'TOTAL', unattributed: false,
           r: totals, losses: lines.reduce((s, l) => s + l.losses, 0),
         }),
+        {
+          ...Object.fromEntries(columns.map(k => [k, ''])),
+          'Client': 'NOTE',
+          [SHIPMENT_RATE_HEADER]: SHIPMENT_RATE_BASIS,
+        },
       ]
     }
   }
@@ -330,7 +337,7 @@ export async function GET(req: Request) {
     rows = withoutVoided(data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
-      'Ship Date': easternCalendarDay(s.ship_date),
+      ...shipmentDateColumns(s.ship_date, s.raw_data),
       'Carrier': s.carrier,
       'Service': s.service,
       'Recipient': s.recipient_name,
