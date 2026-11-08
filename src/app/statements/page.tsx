@@ -100,6 +100,7 @@ async function getStatement(clientId: string, clientName: string, range: DateRan
   return loaded(readErrors(charges, earliest) ?? priceError, () => ({
     range,
     statement,
+    freightReviews: priced.freightReviews,
     minimum: monthlyMinimumBill({
       from: range.from,
       to: range.to,
@@ -280,11 +281,12 @@ function StatementTable(
       range: DateRange
       statement: Statement
       earliest: string | null
+      freightReviews: string[]
       minimum: MonthlyMinimum
     }
   },
 ) {
-  const { range, statement, earliest, minimum } = data
+  const { range, statement, earliest, minimum, freightReviews } = data
   const figures = statementFigures(statement, minimum)
   const subtotal = figures.knownSubtotal
   const dueCell = statementAmountDueCell(figures)
@@ -397,6 +399,7 @@ function StatementTable(
         <li>{minimum.reason}</li>
         {coverage !== '' && <li>{coverage}</li>}
         {unpriced !== '' && <li>{unpriced}.</li>}
+        {freightReviews.map((note) => <li key={note}>{note}</li>)}
         {estimated !== '' && <li>{estimated}.</li>}
       </ul>
     </div>

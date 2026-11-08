@@ -7,6 +7,7 @@ import { money, pricePick } from '@/lib/pricing/engine'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
 import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
 import { zenventorySlug } from '@/lib/zenventory/client-env'
+import { FREIGHT_SERVICE, freightColumnMissing } from '@/lib/billing/manual-freight'
 import type { DateRange } from '@/lib/billing/statement'
 import { parsePriceList } from '@/lib/pricing/parse-price-list'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
@@ -45,13 +46,33 @@ export function nayaxManualFreight(clientName: string): boolean {
 
 export interface ManualFreightPrice {
   shipmentId: string
+  /** Full client price: carrier cost plus the markup staff typed. */
   amount: number | null
+  /** Staff date on the freight line. Compared with the charge date. */
+  logDate: string
+}
+
+export interface ManualFreightResult {
+  charges: StatementChargeRow[]
+  /** Staff-only. A zone price or a date clash was not overridden. */
+  reviews: string[]
+}
+
+function isAtCostShipmentFreight(charge: StatementChargeRow): boolean {
+  if (charge.charge_type !== 'shipping') return false
+  if (charge.label !== 'Shipping') return false
+  if (priceOf(charge.unit_rate) !== null) return false
+  return shipmentIdFromChargeKey(charge.charge_key) !== null
+}
+
+function pendingFreight(charge: StatementChargeRow): StatementChargeRow {
+  return { ...charge, amount: null, label: 'Shipping (full price pending)' }
 }
 
 export function applyManualFullFreight(
   charges: readonly StatementChargeRow[],
   manuals: readonly ManualFreightPrice[],
-): StatementChargeRow[] {
+): ManualFreightResult {
   const byShipment = new Map<string, ManualFreightPrice[]>()
   for (const manual of manuals) {
     const id = manual.shipmentId.trim()
@@ -60,22 +81,25 @@ export function applyManualFullFreight(
     list.push(manual)
     byShipment.set(id, list)
   }
-  return charges.map((charge) => {
-    if (charge.charge_type !== 'shipping') return charge
-    if (priceOf(charge.unit_rate) !== null) return charge
-    if (typeof charge.label === 'string' && /\(voided\)/i.test(charge.label)) return charge
+  const reviews: string[] = []
+  const chargesOut = charges.map((charge) => {
     const shipmentId = shipmentIdFromChargeKey(charge.charge_key)
-    if (shipmentId === null) return charge
-    const links = byShipment.get(shipmentId) ?? []
-    if (links.length !== 1) {
-      return { ...charge, amount: null, label: 'Shipping (full price pending)' }
+    const links = shipmentId ? byShipment.get(shipmentId) ?? [] : []
+    if (links.length > 0 && priceOf(charge.unit_rate) !== null && charge.charge_type === 'shipping') {
+      reviews.push(`Shipment ${shipmentId} already has a zone price. The manual freight line was not applied.`)
+      return charge
     }
+    if (!isAtCostShipmentFreight(charge)) return charge
+    if (links.length !== 1) return pendingFreight(charge)
     const full = priceOf(links[0].amount)
-    if (full === null) {
-      return { ...charge, amount: null, label: 'Shipping (full price pending)' }
+    if (full === null) return pendingFreight(charge)
+    if (links[0].logDate !== charge.charge_date) {
+      reviews.push(`Shipment ${shipmentId} manual date ${links[0].logDate} is not the charge date ${charge.charge_date}. The carrier cost was not billed.`)
+      return pendingFreight(charge)
     }
-    return { ...charge, amount: full, unit_rate: full, label: 'Shipping' }
+    return { ...charge, amount: full, label: 'Shipping' }
   })
+  return { charges: chargesOut, reviews }
 }
 
 export function applyZonePrices(
@@ -431,6 +455,36 @@ async function priceListFor(clientId: string, clientName: string): Promise<Price
  * Shipping amounts from the zone-matrix price, plus pick & pack from the
  * price list when the ledger did not already price a pick or a pack.
  */
+async function readLinkedFreight(
+  clientId: string,
+  range?: DateRange,
+): Promise<{ rows: ManualFreightPrice[]; error: { message: string } | null }> {
+  const result = await supabaseAdmin
+    .from('warehouse_daily_log')
+    .select('shipment_ref, total, log_date, client_id, service_type')
+    .eq('client_id', clientId)
+    .eq('service_type', FREIGHT_SERVICE)
+  if (freightColumnMissing(result.error)) return { rows: [], error: null }
+  if (result.error) return { rows: [], error: { message: result.error.message } }
+  const rows: ManualFreightPrice[] = []
+  for (const raw of result.data ?? []) {
+    const record = raw as {
+      shipment_ref?: string | null
+      total?: unknown
+      log_date?: string | null
+      client_id?: string | null
+      service_type?: string | null
+    }
+    const shipmentId = record.shipment_ref?.trim() ?? ''
+    const logDate = record.log_date?.slice(0, 10) ?? ''
+    if (!shipmentId || !/^\d{4}-\d{2}-\d{2}$/.test(logDate)) continue
+    if (record.client_id !== clientId || record.service_type !== FREIGHT_SERVICE) continue
+    if (range && (logDate < range.from || logDate > range.to)) continue
+    rows.push({ shipmentId, amount: priceOf(record.total), logDate })
+  }
+  return { rows, error: null }
+}
+
 const UNREAD_PICK: PickPackDecision = {
   billed: false,
   rate: null,
@@ -442,7 +496,12 @@ export async function priceStatementCharges(
   clientName: string,
   charges: StatementChargeRow[],
   range?: DateRange,
-): Promise<{ charges: StatementChargeRow[]; pickPack: PickPackDecision; error: { message: string } | null }> {
+): Promise<{
+  charges: StatementChargeRow[]
+  pickPack: PickPackDecision
+  error: { message: string } | null
+  freightReviews: string[]
+}> {
   const shipmentIds = [...new Set(charges.flatMap((charge) => {
     if (charge.charge_type !== 'shipping') return []
     const id = shipmentIdFromChargeKey(charge.charge_key)
@@ -460,7 +519,7 @@ export async function priceStatementCharges(
         .order('shipstation_shipment_id')
         .order('id')
         .range(from, to)))
-    if (priced.error) return { charges, pickPack: UNREAD_PICK, error: priced.error }
+    if (priced.error) return { charges, pickPack: UNREAD_PICK, error: priced.error, freightReviews: [] }
     for (const row of priced.data ?? []) {
       const record = row as { shipstation_shipment_id: number | string | null; client_rate: unknown; raw_data?: unknown }
       if (record.shipstation_shipment_id === null) continue
@@ -478,7 +537,14 @@ export async function priceStatementCharges(
     const id = shipmentIdFromChargeKey(charge.charge_key)
     return id === null || !voidedIds.has(id)
   }), rates)
-  if (nayaxManualFreight(clientName)) next = applyManualFullFreight(next, [])
+  let freightReviews: string[] = []
+  if (nayaxManualFreight(clientName)) {
+    const linked = await readLinkedFreight(clientId, range)
+    if (linked.error) return { charges: next, pickPack: UNREAD_PICK, error: linked.error, freightReviews }
+    const applied = applyManualFullFreight(next, linked.rows)
+    next = applied.charges
+    freightReviews = applied.reviews
+  }
 
   let shipmentOrders: ShipmentPickOrder[] = []
   if (range && !next.some((charge) => charge.charge_type === 'shipping')) {
@@ -492,7 +558,7 @@ export async function priceStatementCharges(
         .order('ship_date')
         .order('id')
         .range(from, to))
-    if (shipped.error) return { charges: next, pickPack: UNREAD_PICK, error: shipped.error }
+    if (shipped.error) return { charges: next, pickPack: UNREAD_PICK, error: shipped.error, freightReviews }
     const rows = (shipped.data ?? []) as ShipmentForStatement[]
     const numbers = [...new Set(rows.flatMap((row) => {
       const number = row.order_number?.trim() ?? ''
@@ -509,7 +575,7 @@ export async function priceStatementCharges(
           .order('order_number')
           .order('id')
           .range(from, to)))
-      if (orders.error) return { charges: next, pickPack: UNREAD_PICK, error: orders.error }
+      if (orders.error) return { charges: next, pickPack: UNREAD_PICK, error: orders.error, freightReviews }
       for (const row of orders.data ?? []) {
         const record = row as { id: string | null; order_number: string | null }
         if (!record.id || !record.order_number || orderIdByNumber.has(record.order_number)) continue
@@ -525,6 +591,7 @@ export async function priceStatementCharges(
       charges: next,
       pickPack: { billed: true, rate: null, reason: 'Pick & pack was already priced on the ledger.' },
       error: null,
+      freightReviews,
     }
   }
 
@@ -555,6 +622,7 @@ export async function priceStatementCharges(
         reason: 'Pick & pack skipped: no order in this period to attach it to. Shipments did not join to an orders row for this client.',
       },
       error: null,
+      freightReviews,
     }
   }
 
@@ -566,7 +634,7 @@ export async function priceStatementCharges(
       .order('order_id')
       .order('id')
       .range(from, to)))
-  if (items.error) return { charges: next, pickPack: UNREAD_PICK, error: items.error }
+  if (items.error) return { charges: next, pickPack: UNREAD_PICK, error: items.error, freightReviews }
 
   const linesByOrder = new Map<string, SkuQty[]>()
   for (const row of items.data ?? []) {
@@ -595,6 +663,7 @@ export async function priceStatementCharges(
       charges: [...next, ...picks],
       pickPack: { billed: true, rate: null, reason: 'Pick & pack came from the price list, not the rate card.' },
       error: null,
+      freightReviews,
     }
   }
 
@@ -602,16 +671,16 @@ export async function priceStatementCharges(
     .from('client_warehouse_rates')
     .select('*')
     .eq('client_id', clientId)
-  if (card.error) return { charges: next, pickPack: UNREAD_PICK, error: card.error }
+  if (card.error) return { charges: next, pickPack: UNREAD_PICK, error: card.error, freightReviews }
   const onDate = [...pickOrders.map((order) => order.chargeDate)].sort()[0] ?? range?.from ?? ''
   const decision = decidePickRate((card.data ?? []) as PickCardRow[], onDate)
   if (!decision.billed || decision.rate === null) {
-    return { charges: next, pickPack: decision, error: null }
+    return { charges: next, pickPack: decision, error: null, freightReviews }
   }
   const missingJoin = pickOrders.filter((order) => order.orderId === null).length
   const reason = missingJoin === 0
     ? `${decision.reason.replace(/\.$/, '')} (${pickOrders.length} orders).`
     : `${decision.reason.replace(/\.$/, '')} (${pickOrders.length} orders). ${missingJoin} order number${missingJoin === 1 ? '' : 's'} had no orders row for this client, so pick & pack was billed from the shipment order number.`
   next = [...next, ...pickRowsFromCard(pickOrders, decision.rate)]
-  return { charges: next, pickPack: { billed: true, rate: decision.rate, reason }, error: null }
+  return { charges: next, pickPack: { billed: true, rate: decision.rate, reason }, error: null, freightReviews }
 }

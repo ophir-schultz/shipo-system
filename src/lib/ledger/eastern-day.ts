@@ -19,15 +19,48 @@ export function easternToday(at: Date = new Date()): string {
  * a ship date uses this, so a statement, a shipment row and a profit row
  * cannot name two days for one label.
  */
+/**
+ * A calendar day that was never a clock time.
+ *
+ * `2026-10-09` is October 9. Postgres stores that in a timestamptz as
+ * `2026-10-09 00:00:00+00`. Reading those zeros as an Eastern instant lands
+ * on October 8. Exact UTC midnight is that cast, not a scan at midnight.
+ * A time other than 00:00:00Z is a real instant and is not matched here.
+ */
+export function dateOnlyLiteral(value: string | null | undefined): string | null {
+  if (value == null) return null
+  const trimmed = value.trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
+  const midnight = /^(\d{4}-\d{2}-\d{2})[T ]00:00:00(?:\.0+)?(?:Z|\+00(?::00)?)?$/.exec(trimmed)
+  return midnight ? midnight[1] : null
+}
+
 export function easternCalendarDay(value: string | Date | null | undefined): string {
   if (value == null || value === '') return ''
   if (typeof value !== 'string') {
     return Number.isNaN(value.getTime()) ? '' : easternToday(value)
   }
   const trimmed = value.trim()
+  const literal = dateOnlyLiteral(trimmed)
+  if (literal) return literal
   if (!trimmed.includes('T')) return trimmed.slice(0, 10)
   const at = new Date(trimmed)
   return Number.isNaN(at.getTime()) ? trimmed.slice(0, 10) : easternToday(at)
+}
+
+/**
+ * What to store for a ShipStation ship date.
+ *
+ * A date-only value is the start of that warehouse day, so a later Eastern
+ * read returns the same day. A value that already carries a clock time is
+ * stored unchanged.
+ */
+export function storedShipInstant(value: string | null | undefined): string | null {
+  if (value == null) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return easternMidnightIso(trimmed)
+  return trimmed
 }
 
 export function easternMonthStart(date: string): string {

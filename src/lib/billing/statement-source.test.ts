@@ -46,11 +46,12 @@ describe('statement shipping uses the zone-matrix price', () => {
 })
 
 describe('Nayax freight with no zone price', () => {
-  const atCost = (id: string, amount: number): StatementChargeRow => charge({
+  const atCost = (id: string, amount: number, date = '2026-10-09'): StatementChargeRow => charge({
     charge_key: `shipment:${id}`,
     amount,
     unit_rate: null,
     label: 'Shipping',
+    charge_date: date,
   })
   const october = { from: '2026-10-01', to: '2026-10-31' }
   const agreed = {
@@ -69,7 +70,7 @@ describe('Nayax freight with no zone price', () => {
     const rows = applyManualFullFreight(
       costs.map((amount, index) => atCost(String(1600 + index), amount)),
       [],
-    )
+    ).charges
     expect(rows.map((row) => row.amount)).toEqual([null, null, null, null, null])
     expect(rows.every((row) => row.label === 'Shipping (full price pending)')).toBe(true)
     expect(JSON.stringify(rows)).not.toContain('437.08')
@@ -90,20 +91,21 @@ describe('Nayax freight with no zone price', () => {
   it('uses one linked full price and does not also keep the carrier cost', () => {
     const rows = applyManualFullFreight(
       [atCost('900', 437.08)],
-      [{ shipmentId: '900', amount: 510 }],
-    )
-    expect(rows).toEqual([expect.objectContaining({ amount: 510, unit_rate: 510 })])
+      [{ shipmentId: '900', amount: 510, logDate: '2026-10-09' }],
+    ).charges
+    expect(rows).toEqual([expect.objectContaining({ amount: 510, unit_rate: null, label: 'Shipping' })])
     expect(JSON.stringify(rows)).not.toContain('437.08')
+    expect(JSON.stringify(rows)).not.toContain('freight_cost')
   })
 
   it('leaves the charge unknown when two manual prices name the same shipment', () => {
     const rows = applyManualFullFreight(
       [atCost('900', 437.08)],
       [
-        { shipmentId: '900', amount: 510 },
-        { shipmentId: '900', amount: 520 },
+        { shipmentId: '900', amount: 510, logDate: '2026-10-09' },
+        { shipmentId: '900', amount: 520, logDate: '2026-10-09' },
       ],
-    )
+    ).charges
     expect(rows[0].amount).toBeNull()
     expect(rows[0].label).toBe('Shipping (full price pending)')
     expect(JSON.stringify(rows)).not.toMatch(/510|520|437\.08/)
@@ -112,8 +114,11 @@ describe('Nayax freight with no zone price', () => {
   it('does not match a manual price by amount or by a missing shipment id', () => {
     const rows = applyManualFullFreight(
       [atCost('900', 437.08)],
-      [{ shipmentId: '', amount: 437.08 }, { shipmentId: '901', amount: 999 }],
-    )
+      [
+        { shipmentId: '', amount: 437.08, logDate: '2026-10-09' },
+        { shipmentId: '901', amount: 999, logDate: '2026-10-09' },
+      ],
+    ).charges
     expect(rows[0].amount).toBeNull()
     expect(JSON.stringify(rows)).not.toContain('999')
   })
@@ -123,19 +128,31 @@ describe('Nayax freight with no zone price', () => {
       [atCost('900', 437.08)],
       new Map([['900', 22.4]]),
     )
-    const rows = applyManualFullFreight(zoned, [{ shipmentId: '900', amount: 510 }])
+    const applied = applyManualFullFreight(zoned, [{ shipmentId: '900', amount: 510, logDate: '2026-10-09' }])
+    const rows = applied.charges
+    expect(applied.reviews[0]).toMatch(/zone price/)
     expect(rows).toHaveLength(1)
     expect(rows[0].amount).toBe(22.4)
     expect(rows[0].unit_rate).toBe(22.4)
   })
 
-  it('does not drop a voided zero or a non-shipping charge', () => {
+  it('does not drop a voided zero, a pick, or a non-freight shipping line', () => {
     const rows = applyManualFullFreight([
-      charge({ charge_key: 'shipment:1', label: 'Shipping (voided)', amount: 0, unit_rate: null }),
+      charge({ charge_key: 'shipment:1', label: 'Shipping (voided)', amount: 0, unit_rate: null, charge_date: '2026-10-09' }),
       charge({ charge_type: 'pick', label: 'Pick & pack', amount: 4.2, unit_rate: null, charge_key: 'pickpack:1' }),
-    ], [])
-    expect(rows[0].amount).toBe(0)
-    expect(rows[1].amount).toBe(4.2)
+      charge({ charge_key: 'shipment:2', label: 'Delivery area', amount: 3.95, unit_rate: null, charge_date: '2026-10-09' }),
+    ], []).charges
+    expect(rows.map((row) => row.amount)).toEqual([0, 4.2, 3.95])
+  })
+
+  it('does not apply a manual total when the staff date is a different day', () => {
+    const applied = applyManualFullFreight(
+      [atCost('900', 437.08, '2026-10-09')],
+      [{ shipmentId: '900', amount: 510, logDate: '2026-10-10' }],
+    )
+    expect(applied.charges[0].amount).toBeNull()
+    expect(applied.reviews[0]).toMatch(/2026-10-10/)
+    expect(JSON.stringify(applied.charges)).not.toContain('510')
   })
 })
 

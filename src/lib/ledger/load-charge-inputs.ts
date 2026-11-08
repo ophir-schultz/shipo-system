@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { readAllPages, type PageResult } from '@/lib/db/page'
 import { classifySku } from '@/lib/billing/classify-sku'
 import { warehouseParts } from '@/lib/ledger/pick-date'
+import { dateOnlyLiteral } from '@/lib/ledger/eastern-day'
 import type { ChargeInput } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
 
@@ -115,9 +116,13 @@ const num = (v: unknown): number | null =>
  * and declines to charge — the same outcome as a null column, and better than
  * inventing today's date for a shipment nobody can date.
  */
-const warehouseDate = (v: unknown): string => {
+const warehouseDate = (v: unknown, sourceDay?: unknown): string => {
+  const source = dateOnlyLiteral(typeof sourceDay === 'string' ? sourceDay : null)
+  if (source && /^\d{4}-\d{2}-\d{2}$/.test(String(sourceDay).trim())) return source
   const raw = String(v ?? '').trim()
   if (raw === '') return ''
+  const literal = dateOnlyLiteral(raw)
+  if (literal) return literal
   const at = new Date(raw)
   if (!Number.isFinite(at.getTime())) return ''
   return warehouseParts(at).date
@@ -419,7 +424,11 @@ export async function loadChargeInputs(
         // in Task 15 groups on, and a label bought at 20:00 ET on the 31st
         // belongs to that month, not the next. Resolved through Intl in
         // America/New_York, never a hardcoded offset.
-        shipDate: warehouseDate(s.ship_date),
+        // raw_data.shipDate is the calendar day ShipStation sent. Prefer it
+        // over the timestamptz, which is that day at UTC midnight and would
+        // otherwise fall on the previous Eastern day. Existing charge_date
+        // rows are not rewritten here.
+        shipDate: warehouseDate(s.ship_date, s.raw_data?.shipDate),
         actualCost: num(s.actual_cost),
         // ShipStation reports a void on the shipment payload. There is no
         // column for it yet, so it is read from raw_data. Presence, not

@@ -5,6 +5,7 @@ import { sourceForCarrier } from '@/lib/ledger/carrier'
 import { isSyncRunLocked, openSyncRun } from '@/lib/ledger/sync-run'
 import { loadStoreMap, decideAttribution } from '@/lib/sync/store-attribution'
 import { describeBlankLabel } from '@/lib/sync/label-identity'
+import { storedShipInstant } from '@/lib/ledger/eastern-day'
 
 /**
  * How many blank-order-number labels the result carries examples of.
@@ -524,7 +525,7 @@ export async function syncShipments(daysBack = 30): Promise<ShipStationSyncResul
             shipstation_shipment_id: shipmentId,
             order_number: orderNumber,
             order_date: s.orderDate,
-            ship_date: s.shipDate,
+            ship_date: storedShipInstant(s.shipDate),
             carrier,
             service,
             tracking_number: s.trackingNumber ?? '',

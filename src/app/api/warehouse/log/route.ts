@@ -4,6 +4,9 @@ import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
 import { cardLines, priceLogLine, type RateCardRow } from '@/lib/billing/warehouse-card-lines'
 import type { WarehouseRateRow } from '@/lib/billing/warehouse-log-rate'
+import {
+  FREIGHT_SERVICE, freightColumnMissing, prepareFreightLines, type FreightDraft,
+} from '@/lib/billing/manual-freight'
 
 // What this route writes ends up on five reachable surfaces:
 // dashboard/page.tsx sums `total` for the week, the month and per client, and
@@ -50,9 +53,13 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: 'date must be a YYYY-MM-DD string' }, { status: 400 })
   }
-  if (!Array.isArray(body.rows) || body.rows.length === 0) {
+  if (body.rows != null && !Array.isArray(body.rows)) {
     return NextResponse.json(
-      { error: 'rows must be a non-empty array' }, { status: 400 })
+      { error: 'rows must be an array' }, { status: 400 })
+  }
+  const freightRaw = (body as { freight?: unknown }).freight
+  if (freightRaw != null && !Array.isArray(freightRaw)) {
+    return NextResponse.json({ error: 'freight must be an array' }, { status: 400 })
   }
 
   // Validated before anything is written, and the whole request is refused
@@ -63,7 +70,7 @@ export async function POST(req: Request) {
   // `parseFloat(q) > 0` before posting, so a bad quantity here means the
   // caller is not that page, and the honest answer is to say which row.
   const rows: LogRow[] = []
-  for (const [i, raw] of (body.rows as unknown[]).entries()) {
+  for (const [i, raw] of ((body.rows ?? []) as unknown[]).entries()) {
     const row = raw as Partial<LogRow>
     if (typeof row?.client_id !== 'string' || !row.client_id) {
       return NextResponse.json(
@@ -106,11 +113,82 @@ export async function POST(req: Request) {
   // applied -- turning every line on this screen unpriced on an older schema,
   // which is a worse answer than pricing it. A rate card is a handful of rows
   // per client, so the wildcard costs nothing.
+  const freightDrafts: FreightDraft[] = []
+  for (const [i, raw] of ((freightRaw ?? []) as unknown[]).entries()) {
+    const row = raw as Partial<FreightDraft>
+    if (!row || typeof row.clientId !== 'string' || typeof row.date !== 'string' || typeof row.shipmentRef !== 'string') {
+      return NextResponse.json({ error: `Freight line ${i + 1} is incomplete.` }, { status: 400 })
+    }
+    freightDrafts.push({
+      clientId: row.clientId,
+      date: row.date,
+      shipmentRef: row.shipmentRef,
+      carrierCost: row.carrierCost,
+      markup: row.markup,
+    })
+  }
+  if (rows.length === 0 && freightDrafts.length === 0) {
+    return NextResponse.json({ error: 'Add a service quantity or a freight line.' }, { status: 400 })
+  }
+
+  let freightToSave: { clientId: string; date: string; shipmentRef: string; carrierCost: number; markup: number; fullTotal: number }[] = []
+  let freightSetup: 'ready' | 'absent' | null = freightDrafts.length ? 'ready' : null
+  if (freightDrafts.length > 0) {
+    const refs = [...new Set(freightDrafts.map((line) => line.shipmentRef.trim()).filter(Boolean))]
+    const found = refs.length === 0 ? { data: [], error: null } : await supabaseAdmin
+      .from('shipments')
+      .select('shipstation_shipment_id, client_id, client_rate')
+      .in('shipstation_shipment_id', refs)
+    if (found.error) {
+      return NextResponse.json({
+        error: `Could not check the shipments, so nothing was logged: ${found.error.message}`,
+      }, { status: 503 })
+    }
+    const probe = await supabaseAdmin.from('warehouse_daily_log').select('shipment_ref').limit(1)
+    if (freightColumnMissing(probe.error)) {
+      freightSetup = 'absent'
+    } else if (probe.error) {
+      return NextResponse.json({
+        error: `Could not read freight lines, so nothing was logged: ${probe.error.message}`,
+      }, { status: 503 })
+    } else {
+      const existing = await supabaseAdmin
+        .from('warehouse_daily_log')
+        .select('shipment_ref')
+        .in('shipment_ref', refs)
+      if (freightColumnMissing(existing.error)) {
+        freightSetup = 'absent'
+      } else if (existing.error) {
+        return NextResponse.json({
+          error: `Could not read freight lines, so nothing was logged: ${existing.error.message}`,
+        }, { status: 503 })
+      } else {
+        const prepared = prepareFreightLines(
+          freightDrafts,
+          (found.data ?? []).map((row) => {
+            const record = row as { shipstation_shipment_id: number | string; client_id: string | null; client_rate: unknown }
+            return {
+              shipmentRef: String(record.shipstation_shipment_id),
+              clientId: record.client_id ?? '',
+              zonePriced: record.client_rate != null && record.client_rate !== '',
+            }
+          }),
+          (existing.data ?? []).map((row) => String((row as { shipment_ref?: string }).shipment_ref ?? '')),
+        )
+        if (!prepared.ok) return NextResponse.json({ error: prepared.error }, { status: 400 })
+        freightToSave = prepared.lines
+      }
+    }
+  }
+
   const clientIds = [...new Set(rows.map((r) => r.client_id))]
-  const { data: rateData, error: rateError } = await supabaseAdmin
-    .from('client_warehouse_rates')
-    .select('*')
-    .in('client_id', clientIds)
+  const rateRead = clientIds.length === 0
+    ? { data: [], error: null }
+    : await supabaseAdmin
+      .from('client_warehouse_rates')
+      .select('*')
+      .in('client_id', clientIds)
+  const { data: rateData, error: rateError } = rateRead
 
   // THE WHOLE REQUEST IS REFUSED, and nothing is written. "We could not ask
   // the database what the rate is" is not the same finding as "the rate is
@@ -174,8 +252,32 @@ export async function POST(req: Request) {
     })
   }
 
-  const { error } = await supabaseAdmin.from('warehouse_daily_log').insert(entries)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (entries.length > 0) {
+    const { error } = await supabaseAdmin.from('warehouse_daily_log').insert(entries)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+  if (freightToSave.length > 0) {
+    const { error } = await supabaseAdmin.from('warehouse_daily_log').insert(freightToSave.map((line) => ({
+      client_id: line.clientId,
+      log_date: line.date,
+      service_type: FREIGHT_SERVICE,
+      quantity: 1,
+      rate: null,
+      total: line.fullTotal,
+      freight_cost: line.carrierCost,
+      freight_markup: line.markup,
+      shipment_ref: line.shipmentRef,
+      notes: null,
+    })))
+    if (error) {
+      return NextResponse.json({
+        error: entries.length > 0
+          ? `Service lines were saved. Freight was not: ${error.message}`
+          : error.message,
+        freightSaved: 0,
+      }, { status: 500 })
+    }
+  }
 
   // `unpriced` is returned, not just logged, because the person who typed
   // these numbers is standing in front of the screen right now and is the
@@ -185,6 +287,8 @@ export async function POST(req: Request) {
     success: true,
     count: entries.length,
     unpriced,
+    freightSaved: freightToSave.length,
+    freightSetup,
   })
 }
 
