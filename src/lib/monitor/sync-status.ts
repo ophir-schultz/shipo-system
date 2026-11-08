@@ -246,11 +246,11 @@ export function describeSync(
   view: { syncing: boolean; elapsed: string | null },
 ): { dot: string; label: string } {
   if (view.syncing) {
-    return { dot: 'bg-[#1A73E8] animate-pulse', label: 'Syncing…' }
+    return { dot: 'bg-[#1A73E8] animate-pulse', label: 'Checking status…' }
   }
 
   if (!status) {
-    return { dot: 'bg-gray-500', label: 'Starting sync…' }
+    return { dot: 'bg-gray-500', label: 'Checking status…' }
   }
 
   const since = view.elapsed ?? 'just now'

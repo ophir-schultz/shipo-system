@@ -48,6 +48,7 @@ import {
 } from '@/lib/partner-agreement-audit'
 import { docusignConfig, envelopeStatus } from '@/lib/docusign-client'
 import { requireStaff, requireStaffOrCron } from '@/lib/require-staff'
+import { cronBearerAuthorized } from '@/lib/monitor/cron-auth'
 import { recalculateShipments, type RecalculateStats } from '@/lib/billing/recalculate'
 // CHARGE_CRON_HOURS_UTC is imported for the undelivered-report message, which
 // states how often this runs. Derived rather than written out, because that
@@ -78,22 +79,31 @@ const ALERT_TO = process.env.ALERT_EMAIL || 'ophir@shipousa.com'
 // throttled (CHARGE_THROTTLE_MINUTES) so browser polling cannot drive it.
 export const maxDuration = 300
 
-// GET is what vercel.json calls. It recalculates. Existing charge
-// dates and amounts stay put because the charge run uses preserve_stored.
+// The four-hour cron and the dashboard both GET this URL. The cron
+// sends Authorization: Bearer <CRON_SECRET or MONITOR_SECRET> and may
+// write. A signed-in staff GET is the report only. A query flag or a
+// non-secret header does not make it a write.
+function privateResponse(denied: Response): Response {
+  const headers = new Headers(denied.headers)
+  headers.set('Cache-Control', 'private, no-store')
+  return new Response(denied.body, { status: denied.status, headers })
+}
+
 export async function GET(req: Request) {
   const denied = await requireStaffOrCron(req)
-  if (denied) return denied
-  // The production cron is this GET. It still recalculates. persist-charges
-  // records preserve_stored and does not move an existing charge date or
-  // amount. Preview PR 58 leaves this GET read-only; this release does not.
-  return runMonitor(true)
+  if (denied) return privateResponse(denied)
+  const write = cronBearerAuthorized(req.headers.get('authorization'), {
+    CRON_SECRET: process.env.CRON_SECRET,
+    MONITOR_SECRET: process.env.MONITOR_SECRET,
+  })
+  return runMonitor(write)
 }
 
 // ShipStation sync, Zenventory client mapping, and recalculate write.
 // Only a signed-in staff POST runs them. A cron bearer is not enough.
 export async function POST(req: Request) {
   const denied = await requireStaff()
-  if (denied) return denied
+  if (denied) return privateResponse(denied)
   return runMonitor(true)
 }
 
@@ -938,5 +948,6 @@ async function runMonitor(write: boolean) {
     // this needs revisiting -- the write path must not be driven by a mail
     // misconfiguration.
     status: undelivered ? 500 : 200,
+    headers: { 'Cache-Control': 'private, no-store' },
   })
 }
