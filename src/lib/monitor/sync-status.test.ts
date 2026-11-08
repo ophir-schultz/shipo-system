@@ -283,13 +283,13 @@ describe('describeSync keeps the three states visually distinct', () => {
   })
 
   it('shows the in-flight and pre-first-run states without claiming either outcome', () => {
-    expect(describeSync(null, { syncing: true, elapsed: null }).label).toBe('Syncing…')
+    expect(describeSync(null, { syncing: true, elapsed: null }).label).toBe('Checking status…')
     const starting = describeSync(null, { syncing: false, elapsed: null })
-    expect(starting.label).toBe('Starting sync…')
+    expect(starting.label).toBe('Checking status…')
     expect(starting.dot).not.toContain('green')
     // A failed pass still shows as failed while the next attempt is in flight?
     // No -- syncing wins, because it is the honest description of right now.
     const failed = classifyMonitorAttempt(responded({ ok: false, status: 500 }))
-    expect(describeSync(failed, { syncing: true, elapsed: '1m ago' }).label).toBe('Syncing…')
+    expect(describeSync(failed, { syncing: true, elapsed: '1m ago' }).label).toBe('Checking status…')
   })
 })

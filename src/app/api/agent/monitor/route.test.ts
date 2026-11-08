@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createFakeSupabase, type FakeDb } from '@/lib/ledger/fake-supabase'
 // The real schedule, reaching this file through the partial mock below. See the
@@ -720,16 +721,90 @@ describe('GET /api/agent/monitor: a charge run that wrote nothing', () => {
 // The cron is the only unattended caller and a non-2xx is the only thing it
 // surfaces, so the status code is the signal being asserted here -- not just
 // the body. `run` discards the Response, hence runRaw.
-describe('GET /api/agent/monitor keeps the production cron', () => {
-  it('syncs and recalculates, and does not skip the charge run', async () => {
+describe('GET /api/agent/monitor is a report unless the cron bearer matches', () => {
+  const secret = 'cron-test-secret'
+
+  it('returns 401 for an anonymous GET and does not sync', async () => {
+    h.requireStaffOrCron.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Not authorised.' }), { status: 401 }),
+    )
     const res = await GET(new Request('https://shipo.test/api/agent/monitor'))
+    expect(res.status).toBe(401)
+    expect(h.syncShipments).not.toHaveBeenCalled()
+    expect(h.recalculateCharges).not.toHaveBeenCalled()
+    expect(res.headers.get('cache-control')).toContain('no-store')
+  })
+
+  it('does not sync a staff GET, including a cron hint that is not the bearer', async () => {
+    vi.stubEnv('CRON_SECRET', secret)
+    vi.stubEnv('MONITOR_SECRET', '')
+    const res = await GET(new Request('https://shipo.test/api/agent/monitor?cron=1', {
+      headers: { 'x-vercel-cron': '1' },
+    }))
+    expect(res.status).toBe(200)
+    expect(h.syncShipments).not.toHaveBeenCalled()
+    expect(h.syncClientAssignments).not.toHaveBeenCalled()
+    expect(h.recalculateShipments).not.toHaveBeenCalled()
+    expect(h.recalculateCharges).not.toHaveBeenCalled()
+    const body = await res.json() as MonitorBody
+    expect(body.log.join('\n')).toContain('Charge recalculation was not run')
+    expect(JSON.stringify(body)).not.toContain(secret)
+    expect(res.headers.get('cache-control')).toContain('no-store')
+  })
+
+  it('syncs when the bearer matches the configured secret', async () => {
+    vi.stubEnv('CRON_SECRET', secret)
+    vi.stubEnv('MONITOR_SECRET', '')
+    const res = await GET(new Request('https://shipo.test/api/agent/monitor', {
+      headers: { authorization: `Bearer ${secret}` },
+    }))
     expect(res.status).toBe(200)
     expect(h.syncShipments).toHaveBeenCalled()
-    expect(h.syncClientAssignments).toHaveBeenCalled()
-    expect(h.recalculateShipments).toHaveBeenCalled()
     expect(h.recalculateCharges).toHaveBeenCalled()
     const body = await res.json() as MonitorBody
     expect(body.log.join('\n')).not.toContain('Charge recalculation was not run')
+    expect(JSON.stringify(body)).not.toContain(secret)
+  })
+
+  it('does not accept an empty, missing, or wrong secret', async () => {
+    vi.stubEnv('CRON_SECRET', '')
+    vi.stubEnv('MONITOR_SECRET', '')
+    const missing = await GET(new Request('https://shipo.test/api/agent/monitor', {
+      headers: { authorization: 'Bearer something' },
+    }))
+    expect(missing.status).toBe(200)
+    expect(h.syncShipments).not.toHaveBeenCalled()
+
+    vi.stubEnv('CRON_SECRET', secret)
+    const wrong = await GET(new Request('https://shipo.test/api/agent/monitor', {
+      headers: { authorization: 'Bearer not-the-secret' },
+    }))
+    expect(wrong.status).toBe(200)
+    expect(h.syncShipments).not.toHaveBeenCalled()
+  })
+
+  it('keeps an explicit staff POST on the write path and refuses an anonymous POST', async () => {
+    const allowed = await POST(new Request('https://shipo.test/api/agent/monitor', { method: 'POST' }))
+    expect(allowed.status).toBe(200)
+    expect(h.syncShipments).toHaveBeenCalled()
+
+    h.syncShipments.mockClear()
+    h.recalculateCharges.mockClear()
+    h.requireStaff.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Not authorised.' }), { status: 401 }),
+    )
+    const denied = await POST(new Request('https://shipo.test/api/agent/monitor', { method: 'POST' }))
+    expect(denied.status).toBe(401)
+    expect(h.syncShipments).not.toHaveBeenCalled()
+    expect(h.recalculateCharges).not.toHaveBeenCalled()
+    expect(denied.headers.get('cache-control')).toContain('no-store')
+  })
+
+  it('polls the monitor with GET and does not post a sync from the dashboard widget', () => {
+    const widget = readFileSync('src/components/dashboard/AutoSync.tsx', 'utf8')
+    expect(widget).toContain("method: 'GET'")
+    expect(widget).not.toContain("method: 'POST'")
+    expect(widget).not.toContain('/api/sync/')
   })
 })
 
