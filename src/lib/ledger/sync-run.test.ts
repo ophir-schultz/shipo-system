@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { collectErrors } from '@/lib/ledger/sync-run'
+import { collectErrors, runLogForStorage } from '@/lib/ledger/sync-run'
 
 describe('collectErrors', () => {
   it('starts empty', () => {
@@ -110,5 +110,23 @@ describe('collectErrors', () => {
     const warnEntries = e.list().filter(x => x.kind === 'warning')
     expect(warnEntries).toHaveLength(50)
     expect(warnEntries[0].context).toBe('carrier')
+  })
+
+  it('says when the stored list is shorter than the count', () => {
+    const e = collectErrors()
+    for (let i = 0; i < 60; i++) e.warn('undated pick', `line ${i}`)
+    e.push('upsert order', new Error('write failed'))
+    const stored = runLogForStorage(e)
+    const note = stored.find((entry) => entry.context === 'stored list capped')
+    expect(note?.kind).toBe('warning')
+    expect(note?.message).toContain('Stored 1 of 1 errors and 50 of 60 warnings')
+    expect(note?.message).toContain('not in this list')
+  })
+
+  it('adds no cap note when every warning was stored', () => {
+    const e = collectErrors()
+    e.warn('orders with no order_date', '1050 orders have a null order_date')
+    expect(runLogForStorage(e)).toHaveLength(1)
+    expect(runLogForStorage(e)[0].context).toBe('orders with no order_date')
   })
 })

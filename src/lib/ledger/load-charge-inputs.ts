@@ -175,10 +175,9 @@ export async function loadChargeInputs(
       // Excluded, such an order is invisible for ever — no future window would
       // ever pick it up either — so every pick and every label on it is unbilled
       // revenue with no trace in any counter. They are chargeable regardless:
-      // charge_date derives from pick_date and ship_date, never from order_date,
-      // so their charges are dated correctly. The count is warned on below,
-      // because a missing order date is still a data-quality defect to fix in
-      // the Zenventory sync.
+      // charge_date derives from pick_date and ship_date, never from order_date.
+      // The count below names the nulls. It does not mean the current import
+      // dropped a date it had: orderedDate is stored when the payload has one.
       .or(`order_date.gte.${windowStart},order_date.is.null`)
       // Paging is only stable under an explicit order. Without it Postgres may
       // return rows in a different order per page and a row can be both
@@ -188,9 +187,10 @@ export async function loadChargeInputs(
 
   const undated = orders.filter((o) => o.order_date == null).length
   if (undated > 0) {
-    warn?.('orders with no order_date', `${undated} orders have a null order_date. `
-      + `They are charged (charge_date comes from pick and ship dates) but they `
-      + `are outside every date window, so fix the source in sync/zenventory.ts.`)
+    const dated = undated === 1 ? '1 order has' : `${undated} orders have`
+    warn?.('orders with no order_date', `${dated} a null order_date. `
+      + `They stay in this charge load. A null is a missing source date, not a `
+      + `date to invent, and not proof the current import dropped one.`)
   }
 
   // Orders dated before the window stay out. Loading them because a label

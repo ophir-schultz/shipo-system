@@ -94,6 +94,32 @@ export function collectErrors() {
 }
 
 /**
+ * The array written to sync_runs.errors.
+ *
+ * list() keeps at most 50 errors and 50 warnings. The counts stay exact.
+ * When either list was cut short, one extra warning says so. A reader of a
+ * 50-line array cannot otherwise tell a complete list from a capped one.
+ */
+export function runLogForStorage(collected: {
+  list: () => StoredEntry[]
+  count: () => number
+  warnCount: () => number
+}): StoredEntry[] {
+  const listed = collected.list()
+  const errorsStored = listed.filter((entry) => entry.kind === 'error').length
+  const warningsStored = listed.filter((entry) => entry.kind === 'warning').length
+  const errorTotal = collected.count()
+  const warnTotal = collected.warnCount()
+  if (errorTotal === errorsStored && warnTotal === warningsStored) return listed
+  return [...listed, {
+    kind: 'warning',
+    context: 'stored list capped',
+    message: `Stored ${errorsStored} of ${errorTotal} errors and ${warningsStored} of ${warnTotal} warnings. `
+      + `The omitted lines were counted and are not in this list.`,
+  }]
+}
+
+/**
  * Thrown when another run of the same (source, client_id) already holds the
  * lock. NOT a failure: it is the mutex working, and the correct response is to
  * skip quietly.
@@ -382,7 +408,7 @@ export async function openSyncRun(input: {
         status: resolved,
         rows_seen: rowsSeen,
         rows_written: rowsWritten,
-        errors: errors.list(),
+        errors: runLogForStorage(errors),
       }).eq('id', id)
       if (closeError) console.error('[close] could not update sync_runs row:', closeError)
     },
