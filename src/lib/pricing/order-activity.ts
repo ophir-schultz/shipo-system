@@ -241,6 +241,46 @@ export function buildOrderActivity(input: {
     const date = days.length === 1 ? days[0] : null
     if (!date) {
       undatedOrders.push(number)
+      const idle = order.lines.map((line) => ({
+        sku: line.sku,
+        picked: line.picked !== undefined ? line.picked : line.qty,
+        scannable: line.scannable ?? null,
+        pickDate: null,
+      }))
+      const idleWork = assessPickWork(idle, input.list, null)
+      if (idle.length > 0 && idleWork.status === 'nothing-picked') {
+        nothingPicked.push(number)
+        picks.push({
+          orderNumber: number,
+          deviceUnits: 0,
+          cartons: 0,
+          remainder: 0,
+          accessoryUnits: 0,
+          rateLabel: 'nothing picked',
+          amount: 0,
+          billedAmount: null,
+          status: 'nothing picked',
+        })
+        rows.push({
+          clientId: input.clientId,
+          date: '',
+          orderNumber: number,
+          recipientName: '',
+          trackingNumber: '',
+          sku: order.lines.map((line) => line.sku).join('\n'),
+          qty: idle.map((line) => String(line.picked ?? 0)).join('\n'),
+          qtyCount: '0',
+          serialNumber: '',
+          pickPrice: '0.00',
+          boxPrice: '',
+          shippingPrice: '',
+          total: '',
+          zone: '',
+          zipcode: '',
+          weight: '',
+          volumeWeight: '',
+        })
+      }
       continue
     }
     if (date < input.from || date > input.to) continue
@@ -325,7 +365,7 @@ export function buildOrderActivity(input: {
   return {
     rows,
     coverage: {
-      datedOrders: rows.length,
+      datedOrders: rows.filter((row) => row.date).length,
       undatedOrders,
       unmatchedParcels,
       shippingConflicts,

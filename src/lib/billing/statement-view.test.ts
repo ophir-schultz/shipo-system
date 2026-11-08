@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import {
   chargeRateCell, rateText, periodLabel, coverageNote, estimateNote, grainChoice,
-  statementAmountDueCell, statementFigures,
+  statementAmountDueCell, statementFigures, unpricedLinesNote,
 } from '@/lib/billing/statement-view'
 import { buildStatement, periodRange, GRAINS, type StatementCharge } from '@/lib/billing/statement'
 import { monthlyMinimumBill } from '@/lib/billing/monthly-minimum'
@@ -11,6 +11,16 @@ import { UNPRICED_CELL, UNPRICED_DASH } from '@/lib/billing/unpriced'
 // Every assertion here is about a sentence that appears on a document a client
 // is invoiced from. The ones worth the most are the two that decide whether a
 // figure is presented as a measurement or as a caveat.
+
+describe('unpricedLinesNote', () => {
+  it('splits pick lines from shipping lines and does not call them orders', () => {
+    const note = unpricedLinesNote([
+      { charge_type: 'pick', sum: { unpriced: 62 } },
+      { charge_type: 'shipping', sum: { unpriced: 62 } },
+    ])
+    expect(note).toBe('124 lines have no price (62 pick and 62 shipping). That count is lines, not orders. They are not included')
+  })
+})
 
 describe('rateText', () => {
   it('shows the rate at four decimals, which is what the rate card stores', () => {

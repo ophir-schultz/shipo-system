@@ -132,7 +132,7 @@ export default async function OrderActivityPage({
                 </table>
               </div>
             )}
-            <p className="mt-1">Orders with no ship day, kept out of the dated rows: {activity.coverage.undatedOrders.length === 0 ? 'none' : activity.coverage.undatedOrders.join(', ')}.</p>
+            <p className="mt-1">Orders with no ship day: {activity.coverage.undatedOrders.length === 0 ? 'none' : activity.coverage.undatedOrders.join(', ')}. No date is assigned. An order with nothing picked still appears, at 0, and that 0 is not a charge.</p>
             <p className="mt-1">Parcels in the period with no matching order, not given a row: {activity.coverage.unmatchedParcels.length === 0 ? 'none' : activity.coverage.unmatchedParcels.join(', ')}.</p>
             <p className="mt-1">Shipping left blank because the stored rate and the ledger charge disagree: {activity.coverage.shippingConflicts.length === 0 ? 'none' : activity.coverage.shippingConflicts.join(', ')}.</p>
             <p className="mt-1">Shipping left blank because the order has more than one parcel: {activity.coverage.shippingAmbiguous.length === 0 ? 'none' : activity.coverage.shippingAmbiguous.join(', ')}.</p>

@@ -10,11 +10,11 @@ import {
   type Grain, type Statement, type DateRange,
 } from '@/lib/billing/statement'
 import {
-  rateText, periodLabel, coverageNote, estimateNote,
+  rateText, periodLabel, coverageNote, estimateNote, unpricedLinesNote,
   statementAmountDueCell, statementFigures,
 } from '@/lib/billing/statement-view'
 import {
-  formatPrice, unpricedNote, totalOrUnknown, UNPRICED_DASH,
+  formatPrice, totalOrUnknown, UNPRICED_DASH,
 } from '@/lib/billing/unpriced'
 import { monthlyMinimumBill, type MonthlyMinimum } from '@/lib/billing/monthly-minimum'
 import { loadAgreedMinimum } from '@/lib/billing/agreed-minimum'
@@ -332,7 +332,7 @@ function StatementTable(
   const dueText = typeof dueCell === 'number' ? formatPrice(dueCell) : dueCell
 
   const coverage = coverageNote(earliest, range, statement.lines.length)
-  const unpriced = unpricedNote(statement.sum.unpriced, 'charge')
+  const unpriced = unpricedLinesNote(statement.lines)
   const estimated = estimateNote(statement.estimated)
 
   return (

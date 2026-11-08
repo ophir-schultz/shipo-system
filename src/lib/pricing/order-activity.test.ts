@@ -80,6 +80,31 @@ describe('order activity rows', () => {
     expect(reportCells(activity.rows[0])).toHaveLength(CLIENT_REPORT_COLUMNS.length)
   })
 
+  it('shows an undated order with nothing picked as non-billed zero', () => {
+    const activity = buildOrderActivity({
+      clientId: 'nayax',
+      from: '2026-11-01',
+      to: '2026-11-30',
+      list,
+      orders: [{ id: 'idle', orderNumber: 'SO601065551', lines: [{ sku: 'C-9', qty: 40, picked: 0, scannable: null }] }],
+      parcels: [],
+      charges: [],
+      serials: [],
+    })
+    expect(activity.coverage.undatedOrders).toEqual(['SO601065551'])
+    expect(activity.coverage.datedOrders).toBe(0)
+    expect(activity.rows[0]).toMatchObject({
+      orderNumber: 'SO601065551',
+      date: '',
+      qty: '0',
+      pickPrice: '0.00',
+      total: '',
+    })
+    expect(activity.coverage.picks[0].status).toBe('nothing picked')
+    expect(activity.coverage.picks[0].status).not.toBe('classification unknown')
+    expect(activity.coverage.pickKnown).toBe(0)
+  })
+
   it('lists a parcel with no order and an order with no date', () => {
     const activity = buildOrderActivity({
       clientId: 'nayax',

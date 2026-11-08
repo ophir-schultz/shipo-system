@@ -26,6 +26,21 @@ describe('item list scan flags', () => {
     expect(loaded.note).toContain('prefix was not used')
   })
 
+  it('stays unknown on HTTP 401 and does not apply a flag', async () => {
+    const loaded = await loadScanCatalog('Nayax', {
+      env: {},
+      stored: { apiKey: 'stored-key', apiSecret: 'stored-secret' },
+      readPage: async () => {
+        throw new Error('Zenventory API error: HTTP 401: {"code":"unauthorized"}')
+      },
+    })
+    expect(loaded.ok).toBe(false)
+    expect(loaded.bySku.size).toBe(0)
+    expect(loaded.note).toContain('HTTP 401')
+    expect(loaded.note).not.toContain('stored-secret')
+    expect(loaded.note).not.toContain('stored-key')
+  })
+
   it('uses the stored client pair when the env pair is absent and does not print it', async () => {
     let called = 0
     const loaded = await loadScanCatalog('Nayax', {
