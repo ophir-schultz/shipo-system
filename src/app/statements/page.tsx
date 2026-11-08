@@ -192,28 +192,17 @@ export default async function StatementsPage(
         to={query.to ?? ''}
       />
 
-      {selected !== null && period.ok && (
-        <div className="flex flex-wrap gap-2">
-            <a
-              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}&format=csv`}
-              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
-            >
-              Download CSV
-            </a>
-            <a
-              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}`}
-              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
-            >
-              Download Excel
-            </a>
-            <a
-              href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}&format=pdf`}
-              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
-            >
-              Download PDF
-            </a>
-        </div>
-      )}
+      <StatementDownloads
+        enabled={selected !== null && period.ok}
+        reason={selected === null
+          ? 'Choose a client before downloading.'
+          : !period.ok
+            ? 'Choose one period before downloading.'
+            : ''}
+        csv={selected && period.ok ? `/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}&format=csv` : ''}
+        excel={selected && period.ok ? `/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}` : ''}
+        pdf={selected && period.ok ? `/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}&format=pdf` : ''}
+      />
 
       {grainNote !== '' && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
@@ -222,7 +211,7 @@ export default async function StatementsPage(
       )}
 
       {selected === null || !period.ok ? (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-[#0B1220]">
           Choose a client and one period. No figures are shown until both are
           valid — a statement with no client is not an empty statement, it is no
           statement.
@@ -252,20 +241,62 @@ async function StatementSection(
   return <StatementTable name={name} grain={grain} data={data} />
 }
 
+function StatementDownloads({
+  enabled, reason, csv, excel, pdf,
+}: {
+  enabled: boolean
+  reason: string
+  csv: string
+  excel: string
+  pdf: string
+}) {
+  const shape = 'inline-flex min-h-11 w-full items-center justify-center rounded-lg px-4 py-2 text-center text-sm font-semibold sm:w-auto'
+  if (!enabled) {
+    return (
+      <div>
+        <p className="mb-2 text-sm text-[#0B1220]">{reason}</p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          {['Download CSV', 'Download Excel', 'Download PDF'].map((label) => (
+            <button
+              key={label}
+              type="button"
+              disabled
+              className={`${shape} cursor-not-allowed border border-[#64748B] bg-[#E2E8F0] text-[#0B1220]`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+      <a href={csv} className={`${shape} bg-[#0B3361] text-white hover:bg-[#0F4A94]`}>Download CSV</a>
+      <a href={excel} className={`${shape} bg-[#1A73E8] text-white hover:bg-[#0B5ED7]`}>Download Excel</a>
+      <a href={pdf} className={`${shape} border border-[#0B1220] bg-white text-[#0B1220] hover:bg-[#EEF3FA]`}>Download PDF</a>
+    </div>
+  )
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="space-y-6 font-sans text-[#0B1220]">
       <div>
         <h2 className="text-2xl font-bold text-[#0B1220]">Statements</h2>
         <p className="mt-1 text-sm text-[#3A4658]">
-          What one client has been billed for a period — pick and pack counts at
-          their own rates, plus shipping. Use one control: a relative period, a
-          calendar month such as October 2026, or From and To. A half-year is
-          July 1 through December 31 or January 1 through June 30. The note under
-          the figures says when the first stored charge is later than that start.
-          The $395 floor applies only when the range is one full calendar month
-          and the subtotal is known. Read live from the ledger; this is not an
-          invoice and nothing here is saved.
+          Charges whose charge date falls in the period. This month is the 1st
+          through the last day of that month, not the month so far. Lines that
+          share a charge and a label are added into one row, so one shipping row
+          can be many parcels, and “41 rates” means those parcels do not share one
+          rate. Pick units are order quantities. When the ledger has no pick
+          charge, each order is priced from the price list and those orders are
+          added. A stored shipment rate is used as the shipping amount when the
+          shipment has one. This page does not show that every order in the month
+          is included. A missing price stays unknown, and the amount due is not
+          final. The $395 floor applies only when the range is one full calendar
+          month and every amount is known. This is not an invoice and nothing
+          here is saved.
         </p>
       </div>
       {children}
@@ -323,7 +354,7 @@ function StatementTable(
           <div className="hidden max-w-full overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-700 text-left text-xs uppercase text-slate-500">
+              <tr className="border-b border-slate-700 text-left text-xs uppercase text-slate-200">
                 <th className="pb-2 pr-3">Charge</th>
                 <th className="pb-2 pr-3">Line</th>
                 <th className="pb-2 pr-3 text-right">Units</th>
@@ -345,10 +376,10 @@ function StatementTable(
                   key={`${line.charge_type}\u0000${line.label}`}
                   className="border-b border-slate-800 hover:bg-white/5"
                 >
-                  <td className="py-2.5 pr-3 font-mono text-xs text-blue-700">{line.charge_type}</td>
+                  <td className="py-2.5 pr-3 font-mono text-xs text-sky-200">{line.charge_type}</td>
                   <td className="py-2.5 pr-3 text-slate-300">{line.label}</td>
                   <td className="py-2.5 pr-3 text-right"><Units quantity={line.quantity} /></td>
-                  <td className="py-2.5 pr-3 text-right font-mono text-xs text-slate-400">
+                  <td className="py-2.5 pr-3 text-right font-mono text-xs text-slate-100">
                     {rateText(line)}
                   </td>
                   <td className="py-2.5 text-right font-medium"><Amount sum={line.sum} /></td>
@@ -357,7 +388,7 @@ function StatementTable(
             </tbody>
             <tfoot>
               <tr className="border-t border-slate-600">
-                <td className="pt-3 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
+                <td className="pt-3 pr-3 text-xs uppercase text-slate-200" colSpan={4}>
                   {figures.subtotalLabel}
                 </td>
                 <td className="pt-3 text-right font-medium text-white">
@@ -365,7 +396,7 @@ function StatementTable(
                 </td>
               </tr>
               <tr>
-                <td className="pt-2 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
+                <td className="pt-2 pr-3 text-xs uppercase text-slate-200" colSpan={4}>
                   Monthly minimum top-up
                 </td>
                 <td className="pt-2 text-right font-medium text-white">
@@ -375,7 +406,7 @@ function StatementTable(
                 </td>
               </tr>
               <tr>
-                <td className="pt-2 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
+                <td className="pt-2 pr-3 text-xs uppercase text-slate-200" colSpan={4}>
                   Amount due
                 </td>
                 <td className="pt-2 text-right text-base font-bold text-white">
@@ -395,7 +426,7 @@ function StatementTable(
 
       {/* The caveats. Each renders only when it has something to say, so none of
           them is the permanent all-clear that teaches a reader to skip the box. */}
-      <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-700">
+      <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-100">
         <li>{minimum.reason}</li>
         {coverage !== '' && <li>{coverage}</li>}
         {unpriced !== '' && <li>{unpriced}.</li>}

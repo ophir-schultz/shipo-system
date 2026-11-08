@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import {
   chargeRateCell, rateText, periodLabel, coverageNote, estimateNote, grainChoice,
@@ -386,5 +387,15 @@ describe('statementFigures', () => {
     expect(figures.knownSubtotal).toBeCloseTo(4.2, 2)
     expect(figures.subtotalLabel).toBe('Subtotal')
     expect(figures.amountDue).toBe(395)
+  })
+})
+
+describe('statement download controls', () => {
+  const page = readFileSync('src/app/statements/page.tsx', 'utf8')
+
+  it('keeps disabled downloads dark on a light button and says why', () => {
+    expect(page).toContain('Choose a client before downloading.')
+    expect(page).toContain('bg-[#E2E8F0] text-[#0B1220]')
+    expect(page).not.toContain('text-slate-200 hover:bg-white/5')
   })
 })
