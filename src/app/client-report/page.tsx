@@ -61,7 +61,7 @@ function Header() {
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Client report</h2>
       <p className="text-[#4B4F58] text-sm mt-1">
-        Imported billing lines only, in the workbook&apos;s 16 columns. Live orders are not copied into this table. An empty range means no workbook rows, not that the client was idle. Approving and importing are separate actions. Nothing is generated on its own.
+        Imported billing lines only, in the workbook&apos;s 16 columns. The pick amounts stay as they were imported. They are not recalculated with the scan rule. Live orders are not copied into this table. An empty range means no workbook rows, not that the client was idle. Approving and importing are separate actions. Nothing is generated on its own.
       </p>
     </div>
   )

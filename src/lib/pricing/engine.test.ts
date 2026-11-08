@@ -66,6 +66,7 @@ describe('pricePick', () => {
       priceClassifiedPick(card, lines).amount
     expect(scan([{ sku: 'R1', qty: 20, scannable: true }, { sku: 'C1', qty: 100, scannable: false }])).toBe(21.5)
     expect(scan([{ sku: 'R1', qty: 122, scannable: true }])).toBe(9.64)
+    expect(scan([{ sku: 'R1', qty: 105, scannable: true }])).toBe(9.1)
     expect(scan([{ sku: 'C1', qty: 400, scannable: false }])).toBe(80)
     expect(scan([{ sku: 'C1', qty: 100, scannable: false }])).toBe(20)
     expect(scan([{ sku: 'R1', qty: 20, scannable: null }])).toBeNull()
