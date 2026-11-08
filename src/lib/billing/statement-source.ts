@@ -102,18 +102,107 @@ export function applyManualFullFreight(
   return { charges: chargesOut, reviews }
 }
 
+function sameCents(a: number, b: number): boolean {
+  return Math.round(a * 100) === Math.round(b * 100)
+}
+
+/**
+ * A stored zone rate fills a shipping charge only when the ledger amount is
+ * blank. A ledger amount that differs from the stored rate is left as it is:
+ * neither figure is chosen as the client price.
+ */
 export function applyZonePrices(
   charges: readonly StatementChargeRow[],
   clientRateByShipmentId: ReadonlyMap<string, number | null>,
 ): StatementChargeRow[] {
   return charges.map((charge) => {
     if (charge.charge_type !== 'shipping') return charge
+    if (charge.label === 'Shipping (full price pending)') return charge
     const id = shipmentIdFromChargeKey(charge.charge_key)
     if (id === null || !clientRateByShipmentId.has(id)) return charge
     const rate = clientRateByShipmentId.get(id)
     if (rate === null || rate === undefined) return charge
-    return { ...charge, amount: rate, unit_rate: rate }
+    const ledger = priceOf(charge.amount)
+    if (ledger === null) return { ...charge, amount: rate, unit_rate: rate }
+    if (sameCents(ledger, rate)) {
+      return charge.unit_rate == null ? { ...charge, unit_rate: rate } : charge
+    }
+    return charge
   })
+}
+
+/** Staff-only. Both figures, because they were not selected as the client price. */
+export function shippingDisagreements(
+  charges: readonly StatementChargeRow[],
+  clientRateByShipmentId: ReadonlyMap<string, number | null>,
+): string[] {
+  const notes: string[] = []
+  for (const charge of charges) {
+    if (charge.charge_type !== 'shipping') continue
+    const id = shipmentIdFromChargeKey(charge.charge_key)
+    if (id === null || !clientRateByShipmentId.has(id)) continue
+    const rate = clientRateByShipmentId.get(id)
+    const ledger = priceOf(charge.amount)
+    if (rate == null || ledger == null || sameCents(ledger, rate)) continue
+    notes.push(
+      `Shipment ${id}: ledger shipping amount ${ledger.toFixed(2)} and stored rate ${rate.toFixed(2)} disagree. Neither is the client charge.`,
+    )
+  }
+  return notes
+}
+
+/**
+ * After freight, a disagreed ledger amount is not the client price.
+ * A freight full price that replaced it is kept. A pending line stays pending.
+ */
+export function withholdDisagreedShipping(
+  before: readonly StatementChargeRow[],
+  after: readonly StatementChargeRow[],
+  clientRateByShipmentId: ReadonlyMap<string, number | null>,
+): StatementChargeRow[] {
+  const prior = new Map(before.map((charge) => [charge.charge_key, charge]))
+  return after.map((charge) => {
+    if (charge.charge_type !== 'shipping') return charge
+    if (charge.label === 'Shipping (full price pending)') return charge
+    const id = shipmentIdFromChargeKey(charge.charge_key)
+    if (id === null) return charge
+    const rate = clientRateByShipmentId.get(id)
+    const ledger = priceOf(prior.get(charge.charge_key)?.amount)
+    if (rate == null || ledger == null || sameCents(ledger, rate)) return charge
+    const now = priceOf(charge.amount)
+    if (now != null && !sameCents(now, ledger)) return charge
+    return { ...charge, amount: null, unit_rate: null, label: 'Shipping (price not final)' }
+  })
+}
+
+/** A parcel in the period with no ledger shipping charge. Amount stays unknown. */
+export function uncoveredShipmentCharges(
+  rows: readonly (ShipmentForStatement & { id: string })[],
+  coveredKeys: ReadonlySet<string>,
+  fallbackDate: string,
+): StatementChargeRow[] {
+  const out: StatementChargeRow[] = []
+  for (const row of rows) {
+    if (isVoidedShipment(row.raw_data)) continue
+    const sid = row.shipstation_shipment_id
+    const keyed = sid != null && String(sid) !== '' ? `shipment:${sid}` : ''
+    if (keyed && coveredKeys.has(keyed)) continue
+    const key = keyed || `coverage:${row.id}`
+    if (coveredKeys.has(key)) continue
+    const day = shipCalendarDay(row.ship_date, rawShipDate(row.raw_data)) || fallbackDate
+    out.push({
+      charge_type: 'shipping',
+      label: 'Shipping (not on the ledger)',
+      quantity: 1,
+      unit_rate: null,
+      amount: null,
+      is_estimate: false,
+      charge_date: day,
+      order_id: null,
+      charge_key: key,
+    })
+  }
+  return out
 }
 
 export interface ShipmentForStatement {
@@ -488,6 +577,35 @@ const UNREAD_PICK: PickPackDecision = {
   reason: 'Pick & pack skipped: a read failed before the rate card could be checked.',
 }
 
+export interface PickOrderDetail {
+  orderId: string | null
+  orderNumber: string
+  chargeDate: string
+  quantity: number | null
+  amount: number | null
+  label: string
+  /** Where the amount came from. Not a commercial approval. */
+  source: 'ledger' | 'price-list' | 'rate-card' | 'unknown'
+}
+
+export function pickOrderDetails(
+  rows: readonly StatementChargeRow[],
+  source: PickOrderDetail['source'],
+  orderNumbers: ReadonlyMap<string, string> = new Map(),
+): PickOrderDetail[] {
+  return rows
+    .filter((row) => row.charge_type === 'pick' || row.charge_type === 'pack')
+    .map((row) => ({
+      orderId: row.order_id,
+      orderNumber: row.order_id ? orderNumbers.get(row.order_id) ?? '' : '',
+      chargeDate: row.charge_date,
+      quantity: priceOf(row.quantity),
+      amount: priceOf(row.amount),
+      label: row.label,
+      source,
+    }))
+}
+
 export async function priceStatementCharges(
   clientId: string,
   clientName: string,
@@ -498,6 +616,9 @@ export async function priceStatementCharges(
   pickPack: PickPackDecision
   error: { message: string } | null
   freightReviews: string[]
+  /** Staff only. Not written into a client file. */
+  basisReviews: string[]
+  pickDetails: PickOrderDetail[]
 }> {
   const shipmentIds = [...new Set(charges.flatMap((charge) => {
     if (charge.charge_type !== 'shipping') return []
@@ -516,7 +637,7 @@ export async function priceStatementCharges(
         .order('shipstation_shipment_id')
         .order('id')
         .range(from, to)))
-    if (priced.error) return { charges, pickPack: UNREAD_PICK, error: priced.error, freightReviews: [] }
+    if (priced.error) return { charges, pickPack: UNREAD_PICK, error: priced.error, freightReviews: [], basisReviews: [], pickDetails: [] }
     for (const row of priced.data ?? []) {
       const record = row as { shipstation_shipment_id: number | string | null; client_rate: unknown; raw_data?: unknown }
       if (record.shipstation_shipment_id === null) continue
@@ -529,18 +650,47 @@ export async function priceStatementCharges(
     }
   }
 
-  let next = applyZonePrices(charges.filter((charge) => {
+  const openCharges = charges.filter((charge) => {
     if (charge.charge_type !== 'shipping') return true
     const id = shipmentIdFromChargeKey(charge.charge_key)
     return id === null || !voidedIds.has(id)
-  }), rates)
+  })
+  const basisReviews = shippingDisagreements(openCharges, rates)
+  let next = applyZonePrices(openCharges, rates)
   let freightReviews: string[] = []
   if (nayaxManualFreight(clientName)) {
     const linked = await readLinkedFreight(clientId, range)
-    if (linked.error) return { charges: next, pickPack: UNREAD_PICK, error: linked.error, freightReviews }
+    if (linked.error) return { charges: next, pickPack: UNREAD_PICK, error: linked.error, freightReviews, basisReviews, pickDetails: [] }
     const applied = applyManualFullFreight(next, linked.rows)
     next = applied.charges
     freightReviews = applied.reviews
+  }
+  next = withholdDisagreedShipping(openCharges, next, rates)
+  if (range) {
+    const windowRows = await readAllPages((from, to) => supabaseAdmin
+      .from('shipments')
+      .select('id, shipstation_shipment_id, order_number, ship_date, client_rate, raw_data')
+      .eq('client_id', clientId)
+      .gte('ship_date', easternMidnightIso(range.from))
+      .lt('ship_date', easternMidnightIso(easternAddDays(range.to, 1)))
+      .order('ship_date')
+      .order('id')
+      .range(from, to))
+    if (windowRows.error) {
+      return { charges: next, pickPack: UNREAD_PICK, error: windowRows.error, freightReviews, basisReviews, pickDetails: [] }
+    }
+    const covered = new Set(next.filter((charge) => charge.charge_type === 'shipping').map((charge) => charge.charge_key))
+    const missing = uncoveredShipmentCharges(
+      (windowRows.data ?? []) as (ShipmentForStatement & { id: string })[],
+      covered,
+      range.from,
+    )
+    if (missing.length > 0) {
+      basisReviews.push(
+        `${missing.length} shipment${missing.length === 1 ? '' : 's'} in this period ${missing.length === 1 ? 'has' : 'have'} no ledger shipping charge. ${missing.length === 1 ? 'It is' : 'They are'} unknown, not a client charge.`,
+      )
+    }
+    next = [...next, ...missing]
   }
 
   let shipmentOrders: ShipmentPickOrder[] = []
@@ -555,7 +705,7 @@ export async function priceStatementCharges(
         .order('ship_date')
         .order('id')
         .range(from, to))
-    if (shipped.error) return { charges: next, pickPack: UNREAD_PICK, error: shipped.error, freightReviews }
+    if (shipped.error) return { charges: next, pickPack: UNREAD_PICK, error: shipped.error, freightReviews, basisReviews, pickDetails: [] }
     const rows = (shipped.data ?? []) as ShipmentForStatement[]
     const numbers = [...new Set(rows.flatMap((row) => {
       const number = row.order_number?.trim() ?? ''
@@ -572,7 +722,7 @@ export async function priceStatementCharges(
           .order('order_number')
           .order('id')
           .range(from, to)))
-      if (orders.error) return { charges: next, pickPack: UNREAD_PICK, error: orders.error, freightReviews }
+      if (orders.error) return { charges: next, pickPack: UNREAD_PICK, error: orders.error, freightReviews, basisReviews, pickDetails: [] }
       for (const row of orders.data ?? []) {
         const record = row as { id: string | null; order_number: string | null }
         if (!record.id || !record.order_number || orderIdByNumber.has(record.order_number)) continue
@@ -589,6 +739,8 @@ export async function priceStatementCharges(
       pickPack: { billed: true, rate: null, reason: 'Pick & pack was already priced on the ledger.' },
       error: null,
       freightReviews,
+      basisReviews,
+      pickDetails: [],
     }
   }
 
@@ -620,6 +772,8 @@ export async function priceStatementCharges(
       },
       error: null,
       freightReviews,
+      basisReviews,
+      pickDetails: [],
     }
   }
 
@@ -631,7 +785,7 @@ export async function priceStatementCharges(
       .order('order_id')
       .order('id')
       .range(from, to)))
-  if (items.error) return { charges: next, pickPack: UNREAD_PICK, error: items.error, freightReviews }
+  if (items.error) return { charges: next, pickPack: UNREAD_PICK, error: items.error, freightReviews, basisReviews, pickDetails: [] }
 
   const linesByOrder = new Map<string, SkuQty[]>()
   for (const row of items.data ?? []) {
@@ -655,12 +809,31 @@ export async function priceStatementCharges(
     chargeDate: dateByOrder.get(orderId) ?? next[0]?.charge_date ?? '',
     lines,
   })), list)
+  const orderNumbers = new Map(pickOrders.flatMap((order) => order.orderId ? [[order.orderId, order.orderNumber] as const] : []))
   if (hasPricedPick(picks)) {
+    const covered = new Set(picks.map((row) => row.order_id).filter((id): id is string => id != null))
+    const missed = pickOrders.filter((order) => order.orderId != null && !covered.has(order.orderId))
+    const unknownPicks: StatementChargeRow[] = missed.map((order) => ({
+      charge_type: 'pick',
+      label: 'Pick & pack (not priced)',
+      quantity: null,
+      unit_rate: null,
+      amount: null,
+      is_estimate: false,
+      charge_date: order.chargeDate || range?.from || '',
+      order_id: order.orderId,
+      charge_key: `pickpack-unknown:${order.orderId}`,
+    }))
     return {
-      charges: [...next, ...picks],
-      pickPack: { billed: true, rate: null, reason: 'Pick & pack came from the price list, not the rate card.' },
+      charges: [...next, ...picks, ...unknownPicks],
+      pickPack: { billed: true, rate: null, reason: 'Pick & pack came from the price list, one order at a time, not from a stored ledger pick charge. An order the list does not price is unknown.' },
       error: null,
       freightReviews,
+      basisReviews,
+      pickDetails: [
+        ...pickOrderDetails(picks, 'price-list', orderNumbers),
+        ...pickOrderDetails(unknownPicks, 'unknown', orderNumbers),
+      ],
     }
   }
 
@@ -668,16 +841,24 @@ export async function priceStatementCharges(
     .from('client_warehouse_rates')
     .select('*')
     .eq('client_id', clientId)
-  if (card.error) return { charges: next, pickPack: UNREAD_PICK, error: card.error, freightReviews }
+  if (card.error) return { charges: next, pickPack: UNREAD_PICK, error: card.error, freightReviews, basisReviews, pickDetails: [] }
   const onDate = [...pickOrders.map((order) => order.chargeDate)].sort()[0] ?? range?.from ?? ''
   const decision = decidePickRate((card.data ?? []) as PickCardRow[], onDate)
   if (!decision.billed || decision.rate === null) {
-    return { charges: next, pickPack: decision, error: null, freightReviews }
+    return { charges: next, pickPack: decision, error: null, freightReviews, basisReviews, pickDetails: [] }
   }
   const missingJoin = pickOrders.filter((order) => order.orderId === null).length
   const reason = missingJoin === 0
     ? `${decision.reason.replace(/\.$/, '')} (${pickOrders.length} orders).`
     : `${decision.reason.replace(/\.$/, '')} (${pickOrders.length} orders). ${missingJoin} order number${missingJoin === 1 ? '' : 's'} had no orders row for this client, so pick & pack was billed from the shipment order number.`
-  next = [...next, ...pickRowsFromCard(pickOrders, decision.rate)]
-  return { charges: next, pickPack: { billed: true, rate: decision.rate, reason }, error: null, freightReviews }
+  const cardPicks = pickRowsFromCard(pickOrders, decision.rate)
+  next = [...next, ...cardPicks]
+  return {
+    charges: next,
+    pickPack: { billed: true, rate: decision.rate, reason },
+    error: null,
+    freightReviews,
+    basisReviews,
+    pickDetails: pickOrderDetails(cardPicks, 'rate-card', orderNumbers),
+  }
 }

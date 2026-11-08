@@ -20,13 +20,13 @@ import { monthlyMinimumBill, type MonthlyMinimum } from '@/lib/billing/monthly-m
 import { loadAgreedMinimum } from '@/lib/billing/agreed-minimum'
 import StatementPeriodForm from '@/components/billing/StatementPeriodForm'
 
-// What one client has been billed in a period. Shipping uses the same zone-matrix price as Profit. Pick and pack come from the client's price list when the ledger did not already price them.
+// What one client has been billed in a period.
 //
-// This does NOT touch `bills` and does not run the weekly bill generator. It is
-// a live read of `order_charges` -- the ledger's already-priced output -- so the
-// figures here are the ones the ledger computed, grouped and totalled. Nothing
-// on this screen re-prices anything; see the header of statement.ts for why a
-// second pricing implementation would be worse than no screen at all.
+// The rows start as order_charges. A stored rate is not copied over a different
+// ledger shipping amount. Nayax freight keeps its full client price when one
+// linked line supplies it. Pick is computed per order from the price list when
+// the ledger has no pick charge. A shipment with no ledger shipping charge is
+// listed as unknown. Any unknown amount leaves the amount due unfinished.
 //
 // It is a Server Component with a plain GET <form> for the picker, which is why
 // there is no client component here: a <select> that submits to the same route
@@ -101,6 +101,9 @@ async function getStatement(clientId: string, clientName: string, range: DateRan
     range,
     statement,
     freightReviews: priced.freightReviews,
+    basisReviews: priced.basisReviews,
+    pickDetails: priced.pickDetails,
+    pickReason: priced.pickPack.reason,
     minimum: monthlyMinimumBill({
       from: range.from,
       to: range.to,
@@ -196,19 +199,19 @@ export default async function StatementsPage(
         <div className="flex flex-wrap gap-2">
             <a
               href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}&format=csv`}
-              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
+              className="rounded-lg bg-[#0B3361] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0F4A94]"
             >
               Download CSV
             </a>
             <a
               href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}`}
-              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
+              className="rounded-lg bg-[#1A73E8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0B5ED7]"
             >
               Download Excel
             </a>
             <a
               href={`/api/statements/download?client=${encodeURIComponent(selected.id)}&from=${encodeURIComponent(period.range.from)}&to=${encodeURIComponent(period.range.to)}&format=pdf`}
-              className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-white/5"
+              className="rounded-lg border border-[#0B1220] bg-white px-4 py-2 text-sm font-semibold text-[#0B1220] hover:bg-[#EEF3FA]"
             >
               Download PDF
             </a>
@@ -264,8 +267,9 @@ function Shell({ children }: { children: React.ReactNode }) {
           July 1 through December 31 or January 1 through June 30. The note under
           the figures says when the first stored charge is later than that start.
           The $395 floor applies only when the range is one full calendar month
-          and the subtotal is known. Read live from the ledger; this is not an
-          invoice and nothing here is saved.
+          and every charge amount is known. A stored rate that disagrees with the
+          ledger shipping amount is not the client price. Pick per order is listed
+          below the total. This is not an invoice and nothing here is saved.
         </p>
       </div>
       {children}
@@ -282,11 +286,14 @@ function StatementTable(
       statement: Statement
       earliest: string | null
       freightReviews: string[]
+      basisReviews: string[]
+      pickDetails: { orderId: string | null; orderNumber: string; chargeDate: string; quantity: number | null; amount: number | null; label: string; source: string }[]
+      pickReason: string
       minimum: MonthlyMinimum
     }
   },
 ) {
-  const { range, statement, earliest, minimum, freightReviews } = data
+  const { range, statement, earliest, minimum, freightReviews, basisReviews, pickDetails, pickReason } = data
   const figures = statementFigures(statement, minimum)
   const subtotal = figures.knownSubtotal
   const dueCell = statementAmountDueCell(figures)
@@ -345,7 +352,7 @@ function StatementTable(
                   key={`${line.charge_type}\u0000${line.label}`}
                   className="border-b border-slate-800 hover:bg-white/5"
                 >
-                  <td className="py-2.5 pr-3 font-mono text-xs text-blue-700">{line.charge_type}</td>
+                  <td className="py-2.5 pr-3 font-mono text-xs text-sky-300">{line.charge_type}</td>
                   <td className="py-2.5 pr-3 text-slate-300">{line.label}</td>
                   <td className="py-2.5 pr-3 text-right"><Units quantity={line.quantity} /></td>
                   <td className="py-2.5 pr-3 text-right font-mono text-xs text-slate-400">
@@ -395,13 +402,55 @@ function StatementTable(
 
       {/* The caveats. Each renders only when it has something to say, so none of
           them is the permanent all-clear that teaches a reader to skip the box. */}
-      <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-700">
+      <ul className="mt-4 space-y-1.5 border-t border-slate-700 pt-4 text-xs text-amber-100">
         <li>{minimum.reason}</li>
         {coverage !== '' && <li>{coverage}</li>}
         {unpriced !== '' && <li>{unpriced}.</li>}
         {freightReviews.map((note) => <li key={note}>{note}</li>)}
         {estimated !== '' && <li>{estimated}.</li>}
+        {basisReviews.length > 0 && <li>Internal review only. These are not client charges and are not in the download.</li>}
+        {basisReviews.map((note) => <li key={note}>{note}</li>)}
       </ul>
+      <div className="mt-4 border-t border-slate-700 pt-4">
+        <h4 className="text-sm font-semibold text-white">Pick per order</h4>
+        <p className="mt-1 text-xs text-slate-200">{pickReason}</p>
+        <p className="mt-1 text-xs text-slate-300">
+          There is no separate pick-by-order page. This list is the statement&apos;s per-order pick.
+          Device units are the order&apos;s SKUs that match the price list prefixes, priced as whole cartons plus a remainder, not every unit at the remainder rate.
+          Other units use the accessory rate. Order lines have no pick date; the date is the charge date already on the order.
+          The client report is imported workbook rows, not this list.
+        </p>
+        {pickDetails.length === 0 ? (
+          <p className="mt-2 text-xs text-slate-300">No per-order pick line in this period.</p>
+        ) : (
+          <div className="mt-2 max-h-80 overflow-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-300">
+                  <th className="py-1 pr-2">Order</th>
+                  <th className="py-1 pr-2">Date</th>
+                  <th className="py-1 pr-2 text-right">Units</th>
+                  <th className="py-1 pr-2">Line</th>
+                  <th className="py-1 pr-2">Source</th>
+                  <th className="py-1 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pickDetails.map((row, index) => (
+                  <tr key={`${row.orderId ?? row.orderNumber}:${row.label}:${index}`} className="border-t border-slate-700 text-slate-100">
+                    <td className="py-1 pr-2">{row.orderNumber || row.orderId || 'Unknown order'}</td>
+                    <td className="py-1 pr-2">{row.chargeDate}</td>
+                    <td className="py-1 pr-2 text-right">{row.quantity ?? 'Unknown'}</td>
+                    <td className="py-1 pr-2">{row.label}</td>
+                    <td className="py-1 pr-2">{row.source}</td>
+                    <td className="py-1 text-right">{row.amount == null ? 'Unknown' : formatPrice(row.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
