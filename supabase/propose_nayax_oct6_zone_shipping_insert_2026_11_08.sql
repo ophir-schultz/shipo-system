@@ -76,6 +76,40 @@ begin
 end
 $cron$;
 
+-- Cost, rate, and the raw payload column must exist before this file
+-- reads them. voided is a value inside raw_data, not its own column.
+-- voidDate and voideDate are not proved void signals and are not gates.
+do $columns$
+declare
+  missing text;
+begin
+  select string_agg(format('%s.%s', needed.tbl, needed.col), ', ' order by needed.tbl, needed.col)
+    into missing
+  from (values
+    ('order_charges', 'amount'),
+    ('order_charges', 'unit_rate'),
+    ('order_charges', 'cost'),
+    ('order_charges', 'cost_basis'),
+    ('order_charges', 'rate_id'),
+    ('order_charges', 'charge_key'),
+    ('order_charges', 'charge_date'),
+    ('order_charges', 'source'),
+    ('shipments', 'actual_cost'),
+    ('shipments', 'raw_data')
+  ) as needed(tbl, col)
+  where not exists (
+    select 1
+    from information_schema.columns c
+    where c.table_schema = 'public'
+      and c.table_name = needed.tbl
+      and c.column_name = needed.col
+  );
+  if missing is not null then
+    raise exception 'required columns missing: %. Nothing was changed.', missing;
+  end if;
+end
+$columns$;
+
 
 create temporary table nayax_oct6_snapshot (
   order_id uuid not null,

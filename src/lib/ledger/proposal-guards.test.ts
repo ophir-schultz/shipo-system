@@ -149,4 +149,36 @@ describe('frozen Nayax October 6 list', () => {
     expect(restore).not.toMatch(/^\s*commit\s*;/im)
     for (const row of oct6) expect(restore).toContain(row.order_id)
   })
+
+  it('fails closed on the Nayax restore lock, cron mode, and cost columns', () => {
+    const restore = readFileSync('supabase/propose_restore_nayax_oct6_zone_shipping_2026_11_08.sql', 'utf8')
+    for (const sql of [insertSql, insertApplySql, restore]) {
+      expect(sql).toContain("pg_advisory_xact_lock(hashtext('shipo.order_charges'))")
+      expect(sql).toContain("is distinct from 'preserve_stored'")
+      expect(sql).toContain('information_schema.columns')
+      expect(sql).toContain('required columns missing')
+      expect(sql).toContain("('shipments', 'actual_cost')")
+      expect(sql).toContain("('order_charges', 'cost_basis')")
+      expect(sql).toContain("('order_charges', 'rate_id')")
+      expect(sql).toContain("('shipments', 'raw_data')")
+      expect(sql).not.toContain("raw_data->'voidDate'")
+      expect(sql).not.toContain("raw_data->'voideDate'")
+      expect(sql).toContain('701')
+    }
+    expect(restore).toContain("oc.cost_basis = 'measured'")
+    expect(restore.trimEnd().endsWith('rollback;')).toBe(true)
+  })
+
+  it('proposes revoking public execute on the old record_scan and does not grant', () => {
+    const revoke = readFileSync('supabase/propose_revoke_record_scan_public_2026_11_08.sql', 'utf8')
+    expect(revoke).toContain('revoke execute on function public.record_scan')
+    expect(revoke).toContain('from public, anon, authenticated')
+    expect(revoke).not.toMatch(/grant execute/i)
+    expect(revoke).not.toMatch(/create or replace function record_scan/i)
+    expect(revoke).toContain('record_scan_claimed')
+    expect(revoke).toContain('pronargs')
+    expect(revoke).toContain('Do not run')
+    expect(revoke.trimEnd().endsWith('rollback;')).toBe(true)
+    expect(revoke).not.toMatch(/^\s*commit\s*;/im)
+  })
 })
