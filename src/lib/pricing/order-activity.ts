@@ -14,13 +14,15 @@
 import { priceOf } from '@/lib/billing/unpriced'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
 import { rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
-import { money, normalizeSku, peakOmissionNote, pricePick } from '@/lib/pricing/engine'
+import { money, peakOmissionNote, priceClassifiedPick } from '@/lib/pricing/engine'
 import type { ClientReportRow } from '@/lib/pricing/client-report'
-import type { PriceListDocument, SkuQty } from '@/lib/pricing/types'
+import type { PriceListDocument } from '@/lib/pricing/types'
 
 export interface ActivityLine {
   sku: string
   qty: number
+  /** True when the SKU must be scanned. Null when the stored line does not say. */
+  scannable: boolean | null
 }
 
 export interface ActivityOrder {
@@ -103,20 +105,24 @@ function dayOf(parcel: ActivityParcel): string {
 }
 
 /** Device and accessory units the price list would split, plus carton counts. */
-export function orderPickParts(list: PriceListDocument | null, lines: readonly SkuQty[]): OrderPickParts {
+export function orderPickParts(
+  list: PriceListDocument | null,
+  lines: readonly { sku: string; qty: number; scannable?: boolean | null }[],
+): OrderPickParts {
   if (!list) {
     return { deviceUnits: 0, accessoryUnits: 0, cartons: 0, remainder: 0, amount: null, reasons: ['no price list'] }
   }
-  const priced = pricePick(list, [...lines])
-  const prefixes = list.devicePick?.skuPrefixes ?? []
+  const priced = priceClassifiedPick(list, lines.map((line) => ({
+    sku: line.sku,
+    qty: line.qty,
+    scannable: line.scannable === undefined ? null : line.scannable,
+  })))
   let deviceUnits = 0
   let accessoryUnits = 0
   for (const line of lines) {
-    if (!Number.isFinite(line.qty)) continue
-    const sku = normalizeSku(line.sku)
-    if (list.devicePick && prefixes.some((prefix) => sku.startsWith(normalizeSku(prefix)))) {
-      deviceUnits += line.qty
-    } else accessoryUnits += line.qty
+    if (!Number.isFinite(line.qty) || line.scannable == null) continue
+    if (line.scannable) deviceUnits += line.qty
+    else accessoryUnits += line.qty
   }
   const size = list.devicePick?.cartonSize ?? 0
   const cartons = size > 0 ? Math.floor(deviceUnits / size) : 0
@@ -216,10 +222,12 @@ export function buildOrderActivity(input: {
     const parts = orderPickParts(input.list, order.lines.map((line) => ({ sku: line.sku, qty: line.qty })))
     const deviceRate = input.list?.devicePick
     const otherRate = input.list?.accessoryPick
-    const rateLabel = deviceRate
-      ? `${parts.cartons} × ${deviceRate.cartonRate.toFixed(2)} + ${parts.remainder} × ${deviceRate.remainderRate.toFixed(2)}`
-        + (otherRate ? ` + ${parts.accessoryUnits} × ${otherRate.unitRate.toFixed(2)}` : '')
-      : ''
+    const rateLabel = parts.amount == null
+      ? 'classification unknown'
+      : deviceRate
+        ? `${parts.cartons} × ${deviceRate.cartonRate.toFixed(2)} + ${parts.remainder} × ${deviceRate.remainderRate.toFixed(2)}`
+          + (otherRate ? ` + ${parts.accessoryUnits} × ${otherRate.unitRate.toFixed(2)}` : '')
+        : ''
     picks.push({
       orderNumber: number,
       deviceUnits: parts.deviceUnits,

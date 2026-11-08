@@ -19,7 +19,9 @@ describe('order pick uses cartons', () => {
     expect(flat).toBeCloseTo(263.48, 2)
     const perCarton = device.cartonSize * device.remainderRate - device.cartonRate
     expect(flat - 8 * perCarton).toBeCloseTo(224.28, 2)
-    const oneCarton = orderPickParts(list, [{ sku: 'R-1', qty: 20 }])
+    const oneCarton = orderPickParts(list, [{ sku: 'R-1', qty: 20, scannable: true }])
+    const missing = orderPickParts(list, [{ sku: 'R-1', qty: 20 }])
+    expect(missing.amount).toBeNull()
     expect(oneCarton.cartons).toBe(1)
     expect(oneCarton.amount).toBe(device.cartonRate)
     expect(oneCarton.amount).not.toBe(20 * device.remainderRate)

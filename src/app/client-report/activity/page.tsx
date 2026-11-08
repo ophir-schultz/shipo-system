@@ -46,12 +46,13 @@ export default async function OrderActivityPage({
         <h2 className="text-2xl font-bold">Order activity</h2>
         <p className="mt-1 text-sm text-[#3A4658]">
           One row per order, using the same 16 columns as the imported workbook.
-          This is not that workbook. Device pick is per order: a full box is 20 device units at $1.50.
-          100 units are $7.50. 122 units are 6 × $1.50 plus 2 × $0.32, which is $9.64.
-          20 units are $1.50. 19 units are $6.08. 0 units are $0.
-          That full box is a count of device units. It is not the physical box material fee.
-          Material stays blank without a box code. Other SKUs keep their own rate.
-          This does not reclassify them and does not add a peak percentage.
+          This is not that workbook. A unit that must be scanned is priced per order: floor(quantity / 20) × $1.50 + leftover × $0.32.
+          A unit that does not require a scan is $0.20 each, with no carton rate, at any quantity.
+          20 scannable units plus 100 accessories are $21.50. 122 scannable units are $9.64.
+          400 accessories are $80. 100 accessories are $20. A line with no scan requirement is unknown.
+          Order lines do not store that flag. The Zenventory order read has it, and it is not kept here.
+          An R or D prefix is not used. The prefix total is not a verified client price.
+          A full box in this rule is 20 scannable units. It is not the physical box material fee.
           Shipping is shown only when one parcel has one client price. A stored rate that
           disagrees with the ledger charge is left blank.
           A blank is unknown, not zero, and it is not a final total.

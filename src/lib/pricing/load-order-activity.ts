@@ -104,7 +104,7 @@ export async function loadOrderActivity(
     const qty = picked != null && picked > 0 ? picked : ordered
     if (qty == null || qty <= 0) continue
     const list = linesByOrder.get(item.order_id) ?? []
-    list.push({ sku: item.sku ?? '', qty })
+    list.push({ sku: item.sku ?? '', qty, scannable: null })
     linesByOrder.set(item.order_id, list)
   }
 

@@ -3,7 +3,7 @@ import { readAllPages, type PageResult } from '@/lib/db/page'
 import { priceOf } from '@/lib/billing/unpriced'
 import { shipmentIdFromChargeKey } from '@/lib/billing/statement-detail'
 import type { StatementChargeRow } from '@/lib/billing/statement-charges'
-import { money, peakOmissionNote, pricePick } from '@/lib/pricing/engine'
+import { money, peakOmissionNote, priceClassifiedPick } from '@/lib/pricing/engine'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
 import { easternAddDays, easternMidnightIso, rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
 import { zenventorySlug } from '@/lib/zenventory/client-env'
@@ -497,9 +497,21 @@ export function pickPackRows(
       }
       continue
     }
-    const priced = pricePick(list, order.lines)
-    if (priced.amount === null) continue
+    const priced = priceClassifiedPick(list, order.lines.map((line) => ({
+      sku: line.sku,
+      qty: line.qty,
+      scannable: line.scannable === undefined ? null : line.scannable,
+    })))
     const items = order.lines.reduce((sum, line) => sum + line.qty, 0)
+    if (priced.amount === null) {
+      rows.push(baseCharge(order, {
+        label: 'Pick & pack (classification unknown)',
+        quantity: items,
+        unit_rate: null,
+        amount: null,
+      }))
+      continue
+    }
     rows.push(baseCharge(order, {
       quantity: items,
       amount: priced.amount,
@@ -810,6 +822,20 @@ export async function priceStatementCharges(
     lines,
   })), list)
   const orderNumbers = new Map(pickOrders.flatMap((order) => order.orderId ? [[order.orderId, order.orderNumber] as const] : []))
+  if (picks.some((row) => row.label === 'Pick & pack (classification unknown)')) {
+    return {
+      charges: [...next, ...picks],
+      pickPack: {
+        billed: false,
+        rate: null,
+        reason: 'Pick is unknown. Order lines do not say whether the SKU must be scanned. The R/D prefix was not used, and no rate-card pick was substituted.',
+      },
+      error: null,
+      freightReviews,
+      basisReviews,
+      pickDetails: pickOrderDetails(picks, 'unknown', orderNumbers),
+    }
+  }
   if (hasPricedPick(picks)) {
     const covered = new Set(picks.map((row) => row.order_id).filter((id): id is string => id != null))
     const missed = pickOrders.filter((order) => order.orderId != null && !covered.has(order.orderId))

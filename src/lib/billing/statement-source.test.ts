@@ -222,16 +222,16 @@ describe('statement pick & pack', () => {
     ])
   })
 
-  it('prices a Nayax order from the price list without storing one unit rate', () => {
+  it('does not price a Nayax order from the R/D prefix when scan requirement is missing', () => {
     const nayax = loadRepoPriceList('Nayax').list
     expect(nayax).not.toBeNull()
     const lines = [{ sku: 'R100', qty: 21 }, { sku: 'CABLE', qty: 2 }]
     const rows = pickPackRows([{ orderId: 'o1', chargeDate: '2026-10-08', lines }], nayax)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].unit_rate).toBeNull()
-    expect(rows[0].amount).toBe(pricePick(nayax!, lines).amount)
-    expect(rows[0].amount).not.toBeNull()
-    expect(chargeRateCell(rows[0])).toBe('see amount')
+    expect(rows[0].amount).toBeNull()
+    expect(rows[0].label).toBe('Pick & pack (classification unknown)')
+    const classified = [{ sku: 'R100', qty: 20, scannable: true }, { sku: 'CABLE', qty: 100, scannable: false }]
+    const priced = pickPackRows([{ orderId: 'o1', chargeDate: '2026-10-08', lines: classified }], nayax)
+    expect(priced[0].amount).toBe(21.5)
   })
 
   it('uses the picked quantity when one was recorded', () => {

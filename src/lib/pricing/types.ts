@@ -141,6 +141,8 @@ export interface PriceListDocument {
 export interface SkuQty {
   sku: string
   qty: number
+  /** True when the SKU must be scanned. Omit or null when that is not stored. */
+  scannable?: boolean | null
 }
 
 export interface BoxLine {

@@ -77,6 +77,54 @@ export function priceOrderPick(list: PriceListDocument, lines: SkuQty[]): Priced
   return part(money(tier.orderRate + extra * tier.additionalRate))
 }
 
+export interface ClassifiedQty {
+  sku: string
+  qty: number
+  /** True when the SKU must be scanned. Null when that is not known. A prefix is not this flag. */
+  scannable: boolean | null
+}
+
+/**
+ * Pick from a known scan requirement, per order.
+ * Scannable units use the device box rule. Units that do not require a scan
+ * use the accessory rate and never a carton rate. One unknown line makes
+ * the order unknown. Prefix is ignored.
+ */
+export function priceClassifiedPick(list: PriceListDocument, lines: readonly ClassifiedQty[]): PricedPart {
+  if (lines.some((line) => line.scannable == null)) {
+    return part(null, ['classification unknown: the line does not say whether the SKU must be scanned'])
+  }
+  if (!list.devicePick || !list.accessoryPick) {
+    return part(null, ['the price list has no device or accessory rate'])
+  }
+  let device = 0
+  let accessory = 0
+  for (const line of lines) {
+    if (!Number.isFinite(line.qty)) {
+      return part(null, [`quantity for ${line.sku || '(blank sku)'} is not a number`])
+    }
+    if (line.scannable) device += line.qty
+    else accessory += line.qty
+  }
+  if (!Number.isInteger(device) || !Number.isInteger(accessory)) {
+    return part(null, ['units are not a whole number'])
+  }
+  const { cartonSize, cartonRate, remainderRate } = list.devicePick
+  if (!Number.isInteger(cartonSize) || cartonSize <= 0) {
+    return part(null, ['device carton size must be a positive whole number'])
+  }
+  let totalCents = 0
+  if (device > 0) {
+    const cartons = Math.floor(device / cartonSize)
+    const remainder = device % cartonSize
+    totalCents += cents(cartonRate) * cartons + cents(remainderRate) * remainder
+  }
+  if (accessory > 0) {
+    totalCents += cents(list.accessoryPick.unitRate * accessory)
+  }
+  return part(money(totalCents / 100))
+}
+
 export function pricePick(list: PriceListDocument, lines: SkuQty[]): PricedPart {
   if (list.orderPick) return priceOrderPick(list, lines)
   const reasons: string[] = []
