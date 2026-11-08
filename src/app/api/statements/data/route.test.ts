@@ -104,6 +104,9 @@ type Body = {
     amount: number | null; unpriced: number; counted: number; estimated: number
   }>
   total?: number | null
+  partial?: boolean
+  subtotalLabel?: string
+  amountDue?: number | null
   unpriced?: number
   counted?: number
   estimated?: number
@@ -156,7 +159,11 @@ describe('GET /api/statements/data', () => {
   it('totals only what it could price', async () => {
     // 1.05 + 10.50 + 2.20. The at-cost row is NOT in it, and `unpriced` above
     // is how a reader knows.
-    expect((await body(await GET(url()))).total).toBeCloseTo(13.75, 10)
+    const priced = await body(await GET(url()))
+    expect(priced.total).toBeCloseTo(13.75, 10)
+    expect(priced.partial).toBe(true)
+    expect(priced.subtotalLabel).toBe('Known subtotal (partial)')
+    expect(priced.amountDue).toBeNull()
   })
 
   it('renders the three non-numeric rates as three different sentences', async () => {
@@ -290,7 +297,9 @@ describe('GET /api/statements/data: agrees with the spreadsheet', () => {
     const sheet = await sheetRows()
 
     // Drop the TOTAL and NOTE rows: those are the sheet's own layout.
-    const layout = new Set(['TOTAL', 'Subtotal', 'Monthly minimum top-up', 'Amount due'])
+    const layout = new Set([
+      'TOTAL', 'Subtotal', 'Known subtotal (partial)', 'Monthly minimum top-up', 'Amount due',
+    ])
     const sheetLines = sheet.filter(r => !layout.has(String(r['Line'])) && r['Charge'] !== 'NOTE')
 
     expect(sheetLines).toHaveLength(b.lines!.length)
@@ -314,9 +323,11 @@ describe('GET /api/statements/data: agrees with the spreadsheet', () => {
   it('shows the same TOTAL as the Statement sheet', async () => {
     const b = await body(await GET(url()))
     h.db = createFakeSupabase(structuredClone(seed()))
-    const total = (await sheetRows()).find(r => r['Line'] === 'Subtotal')
-    expect(total, 'the sheet has no Subtotal row').toBeDefined()
+    const total = (await sheetRows()).find(r => r['Line'] === b.subtotalLabel)
+    expect(total, 'the sheet has no subtotal row').toBeDefined()
     expect(total!['Amount ($)']).toBeCloseTo(b.total!, 10)
+    const due = (await sheetRows()).find(r => r['Line'] === 'Amount due')
+    expect(due?.['Amount ($)']).toBe(b.partial ? 'not final' : b.amountDue)
     expect(total!['Unpriced rows']).toBe(b.unpriced)
     expect(total!['Estimated rows']).toBe(b.estimated)
   })

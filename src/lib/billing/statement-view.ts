@@ -1,5 +1,5 @@
-import { priceOf, UNPRICED_CELL, UNPRICED_DASH } from '@/lib/billing/unpriced'
-import { isGrain, type DateRange, type Grain, type StatementLine } from '@/lib/billing/statement'
+import { priceOf, totalOrUnknown, UNPRICED_CELL, UNPRICED_DASH } from '@/lib/billing/unpriced'
+import { isGrain, type DateRange, type Grain, type Statement, type StatementLine } from '@/lib/billing/statement'
 
 // The sentences the statement screen prints about its own figures.
 //
@@ -183,4 +183,71 @@ export function estimateNote(estimated: number): string {
   if (estimated <= 0) return ''
   return `${estimated} ${estimated === 1 ? 'charge' : 'charges'} priced from an `
     + `assumed rate, not a measured one`
+}
+
+export const COMPLETE_SUBTOTAL_LABEL = 'Subtotal'
+export const PARTIAL_SUBTOTAL_LABEL = 'Known subtotal (partial)'
+export const AMOUNT_DUE_LABEL = 'Amount due'
+/** A known sum exists, and a missing charge means it is not the bill. */
+export const AMOUNT_DUE_NOT_FINAL = 'not final'
+/** No known charge amount, or every counted charge is missing. Not $0. */
+export const AMOUNT_UNKNOWN = 'unknown'
+
+export interface StatementFigures {
+  /** Priced charges only. Null when every counted charge has no amount. */
+  knownSubtotal: number | null
+  /** A charge amount is missing. The known sum is not the period. */
+  partial: boolean
+  subtotalLabel: string
+  /**
+   * What could be billed. Null when a charge amount is missing, or when the
+   * known subtotal itself is unknown. A monthly-minimum top-up is included
+   * only when the period is fully priced and the minimum applies.
+   */
+  amountDue: number | null
+}
+
+/**
+ * Subtotal and amount due for one statement.
+ *
+ * A missing charge amount is not $0 and is not dropped from the bill. The
+ * dollars that were read stay visible, labeled partial. Amount due stays
+ * unfinished. A unit rate that was never stored does not make a known amount
+ * partial: that case is "see amount", and the amount is in the sum.
+ *
+ * A priced zero is a real zero. An empty period is $0. A full calendar month
+ * whose every amount is known still takes the monthly minimum.
+ */
+export function statementFigures(
+  statement: Pick<Statement, 'sum'>,
+  minimum: { applies: boolean; totalCents: number | null },
+): StatementFigures {
+  const partial = statement.sum.unpriced > 0
+  const knownSubtotal = partial && statement.sum.unpriced === statement.sum.counted
+    ? null
+    : totalOrUnknown(statement.sum)
+  if (partial) {
+    return {
+      knownSubtotal,
+      partial: true,
+      subtotalLabel: PARTIAL_SUBTOTAL_LABEL,
+      amountDue: null,
+    }
+  }
+  const amountDue = minimum.applies && minimum.totalCents !== null
+    ? minimum.totalCents / 100
+    : knownSubtotal
+  return {
+    knownSubtotal,
+    partial: false,
+    subtotalLabel: COMPLETE_SUBTOTAL_LABEL,
+    amountDue,
+  }
+}
+
+/** The amount-due cell. A number, "not final", or "unknown". Never a guessed total. */
+export function statementAmountDueCell(figures: StatementFigures): number | typeof AMOUNT_DUE_NOT_FINAL | typeof AMOUNT_UNKNOWN {
+  if (figures.amountDue !== null) return figures.amountDue
+  if (figures.partial && figures.knownSubtotal !== null) return AMOUNT_DUE_NOT_FINAL
+  return AMOUNT_UNKNOWN
 }

@@ -6,10 +6,10 @@ import {
   readStatementCharges, readEarliestChargeDate,
 } from '@/lib/billing/statement-charges'
 import {
-  buildStatement, statementTotal, resolvePeriod,
+  buildStatement, resolvePeriod,
 } from '@/lib/billing/statement'
 import {
-  rateText, periodLabel, coverageNote, estimateNote,
+  rateText, periodLabel, coverageNote, estimateNote, statementFigures,
 } from '@/lib/billing/statement-view'
 import { totalOrUnknown, unpricedNote } from '@/lib/billing/unpriced'
 import { priceStatementCharges } from '@/lib/billing/statement-source'
@@ -147,6 +147,7 @@ export async function GET(req: Request) {
     rows: priced.charges,
     agreed: await loadAgreedMinimum(client.row.name),
   })
+  const figures = statementFigures(statement, minimum)
 
   return NextResponse.json({
     client: { id: client.row.id, name: client.row.name },
@@ -169,10 +170,13 @@ export async function GET(req: Request) {
       counted: line.sum.counted,
       estimated: line.estimated,
     })),
-    total: statementTotal(statement),
+    total: figures.knownSubtotal,
+    partial: figures.partial,
+    subtotalLabel: figures.subtotalLabel,
+    amountDue: figures.amountDue,
     subtotalCents: minimum.subtotalCents,
     minimumTopUpCents: minimum.topUpCents,
-    amountDueCents: minimum.applies ? minimum.totalCents : null,
+    amountDueCents: figures.amountDue === null ? null : Math.round(figures.amountDue * 100),
     minimumApplied: minimum.applies,
     minimumReason: minimum.reason,
     unpriced: statement.sum.unpriced,

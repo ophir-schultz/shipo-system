@@ -754,6 +754,9 @@ type StatementDTO = {
   period: string
   lines: StatementLineDTO[]
   total: number | null
+  partial?: boolean
+  subtotalLabel?: string
+  amountDue?: number | null
   unpriced: number
   counted: number
   estimated: number
@@ -995,7 +998,9 @@ function StatementLines({ data }: { data: StatementDTO }) {
           </tbody>
           <tfoot className="bg-[#F1F5FB] font-semibold">
             <tr>
-              <td className="px-4 py-3 text-[#0B1220]" colSpan={4}>Total owed</td>
+              <td className="px-4 py-3 text-[#0B1220]" colSpan={4}>
+                {data.subtotalLabel ?? (data.unpriced > 0 ? 'Known subtotal (partial)' : 'Subtotal')}
+              </td>
               <td className="px-4 py-3 text-right text-[#0B1220]">
                 {data.total === null ? UNPRICED_DASH : `$${data.total.toFixed(2)}`}
               </td>
@@ -1004,6 +1009,17 @@ function StatementLines({ data }: { data: StatementDTO }) {
                   ? `${data.unpriced} of ${data.counted} charges not yet priced`
                   : ''}
               </td>
+            </tr>
+            <tr>
+              <td className="px-4 py-3 text-[#0B1220]" colSpan={4}>Amount due</td>
+              <td className="px-4 py-3 text-right text-[#0B1220]">
+                {data.amountDue != null
+                  ? `$${data.amountDue.toFixed(2)}`
+                  : data.partial && data.total !== null
+                    ? 'not final'
+                    : UNPRICED_DASH}
+              </td>
+              <td />
             </tr>
           </tfoot>
         </table>

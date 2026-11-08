@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { chargeRateCell, rateText, periodLabel, coverageNote, estimateNote, grainChoice } from '@/lib/billing/statement-view'
+import {
+  chargeRateCell, rateText, periodLabel, coverageNote, estimateNote, grainChoice,
+  statementAmountDueCell, statementFigures,
+} from '@/lib/billing/statement-view'
 import { buildStatement, periodRange, GRAINS, type StatementCharge } from '@/lib/billing/statement'
+import { monthlyMinimumBill } from '@/lib/billing/monthly-minimum'
 import { UNPRICED_CELL, UNPRICED_DASH } from '@/lib/billing/unpriced'
 
 // Every assertion here is about a sentence that appears on a document a client
@@ -260,5 +264,127 @@ describe('estimateNote', () => {
     // still move is the part the operator has to be able to repeat to a client.
     expect(estimateNote(2)).toMatch(/assumed rate/)
     expect(estimateNote(2)).toMatch(/not a measured one/)
+  })
+})
+
+describe('statementFigures', () => {
+  const agreed = {
+    status: 'standard' as const,
+    dollars: 395,
+    reason: 'The matching rate sheet uses the standard monthly minimum.',
+  }
+  const october = { from: '2026-10-01', to: '2026-10-31' }
+  const custom = { from: '2026-10-07', to: '2026-10-31' }
+  const row = (over: Partial<StatementCharge>): StatementCharge => ({
+    charge_type: 'shipping',
+    label: 'Shipping',
+    quantity: 1,
+    amount: 1,
+    ...over,
+  })
+
+  function figuresFor(rows: StatementCharge[], range: { from: string; to: string }) {
+    const statement = buildStatement(rows, range)
+    const minimum = monthlyMinimumBill({ from: range.from, to: range.to, rows, agreed })
+    return { minimum, figures: statementFigures(statement, minimum) }
+  }
+
+  it('keeps a known subtotal partial and the amount due unfinished when a charge has no amount', () => {
+    const { minimum, figures } = figuresFor([
+      row({ amount: 1664.05 }),
+      row({ amount: 54.5, charge_type: 'pick', label: 'Pick & pack' }),
+      row({ amount: 10.5, charge_type: 'pick', label: 'Additional items' }),
+      row({ amount: null }),
+      row({ amount: null, label: 'Shipping extra' }),
+    ], october)
+    expect(figures.partial).toBe(true)
+    expect(figures.knownSubtotal).toBeCloseTo(1729.05, 2)
+    expect(figures.subtotalLabel).toBe('Known subtotal (partial)')
+    expect(figures.amountDue).toBeNull()
+    expect(statementAmountDueCell(figures)).toBe('not final')
+    expect(minimum.applies).toBe(false)
+    expect(minimum.reason).toMatch(/not treated as \$0/)
+  })
+
+  it('keeps a known zero visible when another charge has no amount', () => {
+    const { figures } = figuresFor([
+      row({ amount: 0 }),
+      row({ amount: null, label: 'Shipping extra' }),
+    ], october)
+    expect(figures.partial).toBe(true)
+    expect(figures.knownSubtotal).toBe(0)
+    expect(statementAmountDueCell(figures)).toBe('not final')
+  })
+
+  it('does not print $0 when every charge amount is missing', () => {
+    const { figures } = figuresFor([
+      row({ amount: null }),
+      row({ amount: null, label: 'Shipping extra' }),
+    ], october)
+    expect(figures.knownSubtotal).toBeNull()
+    expect(figures.amountDue).toBeNull()
+    expect(statementAmountDueCell(figures)).toBe('unknown')
+  })
+
+  it('treats a priced zero as zero, and a full month still takes the minimum', () => {
+    const { minimum, figures } = figuresFor([row({ amount: 0 })], october)
+    expect(figures.partial).toBe(false)
+    expect(figures.knownSubtotal).toBe(0)
+    expect(figures.subtotalLabel).toBe('Subtotal')
+    expect(minimum.applies).toBe(true)
+    expect(figures.amountDue).toBe(395)
+    expect(statementAmountDueCell(figures)).toBe(395)
+  })
+
+  it('leaves a priced zero on a custom range at zero, with no top-up', () => {
+    const { minimum, figures } = figuresFor([row({ amount: 0 })], custom)
+    expect(figures.partial).toBe(false)
+    expect(figures.knownSubtotal).toBe(0)
+    expect(minimum.applies).toBe(false)
+    expect(figures.amountDue).toBe(0)
+  })
+
+  it('tops a fully priced month up to the minimum and leaves a larger month alone', () => {
+    const under = figuresFor([row({ amount: 62.93 })], october)
+    expect(under.figures.partial).toBe(false)
+    expect(under.figures.knownSubtotal).toBeCloseTo(62.93, 2)
+    expect(under.figures.subtotalLabel).toBe('Subtotal')
+    expect(under.minimum.topUpCents).toBe(33207)
+    expect(under.figures.amountDue).toBe(395)
+
+    const nayax = figuresFor([row({ amount: 8201.26 })], october)
+    expect(nayax.figures.partial).toBe(false)
+    expect(nayax.figures.knownSubtotal).toBeCloseTo(8201.26, 2)
+    expect(nayax.figures.amountDue).toBeCloseTo(8201.26, 2)
+    expect(nayax.minimum.topUpCents).toBe(0)
+    expect(nayax.figures.subtotalLabel).toBe('Subtotal')
+  })
+
+  it('bills a fully priced custom range at the known sum and does not apply the floor', () => {
+    const { minimum, figures } = figuresFor([row({ amount: 8201.26 })], custom)
+    expect(minimum.applies).toBe(false)
+    expect(figures.partial).toBe(false)
+    expect(figures.amountDue).toBeCloseTo(8201.26, 2)
+  })
+
+  it('does not close a custom range that still has a missing amount', () => {
+    const { minimum, figures } = figuresFor([
+      row({ amount: 100 }),
+      row({ amount: null, label: 'Shipping extra' }),
+    ], custom)
+    expect(minimum.applies).toBe(false)
+    expect(figures.partial).toBe(true)
+    expect(figures.knownSubtotal).toBe(100)
+    expect(statementAmountDueCell(figures)).toBe('not final')
+  })
+
+  it('does not call a known amount unpriced when the unit rate was not stored', () => {
+    const { figures } = figuresFor([
+      row({ amount: 4.2, unit_rate: null, quantity: 23 }),
+    ], october)
+    expect(figures.partial).toBe(false)
+    expect(figures.knownSubtotal).toBeCloseTo(4.2, 2)
+    expect(figures.subtotalLabel).toBe('Subtotal')
+    expect(figures.amountDue).toBe(395)
   })
 })

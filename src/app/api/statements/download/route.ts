@@ -8,10 +8,11 @@ import {
   readStatementCharges, readEarliestChargeDate,
 } from '@/lib/billing/statement-charges'
 import {
-  buildStatement, statementTotal, resolvePeriod,
+  buildStatement, resolvePeriod,
 } from '@/lib/billing/statement'
 import {
   rateText, periodLabel, coverageNote, estimateNote, chargeRateCell,
+  statementAmountDueCell, statementFigures,
 } from '@/lib/billing/statement-view'
 import {
   readOrderNumbers, readShipmentFacts, shipmentIdFromChargeKey,
@@ -195,16 +196,15 @@ export async function GET(req: Request) {
     ? null
     : (earliestRes.data ?? [])[0].charge_date
   const statement = buildStatement(charges, range)
-  const total = statementTotal(statement)
   const minimum = monthlyMinimumBill({
     from: range.from,
     to: range.to,
     rows: charges,
     agreed: await loadAgreedMinimum(name),
   })
-  const amountDue = minimum.applies && minimum.totalCents !== null
-    ? minimum.totalCents / 100
-    : total
+  const figures = statementFigures(statement, minimum)
+  const total = figures.knownSubtotal
+  const amountDue = statementAmountDueCell(figures)
 
   // ---- The two lookups that turn the detail into something checkable ----
   //
@@ -267,10 +267,10 @@ export async function GET(req: Request) {
   } else {
     summary.push({
       'Charge': '',
-      'Line': 'Subtotal',
+      'Line': figures.subtotalLabel,
       'Units': '',
       'Rate': '',
-      'Amount ($)': moneyCell(total),
+      'Amount ($)': total === null ? 'unknown' : total,
       'Unpriced rows': statement.sum.unpriced,
       'Estimated rows': statement.estimated,
     })
@@ -290,7 +290,7 @@ export async function GET(req: Request) {
       'Line': 'Amount due',
       'Units': '',
       'Rate': '',
-      'Amount ($)': moneyCell(amountDue),
+      'Amount ($)': amountDue,
       'Unpriced rows': statement.sum.unpriced,
       'Estimated rows': statement.estimated,
     })

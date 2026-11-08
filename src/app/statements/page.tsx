@@ -6,11 +6,12 @@ import {
 } from '@/lib/billing/statement-charges'
 import { priceStatementCharges } from '@/lib/billing/statement-source'
 import {
-  buildStatement, statementTotal, resolveStatementQuery,
+  buildStatement, resolveStatementQuery,
   type Grain, type Statement, type DateRange,
 } from '@/lib/billing/statement'
 import {
   rateText, periodLabel, coverageNote, estimateNote,
+  statementAmountDueCell, statementFigures,
 } from '@/lib/billing/statement-view'
 import {
   formatPrice, unpricedNote, totalOrUnknown, UNPRICED_DASH,
@@ -284,10 +285,10 @@ function StatementTable(
   },
 ) {
   const { range, statement, earliest, minimum } = data
-  const subtotal = statementTotal(statement)
-  const due = minimum.applies && minimum.totalCents !== null
-    ? minimum.totalCents / 100
-    : subtotal
+  const figures = statementFigures(statement, minimum)
+  const subtotal = figures.knownSubtotal
+  const dueCell = statementAmountDueCell(figures)
+  const dueText = typeof dueCell === 'number' ? formatPrice(dueCell) : dueCell
 
   const coverage = coverageNote(earliest, range, statement.lines.length)
   const unpriced = unpricedNote(statement.sum.unpriced, 'charge')
@@ -355,7 +356,7 @@ function StatementTable(
             <tfoot>
               <tr className="border-t border-slate-600">
                 <td className="pt-3 pr-3 text-xs uppercase text-slate-500" colSpan={4}>
-                  Subtotal
+                  {figures.subtotalLabel}
                 </td>
                 <td className="pt-3 text-right font-medium text-white">
                   {subtotal === null ? 'unknown' : formatPrice(subtotal)}
@@ -376,16 +377,16 @@ function StatementTable(
                   Amount due
                 </td>
                 <td className="pt-2 text-right text-base font-bold text-white">
-                  {due === null ? 'unknown' : formatPrice(due)}
+                  {dueText}
                 </td>
               </tr>
             </tfoot>
           </table>
           </div>
           <div className="mt-3 space-y-1 text-sm text-slate-100 md:hidden">
-            <p>Subtotal {subtotal === null ? 'unknown' : formatPrice(subtotal)}</p>
+            <p>{figures.subtotalLabel} {subtotal === null ? 'unknown' : formatPrice(subtotal)}</p>
             <p>Monthly minimum top-up {minimum.applies && minimum.topUpCents !== null ? formatPrice(minimum.topUpCents / 100) : 'not applied'}</p>
-            <p className="font-bold">Amount due {due === null ? 'unknown' : formatPrice(due)}</p>
+            <p className="font-bold">Amount due {dueText}</p>
           </div>
         </div>
       )}
