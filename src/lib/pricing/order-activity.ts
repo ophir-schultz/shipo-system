@@ -65,6 +65,15 @@ export interface OrderPickParts {
   reasons: string[]
 }
 
+export interface ActivityOrderPick {
+  orderNumber: string
+  deviceUnits: number
+  cartons: number
+  remainder: number
+  accessoryUnits: number
+  amount: number | null
+}
+
 export interface ActivityCoverage {
   datedOrders: number
   undatedOrders: string[]
@@ -73,6 +82,7 @@ export interface ActivityCoverage {
   shippingAmbiguous: string[]
   pickKnown: number | null
   pickUnknownOrders: number
+  picks: ActivityOrderPick[]
 }
 
 export interface OrderActivity {
@@ -175,6 +185,7 @@ export function buildOrderActivity(input: {
   const shippingAmbiguous: string[] = []
   const unmatchedParcels: string[] = []
   const rows: ClientReportRow[] = []
+  const picks: ActivityOrderPick[] = []
   let pickCents = 0
   let pickKnown = 0
   let pickUnknownOrders = 0
@@ -200,6 +211,14 @@ export function buildOrderActivity(input: {
     if (date < input.from || date > input.to) continue
 
     const parts = orderPickParts(input.list, order.lines.map((line) => ({ sku: line.sku, qty: line.qty })))
+    picks.push({
+      orderNumber: number,
+      deviceUnits: parts.deviceUnits,
+      cartons: parts.cartons,
+      remainder: parts.remainder,
+      accessoryUnits: parts.accessoryUnits,
+      amount: parts.amount,
+    })
     if (parts.amount == null) pickUnknownOrders += 1
     else {
       pickKnown += 1
@@ -258,6 +277,7 @@ export function buildOrderActivity(input: {
       shippingAmbiguous,
       pickKnown: pickKnown === 0 ? null : pickCents / 100,
       pickUnknownOrders,
+      picks,
     },
   }
 }

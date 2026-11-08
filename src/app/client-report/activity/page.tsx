@@ -90,7 +90,35 @@ export default async function OrderActivityPage({
         <>
           <div className="rounded-xl border border-[#CBD5E1] bg-white p-5 text-sm text-[#0B1220]">
             <p>{activity.coverage.datedOrders} orders in {from} to {to}. The date is the ship day in America/New_York.</p>
-            <p className="mt-1">Pick on the dated rows: {activity.coverage.pickKnown == null ? 'unknown' : `$${activity.coverage.pickKnown.toFixed(2)}`}. Orders the price list did not price: {activity.coverage.pickUnknownOrders}.</p>
+            <p className="mt-1">Pick on the dated rows: {activity.coverage.pickKnown == null ? 'unknown' : `$${activity.coverage.pickKnown.toFixed(2)}`}. Orders the price list did not price: {activity.coverage.pickUnknownOrders}. A full carton is the carton rate. Leftover device units are the remainder rate. Other units are the accessory rate.</p>
+            {activity.coverage.picks.length > 0 && (
+              <div className="mt-3 max-h-80 overflow-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left">
+                      <th className="py-1 pr-2">Order</th>
+                      <th className="py-1 pr-2 text-right">Device units</th>
+                      <th className="py-1 pr-2 text-right">Cartons</th>
+                      <th className="py-1 pr-2 text-right">Remainder</th>
+                      <th className="py-1 pr-2 text-right">Other units</th>
+                      <th className="py-1 text-right">Pick</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activity.coverage.picks.map((pick) => (
+                      <tr key={pick.orderNumber} className="border-t border-[#E2E8F0]">
+                        <td className="py-1 pr-2">{pick.orderNumber}</td>
+                        <td className="py-1 pr-2 text-right">{pick.deviceUnits}</td>
+                        <td className="py-1 pr-2 text-right">{pick.cartons}</td>
+                        <td className="py-1 pr-2 text-right">{pick.remainder}</td>
+                        <td className="py-1 pr-2 text-right">{pick.accessoryUnits}</td>
+                        <td className="py-1 text-right">{pick.amount == null ? 'Unknown' : `$${pick.amount.toFixed(2)}`}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <p className="mt-1">Orders with no ship day, kept out of the dated rows: {activity.coverage.undatedOrders.length === 0 ? 'none' : activity.coverage.undatedOrders.join(', ')}.</p>
             <p className="mt-1">Parcels in the period with no matching order, not given a row: {activity.coverage.unmatchedParcels.length === 0 ? 'none' : activity.coverage.unmatchedParcels.join(', ')}.</p>
             <p className="mt-1">Shipping left blank because the stored rate and the ledger charge disagree: {activity.coverage.shippingConflicts.length === 0 ? 'none' : activity.coverage.shippingConflicts.join(', ')}.</p>
