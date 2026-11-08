@@ -119,10 +119,13 @@ describe('loadChargeInputs — the window', () => {
     })
     const warnings: string[] = []
 
-    const inputs = await loadChargeInputs(WINDOW, (ctx) => warnings.push(ctx))
+    const inputs = await loadChargeInputs(WINDOW, (ctx, detail) => warnings.push(`${ctx}: ${detail}`))
 
     expect(inputs.map((i) => i.order.id).sort()).toEqual(['o-dated', 'o-undated'])
-    expect(warnings).toContain('orders with no order_date')
+    expect(warnings[0]).toContain('orders with no order_date')
+    expect(warnings[0]).toContain('1 order has a null order_date')
+    expect(warnings[0]).toContain('They stay in this charge load')
+    expect(warnings[0]).not.toMatch(/outside every date window|fix the source/i)
   })
 
   it('says nothing when every order is dated', async () => {
