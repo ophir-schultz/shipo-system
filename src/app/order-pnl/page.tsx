@@ -65,7 +65,7 @@ function Header() {
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Order profit and loss</h2>
       <p className="text-[#4B4F58] text-sm mt-1">
-        Client price minus ShipStation cost, per order and per client. Cost is the label cost already stored from ShipStation. This screen does not change it.
+        Stored rate-card price minus the stored ShipStation label cost, per order and per client. This is not company net profit: pick, warehouse, manual, and operating costs are not subtracted. A missing price or cost stays blank. This screen does not change a rate.
       </p>
     </div>
   )

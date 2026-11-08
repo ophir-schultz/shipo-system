@@ -101,6 +101,9 @@ async function getStatement(clientId: string, clientName: string, range: DateRan
     range,
     statement,
     freightReviews: priced.freightReviews,
+    basisReviews: priced.basisReviews,
+    pickDetails: priced.pickDetails,
+    pickReason: priced.pickPack.reason,
     minimum: monthlyMinimumBill({
       from: range.from,
       to: range.to,
@@ -291,10 +294,12 @@ function Shell({ children }: { children: React.ReactNode }) {
           can be many parcels, and “41 rates” means those parcels do not share one
           rate. Pick units are order quantities. When the ledger has no pick
           charge, each order is priced from the price list and those orders are
-          added. A stored shipment rate is used as the shipping amount when the
-          shipment has one. This page does not show that every order in the month
-          is included. A missing price stays unknown, and the amount due is not
-          final. The $395 floor applies only when the range is one full calendar
+          added. A stored rate replaces a blank shipping amount. When the stored
+          rate and the ledger amount differ, neither is the client price and the
+          amount due is not final. A linked full freight price is still the
+          client price. This page does not show that every order in the month is
+          included. The order rows are on Order activity. A missing price stays
+          unknown. The $395 floor applies only when the range is one full calendar
           month and every amount is known. This is not an invoice and nothing
           here is saved.
         </p>
@@ -313,11 +318,14 @@ function StatementTable(
       statement: Statement
       earliest: string | null
       freightReviews: string[]
+      basisReviews: string[]
+      pickDetails: { orderId: string | null; orderNumber: string; chargeDate: string; quantity: number | null; amount: number | null; label: string; source: string }[]
+      pickReason: string
       minimum: MonthlyMinimum
     }
   },
 ) {
-  const { range, statement, earliest, minimum, freightReviews } = data
+  const { range, statement, earliest, minimum, freightReviews, basisReviews, pickDetails, pickReason } = data
   const figures = statementFigures(statement, minimum)
   const subtotal = figures.knownSubtotal
   const dueCell = statementAmountDueCell(figures)
@@ -432,7 +440,45 @@ function StatementTable(
         {unpriced !== '' && <li>{unpriced}.</li>}
         {freightReviews.map((note) => <li key={note}>{note}</li>)}
         {estimated !== '' && <li>{estimated}.</li>}
+        {basisReviews.length > 0 && <li>Internal review. These notes are not client charges and are not in the download.</li>}
+        {basisReviews.map((note) => <li key={note}>{note}</li>)}
       </ul>
+      <div className="mt-4 border-t border-slate-700 pt-4">
+        <h4 className="text-sm font-semibold text-white">Pick per order</h4>
+        <p className="mt-1 text-xs text-slate-100">{pickReason}</p>
+        <p className="mt-1 text-xs text-slate-200">
+          <a href="/client-report/activity" className="font-semibold text-white underline">Order activity</a>
+          {' '}lists each order on the 16 workbook columns. The imported client report is not this list.
+        </p>
+        {pickDetails.length === 0 ? (
+          <p className="mt-2 text-xs text-slate-100">No per-order pick line in this period.</p>
+        ) : (
+          <div className="mt-2 max-h-80 overflow-auto">
+            <table className="w-full text-xs text-slate-100">
+              <thead>
+                <tr className="text-left text-slate-100">
+                  <th className="py-1 pr-2">Order</th>
+                  <th className="py-1 pr-2">Date</th>
+                  <th className="py-1 pr-2 text-right">Units</th>
+                  <th className="py-1 pr-2">Line</th>
+                  <th className="py-1 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pickDetails.map((row, index) => (
+                  <tr key={`${row.orderId ?? row.orderNumber}:${row.label}:${index}`} className="border-t border-slate-600">
+                    <td className="py-1 pr-2">{row.orderNumber || row.orderId || 'Unknown order'}</td>
+                    <td className="py-1 pr-2">{row.chargeDate}</td>
+                    <td className="py-1 pr-2 text-right">{row.quantity ?? 'Unknown'}</td>
+                    <td className="py-1 pr-2">{row.label}</td>
+                    <td className="py-1 text-right">{row.amount == null ? 'Unknown' : formatPrice(row.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

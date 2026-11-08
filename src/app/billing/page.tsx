@@ -98,7 +98,11 @@ function Header() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Billing</h2>
-      <p className="text-[#4B4F58] text-sm mt-1">Full billing breakdown per client — shipments, warehouse, adjustments</p>
+      <p className="text-[#4B4F58] text-sm mt-1">
+        Full billing breakdown per client — shipments, warehouse, adjustments.
+        A line with no price is not $0. This is not company net profit.
+        <a href="/client-report/activity" className="ml-1 font-semibold text-[#0B3361] underline">Order activity</a>
+      </p>
     </div>
   )
 }

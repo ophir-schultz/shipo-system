@@ -61,7 +61,7 @@ function Header() {
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Client report</h2>
       <p className="text-[#4B4F58] text-sm mt-1">
-        Imported billing lines only. Live shipments and order charges are not copied into this report. An empty range means no workbook rows, not that the client was idle. Approving and importing are separate actions. Nothing is generated on its own.
+        Imported billing lines only, in the workbook&apos;s 16 columns. Live orders are not copied into this table. An empty range means no workbook rows, not that the client was idle. Approving and importing are separate actions. Nothing is generated on its own.
       </p>
     </div>
   )
@@ -81,6 +81,10 @@ export default async function ClientReportPage() {
   return (
     <div className="space-y-6">
       <Header />
+      <p className="text-sm text-[#0B1220]">
+        <a href="/client-report/activity" className="font-semibold text-[#0B3361] underline">Order activity</a>
+        <span className="text-[#3A4658]"> is the live per-order sheet. It is not this import.</span>
+      </p>
       {res.linesMissing && (
         <div className="rounded-xl p-4 border border-amber-200 bg-amber-50">
           <p className="text-amber-700 text-sm font-medium">Billing-line table is not in the database yet</p>

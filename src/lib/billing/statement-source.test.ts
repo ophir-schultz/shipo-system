@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyManualFullFreight, applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty,
+  shippingDisagreements, uncoveredShipmentCharges, withholdDisagreedShipping,
   nayaxManualFreight, pickOrdersFromShipments, pickPackRows, pickRateOnCard, pickRowsFromCard,
   shippingChargesFromShipments,
 } from './statement-source'
@@ -123,17 +124,39 @@ describe('Nayax freight with no zone price', () => {
     expect(JSON.stringify(rows)).not.toContain('999')
   })
 
-  it('leaves a zone price in place and does not add the manual charge beside it', () => {
-    const zoned = applyZonePrices(
-      [atCost('900', 437.08)],
-      new Map([['900', 22.4]]),
-    )
+  it('does not replace a ledger amount with a different stored rate', () => {
+    const before = [atCost('900', 10)]
+    const rates = new Map<string, number | null>([['900', 14]])
+    const zoned = applyZonePrices(before, rates)
+    expect(zoned[0].amount).toBe(10)
+    const held = withholdDisagreedShipping(before, zoned, rates)
+    expect(held[0].amount).toBeNull()
+    expect(held[0].label).toBe('Shipping (price not final)')
+    expect(JSON.stringify(held)).not.toContain('14')
+    expect(shippingDisagreements(before, rates)[0]).toContain('disagree')
+  })
+
+  it('keeps a linked full freight price when the stored rate differs', () => {
+    const before = [atCost('900', 437.08)]
+    const rates = new Map<string, number | null>([['900', 22.4]])
+    const zoned = applyZonePrices(before, rates)
     const applied = applyManualFullFreight(zoned, [{ shipmentId: '900', amount: 510, logDate: '2026-10-09' }])
-    const rows = applied.charges
-    expect(applied.reviews[0]).toMatch(/zone price/)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].amount).toBe(22.4)
-    expect(rows[0].unit_rate).toBe(22.4)
+    const held = withholdDisagreedShipping(before, applied.charges, rates)
+    expect(held[0].amount).toBe(510)
+    expect(JSON.stringify(held)).not.toContain('437.08')
+    expect(JSON.stringify(held)).not.toContain('22.4')
+  })
+
+  it('lists a shipment with no ledger shipping charge and does not price it', () => {
+    const rows = uncoveredShipmentCharges([
+      { id: 's1', shipstation_shipment_id: '77', order_number: 'SO-9', ship_date: '2026-11-06', client_rate: 104.92 },
+    ], new Set(['shipment:1']), '2026-11-01')
+    expect(rows).toEqual([expect.objectContaining({
+      charge_key: 'shipment:77',
+      amount: null,
+      label: 'Shipping (not on the ledger)',
+    })])
+    expect(JSON.stringify(rows)).not.toContain('104.92')
   })
 
   it('does not drop a voided zero, a pick, or a non-freight shipping line', () => {
@@ -153,6 +176,16 @@ describe('Nayax freight with no zone price', () => {
     expect(applied.charges[0].amount).toBeNull()
     expect(applied.reviews[0]).toMatch(/2026-10-10/)
     expect(JSON.stringify(applied.charges)).not.toContain('510')
+  })
+})
+
+describe('pick is per order, not every device unit at the remainder rate', () => {
+  it('charges one carton at the carton rate', () => {
+    const list = loadRepoPriceList('Nayax').list
+    expect(list?.devicePick).toBeTruthy()
+    const priced = pricePick(list!, [{ sku: 'R-100', qty: 20 }])
+    expect(priced.amount).toBe(list!.devicePick!.cartonRate)
+    expect(priced.amount).not.toBe(20 * list!.devicePick!.remainderRate)
   })
 })
 
