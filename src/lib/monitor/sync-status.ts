@@ -50,7 +50,7 @@ export type SyncOutcome = 'clean' | 'issues' | 'unknown'
 export interface SyncStatus {
   outcome: SyncOutcome
   /**
-   * Why this is `unknown`, phrased to finish the sentence "Sync failed — ...".
+   * Why this is `unknown`, phrased to finish the sentence "Status check failed — ...".
    * Empty for the two outcomes that did run.
    */
   detail: string
@@ -75,7 +75,7 @@ export type MonitorAttempt =
   /** A response arrived. `body` is undefined when it would not parse. */
   | { kind: 'responded'; ok: boolean; status: number; bodyParsed: boolean; body?: unknown }
 
-const UNREAD_TITLE = 'Sync status unknown'
+const UNREAD_TITLE = 'Status check unknown'
 
 /**
  * The monitor's own findings, but ONLY when this body is positively the
@@ -258,14 +258,16 @@ export function describeSync(
   if (status.outcome === 'unknown') {
     return {
       dot: 'bg-red-500 animate-pulse',
-      label: `⚠ Sync failed — ${status.detail}`
-        + (view.elapsed ? ` · last clean ${view.elapsed}` : ' · never completed'),
+      label: `⚠ Status check failed — ${status.detail}`
+        + (view.elapsed ? ` · last check ${view.elapsed}` : ' · never completed'),
     }
   }
 
+  // The clock is when this GET report finished. The dashboard GET does not
+  // sync, so the label must not say it did.
   if (status.outcome === 'issues') {
-    return { dot: 'bg-orange-400 animate-pulse', label: `⚠ Issues detected · Synced ${since}` }
+    return { dot: 'bg-orange-400 animate-pulse', label: `⚠ Issues detected · Checked ${since}` }
   }
 
-  return { dot: 'bg-green-500', label: `Synced ${since}` }
+  return { dot: 'bg-green-500', label: `Checked ${since}` }
 }

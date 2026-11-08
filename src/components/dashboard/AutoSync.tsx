@@ -178,8 +178,8 @@ export default function AutoSync() {
               not one. A shipment with no agreed price is a price nobody has
               agreed -- the fix is a rate, not a repair. */}
           <p className="mt-3 text-amber-700">
-            Each line is a shipment the rate card has no price for. Add the band or
-            cell it names to the client&apos;s rate card, then run Recalculate Weights.
+            This is the last status check. It did not sync. A missing shipment rate is a
+            rate-card gap. A missing pick date stays blank until a real pick time is known.
           </p>
         </div>
       )}

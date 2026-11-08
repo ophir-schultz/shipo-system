@@ -229,10 +229,20 @@ describe('classifyMonitorAttempt separates a pass that ran from one that did not
 describe('describeSync keeps the three states visually distinct', () => {
   const view = { syncing: false, elapsed: '3s ago' }
 
-  it('is green and says Synced only when the pass was clean', () => {
+  it('is green and says Checked only when the pass was clean', () => {
     const { dot, label } = describeSync(classifyMonitorAttempt(clean), view)
     expect(dot).toContain('green')
-    expect(label).toBe('Synced 3s ago')
+    expect(label).toBe('Checked 3s ago')
+    expect(label).not.toMatch(/Synced/)
+  })
+
+  it('calls an issue report a check, not a sync', () => {
+    const { label } = describeSync(
+      classifyMonitorAttempt(responded({ body: { has_issues: true, errors: ['⚠ 37 shipments have no rate'] } })),
+      view,
+    )
+    expect(label).toBe('⚠ Issues detected · Checked 3s ago')
+    expect(label).not.toMatch(/Synced/)
   })
 
   it('is never green and never says Synced when the pass did not run', () => {
@@ -276,7 +286,7 @@ describe('describeSync keeps the three states visually distinct', () => {
   it('reports how stale the data is when a pass fails after an earlier success', () => {
     const failed = classifyMonitorAttempt(responded({ ok: false, status: 500 }))
     expect(describeSync(failed, { syncing: false, elapsed: '12m ago' }).label)
-      .toContain('last clean 12m ago')
+      .toContain('last check 12m ago')
     // ...and says so plainly when there has never been one.
     expect(describeSync(failed, { syncing: false, elapsed: null }).label)
       .toContain('never completed')
