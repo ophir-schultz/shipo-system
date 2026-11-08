@@ -36,10 +36,72 @@ export function freightFullTotal(carrierCost: number, markup: number): number {
   return Math.round((carrierCost + markup) * 100) / 100
 }
 
+/** ShipStation shipment id. Not an order number and not a tracking number. */
+export function canonicalShipmentId(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  if (!/^[1-9]\d*$/.test(trimmed)) return null
+  try {
+    const id = BigInt(trimmed)
+    return id > BigInt(0) ? id.toString() : null
+  } catch {
+    return null
+  }
+}
+
+function realCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const utc = new Date(Date.UTC(year, month - 1, day))
+  return utc.getUTCFullYear() === year && utc.getUTCMonth() === month - 1 && utc.getUTCDate() === day
+}
+
 function money(value: unknown): number | null {
-  const n = priceOf(value)
+  if (typeof value !== 'number' && typeof value !== 'string') return null
+  const text = typeof value === 'number' ? String(value) : value.trim()
+  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) return null
+  const n = priceOf(text)
   if (n === null || n < 0) return null
   return n
+}
+
+export interface LinkedFreightPrice {
+  shipmentId: string
+  /** Full client price. Carrier cost and markup are not included. */
+  amount: number
+  logDate: string
+}
+
+/**
+ * One saved freight row, or null when it cannot be billed.
+ *
+ * The client amount is carrier cost plus markup. A stored total that is not
+ * that sum is left off the statement. An order number or a tracking number
+ * in shipment_ref is not a shipment.
+ */
+export function linkedFreightPrice(
+  record: {
+    shipment_ref?: string | null
+    total?: unknown
+    log_date?: string | null
+    client_id?: string | null
+    service_type?: string | null
+    freight_cost?: unknown
+    freight_markup?: unknown
+  },
+  clientId: string,
+  range?: { from: string; to: string },
+): LinkedFreightPrice | null {
+  const shipmentId = canonicalShipmentId(record.shipment_ref)
+  const logDate = record.log_date?.slice(0, 10) ?? ''
+  if (!shipmentId || !realCalendarDate(logDate)) return null
+  if (record.client_id !== clientId || record.service_type !== FREIGHT_SERVICE) return null
+  if (range && (logDate < range.from || logDate > range.to)) return null
+  const carrierCost = money(record.freight_cost ?? null)
+  const markup = money(record.freight_markup ?? null)
+  if (carrierCost === null || markup === null) return null
+  const full = freightFullTotal(carrierCost, markup)
+  if (priceOf(record.total) !== full) return null
+  return { shipmentId, amount: full, logDate }
 }
 
 /**
@@ -55,16 +117,22 @@ export function prepareFreightLines(
 ): { ok: true; lines: FreightLine[] } | { ok: false; error: string } {
   const lines: FreightLine[] = []
   const seen = new Set<string>()
-  const known = new Map(shipments.map((row) => [row.shipmentRef, row]))
+  const known = new Map<string, ShipmentForFreight>()
+  for (const row of shipments) {
+    const id = canonicalShipmentId(row.shipmentRef)
+    if (id) known.set(id, { ...row, shipmentRef: id })
+  }
   const already = new Set(existingRefs.map((ref) => ref.trim()).filter(Boolean))
   for (const [index, draft] of drafts.entries()) {
     const where = `Freight line ${index + 1}`
     const date = draft.date.trim()
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return { ok: false, error: `${where} needs a date, written YYYY-MM-DD.` }
+    if (!realCalendarDate(date)) {
+      return { ok: false, error: `${where} needs a real date, written YYYY-MM-DD.` }
     }
-    const shipmentRef = draft.shipmentRef.trim()
-    if (!shipmentRef) return { ok: false, error: `${where} needs a shipment.` }
+    const shipmentRef = canonicalShipmentId(draft.shipmentRef)
+    if (!shipmentRef) {
+      return { ok: false, error: `${where} needs the shipment id. An order number or a tracking number is not a shipment.` }
+    }
     if (seen.has(shipmentRef)) {
       return { ok: false, error: `${where} repeats shipment ${shipmentRef}. Add a different shipment, or remove the extra line.` }
     }
@@ -77,7 +145,7 @@ export function prepareFreightLines(
     }
     const shipment = known.get(shipmentRef)
     if (!shipment) return { ok: false, error: `${where} shipment ${shipmentRef} was not found for this client.` }
-    if (shipment.clientId !== draft.clientId) {
+    if (!shipment.clientId || shipment.clientId !== draft.clientId) {
       return { ok: false, error: `${where} shipment ${shipmentRef} belongs to another client.` }
     }
     const carrierCost = money(draft.carrierCost)

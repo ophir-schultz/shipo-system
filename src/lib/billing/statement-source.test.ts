@@ -240,6 +240,25 @@ describe('statement shipping when the ledger has no charges', () => {
     })
     expect(rows[1].amount).toBeNull()
   })
+
+  it('keeps a date-only ship day stored at UTC midnight, and shifts a real midnight', () => {
+    const rows = shippingChargesFromShipments([
+      {
+        shipstation_shipment_id: 21,
+        order_number: 'N-1',
+        ship_date: '2026-10-01T00:00:00.000Z',
+        client_rate: 10,
+        raw_data: { shipDate: '2026-10-01' },
+      },
+      {
+        shipstation_shipment_id: 22,
+        order_number: 'N-2',
+        ship_date: '2026-10-01T00:00:00.000Z',
+        client_rate: 11,
+      },
+    ])
+    expect(rows.map((row) => row.charge_date)).toEqual(['2026-10-01', '2026-09-30'])
+  })
 })
 
 describe('pick & pack from the warehouse rate card', () => {

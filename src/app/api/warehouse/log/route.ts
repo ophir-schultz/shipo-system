@@ -5,7 +5,8 @@ import { readAllPages } from '@/lib/db/page'
 import { cardLines, priceLogLine, type RateCardRow } from '@/lib/billing/warehouse-card-lines'
 import type { WarehouseRateRow } from '@/lib/billing/warehouse-log-rate'
 import {
-  FREIGHT_SERVICE, freightColumnMissing, prepareFreightLines, type FreightDraft,
+  FREIGHT_SERVICE, canonicalShipmentId, freightColumnMissing, freightFullTotal,
+  prepareFreightLines, type FreightDraft,
 } from '@/lib/billing/manual-freight'
 
 // What this route writes ends up on five reachable surfaces:
@@ -134,7 +135,17 @@ export async function POST(req: Request) {
   let freightToSave: { clientId: string; date: string; shipmentRef: string; carrierCost: number; markup: number; fullTotal: number }[] = []
   let freightSetup: 'ready' | 'absent' | null = freightDrafts.length ? 'ready' : null
   if (freightDrafts.length > 0) {
-    const refs = [...new Set(freightDrafts.map((line) => line.shipmentRef.trim()).filter(Boolean))]
+    const refs: string[] = []
+    for (const [i, draft] of freightDrafts.entries()) {
+      const id = canonicalShipmentId(draft.shipmentRef)
+      if (!id) {
+        return NextResponse.json({
+          error: `Freight line ${i + 1} needs the shipment id. An order number or a tracking number is not a shipment.`,
+        }, { status: 400 })
+      }
+      draft.shipmentRef = id
+      refs.push(id)
+    }
     const found = refs.length === 0 ? { data: [], error: null } : await supabaseAdmin
       .from('shipments')
       .select('shipstation_shipment_id, client_id, client_rate')
@@ -178,6 +189,18 @@ export async function POST(req: Request) {
         if (!prepared.ok) return NextResponse.json({ error: prepared.error }, { status: 400 })
         freightToSave = prepared.lines
       }
+    }
+  }
+
+  for (const line of freightToSave) {
+    if (
+      line.carrierCost < 0
+      || line.markup < 0
+      || line.fullTotal !== freightFullTotal(line.carrierCost, line.markup)
+    ) {
+      return NextResponse.json({
+        error: 'Freight total did not match cost plus markup. Nothing was logged.',
+      }, { status: 400 })
     }
   }
 

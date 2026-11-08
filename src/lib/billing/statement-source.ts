@@ -5,9 +5,9 @@ import { shipmentIdFromChargeKey } from '@/lib/billing/statement-detail'
 import type { StatementChargeRow } from '@/lib/billing/statement-charges'
 import { money, pricePick } from '@/lib/pricing/engine'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
-import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { easternAddDays, easternMidnightIso, rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
 import { zenventorySlug } from '@/lib/zenventory/client-env'
-import { FREIGHT_SERVICE, freightColumnMissing } from '@/lib/billing/manual-freight'
+import { FREIGHT_SERVICE, freightColumnMissing, linkedFreightPrice } from '@/lib/billing/manual-freight'
 import type { DateRange } from '@/lib/billing/statement'
 import { parsePriceList } from '@/lib/pricing/parse-price-list'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
@@ -29,11 +29,11 @@ const IN_CHUNK = 150
 /**
  * Nayax freight with no zone price is not billed at carrier cost.
  *
- * The warehouse log is where the full client charge, markup included, is
- * typed. That log has a client, a date, a service name, and a total. It has
- * no shipment id and no order id. A date or an amount is not enough to say
- * which parcel a typed line belongs to, so this does not read the log and
- * does not match on dollars.
+ * The warehouse log is where staff type the carrier cost and the markup.
+ * The client amount is that sum. The statement uses a saved line only when
+ * shipment_ref is the ShipStation shipment id and the stored total equals
+ * cost plus markup. When those columns are not on the database yet, the
+ * read reports the column missing and no manual price is applied.
  *
  * A manual price is used only when the caller already has that shipment id.
  * Two prices for one shipment are left unknown. No zone price and no single
@@ -146,7 +146,7 @@ export function shippingChargesFromShipments(
       unit_rate: rate,
       amount: rate,
       is_estimate: false,
-      charge_date: easternCalendarDay(row.ship_date),
+      charge_date: shipCalendarDay(row.ship_date, rawShipDate(row.raw_data)),
       order_id: orderNumber === '' ? null : orderIdByNumber.get(orderNumber) ?? null,
       charge_key: `shipment:${row.shipstation_shipment_id}`,
     })
@@ -300,7 +300,7 @@ export function pickOrdersFromShipments(
     if (!orderNumber) continue
     const orderId = orderIdByNumber.get(orderNumber) ?? null
     const key = orderId ?? `number:${orderNumber}`
-    const chargeDate = easternCalendarDay(row.ship_date)
+    const chargeDate = shipCalendarDay(row.ship_date, rawShipDate(row.raw_data))
     const current = byKey.get(key)
     if (!current || (chargeDate && chargeDate < current.chargeDate)) {
       byKey.set(key, { orderId, orderNumber, chargeDate })
@@ -461,26 +461,23 @@ async function readLinkedFreight(
 ): Promise<{ rows: ManualFreightPrice[]; error: { message: string } | null }> {
   const result = await supabaseAdmin
     .from('warehouse_daily_log')
-    .select('shipment_ref, total, log_date, client_id, service_type')
+    .select('shipment_ref, total, log_date, client_id, service_type, freight_cost, freight_markup')
     .eq('client_id', clientId)
     .eq('service_type', FREIGHT_SERVICE)
   if (freightColumnMissing(result.error)) return { rows: [], error: null }
   if (result.error) return { rows: [], error: { message: result.error.message } }
   const rows: ManualFreightPrice[] = []
   for (const raw of result.data ?? []) {
-    const record = raw as {
+    const linked = linkedFreightPrice(raw as {
       shipment_ref?: string | null
       total?: unknown
       log_date?: string | null
       client_id?: string | null
       service_type?: string | null
-    }
-    const shipmentId = record.shipment_ref?.trim() ?? ''
-    const logDate = record.log_date?.slice(0, 10) ?? ''
-    if (!shipmentId || !/^\d{4}-\d{2}-\d{2}$/.test(logDate)) continue
-    if (record.client_id !== clientId || record.service_type !== FREIGHT_SERVICE) continue
-    if (range && (logDate < range.from || logDate > range.to)) continue
-    rows.push({ shipmentId, amount: priceOf(record.total), logDate })
+      freight_cost?: unknown
+      freight_markup?: unknown
+    }, clientId, range)
+    if (linked) rows.push(linked)
   }
   return { rows, error: null }
 }

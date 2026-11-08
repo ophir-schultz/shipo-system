@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { requireStaff } from '@/lib/require-staff'
-import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { easternAddDays, easternMidnightIso, rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
 import { priceOf } from '@/lib/billing/unpriced'
 import { freightColumnMissing } from '@/lib/billing/manual-freight'
 
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
   const to = easternMidnightIso(easternAddDays(date, 2))
   const shipped = await supabaseAdmin
     .from('shipments')
-    .select('shipstation_shipment_id, order_number, ship_date, carrier, client_id, client_rate')
+    .select('shipstation_shipment_id, order_number, ship_date, carrier, client_id, client_rate, raw_data')
     .eq('client_id', clientId)
     .gte('ship_date', from)
     .lt('ship_date', to)
@@ -43,9 +43,10 @@ export async function GET(req: Request) {
       ship_date: string | null
       carrier: string | null
       client_rate: unknown
+      raw_data?: unknown
     }
     if (record.shipstation_shipment_id == null) return []
-    if (easternCalendarDay(record.ship_date) !== date) return []
+    if (shipCalendarDay(record.ship_date, rawShipDate(record.raw_data)) !== date) return []
     return [{
       shipmentRef: String(record.shipstation_shipment_id),
       orderNumber: record.order_number ?? '',

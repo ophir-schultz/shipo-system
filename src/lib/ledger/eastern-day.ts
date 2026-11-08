@@ -20,19 +20,32 @@ export function easternToday(at: Date = new Date()): string {
  * cannot name two days for one label.
  */
 /**
- * A calendar day that was never a clock time.
+ * A calendar day that was never a clock time: `YYYY-MM-DD` and nothing else.
  *
- * `2026-10-09` is October 9. Postgres stores that in a timestamptz as
- * `2026-10-09 00:00:00+00`. Reading those zeros as an Eastern instant lands
- * on October 8. Exact UTC midnight is that cast, not a scan at midnight.
- * A time other than 00:00:00Z is a real instant and is not matched here.
+ * `2026-10-01T00:00:00Z` is not this. That string is an instant, and in New
+ * York it is still September 30. A date-only ship day that was stored at UTC
+ * midnight is recognized by shipCalendarDay, which also has the source day.
  */
 export function dateOnlyLiteral(value: string | null | undefined): string | null {
   if (value == null) return null
   const trimmed = value.trim()
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed
-  const midnight = /^(\d{4}-\d{2}-\d{2})[T ]00:00:00(?:\.0+)?(?:Z|\+00(?::00)?)?$/.exec(trimmed)
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
+}
+
+/** The calendar day of an exact UTC midnight, or null when the time is not that. */
+export function utcMidnightDay(value: string | null | undefined): string | null {
+  if (value == null) return null
+  const midnight = /^(\d{4}-\d{2}-\d{2})[T ]00:00:00(?:\.0+)?(?:Z|\+00(?::00)?)?$/.exec(value.trim())
   return midnight ? midnight[1] : null
+}
+
+function instantDate(trimmed: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/.test(trimmed)) return null
+  // `+00` without minutes is not a form Date.parse accepts once the space
+  // has been turned into a T. `2026-10-09 00:00:00+00` is still midnight UTC.
+  const iso = trimmed.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00')
+  const at = new Date(iso)
+  return Number.isNaN(at.getTime()) ? null : at
 }
 
 export function easternCalendarDay(value: string | Date | null | undefined): string {
@@ -43,17 +56,50 @@ export function easternCalendarDay(value: string | Date | null | undefined): str
   const trimmed = value.trim()
   const literal = dateOnlyLiteral(trimmed)
   if (literal) return literal
+  const at = instantDate(trimmed)
+  if (at) return easternToday(at)
   if (!trimmed.includes('T')) return trimmed.slice(0, 10)
-  const at = new Date(trimmed)
-  return Number.isNaN(at.getTime()) ? trimmed.slice(0, 10) : easternToday(at)
+  const parsed = new Date(trimmed)
+  return Number.isNaN(parsed.getTime()) ? trimmed.slice(0, 10) : easternToday(parsed)
+}
+
+/**
+ * The ship day when the source day is known separately from the stored instant.
+ *
+ * A plain `2026-10-01` stays October 1. A real `2026-10-01T00:00:00Z`, with
+ * no date-only source, is September 30 in New York. The stored form that
+ * keeps October 1 is a date-only raw shipDate whose timestamptz is that same
+ * day at 00:00:00 UTC. A different clock time uses New York, even if a
+ * date-only source is also present.
+ */
+export function shipCalendarDay(
+  stored: string | null | undefined,
+  sourceDay?: string | null,
+): string {
+  const source = dateOnlyLiteral(sourceDay ?? null)
+  const storedText = stored == null ? '' : String(stored).trim()
+  if (
+    source
+    && (storedText === '' || dateOnlyLiteral(storedText) === source || utcMidnightDay(storedText) === source)
+  ) {
+    return source
+  }
+  return easternCalendarDay(storedText)
+}
+
+/** `raw_data.shipDate` when that field is a string. Other payload fields are ignored. */
+export function rawShipDate(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object') return null
+  const value = (raw as { shipDate?: unknown }).shipDate
+  return typeof value === 'string' ? value : null
 }
 
 /**
  * What to store for a ShipStation ship date.
  *
  * A date-only value is the start of that warehouse day, so a later Eastern
- * read returns the same day. A value that already carries a clock time is
- * stored unchanged.
+ * read returns the same day. A value that already carries a clock time,
+ * including exactly 00:00:00Z, is stored unchanged.
  */
 export function storedShipInstant(value: string | null | undefined): string | null {
   if (value == null) return null

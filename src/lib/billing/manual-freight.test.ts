@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  freightColumnMissing, freightFullTotal, prepareFreightLines,
+  freightColumnMissing, freightFullTotal, linkedFreightPrice, prepareFreightLines,
 } from './manual-freight'
 
 const ship = (shipmentRef: string, clientId = 'nayax', zonePriced = false) => ({
@@ -48,6 +48,50 @@ describe('manual freight lines', () => {
     expect(prepareFreightLines([
       { clientId: 'nayax', date: '2026-10-09', shipmentRef: 'missing', carrierCost: 1, markup: 1 },
     ], [], []).ok).toBe(false)
+  })
+
+  it('rejects an order number, a tracking number, a bad date, and a negative amount', () => {
+    const order = prepareFreightLines([
+      { clientId: 'nayax', date: '2026-10-09', shipmentRef: 'SO601061446', carrierCost: 10, markup: 1 },
+    ], [ship('SO601061446')], [])
+    expect(order.ok).toBe(false)
+    if (order.ok) return
+    expect(order.error).toMatch(/not a shipment/)
+    expect(prepareFreightLines([
+      { clientId: 'nayax', date: '2026-10-09', shipmentRef: '1Z999', carrierCost: 10, markup: 1 },
+    ], [ship('1Z999')], []).ok).toBe(false)
+    expect(prepareFreightLines([
+      { clientId: 'nayax', date: '2026-10-09', shipmentRef: '0900', carrierCost: 10, markup: 1 },
+    ], [ship('900')], []).ok).toBe(false)
+    expect(prepareFreightLines([
+      { clientId: 'nayax', date: '2026-02-31', shipmentRef: '900', carrierCost: 10, markup: 1 },
+    ], [ship('900')], []).ok).toBe(false)
+    expect(prepareFreightLines([
+      { clientId: 'nayax', date: '2026-10-09', shipmentRef: '900', carrierCost: -1, markup: 1 },
+    ], [ship('900')], []).ok).toBe(false)
+    expect(prepareFreightLines([
+      { clientId: 'nayax', date: '2026-10-09', shipmentRef: '900', carrierCost: 10, markup: -1 },
+    ], [ship('900')], []).ok).toBe(false)
+    expect(prepareFreightLines([
+      { clientId: 'nayax', date: '2026-10-09', shipmentRef: '900', carrierCost: 10, markup: 1 },
+    ], [ship('900', '')], []).ok).toBe(false)
+  })
+
+  it('bills the client cost plus markup, and drops a total that is not that sum', () => {
+    const row = {
+      shipment_ref: '900',
+      client_id: 'nayax',
+      service_type: 'carrier_freight',
+      log_date: '2026-10-09',
+      freight_cost: 437.08,
+      freight_markup: 40,
+      total: 477.08,
+    }
+    expect(linkedFreightPrice(row, 'nayax')?.amount).toBe(477.08)
+    expect(linkedFreightPrice({ ...row, total: 437.08 }, 'nayax')).toBeNull()
+    expect(linkedFreightPrice({ ...row, shipment_ref: 'SO601061446' }, 'nayax')).toBeNull()
+    expect(linkedFreightPrice({ ...row, freight_markup: -1, total: 436.08 }, 'nayax')).toBeNull()
+    expect(linkedFreightPrice(row, 'orcam')).toBeNull()
   })
 
   it('names a missing shipment column without treating it as a failed log', () => {

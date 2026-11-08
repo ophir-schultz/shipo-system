@@ -248,6 +248,28 @@ describe('loadChargeInputs — the shipment join', () => {
 
     expect(input.shipments[0].shipDate).toBe('2026-09-30')
   })
+
+  it('keeps a date-only source stored at UTC midnight, and shifts a real midnight', async () => {
+    seed({
+      orders: [dated({ order_date: '2026-09-30' })],
+      shipments: [
+        { id: 's1', client_id: 'client-a', shipstation_shipment_id: 900,
+          order_number: 'A1', order_number_key: 'A1',
+          ship_date: '2026-10-01T00:00:00.000Z', actual_cost: 7.25,
+          raw_data: { shipDate: '2026-10-01' } },
+        { id: 's2', client_id: 'client-a', shipstation_shipment_id: 901,
+          order_number: 'A1', order_number_key: 'A1',
+          ship_date: '2026-10-01T00:00:00.000Z', actual_cost: 8,
+          raw_data: { shipDate: '2026-10-01T00:00:00.000Z' } },
+      ],
+    })
+
+    const [input] = await loadChargeInputs(WINDOW)
+
+    const days = new Map(input.shipments.map((row) => [row.shipmentId, row.shipDate]))
+    expect(days.get(900)).toBe('2026-10-01')
+    expect(days.get(901)).toBe('2026-09-30')
+  })
 })
 
 describe('loadChargeInputs — the rate card', () => {
