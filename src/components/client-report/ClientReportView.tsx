@@ -9,6 +9,7 @@ import {
   reportCells,
   type ClientReportRow,
 } from '@/lib/pricing/client-report'
+import { liveReportHref } from '@/lib/pricing/run-report'
 
 export interface ClientReportLine extends ClientReportRow {
   clientId: string | null
@@ -34,6 +35,15 @@ export default function ClientReportView({
     const ranged = filterReportRows(rows, dateFrom, dateTo)
     return clientId ? ranged.filter((row) => row.clientId === clientId) : ranged
   }, [rows, dateFrom, dateTo, clientId])
+
+  function runReport() {
+    const next = liveReportHref(clientId, dateFrom, dateTo)
+    if (!next.ok) {
+      showError('Run report', next.reason)
+      return
+    }
+    router.push(next.href)
+  }
 
   async function approve() {
     if (!clientId) {
@@ -148,6 +158,14 @@ export default function ClientReportView({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={runReport}
+            disabled={busy !== null}
+            className="min-h-11 px-4 py-2 bg-[#0B1220] hover:bg-[#1E293B] disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
+          >
+            Run report
+          </button>
+          <button
+            type="button"
             onClick={approve}
             disabled={busy !== null || linesMissing}
             className="px-4 py-2 bg-[#0B3361] hover:bg-[#0F4A94] disabled:opacity-50 text-white text-sm font-semibold rounded-lg"
@@ -231,7 +249,7 @@ export default function ClientReportView({
             {filtered.length === 0 ? (
               <tr>
                 <td colSpan={CLIENT_REPORT_COLUMNS.length} className="py-6 text-[#6B7A8D]">
-                  No imported billing lines for this client and these dates. This table is client_billing_lines, not live shipments or order charges. Empty is not a finding that the client had no shipments, and it is not an approved report. Nothing was generated.
+                  No imported billing lines for this client and these dates. This table is the workbook import, not live orders. An empty import is not a finding that the client had no shipments. Use Run report to see live orders for the same client and dates. Nothing was generated.
                 </td>
               </tr>
             ) : filtered.slice(0, 200).map((row, index) => (

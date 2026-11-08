@@ -17,6 +17,13 @@ import { rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
 import { money, peakOmissionNote, priceClassifiedPick } from '@/lib/pricing/engine'
 import { assessPickWork, type PickWorkStatus } from '@/lib/pricing/pick-work'
 import type { ClientReportRow } from '@/lib/pricing/client-report'
+
+export interface ActivitySheetRow extends ClientReportRow {
+  /** Page-only. The workbook shipping cell stays blank when this is set. */
+  shippingStatus: string
+  /** Page-only. Does not replace the WEIGHT cell. */
+  weightNote: string
+}
 import type { PriceListDocument } from '@/lib/pricing/types'
 
 export interface ActivityLine {
@@ -47,6 +54,8 @@ export interface ActivityParcel {
   zipcode: string
   weight: string
   volumeWeight: string
+  /** Stored unit for weight and billed weight. The workbook cell stays the raw number. */
+  weightUnit?: string
   storedRate: number | null
   shipmentKey: string | null
 }
@@ -102,11 +111,27 @@ export interface ActivityCoverage {
   nothingPicked: string[]
   pickDateUnknown: string[]
   pickOutsidePeriod: string[]
+  /** Staff lines for blank shipping. Not written into the 16 workbook columns. */
+  shippingStaff: string[]
 }
 
 export interface OrderActivity {
-  rows: ClientReportRow[]
+  rows: ActivitySheetRow[]
   coverage: ActivityCoverage
+}
+
+/** Page-only label. The WEIGHT workbook cell stays the stored number. */
+export function weightUnitNote(weight: string, unit: string): string {
+  const name = unit.trim().toLowerCase()
+  if (!weight.trim() || !name) return ''
+  if (name === 'ounces' || name === 'oz' || name === 'ounce') {
+    const oz = Number(weight)
+    if (!Number.isFinite(oz)) return 'Stored weight unit is ounces. The weight column keeps that number.'
+    const lb = oz / 16
+    const lbText = Number.isInteger(lb) ? String(lb) : lb.toFixed(2)
+    return `Stored weight is ${oz} oz, which is ${lbText} lb. The weight column keeps the stored number.`
+  }
+  return `Stored weight unit is ${unit.trim()}. The weight column keeps the stored number.`
 }
 
 function sameCents(a: number, b: number): boolean {
@@ -164,21 +189,54 @@ export function remainderReading(
   return money(deviceUnits * remainderRate + accessoryUnits * accessoryRate)
 }
 
+export interface ShippingPrice {
+  amount: number | null
+  status: 'agreed' | 'stored-rate' | 'conflict' | 'unknown'
+  /** On the activity row. Not a workbook column and not a dollar amount. */
+  clientReason: string
+  /** Staff provenance. The charge date is not an input to this decision. */
+  staffReason: string
+}
+
+const SHIP_PENDING = 'Shipping pending.'
+
 export function clientShippingPrice(
   storedRate: number | null,
   charge: ActivityShippingCharge | undefined,
-): { amount: number | null; status: 'agreed' | 'stored-rate' | 'conflict' | 'unknown' } {
+): ShippingPrice {
   const ledger = charge ? priceOf(charge.amount) : null
   const unit = charge ? priceOf(charge.unitRate) : null
   if (storedRate != null && ledger != null) {
-    if (sameCents(storedRate, ledger)) return { amount: storedRate, status: 'agreed' }
-    return { amount: null, status: 'conflict' }
+    if (sameCents(storedRate, ledger)) {
+      return { amount: storedRate, status: 'agreed', clientReason: '', staffReason: '' }
+    }
+    return {
+      amount: null,
+      status: 'conflict',
+      clientReason: `${SHIP_PENDING} The stored rate and the ledger charge disagree, so neither is the price.`,
+      staffReason: `The parcel key matched. Stored rate ${storedRate.toFixed(2)} and ledger amount ${ledger.toFixed(2)} differ. The charge date is not read. Neither figure was selected.`,
+    }
   }
-  if (storedRate != null && ledger == null) return { amount: storedRate, status: 'stored-rate' }
+  if (storedRate != null && ledger == null) {
+    return { amount: storedRate, status: 'stored-rate', clientReason: '', staffReason: '' }
+  }
   if (storedRate == null && ledger != null && unit != null && sameCents(unit, ledger)) {
-    return { amount: ledger, status: 'agreed' }
+    return { amount: ledger, status: 'agreed', clientReason: '', staffReason: '' }
   }
-  return { amount: null, status: 'unknown' }
+  if (ledger != null) {
+    return {
+      amount: null,
+      status: 'unknown',
+      clientReason: `${SHIP_PENDING} The ledger charge is not a client price by itself.`,
+      staffReason: `The parcel key matched. Stored rate is absent. Ledger amount ${ledger.toFixed(2)} has no matching unit rate, so it was not copied. The charge date is not read.`,
+    }
+  }
+  return {
+    amount: null,
+    status: 'unknown',
+    clientReason: `${SHIP_PENDING} No client shipping price is stored for this parcel.`,
+    staffReason: 'No stored rate and no ledger shipping charge are linked to this parcel. The charge date is not read.',
+  }
 }
 
 export function buildOrderActivity(input: {
@@ -208,7 +266,8 @@ export function buildOrderActivity(input: {
   const shippingConflicts: string[] = []
   const shippingAmbiguous: string[] = []
   const unmatchedParcels: string[] = []
-  const rows: ClientReportRow[] = []
+  const rows: ActivitySheetRow[] = []
+  const shippingStaff: string[] = []
   const picks: ActivityOrderPick[] = []
   const nothingPicked: string[] = []
   const pickDateUnknown: string[] = []
@@ -274,6 +333,8 @@ export function buildOrderActivity(input: {
           pickPrice: '0.00',
           boxPrice: '',
           shippingPrice: '',
+          shippingStatus: '',
+          weightNote: '',
           total: '',
           zone: '',
           zipcode: '',
@@ -321,14 +382,19 @@ export function buildOrderActivity(input: {
     }
 
     let shipping: number | null = null
+    let shippingStatus = ''
     if (parcels.length === 1) {
       const parcel = parcels[0]
       const charge = parcel.shipmentKey ? chargeByKey.get(parcel.shipmentKey) : undefined
       const priced = clientShippingPrice(parcel.storedRate, charge)
       if (priced.status === 'conflict') shippingConflicts.push(number)
       shipping = priced.amount
+      shippingStatus = priced.clientReason
+      if (priced.staffReason) shippingStaff.push(`${number}: ${priced.staffReason}`)
     } else if (parcels.length > 1) {
       shippingAmbiguous.push(number)
+      shippingStatus = 'Shipping pending. More than one parcel is on this order.'
+      shippingStaff.push(`${number}: ${parcels.length} parcels. No single shipping price was chosen.`)
     }
 
     const serials = input.serials
@@ -354,6 +420,8 @@ export function buildOrderActivity(input: {
       pickPrice: pickText,
       boxPrice: '',
       shippingPrice: shipText,
+      shippingStatus,
+      weightNote: parcel ? weightUnitNote(parcel.weight, parcel.weightUnit ?? '') : '',
       total: total == null ? '' : total.toFixed(2),
       zone: parcel?.zone ?? '',
       zipcode: parcel?.zipcode ?? '',
@@ -378,6 +446,7 @@ export function buildOrderActivity(input: {
       nothingPicked,
       pickDateUnknown,
       pickOutsidePeriod,
+      shippingStaff,
     },
   }
 }

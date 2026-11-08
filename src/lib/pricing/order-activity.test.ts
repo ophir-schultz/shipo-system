@@ -7,7 +7,7 @@ import {
   orderPickParts,
   remainderReading,
 } from './order-activity'
-import { CLIENT_REPORT_COLUMNS, reportCells } from './client-report'
+import { CLIENT_REPORT_COLUMNS, reportCells, reportToCsv } from './client-report'
 
 describe('order pick uses cartons', () => {
   const list = loadRepoPriceList('Nayax').list!
@@ -77,7 +77,55 @@ describe('order activity rows', () => {
     expect(activity.rows[0].total).toBe('')
     expect(activity.coverage.shippingConflicts).toEqual(['SO-1'])
     expect(activity.rows[0].shippingPrice).not.toContain('10')
+    expect(activity.rows[0].shippingStatus).toContain('disagree')
     expect(reportCells(activity.rows[0])).toHaveLength(CLIENT_REPORT_COLUMNS.length)
+    expect(reportToCsv([activity.rows[0]])).not.toContain('Shipping pending')
+  })
+
+  it('blanks SO601065103 shipping because the stored rate and the ledger charge differ, not because the charge date differs', () => {
+    const activity = buildOrderActivity({
+      clientId: 'nayax',
+      from: '2026-11-01',
+      to: '2026-11-30',
+      list,
+      orders: [{
+        id: 'o103',
+        orderNumber: 'SO601065103',
+        lines: [{ sku: 'R144GUSY01S10', qty: 36, picked: 36, scannable: true, pickDate: '2026-11-04' }],
+      }],
+      parcels: [{
+        id: 'p103',
+        orderNumber: 'SO601065103',
+        shipDate: '2026-11-04',
+        recipientName: 'Ethan Kohan',
+        trackingNumber: '1Z16D13WYW46417373',
+        zone: '6',
+        zipcode: '76111-2266',
+        weight: '192',
+        volumeWeight: '192',
+        weightUnit: 'ounces',
+        storedRate: 24.24,
+        shipmentKey: 'shipment:345810929',
+      }],
+      charges: [{ chargeKey: 'shipment:345810929', amount: 17.52, unitRate: null }],
+      serials: [],
+    })
+    const row = activity.rows[0]
+    expect(row.date).toBe('2026-11-04')
+    expect(row.shippingPrice).toBe('')
+    expect(row.shippingPrice).not.toBe('0')
+    expect(row.shippingPrice).not.toContain('24.24')
+    expect(row.shippingPrice).not.toContain('17.52')
+    expect(row.weight).toBe('192')
+    expect(row.shippingStatus).toContain('disagree')
+    expect(row.weightNote).toContain('12 lb')
+    const staff = activity.coverage.shippingStaff.join(' ')
+    expect(staff).toContain('24.24')
+    expect(staff).toContain('17.52')
+    expect(staff).toContain('charge date is not read')
+    expect(reportCells(row)[10]).toBe('')
+    expect(reportToCsv([row])).not.toContain('Shipping pending')
+    expect(reportToCsv([row])).not.toContain('24.24')
   })
 
   it('shows an undated order with nothing picked as non-billed zero', () => {

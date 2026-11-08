@@ -134,7 +134,13 @@ export default async function OrderActivityPage({
             )}
             <p className="mt-1">Orders with no ship day: {activity.coverage.undatedOrders.length === 0 ? 'none' : activity.coverage.undatedOrders.join(', ')}. No date is assigned. An order with nothing picked still appears, at 0, and that 0 is not a charge.</p>
             <p className="mt-1">Parcels in the period with no matching order, not given a row: {activity.coverage.unmatchedParcels.length === 0 ? 'none' : activity.coverage.unmatchedParcels.join(', ')}.</p>
-            <p className="mt-1">Shipping left blank because the stored rate and the ledger charge disagree: {activity.coverage.shippingConflicts.length === 0 ? 'none' : activity.coverage.shippingConflicts.join(', ')}.</p>
+            <p className="mt-1">Shipping left blank because the stored rate and the ledger charge disagree: {activity.coverage.shippingConflicts.length === 0 ? 'none' : activity.coverage.shippingConflicts.join(', ')}. Neither figure is selected.</p>
+            {activity.coverage.shippingStaff.length > 0 && (
+              <div className="mt-2 text-xs text-[#3A4658]">
+                <p className="font-semibold text-[#0B1220]">Staff. Not in the download.</p>
+                {activity.coverage.shippingStaff.map((note) => <p key={note} className="mt-1">{note}</p>)}
+              </div>
+            )}
             <p className="mt-1">Shipping left blank because the order has more than one parcel: {activity.coverage.shippingAmbiguous.length === 0 ? 'none' : activity.coverage.shippingAmbiguous.join(', ')}.</p>
             <p className="mt-1">Nothing picked: {activity.coverage.nothingPicked.length === 0 ? 'none' : activity.coverage.nothingPicked.join(', ')}.</p>
             <p className="mt-1">Pick date unknown, kept out of the row amount: {activity.coverage.pickDateUnknown.length === 0 ? 'none' : activity.coverage.pickDateUnknown.join(', ')}.</p>
@@ -150,6 +156,8 @@ export default async function OrderActivityPage({
                   {CLIENT_REPORT_COLUMNS.map((column) => (
                     <th key={column} className="whitespace-pre pb-2 pr-3 font-semibold">{column}</th>
                   ))}
+                  <th className="pb-2 pr-3 font-semibold">Shipping status</th>
+                  <th className="pb-2 pr-3 font-semibold">Weight unit</th>
                 </tr>
               </thead>
               <tbody>
@@ -161,6 +169,8 @@ export default async function OrderActivityPage({
                     {reportCells(row).map((cell, index) => (
                       <td key={index} className="whitespace-pre py-2 pr-3 align-top text-[#0B1220]">{cell}</td>
                     ))}
+                    <td className="py-2 pr-3 align-top text-[#0B1220]">{row.shippingStatus}</td>
+                    <td className="py-2 pr-3 align-top text-[#0B1220]">{row.weightNote}</td>
                   </tr>
                 ))}
               </tbody>

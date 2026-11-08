@@ -59,11 +59,12 @@ export async function loadOrderActivity(
       recipient_zip: string | null
       weight: number | string | null
       billed_weight: number | string | null
+      weight_unit: string | null
       client_rate: number | string | null
       shipstation_shipment_id: number | string | null
     }>((start, end) => supabaseAdmin
       .from('shipments')
-      .select('id, order_number, ship_date, raw_data, recipient_name, tracking_number, zone, recipient_zip, weight, billed_weight, client_rate, shipstation_shipment_id')
+      .select('id, order_number, ship_date, raw_data, recipient_name, tracking_number, zone, recipient_zip, weight, billed_weight, weight_unit, client_rate, shipstation_shipment_id')
       .eq('client_id', clientId)
       .order('id')
       .range(start, end)),
@@ -135,6 +136,7 @@ export async function loadOrderActivity(
     zipcode: row.recipient_zip ?? '',
     weight: row.weight == null ? '' : String(row.weight),
     volumeWeight: row.billed_weight == null ? '' : String(row.billed_weight),
+    weightUnit: row.weight_unit ?? '',
     storedRate: priceOf(row.client_rate),
     shipmentKey: row.shipstation_shipment_id == null || row.shipstation_shipment_id === ''
       ? null
