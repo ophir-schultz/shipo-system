@@ -143,7 +143,7 @@ export interface SyncRunHandle {
 export async function openSyncRun(input: {
   source: string
   clientId?: string | null
-  mode: 'backfill' | 'live'
+  mode: 'backfill' | 'live' | 'preserve_stored'
   windowStart?: string | null
   windowEnd?: string | null
 }): Promise<SyncRunHandle> {

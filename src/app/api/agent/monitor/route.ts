@@ -78,12 +78,15 @@ const ALERT_TO = process.env.ALERT_EMAIL || 'ophir@shipousa.com'
 // throttled (CHARGE_THROTTLE_MINUTES) so browser polling cannot drive it.
 export const maxDuration = 300
 
-// GET is the report. The cron and the dashboard poll it, and neither
-// starts a sync from a GET.
+// GET is what vercel.json calls. It recalculates. Existing charge
+// dates and amounts stay put because the charge run uses preserve_stored.
 export async function GET(req: Request) {
   const denied = await requireStaffOrCron(req)
   if (denied) return denied
-  return runMonitor(false)
+  // The production cron is this GET. It still recalculates. persist-charges
+  // records preserve_stored and does not move an existing charge date or
+  // amount. Preview PR 58 leaves this GET read-only; this release does not.
+  return runMonitor(true)
 }
 
 // ShipStation sync, Zenventory client mapping, and recalculate write.

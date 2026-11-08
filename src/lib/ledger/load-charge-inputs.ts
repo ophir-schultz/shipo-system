@@ -2,7 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { readAllPages, type PageResult } from '@/lib/db/page'
 import { classifySku } from '@/lib/billing/classify-sku'
 import { easternAddDays, easternMidnightIso, shipCalendarDay } from '@/lib/ledger/eastern-day'
-import { lateOrderNumbers, shipmentInChargeWindow } from '@/lib/ledger/charge-window'
+import { shipmentInChargeWindow } from '@/lib/ledger/charge-window'
 import type { ChargeInput } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
 
@@ -193,48 +193,12 @@ export async function loadChargeInputs(
       + `are outside every date window, so fix the source in sync/zenventory.ts.`)
   }
 
-  // An order placed before the window is still loaded when one of its labels
-  // has a carrier day inside the window. The scan starts a day early so a
-  // date-only ship day stored at UTC midnight is not missed. The carrier day,
-  // not the order date, decides. Pick dates are not moved onto the ship day.
-  const scanned = await fetchAllPages<ShipmentRow>('shipments (window)', (from, to) =>
-    supabaseAdmin
-      .from('shipments')
-      .select('id, client_id, shipstation_shipment_id, order_number, ship_date, actual_cost, raw_data')
-      .gte('ship_date', easternMidnightIso(easternAddDays(windowStart, -1)))
-      .order('id', { ascending: true })
-      .range(from, to))
-  const lateNumbers = lateOrderNumbers(
-    windowStart,
-    orders.flatMap((o) => [o.order_key, o.order_number ?? '']),
-    scanned.map((s) => ({
-      orderNumber: s.order_number,
-      shipDate: s.ship_date,
-      raw: s.raw_data,
-    })),
-  )
-  if (lateNumbers.length > 0) {
-    const seen = new Set(orders.map((o) => o.id))
-    for (const batch of chunk(lateNumbers, IN_CHUNK)) {
-      const extra = await fetchAllPages<OrderRow>('orders (shipped in window)', (from, to) =>
-        supabaseAdmin
-          .from('orders')
-          .select('id, client_id, order_key, order_number, cancelled, order_date')
-          .in('order_key', batch)
-          .order('id', { ascending: true })
-          .range(from, to))
-      for (const row of extra) {
-        if (seen.has(row.id)) continue
-        seen.add(row.id)
-        orders.push(row)
-      }
-    }
-  }
-  const shipmentOnly = new Set(
-    orders
-      .filter((o) => o.order_date != null && o.order_date < windowStart)
-      .map((o) => o.id),
-  )
+  // Orders dated before the window stay out. Loading them because a label
+  // falls inside the window would create charges for the October 6 Nayax
+  // shipments and any other historical order the current production cron
+  // does not bill. That backfill is not approved. A new charge is only
+  // for an order the existing order_date window already loads.
+  const shipmentOnly = new Set<string>()
 
   if (orders.length === 0) return []
 

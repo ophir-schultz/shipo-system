@@ -6,7 +6,6 @@ import { parseScan, duplicatesWithin } from '@/lib/scan/parse'
 // lib/ because vitest excludes `.test.tsx`. See client-list.ts for why an
 // empty dropdown on this screen is worse than an error on it.
 import { readClientList, type Client } from '@/lib/clients/client-list'
-import { scanCoverage, type CustomerOrderLine } from '@/lib/scan/order-lines'
 
 // ============================================================
 // SERIALIZATION SCAN STATION
@@ -50,13 +49,6 @@ export default function ScanPage() {
   // rather than as still loading. `clients.length === 0` cannot tell those
   // apart, and the dropdown said "Select a client…" for both.
   const [loaded, setLoaded] = useState(false)
-  const [queueNote, setQueueNote] = useState('')
-  const [orderLines, setOrderLines] = useState<CustomerOrderLine[] | null>(null)
-  const [orderNote, setOrderNote] = useState('')
-  const [orderLoaded, setOrderLoaded] = useState(false)
-  const [orderLoading, setOrderLoading] = useState(false)
-  const [claimNote, setClaimNote] = useState('Checking whether a scan can be recorded.')
-  const [claimReady, setClaimReady] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -79,64 +71,8 @@ export default function ScanPage() {
       // A network failure is a failure, not a client list with nobody on it.
       // This used to be `.catch(() => setClients([]))`.
       .catch((e) => { if (live) setLoadError(String(e)) })
-    fetch('/api/scan/ready')
-      .then(async (r) => {
-        const body = await r.json().catch(() => null) as { ready?: boolean; message?: string } | null
-        if (!live) return
-        setClaimReady(body?.ready === true)
-        setClaimNote(body?.message || 'Claim check could not be read. Record scan stays blocked.')
-      })
-      .catch(() => {
-        if (!live) return
-        setClaimReady(false)
-        setClaimNote('Claim check could not be read. Record scan stays blocked.')
-      })
-    fetch('/api/scan/push')
-      .then(async (r) => {
-        const body = await r.json().catch(() => null) as { message?: string; mode?: string } | null
-        if (!live || !body?.message) return
-        setQueueNote(body.mode ? `${body.mode}: ${body.message}` : body.message)
-      })
-      .catch(() => { if (live) setQueueNote('') })
     return () => { live = false }
   }, [])
-
-  async function loadOrder() {
-    const ref = orderRef.trim()
-    if (!clientId || !ref) {
-      setOrderLines(null)
-      setOrderLoaded(false)
-      setOrderNote('Choose a client and enter an order reference.')
-      return
-    }
-    setOrderLoading(true)
-    setOrderNote('Reading the order. This does not record a scan or send a pick.')
-    try {
-      const params = new URLSearchParams({ client_id: clientId, order_ref: ref })
-      const res = await fetch(`/api/scan/order?${params}`)
-      const body = await res.json().catch(() => null) as {
-        loaded?: boolean
-        lines?: CustomerOrderLine[] | null
-        reason?: string
-      } | null
-      if (!body?.loaded || !body.lines) {
-        setOrderLines(null)
-        setOrderLoaded(false)
-        setOrderNote(body?.reason || 'The order lines could not be read.')
-        return
-      }
-      setOrderLines(body.lines)
-      setOrderLoaded(true)
-      setOrderNote(body.reason || 'Order lines loaded. Read only.')
-      setSku('')
-    } catch {
-      setOrderLines(null)
-      setOrderLoaded(false)
-      setOrderNote('The order lines could not be read.')
-    } finally {
-      setOrderLoading(false)
-    }
-  }
 
   const result = useMemo(
     () => parseScan(raw, expected ? Number(expected) : undefined),
@@ -155,17 +91,6 @@ export default function ScanPage() {
 
   const short =
     expected !== '' && serials.length > 0 && serials.length < Number(expected)
-  const coverage = orderLines
-    ? scanCoverage(orderLines, sku.trim() ? [{ sku: sku.trim(), count: serials.length }] : [])
-    : null
-  const selectedLine = orderLines?.find((line) => line.sku === sku.trim()) ?? null
-  const lineAlreadyPicked = selectedLine != null
-    && selectedLine.pickedQty != null
-    && selectedLine.requiredQty != null
-    && selectedLine.requiredQty > 0
-    && selectedLine.pickedQty >= selectedLine.requiredQty
-  const orderUnread = orderRef.trim() !== '' && !orderLoaded
-  const lineUnchosen = orderLoaded && sku.trim() === ''
 
   async function submit() {
     setError('')
@@ -248,18 +173,6 @@ export default function ScanPage() {
           Scan a box label to pull out the serials inside it, or scan loose units one at a
           time. Submitting records the work and bills it.
         </p>
-        <p className="text-sm mt-2">
-          <a href="/serials" className="text-[#1A73E8]">Serial history</a>
-          <span className="text-[#6B7A8D]"> keeps every scanned serial. A pick is sent on the customer order once that order is fully scanned. Nayax receives the serials from Zenventory through its existing API connection.</span>
-        </p>
-        <p className={`mt-3 rounded-lg border px-3 py-2 text-xs ${claimReady ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-          {claimNote}
-        </p>
-        {queueNote && (
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            {queueNote}
-          </p>
-        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -318,7 +231,7 @@ export default function ScanPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs text-[#6B7A8D] mb-1">Order ref</label>
               <input
@@ -331,41 +244,13 @@ export default function ScanPage() {
             </div>
             <div>
               <label className="block text-xs text-[#6B7A8D] mb-1">SKU</label>
-              {orderLines && orderLines.length > 0 ? (
-                <select
-                  value={sku}
-                  onChange={(e) => {
-                    const next = e.target.value
-                    setSku(next)
-                    const line = orderLines.find((row) => row.sku === next)
-                    setExpected(line?.requiredQty != null ? String(line.requiredQty) : '')
-                  }}
-                  className={field}
-                >
-                  <option value="">Select a line</option>
-                  {orderLines.map((line) => (
-                    <option key={line.sku} value={line.sku}>{line.sku}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={sku}
-                  onChange={(e) => setSku(e.target.value)}
-                  placeholder="Line item"
-                  className={field}
-                />
-              )}
-            </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={loadOrder}
-                disabled={orderLoading || !clientId || !orderRef.trim()}
-                className="w-full rounded-lg border border-[#1A73E8] px-3 py-2 text-sm font-semibold text-[#1A73E8] disabled:opacity-50"
-              >
-                {orderLoading ? 'Loading…' : 'Load order lines'}
-              </button>
+              <input
+                type="text"
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                placeholder="Line item"
+                className={field}
+              />
             </div>
             <div>
               <label className="block text-xs text-[#6B7A8D] mb-1">Box ref</label>
@@ -379,50 +264,16 @@ export default function ScanPage() {
             </div>
           </div>
 
-          {/* A failed order read must not look like a scan that will be
-              billed. Record stays off until the lines load and a line
-              is chosen. */}
-          {orderNote && (
-            <p className="text-xs text-amber-800">{orderNote}</p>
-          )}
-          {orderLoaded && orderLines && (
-            <div className="text-xs text-[#3A4658] space-y-1">
-              {orderLines.map((line) => {
-                const covered = coverage?.lines.find((row) => row.sku === line.sku)
-                const serialized = line.serialized === true ? 'serialized' : line.serialized === false ? 'not serialized' : 'serialized unknown'
-                const required = line.requiredQty == null ? 'qty unknown' : `qty ${line.requiredQty}`
-                const picked = line.pickedQty == null ? 'picked unknown' : `picked ${line.pickedQty}`
-                return (
-                  <p key={line.sku}>
-                    {line.sku}: {serialized}, {required}, {picked}
-                    {covered ? `, scanned now ${covered.scanned}` : ''}
-                  </p>
-                )
-              })}
-              <p>
-                {coverage?.allSerializedComplete
-                  ? 'Every serialized line on this order matches its required quantity in this scan.'
-                  : 'This order is not fully scanned. A partial line is not a completed order.'}
-              </p>
-            </div>
-          )}
-
-          {lineAlreadyPicked && (
-            <p className="text-xs text-amber-800">
-              This line already shows a picked quantity at least as large as the order quantity.
-              Record scan is not offered for it. Loading the order did not send a pick.
-            </p>
-          )}
-
-          {orderUnread && (
-            <p className="text-xs text-amber-800">
-              Order lines were not loaded. Record scan is off. Nothing has been billed or stored.
-            </p>
-          )}
-
-          {lineUnchosen && (
-            <p className="text-xs text-amber-800">
-              No line selected. Record scan is off until a loaded line is chosen. Nothing has been billed.
+          {/* Zenventory holds scanned serials per line item, not per
+              order, and real orders are multi-line. Without the SKU the
+              scan is still billed and stored, but there is no safe way
+              to push it — so say that here rather than letting it look
+              queued. */}
+          {orderRef.trim() && !sku.trim() && (
+            <p className="text-xs text-amber-700">
+              No SKU — this scan will be billed and stored, but not queued for
+              Zenventory. The serials go onto a specific order line, so the line
+              has to be named.
             </p>
           )}
 
@@ -533,7 +384,7 @@ export default function ScanPage() {
           <button
             type="button"
             onClick={submit}
-            disabled={saving || !claimReady || lineAlreadyPicked || orderUnread || lineUnchosen || !serials.length || dupes.length > 0}
+            disabled={saving || !serials.length || dupes.length > 0}
             className="w-full bg-[#1A73E8] hover:bg-[#63B3FF] disabled:opacity-50 text-white py-3 rounded-xl text-sm font-semibold transition"
           >
             {saving ? 'Recording…' : 'Record scan'}
@@ -544,8 +395,8 @@ export default function ScanPage() {
               Recorded {last.serial_count} serial{last.serial_count === 1 ? '' : 's'} —
               billed ${Number(last.total).toFixed(2)} ({last.service_type}).{' '}
               {last.queued
-                ? 'Stored against the verified line. A pick is not sent from this screen.'
-                : 'Stored. Not queued for a pick — the order line was not verified.'}
+                ? 'Queued for Zenventory.'
+                : 'Not queued — no order ref, so there is nothing to match against.'}
             </div>
           )}
         </div>

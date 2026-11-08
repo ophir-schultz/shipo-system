@@ -720,17 +720,16 @@ describe('GET /api/agent/monitor: a charge run that wrote nothing', () => {
 // The cron is the only unattended caller and a non-2xx is the only thing it
 // surfaces, so the status code is the signal being asserted here -- not just
 // the body. `run` discards the Response, hence runRaw.
-describe('GET /api/agent/monitor is read-only', () => {
-  it('does not sync ShipStation, map Zenventory clients, or recalculate', async () => {
+describe('GET /api/agent/monitor keeps the production cron', () => {
+  it('syncs and recalculates, and does not skip the charge run', async () => {
     const res = await GET(new Request('https://shipo.test/api/agent/monitor'))
     expect(res.status).toBe(200)
-    expect(h.syncShipments).not.toHaveBeenCalled()
-    expect(h.syncClientAssignments).not.toHaveBeenCalled()
-    expect(h.recalculateShipments).not.toHaveBeenCalled()
-    expect(h.recalculateCharges).not.toHaveBeenCalled()
-    expect(h.persistStorageCharges).not.toHaveBeenCalled()
+    expect(h.syncShipments).toHaveBeenCalled()
+    expect(h.syncClientAssignments).toHaveBeenCalled()
+    expect(h.recalculateShipments).toHaveBeenCalled()
+    expect(h.recalculateCharges).toHaveBeenCalled()
     const body = await res.json() as MonitorBody
-    expect(body.log.join('\n')).toContain('POST /api/agent/monitor')
+    expect(body.log.join('\n')).not.toContain('Charge recalculation was not run')
   })
 })
 

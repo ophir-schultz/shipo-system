@@ -249,7 +249,7 @@ describe('loadChargeInputs — the shipment join', () => {
     expect(input.shipments[0].shipDate).toBe('2026-09-30')
   })
 
-  it('loads an order placed before the window when its date-only ship day is inside it', async () => {
+  it('does not load an October 6 order just because its ship day is inside the window', async () => {
     seed({
       orders: [dated({ id: 'o-early', order_key: 'SO601060842', order_number: 'SO601060842', order_date: '2026-10-06' })],
       order_items: [
@@ -268,13 +268,9 @@ describe('loadChargeInputs — the shipment join', () => {
       ],
     })
 
-    const [input] = await loadChargeInputs('2026-10-07')
+    const inputs = await loadChargeInputs('2026-10-07')
 
-    expect(input.order.id).toBe('o-early')
-    expect(input.shipments.map((row) => row.shipmentId)).toEqual([2])
-    expect(input.shipments[0].shipDate).toBe('2026-10-07')
-    expect(input.items.map((row) => row.id)).toEqual(['i-new'])
-    expect(JSON.stringify(input)).not.toContain('secret-cost-87873')
+    expect(inputs.find((input) => input.order.id === 'o-early')).toBeUndefined()
   })
 
   it('keeps a date-only source stored at UTC midnight, and shifts a real midnight', async () => {
