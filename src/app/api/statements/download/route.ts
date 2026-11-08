@@ -17,6 +17,7 @@ import {
 import {
   readOrderNumbers, readShipmentFacts, shipmentIdFromChargeKey,
   factsByShipmentId, buildShipmentLines, unmatchedParcelNote,
+  countOutsideShipDates, outsideShipDateNote,
 } from '@/lib/billing/statement-detail'
 import { priceOf, totalOrUnknown, unpricedNote, UNPRICED_CELL } from '@/lib/billing/unpriced'
 import { monthlyMinimumBill } from '@/lib/billing/monthly-minimum'
@@ -307,6 +308,7 @@ export async function GET(req: Request) {
     // noticed by whoever opens the file first, and the one sentence that
     // explains it has to be where they are looking.
     unmatchedParcelNote(unmatched),
+    outsideShipDateNote(countOutsideShipDates(shipmentLines, range)),
   ].filter(n => n !== '')
 
   for (const note of notes) {

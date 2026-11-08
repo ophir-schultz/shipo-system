@@ -534,6 +534,98 @@ describe('GET /api/statements/download: the period can be named by grain OR by d
     expect(text).not.toMatch(/actual_cost|profit_loss|Margin|Profit/)
   })
 
+  it('prints the raw ship calendar on the Shipments sheet and does not move a stored charge', async () => {
+    // The column the Nayax workbook got wrong. charge_date is already the
+    // previous day. raw_data.shipDate is the calendar day. A real midnight
+    // UTC, with no date-only source, stays the Eastern day. The period filter
+    // is still charge_date, so a September charge is not pulled into October.
+    h.db = createFakeSupabase({
+      clients: [{ id: CLIENT, name: 'Creative Pea', active: true }],
+      orders: [
+        { id: 'o-raw', order_number: 'SO601061446' },
+        { id: 'o-gate', order_number: 'SO-GATE' },
+        { id: 'o-instant', order_number: 'SO-INSTANT' },
+      ],
+      shipments: [
+        {
+          id: 's-raw', shipstation_shipment_id: 9001,
+          ship_date: '2026-10-09T00:00:00.000Z',
+          raw_data: { shipDate: '2026-10-09', secretCost: 'secret-cost-87873' },
+          carrier: 'ups', service: 'ground', tracking_number: '1ZRAW', weight: 1,
+          recipient_city: 'Dover', recipient_state: 'DE', recipient_zip: '19901',
+          client_id: CLIENT, client_rate: null,
+        },
+        {
+          id: 's-gate', shipstation_shipment_id: 9002,
+          ship_date: '2026-10-01T00:00:00.000Z',
+          raw_data: { shipDate: '2026-10-01' },
+          carrier: 'ups', service: 'ground', tracking_number: '1ZGATE', weight: 1,
+          recipient_city: 'Dover', recipient_state: 'DE', recipient_zip: '19901',
+          client_id: CLIENT, client_rate: null,
+        },
+        {
+          id: 's-instant', shipstation_shipment_id: 9003,
+          ship_date: '2026-10-01T00:00:00.000Z',
+          raw_data: { shipDate: '2026-10-01T00:00:00.000Z' },
+          carrier: 'fedex', service: 'ground', tracking_number: '1ZINSTANT', weight: 1,
+          recipient_city: 'Austin', recipient_state: 'TX', recipient_zip: '78701',
+          client_id: CLIENT, client_rate: null,
+        },
+      ],
+      order_charges: [
+        {
+          id: 'c-raw', client_id: CLIENT, order_id: 'o-raw', charge_date: '2026-10-08',
+          charge_type: 'shipping', label: 'Shipping', quantity: 1,
+          unit_rate: 3.33, amount: 3.33, is_estimate: false, charge_key: 'shipment:9001',
+        },
+        {
+          id: 'c-gate', client_id: CLIENT, order_id: 'o-gate', charge_date: '2026-09-30',
+          charge_type: 'shipping', label: 'Shipping', quantity: 1,
+          unit_rate: 1.11, amount: 1.11, is_estimate: false, charge_key: 'shipment:9002',
+        },
+        {
+          id: 'c-instant', client_id: CLIENT, order_id: 'o-instant', charge_date: '2026-09-30',
+          charge_type: 'shipping', label: 'Shipping', quantity: 1,
+          unit_rate: 2.22, amount: 2.22, is_estimate: false, charge_key: 'shipment:9003',
+        },
+      ],
+    })
+    const file = (from: string, to: string) => {
+      const qs = new URLSearchParams({ client: CLIENT, from, to })
+      return new Request(`http://localhost/api/statements/download?${qs}`)
+    }
+    const october = await workbook(await GET(file('2026-10-01', '2026-10-31')))
+    const octoberShip = rowsOf(october, 'Shipments')
+    const octoberCharges = rowsOf(october, 'Charges')
+    expect(octoberShip).toHaveLength(1)
+    expect(octoberShip[0]).toMatchObject({
+      'Order': 'SO601061446', 'Ship Date': '2026-10-09', 'Amount ($)': 3.33,
+    })
+    expect(octoberCharges.find((row) => row['Order'] === 'SO601061446')).toMatchObject({
+      Date: '2026-10-08', 'Amount ($)': 3.33,
+    })
+    expect(octoberShip.map((row) => row['Order'])).not.toContain('SO-GATE')
+    const octoberText = JSON.stringify(october.SheetNames.map((name) => rowsOf(october, name)))
+    expect(octoberText).not.toContain('secret-cost-87873')
+    expect(octoberText).not.toContain('stored charge dates were not moved')
+
+    const september = await workbook(await GET(file('2026-09-01', '2026-09-30')))
+    const septemberShip = rowsOf(september, 'Shipments')
+    const byOrder = new Map(septemberShip.map((row) => [row['Order'], row]))
+    expect(byOrder.get('SO-GATE')).toMatchObject({ 'Ship Date': '2026-10-01', 'Amount ($)': 1.11 })
+    expect(byOrder.get('SO-INSTANT')).toMatchObject({ 'Ship Date': '2026-09-30', 'Amount ($)': 2.22 })
+    expect(septemberShip.map((row) => row['Order'])).not.toContain('SO601061446')
+    expect(rowsOf(september, 'Charges').find((row) => row['Order'] === 'SO-GATE')).toMatchObject({
+      Date: '2026-09-30', 'Amount ($)': 1.11,
+    })
+    const septemberNotes = rowsOf(september, 'Statement')
+      .filter((row) => row['Charge'] === 'NOTE')
+      .map((row) => String(row['Line']))
+    expect(septemberNotes.some((note) => note.includes('stored charge dates were not moved'))).toBe(true)
+    const septemberFreight = septemberShip.reduce((total, row) => total + num(row['Amount ($)']), 0)
+    expect(septemberFreight).toBeCloseTo(3.33, 2)
+  })
+
   it('still refuses an unknown grain', async () => {
     // Unchanged behaviour, pinned because the validation moved. 'weekly' used
     // to fall through periodRange onto the year arm.
