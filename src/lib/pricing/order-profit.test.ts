@@ -35,6 +35,25 @@ describe('order profit', () => {
     expect(orders[0].profit).toBeNull()
   })
 
+  it('keeps a date-only October 1 on the carrier day and filters on September 30', () => {
+    const [dated] = rollupOrders([row({
+      shipDate: '2026-10-01T00:00:00.000Z',
+      raw: { shipDate: '2026-10-01', secretCost: 'secret-cost-87873' },
+    })])
+    expect(dated.carrierShipDate).toBe('2026-10-01')
+    expect(dated.shipDate).toBe('2026-09-30')
+    expect(JSON.stringify(dated)).not.toContain('secret-cost-87873')
+    const [instant] = rollupOrders([row({
+      shipDate: '2026-10-01T00:00:00Z',
+      raw: { shipDate: '2026-10-01T00:00:00Z' },
+    })])
+    expect(instant.carrierShipDate).toBe('2026-09-30')
+    expect(instant.shipDate).toBe('2026-09-30')
+    const [late] = rollupOrders([row({ shipDate: '2026-11-01T03:30:00.000Z', raw: {} })])
+    expect(late.carrierShipDate).toBe('2026-10-31')
+    expect(late.shipDate).toBe('2026-10-31')
+  })
+
   it('rolls clients up from priced orders only and counts the rest', () => {
     const orders = rollupOrders([
       row({ id: 'a', orderNumber: 'SO1', clientRate: 10, actualCost: 4 }),

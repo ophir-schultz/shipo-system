@@ -9,6 +9,9 @@ import { easternCalendarDay, rawShipDate, shipCalendarDay } from '@/lib/ledger/e
 export const SHIP_DATE_FILTER_NOTE =
   'Filtered by the stored ship instant in Eastern time. Ship date is the carrier calendar day. The statement charge date is not used and is not changed.'
 
+export const SHIP_DAY_LABEL_NOTE =
+  'Ship date is the carrier calendar day. When it differs, the stored ship day is the Eastern instant. The statement charge date is not changed.'
+
 export interface PresentedShipDay {
   /** Carrier calendar day. A date-only source keeps that day. */
   shipDate: string
@@ -28,6 +31,17 @@ export function presentShipDay(
     storedShipDay,
     differs: shipDate !== '' && storedShipDay !== '' && shipDate !== storedShipDay,
   }
+}
+
+/** One cell when the days agree. Both days when the carrier day and the filter day differ. */
+export function shipDateWithStored(
+  stored: string | null | undefined,
+  raw: unknown,
+): string {
+  const cols = shipmentDateColumns(stored, raw)
+  if (!cols['Ship Date']) return ''
+  if (!cols['Stored ship day']) return cols['Ship Date']
+  return `${cols['Ship Date']} (stored ${cols['Stored ship day']})`
 }
 
 /** The two date cells on a shipments export. Blank stored day means the days agree. */

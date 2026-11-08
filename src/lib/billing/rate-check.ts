@@ -1,4 +1,4 @@
-import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { presentShipDay } from '@/lib/billing/ship-day-label'
 import {
   chargeableOunces,
   DEFAULT_RATE_CHECK_FLAGS,
@@ -17,6 +17,8 @@ export interface RateCheckShipment {
   clientName: string | null
   orderNumber: string | null
   shipDate: string | null
+  /** Eastern day of the stored instant, only when it is not the carrier day. */
+  storedShipDay: string | null
   weightOz: number | null
   zone: number | null
   service: string | null
@@ -106,11 +108,13 @@ export function checkShipment(
     if (!charged.note) return reason
     return reason ? `${reason} ${charged.note}` : charged.note
   }
+  const presented = presentShipDay(row.shipDate, row.raw)
   const base = {
     id: row.id,
     clientName: row.clientName,
     orderNumber: row.orderNumber,
-    shipDate: row.shipDate ? easternCalendarDay(row.shipDate) : null,
+    shipDate: presented.shipDate || null,
+    storedShipDay: presented.differs ? presented.storedShipDay : null,
     weightOz,
     zone,
     service: row.service,

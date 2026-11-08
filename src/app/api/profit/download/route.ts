@@ -51,6 +51,7 @@ export async function loadProfitShipments(from: string, to: string): Promise<{
       clientName: clientName(row.clients),
       orderNumber: row.order_number ?? '',
       shipDate: row.ship_date,
+      raw: row.raw_data,
       trackingNumber: row.tracking_number,
       clientRate: row.client_rate,
       actualCost: row.actual_cost,

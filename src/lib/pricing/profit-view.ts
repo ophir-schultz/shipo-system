@@ -1,5 +1,6 @@
 import { periodRange } from '@/lib/billing/statement'
-import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { easternAddDays, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { shipmentDateColumns } from '@/lib/billing/ship-day-label'
 import { money } from './engine'
 import {
   rollupClients,
@@ -62,20 +63,27 @@ function lineProfit(price: number | null, cost: number | null): number | null {
 }
 
 export function shipmentProfitRows(rows: ShipmentMoney[]): Array<Record<string, string>> {
-  return rows.map((row) => ({
-    Date: easternCalendarDay(row.shipDate),
-    Client: row.clientName ?? '',
-    Order: row.orderNumber,
-    Tracking: row.trackingNumber ?? '',
-    'Price ($)': moneyText(row.clientRate),
-    'ShipStation cost ($)': moneyText(row.actualCost),
-    'Profit ($)': moneyText(lineProfit(row.clientRate, row.actualCost)),
-  }))
+  return rows.map((row) => {
+    const dates = shipmentDateColumns(row.shipDate, row.raw)
+    return {
+      Date: dates['Ship Date'],
+      'Stored ship day': dates['Stored ship day'],
+      Client: row.clientName ?? '',
+      Order: row.orderNumber,
+      Tracking: row.trackingNumber ?? '',
+      'Price ($)': moneyText(row.clientRate),
+      'ShipStation cost ($)': moneyText(row.actualCost),
+      'Profit ($)': moneyText(lineProfit(row.clientRate, row.actualCost)),
+    }
+  })
 }
 
 export function orderProfitRows(orders: OrderProfit[]): Array<Record<string, string>> {
   return orders.map((order) => ({
-    Date: easternCalendarDay(order.shipDate),
+    Date: order.carrierShipDate ?? '',
+    'Stored ship day': order.carrierShipDate && order.shipDate && order.carrierShipDate !== order.shipDate
+      ? order.shipDate
+      : '',
     Client: order.clientName,
     Order: order.orderNumber,
     Shipments: String(order.shipments),

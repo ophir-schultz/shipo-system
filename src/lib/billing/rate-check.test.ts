@@ -26,8 +26,31 @@ describe('rate check rows', () => {
     expect(row.sheetPrice).toBe(24.51)
     expect(row.difference).toBe(0.49)
     expect(row.reason).toMatch(/Not a pass/)
+    expect(row.shipDate).toBe('2026-10-27')
+    expect(row.storedShipDay).toBeNull()
     expect(row).not.toHaveProperty('iclCost')
     expect(row).not.toHaveProperty('actualCost')
+  })
+
+  it('shows a date-only ship day and does not copy a raw cost onto the row', () => {
+    const dated = checkShipment(sheet(), {
+      id: 's-date', clientName: 'SitnStand', orderNumber: 'SO1',
+      shipDate: '2026-10-01T00:00:00.000Z', weight: 16, weightUnit: 'ounces',
+      length: 1, width: 1, height: 1, dimWeight: null, carrier: 'usps', zone: 3,
+      raw: { shipDate: '2026-10-01', secretCost: 'secret-cost-87873' },
+      service: 'usps_ground_advantage', clientRate: 25,
+    })
+    expect(dated.shipDate).toBe('2026-10-01')
+    expect(dated.storedShipDay).toBe('2026-09-30')
+    expect(JSON.stringify(dated)).not.toContain('secret-cost-87873')
+    const late = checkShipment(sheet(), {
+      id: 's-late', clientName: 'SitnStand', orderNumber: 'SO2',
+      shipDate: '2026-11-01T03:30:00.000Z', weight: 16, weightUnit: 'ounces',
+      length: 1, width: 1, height: 1, dimWeight: null, carrier: 'usps', zone: 3,
+      raw: {}, service: 'usps_ground_advantage', clientRate: 25,
+    })
+    expect(late.shipDate).toBe('2026-10-31')
+    expect(late.storedShipDay).toBeNull()
   })
 
   it('names the reason when the zone was never stored', () => {

@@ -48,6 +48,22 @@ describe('staff profit rows', () => {
     expect(rows[1]['Profit ($)']).toBe('')
   })
 
+  it('prints a date-only ship day and leaves a real midnight on the Eastern day', () => {
+    const dated = profitRows('shipment', [row({
+      shipDate: '2026-10-01T00:00:00.000Z',
+      raw: { shipDate: '2026-10-01', secretCost: 'secret-cost-87873' },
+    })])
+    expect(dated[0].Date).toBe('2026-10-01')
+    expect(dated[0]['Stored ship day']).toBe('2026-09-30')
+    expect(JSON.stringify(dated)).not.toContain('secret-cost-87873')
+    const instant = profitRows('shipment', [row({
+      shipDate: '2026-11-01T03:30:00.000Z',
+      raw: { shipDate: '2026-11-01T03:30:00.000Z' },
+    })])
+    expect(instant[0].Date).toBe('2026-10-31')
+    expect(instant[0]['Stored ship day']).toBe('')
+  })
+
   it('prints the New York day when UTC has already rolled', () => {
     const rows = profitRows('shipment', [row({ shipDate: '2026-11-03T03:30:00.000Z' })])
     expect(rows[0].Date).toBe('2026-11-02')

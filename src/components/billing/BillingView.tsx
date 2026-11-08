@@ -9,6 +9,8 @@ import {
 import { exclusionNote, reconcile, reconciledOrUnknown } from '@/lib/billing/profit-rollup'
 import { filterByDate, undatedNote } from '@/lib/billing/date-range'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { SHIP_DATE_FILTER_NOTE } from '@/lib/billing/ship-day-label'
+import { ShipDay } from '@/components/shipments/ShipDay'
 import { billableWarehouse, isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 
 // `client_rate` and `warehouse_daily_log.total` are nullable: recalculate.ts
@@ -65,6 +67,7 @@ type BillingShipment = {
   client_rate: Money
   profit_loss: Money
   is_loss: boolean | null
+  raw_data?: unknown
 }
 
 type BillingWarehouseLine = {
@@ -380,6 +383,7 @@ export default function BillingView({ data }: { data: BillingData }) {
             {marginNote && (
               <p className="px-5 py-2 text-xs text-amber-700 border-b border-[#E2E8F0]">⚠ {marginNote}</p>
             )}
+            <p className="px-5 py-2 text-[11px] text-[#6B7A8D] border-b border-[#E2E8F0]">{SHIP_DATE_FILTER_NOTE}</p>
             <div className="overflow-auto max-h-96">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-[#F1F5FB]">
@@ -398,7 +402,7 @@ export default function BillingView({ data }: { data: BillingData }) {
                     : shipments.map(s => (
                       <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                         <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
-                        <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{easternCalendarDay(s.ship_date) || '—'}</td>
+                        <td className="px-4 py-2.5 text-[#4B4F58] text-xs"><ShipDay stored={s.ship_date} raw={s.raw_data} /></td>
                         <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                         <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
                         <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-700 font-semibold'}`}

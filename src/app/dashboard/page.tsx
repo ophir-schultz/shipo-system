@@ -227,6 +227,8 @@ async function getDashboardData() {
         .order('id').range(from, to)),
     // NOT paged, deliberately: this is the worst-50 list, and `.limit(50)` is
     // the answer rather than a truncation of it.
+    // ship_date is selected and not printed. Week, month, and year totals stay
+    // on the stored ship instant. This panel has no ship-date cell.
     supabaseAdmin.from('shipments')
       .select('order_number, client_id, actual_cost, client_rate, profit_loss, clients(name), ship_date, carrier, service, tracking_number, raw_data')
       .eq('is_loss', true).order('profit_loss', { ascending: true }).limit(50),

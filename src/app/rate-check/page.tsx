@@ -3,6 +3,7 @@ import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { loadRateCheck } from '@/lib/billing/rate-check-load'
 import { DEFAULT_RATE_CHECK_FLAGS } from '@/lib/billing/rate-sheet'
+import { SHIP_DATE_FILTER_NOTE } from '@/lib/billing/ship-day-label'
 
 export const dynamic = 'force-dynamic'
 
@@ -117,13 +118,14 @@ export default async function RateCheckPage({
               </tbody>
             </table>
           </div>
+          <p className="text-[11px] text-[#6B7A8D]">{SHIP_DATE_FILTER_NOTE}</p>
           <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
             <table className="min-w-full text-sm">
               <thead className="bg-[#F4F6F8] text-left text-[#4B4F58]">
                 <tr>
                   <th className="px-4 py-2.5 font-medium">Order</th>
                   <th className="px-4 py-2.5 font-medium">Client</th>
-                  <th className="px-4 py-2.5 font-medium">Date</th>
+                  <th className="px-4 py-2.5 font-medium">Ship date</th>
                   <th className="px-4 py-2.5 font-medium">Weight (oz)</th>
                   <th className="px-4 py-2.5 font-medium">Zone</th>
                   <th className="px-4 py-2.5 font-medium">Service</th>
@@ -138,7 +140,10 @@ export default async function RateCheckPage({
                   <tr key={row.id} className="border-t border-slate-100">
                     <td className="px-4 py-2.5">{row.orderNumber}</td>
                     <td className="px-4 py-2.5">{row.clientName}</td>
-                    <td className="px-4 py-2.5">{row.shipDate}</td>
+                    <td className="px-4 py-2.5">
+                      <div>{row.shipDate ?? '—'}</div>
+                      {row.storedShipDay ? <div className="text-[10px] text-amber-700">Stored ship day {row.storedShipDay}</div> : null}
+                    </td>
                     <td className="px-4 py-2.5">{row.weightOz ?? '—'}</td>
                     <td className="px-4 py-2.5">{row.zone ?? '—'}</td>
                     <td className="px-4 py-2.5">{row.service}</td>

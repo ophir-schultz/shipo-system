@@ -2,7 +2,9 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { read, readErrors, loaded } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
-import { easternCalendarDay, easternToday } from '@/lib/ledger/eastern-day'
+import { easternToday } from '@/lib/ledger/eastern-day'
+import { SHIP_DAY_LABEL_NOTE } from '@/lib/billing/ship-day-label'
+import { ShipDay } from '@/components/shipments/ShipDay'
 import { ambiguousPickCards, issueLabel, shipmentIssue, type DataIssueKind } from '@/lib/billing/data-issues'
 
 export const dynamic = 'force-dynamic'
@@ -113,6 +115,8 @@ export default async function DataIssuesPage() {
           {page.data.issues.length === 0 ? (
             <p className="text-sm text-[#4B4F58]">No shipments are missing a client or a price.</p>
           ) : (
+        <>
+        <p className="mb-3 text-[11px] text-[#6B7A8D]">{SHIP_DAY_LABEL_NOTE}</p>
         <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
           <table className="min-w-full text-sm">
             <thead className="bg-[#F4F6F8] text-left text-[#4B4F58]">
@@ -130,13 +134,14 @@ export default async function DataIssuesPage() {
                   <td className="px-4 py-2.5 text-[#0B1220]">{issueLabel(row.kind)}</td>
                   <td className="px-4 py-2.5">{row.order_number ?? ''}</td>
                   <td className="px-4 py-2.5">{clientName(row.clients) || '—'}</td>
-                  <td className="px-4 py-2.5">{easternCalendarDay(row.ship_date)}</td>
+                  <td className="px-4 py-2.5"><ShipDay stored={row.ship_date} raw={row.raw_data} /></td>
                   <td className="px-4 py-2.5">{row.tracking_number ?? ''}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        </>
           )}
         </>
       )}

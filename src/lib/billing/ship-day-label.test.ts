@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   SHIP_DATE_FILTER_NOTE,
   presentShipDay,
+  shipDateWithStored,
   shipmentDateColumns,
   shipmentMatchesStoredRange,
 } from './ship-day-label'
@@ -32,6 +33,10 @@ describe('ship date presentation', () => {
     expect(shipmentMatchesStoredRange('2026-10-09T00:00:00.000Z', october.from, october.to)).toBe(true)
     expect(shipmentMatchesStoredRange('2026-11-01T03:30:00.000Z', october.from, october.to)).toBe(true)
     expect(presentShipDay('2026-11-01T03:30:00.000Z', {}).shipDate).toBe('2026-10-31')
+    expect(shipDateWithStored('2026-10-09T00:00:00.000Z', { shipDate: '2026-10-09', secretCost: 'secret-cost-87873' }))
+      .toBe('2026-10-09 (stored 2026-10-08)')
+    expect(shipDateWithStored('2026-10-27T15:00:00.000Z', { secretCost: 'secret-cost-87873' }))
+      .toBe('2026-10-27')
     expect(SHIP_DATE_FILTER_NOTE).toMatch(/stored ship instant/)
     expect(SHIP_DATE_FILTER_NOTE).toMatch(/charge date is not used/)
   })

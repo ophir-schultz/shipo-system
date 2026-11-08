@@ -7,7 +7,8 @@ import { billedOz, weightBracket } from '@/lib/billing/weight-bracket'
 import { read, readErrors, loaded, type LoadedData } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import ViewUnreadable from '@/components/ui/ViewUnreadable'
-import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { SHIP_DAY_LABEL_NOTE } from '@/lib/billing/ship-day-label'
+import { ShipDay } from '@/components/shipments/ShipDay'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
 
 // Read at REQUEST time, never at build time. Without this the App Router
@@ -488,6 +489,7 @@ export default async function LossesPage() {
           <h3 className="font-semibold text-[#0B1220]">All Loss Shipments</h3>
           <span className="text-xs text-[#4B4F58]">{d.lossCount} shipments · sorted by biggest loss first</span>
         </div>
+        <p className="text-[11px] text-[#6B7A8D] mb-3">{SHIP_DAY_LABEL_NOTE}</p>
         {d.losses.length === 0
           ? (
             <div className="text-center py-12">
@@ -501,7 +503,7 @@ export default async function LossesPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] uppercase">
-                    <th className="pb-2 pr-3">Date</th>
+                    <th className="pb-2 pr-3">Ship date</th>
                     <th className="pb-2 pr-3">Order #</th>
                     <th className="pb-2 pr-3">Client</th>
                     <th className="pb-2 pr-3">Carrier · Service</th>
@@ -516,7 +518,7 @@ export default async function LossesPage() {
                 <tbody>
                   {d.losses.map((s: any) => (
                     <tr key={s.id} className="border-b border-[#E2E8F0]/30 hover:bg-red-50">
-                      <td className="py-2 pr-3 text-[#4B4F58]">{easternCalendarDay(s.ship_date) || '—'}</td>
+                      <td className="py-2 pr-3 text-[#4B4F58]"><ShipDay stored={s.ship_date} raw={s.raw_data} /></td>
                       <td className="py-2 pr-3 font-mono text-[#3A4658]">{s.order_number}</td>
                       <td className="py-2 pr-3 text-[#3A4658]">{(s.clients as any)?.name ?? <span className="text-[#6B7A8D] italic">unassigned</span>}</td>
                       <td className="py-2 pr-3 text-[#4B4F58]">{s.carrier} · {s.service}</td>
