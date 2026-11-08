@@ -20,8 +20,10 @@ const oct6 = JSON.parse(readFileSync('supabase/proposals/oct6_23.json', 'utf8'))
   cancelled: boolean
 }>
 const dateSql = readFileSync('supabase/propose_charge_date_repair_2026_11_08.sql', 'utf8')
+const dateApplySql = readFileSync('supabase/apply_charge_date_repair_2026_11_08.sql', 'utf8')
 const listSql = readFileSync('supabase/propose_nayax_oct6_zone_shipping_2026_11_08.sql', 'utf8')
 const insertSql = readFileSync('supabase/propose_nayax_oct6_zone_shipping_insert_2026_11_08.sql', 'utf8')
+const insertApplySql = readFileSync('supabase/apply_nayax_oct6_zone_shipping_2026_11_08.sql', 'utf8')
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex')
@@ -65,6 +67,16 @@ describe('frozen charge-date snapshot', () => {
     expect(dateSql).toContain("shipo.approve_charge_date_repair")
     expect(dateSql).not.toMatch(/^\s*commit\s*;/im)
   })
+
+  it('keeps the apply file on the same ids and a different approval setting', () => {
+    for (const row of snapshot) expect(dateApplySql).toContain(row.id)
+    expect(dateApplySql).toContain('apply_charge_date_repair_2026_11_08')
+    expect(dateApplySql).not.toContain("is distinct from 'propose_charge_date_repair_2026_11_08'")
+    expect(dateApplySql.trimEnd().endsWith('commit;')).toBe(true)
+    expect(dateApplySql.toLowerCase()).not.toContain('create table public')
+    expect(dateApplySql.toLowerCase()).not.toContain('create schema')
+    expect(dateApplySql).toContain('Do not run')
+  })
 })
 
 describe('frozen Nayax October 6 list', () => {
@@ -100,5 +112,20 @@ describe('frozen Nayax October 6 list', () => {
     expect(insertSql.trimEnd().endsWith('rollback;')).toBe(true)
     expect(insertSql).not.toMatch(/^\s*commit\s*;/im)
     expect(insertSql.toLowerCase()).not.toContain('create table public')
+  })
+
+  it('keeps the shipping apply on the same 23 rows and a different approval setting', () => {
+    for (const row of oct6) {
+      expect(insertApplySql).toContain(row.order_id)
+      expect(insertApplySql).toContain(String(row.shipstation_shipment_id))
+    }
+    expect(insertApplySql).toContain('apply_nayax_oct6_zone_shipping_2026_11_08')
+    expect(insertApplySql).not.toContain("is distinct from 'propose_nayax_oct6_zone_shipping_insert_2026_11_08'")
+    expect(insertApplySql).toContain("'zone_client_rate'")
+    expect(insertApplySql).toContain('cost is null')
+    expect(insertApplySql.trimEnd().endsWith('commit;')).toBe(true)
+    expect(insertApplySql).not.toMatch(/^\s*rollback\s*;/im)
+    expect(insertApplySql.toLowerCase()).not.toContain('create table public')
+    expect(insertApplySql).toContain('Do not run')
   })
 })

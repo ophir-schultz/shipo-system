@@ -14,9 +14,12 @@
 -- calculate-charges.ts writes for shipping.
 -- charge_date is the carrier day 2026-10-07, not the order date.
 -- charge_date_source is ship_date.
--- source is zone_client_rate, not calculator. A later calculator upsert
--- on (order_id, charge_key) can replace this amount. That overwrite is
--- not prevented here. Do not approve this insert until that is accepted.
+-- source is zone_client_rate, not calculator.
+-- persist-charges.ts keeps that source, amount, unit rate, and charge
+-- date when a later run would write at-cost or an unknown amount.
+-- This SQL file does not install that guard. Do not run it until the
+-- charge cron on this database is that code. Preview and production
+-- share the database, so a production recalc would still replace it.
 --
 -- No new table, schema, or grant. The before-image is
 -- supabase/proposals/oct6_23.json.
