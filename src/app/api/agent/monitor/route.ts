@@ -336,13 +336,20 @@ async function runMonitor(write: boolean) {
     // with no explanation is the reading that would send someone looking for a
     // fault that is not there.
     const clientsLocked = Number(clientResult.clients_locked ?? 0)
-    log.push(`${clientsFailed > 0 || itemsFailed > 0 ? '⚠' : '✓'} Client mapping: `
+    const notConfigured = Number(clientResult.clients_not_configured ?? 0)
+    log.push(`${clientsFailed > 0 || itemsFailed > 0 || notConfigured > 0 ? '⚠' : '✓'} Client mapping: `
       + `${clientResult.updated ?? 0} shipments assigned`
       + `${clientsFailed > 0 ? ` · ${clientsFailed} of `
         + `${(clientResult.clients_synced ?? 0) + clientsFailed} clients FAILED` : ''}`
       + `${itemsFailed > 0 ? ` · ${itemsFailed} items FAILED` : ''}`
       + `${clientsLocked > 0 ? ` · ${clientsLocked} skipped, already syncing in a `
-        + `concurrent run (${(clientResult.locked_clients ?? []).join(', ')})` : ''}`)
+        + `concurrent run (${(clientResult.locked_clients ?? []).join(', ')})` : ''}`
+      + `${notConfigured > 0 ? ` · ${notConfigured} not configured` : ''}`)
+    if (notConfigured > 0) {
+      errors.push(`⚠ ${notConfigured} Zenventory client${notConfigured > 1 ? 's have' : ' has'} `
+        + `no per-client key, so ${notConfigured > 1 ? 'they were' : 'it was'} not called. `
+        + `A global API key is not used. ${(clientResult.not_configured ?? []).join(' ')}`)
+    }
     if (clientsFailed > 0) {
       errors.push(`⚠ ${clientsFailed} Zenventory client${clientsFailed > 1 ? 's' : ''} did `
         + `not sync, so ${clientsFailed > 1 ? 'their' : 'its'} orders and picks are `

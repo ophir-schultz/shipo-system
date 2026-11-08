@@ -84,6 +84,36 @@ beforeEach(() => {
 })
 
 describe('syncClientAssignments: a client without env credentials', () => {
+  it('calls that client with the key stored on the same row', async () => {
+    delete process.env.ZENVENTORY_API_KEY
+    delete process.env.ZENVENTORY_API_SECRET
+    delete process.env.ZEN_ORCAM_KEY
+    delete process.env.ZEN_ORCAM_SECRET
+    delete process.env.ZENVENTORY_KEY_ORCAM
+    delete process.env.ZENVENTORY_SECRET_ORCAM
+    process.env.ZENVENTORY_API_KEY = 'global-key'
+    process.env.ZENVENTORY_API_SECRET = 'global-secret'
+    h.db.tables.clients = [
+      {
+        id: 'c1', name: 'Orcam', active: true,
+        zenventory_api_key: 'orcam-row-key', zenventory_api_secret: 'orcam-row-secret',
+      },
+      {
+        id: 'c2', name: 'Crisp Power', active: true,
+        zenventory_api_key: null, zenventory_api_secret: null,
+      },
+    ]
+    const result = await syncClientAssignments(30)
+    expect(h.getCustomerOrders).toHaveBeenCalledTimes(1)
+    expect(h.getCustomerOrders).toHaveBeenCalledWith('orcam-row-key', 'orcam-row-secret', expect.anything())
+    expect(result.clients_not_configured).toBe(1)
+    expect(result.not_configured[0]).toContain('Crisp Power')
+    expect(result.not_configured.join(' ')).not.toContain('orcam-row-secret')
+    expect(result.not_configured.join(' ')).not.toContain('global-secret')
+    delete process.env.ZENVENTORY_API_KEY
+    delete process.env.ZENVENTORY_API_SECRET
+  })
+
   it('skips that client with a not configured notice and syncs the rest', async () => {
     h.db.tables.clients = [client('c1', 'Nayax'), { id: 'c2', name: 'Nobody', active: true }]
     const result = await syncClientAssignments(30)

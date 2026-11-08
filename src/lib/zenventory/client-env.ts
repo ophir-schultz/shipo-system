@@ -90,10 +90,15 @@ function readEither(
  * from the secret. A missing variable is named in the notice. The value
  * is not.
  */
+export interface StoredClientZenventory {
+  apiKey?: string | null
+  apiSecret?: string | null
+}
+
 export function readZenventoryClientCredentials(
   clientName: string,
   env: Record<string, string | undefined> = process.env,
-  options: { requireSecure?: boolean } = {},
+  options: { requireSecure?: boolean; stored?: StoredClientZenventory | null } = {},
 ): { ok: true; credentials: ZenventoryEnvCredentials } | { ok: false; notice: string } {
   const label = clientName.trim() || 'This client'
   const slug = zenventorySlug(clientName)
@@ -104,10 +109,25 @@ export function readZenventoryClientCredentials(
     }
   }
   const names = zenventoryEnvNames(slug)
-  const apiKey = readEither(env, names.key, names.legacyKey)
-  const apiSecret = readEither(env, names.secret, names.legacySecret)
+  let apiKey = readEither(env, names.key, names.legacyKey)
+  let apiSecret = readEither(env, names.secret, names.legacySecret)
   const dedicatedSecure = readEither(env, names.secure, names.legacySecure)
   const secureKey = dedicatedSecure.value
+  // The environment pair wins. A global ZENVENTORY_API_KEY is not read:
+  // one account's key must not be sent as another client's. When this
+  // client has neither env variable, the same client's stored pair is
+  // the source the scheduled sync used before the env-only loader.
+  // One env value and one stored value are not combined.
+  const envPair = Boolean(apiKey.value && apiSecret.value)
+  const envPartial = Boolean(apiKey.value || apiSecret.value)
+  if (!envPair && !envPartial && !options.requireSecure) {
+    const storedKey = present(options.stored?.apiKey ?? undefined)
+    const storedSecret = present(options.stored?.apiSecret ?? undefined)
+    if (storedKey && storedSecret) {
+      apiKey = { value: storedKey, label: 'clients.zenventory_api_key' }
+      apiSecret = { value: storedSecret, label: 'clients.zenventory_api_secret' }
+    }
+  }
   const missing: string[] = []
   if (!apiKey.value) missing.push(apiKey.label)
   if (!apiSecret.value) missing.push(apiSecret.label)

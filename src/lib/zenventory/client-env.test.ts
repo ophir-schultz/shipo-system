@@ -34,6 +34,49 @@ describe('per-client Zenventory env credentials', () => {
     expect(zenventoryEnvNames('TIMESYSTEMS').secret).toBe('ZEN_TIMESYSTEMS_SECRET')
   })
 
+  it('uses this client row only when that client has no env pair', () => {
+    const read = readZenventoryClientCredentials('Orcam', {
+      ZENVENTORY_API_KEY: 'global-key',
+      ZENVENTORY_API_SECRET: 'global-secret',
+    }, {
+      stored: { apiKey: 'row-key', apiSecret: 'row-secret' },
+    })
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.credentials.apiKey).toBe('row-key')
+    expect(read.credentials.apiSecret).toBe('row-secret')
+    expect(read.credentials.keySource).toBe('clients.zenventory_api_key')
+  })
+
+  it('does not mix an env key with a stored secret or another client', () => {
+    const partial = readZenventoryClientCredentials('Orcam', {
+      ZEN_ORCAM_KEY: 'env-key',
+    }, {
+      stored: { apiKey: 'row-key', apiSecret: 'row-secret' },
+    })
+    expect(partial.ok).toBe(false)
+    if (partial.ok) return
+    expect(partial.notice).toContain('ZEN_ORCAM_SECRET')
+    expect(partial.notice).not.toContain('row-secret')
+    expect(partial.notice).not.toContain('env-key')
+  })
+
+  it('keeps an env pair ahead of the stored pair and the global pair', () => {
+    const read = readZenventoryClientCredentials('Orcam', {
+      ZEN_ORCAM_KEY: 'env-key',
+      ZEN_ORCAM_SECRET: 'env-secret',
+      ZENVENTORY_API_KEY: 'global-key',
+      ZENVENTORY_API_SECRET: 'global-secret',
+    }, {
+      stored: { apiKey: 'row-key', apiSecret: 'row-secret' },
+    })
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.credentials.apiKey).toBe('env-key')
+    expect(read.credentials.apiSecret).toBe('env-secret')
+    expect(read.credentials.keySource).toBe('ZEN_ORCAM_KEY')
+  })
+
   it('reads ZEN_KEY and ZEN_SECRET and does not treat the secret as a SecureKey', () => {
     const read = readZenventoryClientCredentials('Orcam', {
       ZEN_ORCAM_KEY: 'key',
