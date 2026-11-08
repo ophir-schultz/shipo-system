@@ -7,7 +7,6 @@
 --
 -- Inserts one shipping charge per frozen row. The amount and the unit
 -- rate are shipments.client_rate, the zone price already stored.
--- Carrier cost is not copied. cost and cost_basis stay null.
 -- rate_id stays null: this is not a warehouse rate-card row.
 -- No pick, no pack, no manual freight.
 -- charge_key is shipment:<shipstation_shipment_id>, the key
@@ -15,11 +14,16 @@
 -- charge_date is the carrier day 2026-10-07, not the order date.
 -- charge_date_source is ship_date.
 -- source is zone_client_rate, not calculator.
--- persist-charges.ts keeps that source, amount, unit rate, and charge
--- date when a later run would write at-cost or an unknown amount.
--- This SQL file does not install that guard. Do not run it until the
--- charge cron on this database is that code. Preview and production
--- share the database, so a production recalc would still replace it.
+-- Cost is shipments.actual_cost when that column is known, with
+-- cost_basis measured. A null shipment cost stays a null charge cost.
+-- rate_id stays null. Amount and unit_rate stay the zone client rate.
+-- The client statement does not select this cost.
+-- Void refusal uses raw_data voided = true only. voidDate and
+-- voideDate are not checked.
+-- These dates are the carrier day. Other unrepaired October charges
+-- can remain on the Eastern day until the date repair is applied.
+-- The file refuses unless the latest successful charges run has
+-- mode preserve_stored, which keeps a stored charge_date.
 --
 -- No new table, schema, or grant. The before-image is
 -- supabase/proposals/oct6_23.json.
@@ -39,6 +43,39 @@ begin
   end if;
 end
 $gate$;
+
+-- The production cron must already be keeping stored charge dates.
+-- preserve_stored is written on sync_runs.mode by that cron. A latest
+-- successful charges run in any other mode, including live, refuses
+-- this file: that cron would put an Eastern day back after a repair.
+-- A charges run that is still open also refuses. The advisory lock
+-- stops two of these files from committing together. It does not stop
+-- the application cron, which uses sync_runs; a cron that starts after
+-- this check and changes a row makes the after-check fail and the
+-- transaction roll back.
+do $cron$
+declare
+  latest text;
+  running integer;
+begin
+  perform pg_advisory_xact_lock(hashtext('shipo.order_charges'));
+  select count(*) into running
+  from public.sync_runs
+  where source = 'charges' and status = 'running' and client_id is null;
+  if running <> 0 then
+    raise exception 'a charges run is in progress (% rows). Nothing was changed.', running;
+  end if;
+  select mode into latest
+  from public.sync_runs
+  where source = 'charges' and status = 'ok' and client_id is null
+  order by finished_at desc nulls last
+  limit 1;
+  if latest is distinct from 'preserve_stored' then
+    raise exception 'latest successful charges run mode is %, not preserve_stored. Refusing so the production cron cannot undo this file.', coalesce(latest, 'none');
+  end if;
+end
+$cron$;
+
 
 create temporary table nayax_oct6_snapshot (
   order_id uuid not null,
@@ -82,6 +119,7 @@ declare
   rate_sum numeric;
   nayax_id uuid;
   bad integer;
+  missing integer;
 begin
   select count(*), coalesce(sum(client_rate), 0)
     into n, rate_sum
@@ -93,6 +131,15 @@ begin
   select id into nayax_id from public.clients where name = 'Nayax';
   if nayax_id is null or (select count(*) from public.clients where name = 'Nayax') <> 1 then
     raise exception 'Nayax client was not exactly one row';
+  end if;
+
+  select count(*) into missing
+  from nayax_oct6_snapshot snap
+  left join public.orders o on o.id = snap.order_id
+  left join public.shipments s on s.id = snap.shipment_id
+  where o.id is null or s.id is null;
+  if missing <> 0 then
+    raise exception 'snapshot rows missing from orders or shipments: %', missing;
   end if;
 
   select count(*) into bad
@@ -109,9 +156,7 @@ begin
      or s.client_rate is distinct from snap.client_rate
      or (s.raw_data->>'shipDate') is distinct from '2026-10-07'
      or s.ship_date is distinct from ('2026-10-07' || ' 00:00:00+00')::timestamptz
-     or coalesce(s.raw_data->>'voided', '') = 'true'
-     or s.raw_data->'voidDate' is not null
-     or s.raw_data->'voideDate' is not null
+     or (s.raw_data->>'voided') = 'true'
      or (select count(*) from public.shipments s2
           where s2.client_id = o.client_id and s2.order_number = o.order_number) <> 1
      or (select count(*) from public.orders o2
@@ -138,8 +183,8 @@ select
   1,
   snap.client_rate,
   snap.client_rate,
-  null,
-  null,
+  s.actual_cost,
+  case when s.actual_cost is null then null else 'measured' end,
   null,
   null,
   date '2026-10-07',
@@ -162,10 +207,14 @@ begin
   select count(*) into n
   from public.order_charges oc
   join nayax_oct6_snapshot snap on snap.order_id = oc.order_id
+  join public.shipments s on s.id = snap.shipment_id
   where oc.charge_type = 'shipping'
     and oc.charge_key = 'shipment:' || snap.shipstation_shipment_id::text
     and oc.amount = snap.client_rate
-    and oc.cost is null
+    and oc.unit_rate = snap.client_rate
+    and oc.cost is not distinct from s.actual_cost
+    and oc.rate_id is null
+    and oc.source = 'zone_client_rate'
     and oc.charge_date = date '2026-10-07';
   if n <> 23 then
     raise exception 'inserted % shipping rows, expected 23', n;

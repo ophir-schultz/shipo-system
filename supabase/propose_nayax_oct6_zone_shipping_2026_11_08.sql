@@ -48,8 +48,7 @@ checked as (
          (select count(*) from public.shipments s2
            where s2.client_id = o.client_id and s2.order_number = o.order_number) as n_ship,
          (select count(*) from public.order_charges oc where oc.order_id = o.id) as n_charges,
-         (s.raw_data->>'voided' = 'true' or s.raw_data->'voidDate' is not null
-           or s.raw_data->'voideDate' is not null) as voided
+         ((s.raw_data->>'voided') = 'true') as voided
   from snap
   join public.orders o on o.id = snap.order_id::uuid
   join nayax on nayax.id = o.client_id

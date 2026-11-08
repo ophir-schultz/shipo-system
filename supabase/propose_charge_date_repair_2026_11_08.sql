@@ -77,6 +77,39 @@ begin
 end
 $gate$;
 
+-- The production cron must already be keeping stored charge dates.
+-- preserve_stored is written on sync_runs.mode by that cron. A latest
+-- successful charges run in any other mode, including live, refuses
+-- this file: that cron would put an Eastern day back after a repair.
+-- A charges run that is still open also refuses. The advisory lock
+-- stops two of these files from committing together. It does not stop
+-- the application cron, which uses sync_runs; a cron that starts after
+-- this check and changes a row makes the after-check fail and the
+-- transaction roll back.
+do $cron$
+declare
+  latest text;
+  running integer;
+begin
+  perform pg_advisory_xact_lock(hashtext('shipo.order_charges'));
+  select count(*) into running
+  from public.sync_runs
+  where source = 'charges' and status = 'running' and client_id is null;
+  if running <> 0 then
+    raise exception 'a charges run is in progress (% rows). Nothing was changed.', running;
+  end if;
+  select mode into latest
+  from public.sync_runs
+  where source = 'charges' and status = 'ok' and client_id is null
+  order by finished_at desc nulls last
+  limit 1;
+  if latest is distinct from 'preserve_stored' then
+    raise exception 'latest successful charges run mode is %, not preserve_stored. Refusing so the production cron cannot undo this file.', coalesce(latest, 'none');
+  end if;
+end
+$cron$;
+
+
 create temporary table charge_date_repair_snapshot (
   id uuid primary key,
   old_charge_date date not null,

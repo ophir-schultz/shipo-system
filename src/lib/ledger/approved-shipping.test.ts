@@ -3,8 +3,10 @@ import { chargeKey } from '@/lib/ledger/charge-key'
 import type { BuiltCharge } from '@/lib/ledger/calculate-charges'
 import {
   APPROVED_ZONE_SOURCE,
+  preserveStoredCharges,
   retainApprovedShipping,
   type ApprovedManual,
+  type StoredChargeIdentity,
   type StoredShippingCharge,
 } from '@/lib/ledger/approved-shipping'
 
@@ -144,6 +146,66 @@ describe('manual full freight', () => {
     expect(shipping(result.charges)[0].amount).toBe(41)
     expect(result.flags.join('\n')).toMatch(/approved zone price/)
     expect(result.flags.join('\n')).toMatch(/manual freight line was not applied/)
+  })
+})
+
+describe('preserve stored dates and amounts', () => {
+  function stored(over: Partial<StoredChargeIdentity> = {}): StoredChargeIdentity {
+    return {
+      order_id: 'order-1',
+      client_id: 'client-1',
+      charge_key: 'shipment:900',
+      charge_type: 'shipping',
+      label: 'Shipping',
+      quantity: 1,
+      unit_rate: null,
+      amount: 14.78,
+      cost: 8.22,
+      cost_basis: 'measured',
+      rate_id: 'rate-ship',
+      cost_rate_id: null,
+      charge_date: '2026-10-08',
+      charge_date_source: 'ship_date',
+      source: 'calculator',
+      is_estimate: false,
+      ...over,
+    }
+  }
+
+  it('keeps a preexisting date and amount when the calculator would move them', () => {
+    const result = preserveStoredCharges([
+      built({ charge_date: '2026-10-09', amount: 10, cost: 10 }),
+    ], [stored()])
+    expect(shipping(result.charges)[0]).toMatchObject({
+      charge_date: '2026-10-08',
+      amount: 14.78,
+      cost: 8.22,
+      source: 'calculator',
+    })
+    expect(result.flags.join('\n')).toMatch(/Kept stored/)
+  })
+
+  it('keeps a repaired date on the next run instead of writing the old day back', () => {
+    const repaired = stored({ charge_date: '2026-10-09', amount: 14.78 })
+    const easternAgain = built({ charge_date: '2026-10-08', amount: 14.78 })
+    const result = preserveStoredCharges([easternAgain], [repaired])
+    expect(shipping(result.charges)[0].charge_date).toBe('2026-10-09')
+    expect(shipping(result.charges)[0].amount).toBe(14.78)
+    expect(result.flags.join('\n')).toMatch(/2026-10-09/)
+    expect(result.flags.join('\n')).toMatch(/2026-10-08/)
+  })
+
+  it('lets a new shipment take the carrier day and does not add the October 6 set', () => {
+    const result = preserveStoredCharges([
+      built({ charge_key: 'shipment:new', charge_date: '2026-11-08', amount: 12 }),
+    ], [stored()])
+    const rows = shipping(result.charges)
+    expect(rows.map((row) => row.charge_key).sort()).toEqual(['shipment:900', 'shipment:new'])
+    expect(rows.find((row) => row.charge_key === 'shipment:new')).toMatchObject({
+      charge_date: '2026-11-08',
+      amount: 12,
+    })
+    expect(rows.find((row) => row.charge_key === 'shipment:900')?.amount).toBe(14.78)
   })
 })
 

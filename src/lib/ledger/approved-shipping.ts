@@ -1,5 +1,6 @@
 import { shipmentIdFromChargeKey } from '@/lib/billing/statement-detail'
 import type { BuiltCharge } from '@/lib/ledger/calculate-charges'
+import type { ChargeType } from '@/lib/ledger/charge-key'
 
 // An approved zone price is a shipping charge whose source is
 // zone_client_rate. The amount and the unit rate are the client rate
@@ -15,6 +16,28 @@ import type { BuiltCharge } from '@/lib/ledger/calculate-charges'
 // the stored approved price stays.
 
 export const APPROVED_ZONE_SOURCE = 'zone_client_rate'
+
+/** Recorded on sync_runs.mode. The date-repair apply refuses any other mode. */
+export const PRESERVE_STORED_MODE = 'preserve_stored'
+
+export interface StoredChargeIdentity {
+  order_id: string
+  client_id: string | null
+  charge_key: string
+  charge_type: ChargeType
+  label: string
+  quantity: number | null
+  unit_rate: number | null
+  amount: number | null
+  cost: number | null
+  cost_basis: string | null
+  rate_id: string | null
+  cost_rate_id: string | null
+  charge_date: string
+  charge_date_source: string
+  source: string
+  is_estimate: boolean
+}
 
 export interface StoredShippingCharge {
   order_id: string
@@ -187,5 +210,67 @@ export function retainApprovedShipping(
     )
   }
 
+  return { charges: out, flags }
+}
+
+function fromStored(row: StoredChargeIdentity): BuiltCharge {
+  return {
+    order_id: row.order_id,
+    client_id: row.client_id,
+    charge_key: row.charge_key,
+    charge_type: row.charge_type,
+    label: row.label,
+    quantity: row.quantity,
+    unit_rate: row.unit_rate,
+    amount: row.amount,
+    cost: row.cost,
+    cost_basis: row.cost_basis,
+    rate_id: row.rate_id,
+    cost_rate_id: row.cost_rate_id,
+    charge_date: row.charge_date,
+    charge_date_source: row.charge_date_source,
+    source: row.source,
+    is_estimate: row.is_estimate,
+  }
+}
+
+/**
+ * Keep the stored date and amount on a charge that already exists.
+ *
+ * A new row keeps the calculator's date, including a carrier day. A row
+ * that is already stored keeps that stored date and amount, so a deploy
+ * does not rewrite history, and a later approved date repair stays where
+ * it was written. A cancelled order is left to the existing empty build.
+ */
+export function preserveStoredCharges(
+  built: readonly BuiltCharge[],
+  stored: readonly StoredChargeIdentity[],
+  options?: { cancelled?: boolean },
+): { charges: BuiltCharge[]; flags: string[] } {
+  if (options?.cancelled) return { charges: [...built], flags: [] }
+  const flags: string[] = []
+  const byKey = new Map(stored.map((row) => [row.charge_key, row]))
+  const seen = new Set<string>()
+  const out: BuiltCharge[] = []
+  for (const charge of built) {
+    const prev = byKey.get(charge.charge_key)
+    if (!prev) {
+      out.push(charge)
+      continue
+    }
+    seen.add(charge.charge_key)
+    out.push(fromStored(prev))
+    if (charge.charge_date !== prev.charge_date || !sameMoney(charge.amount, prev.amount)) {
+      flags.push(
+        `Kept stored ${charge.charge_key} on ${prev.charge_date} at ${shown(prev.amount)}. `
+        + `The calculator would have written ${charge.charge_date} at ${shown(charge.amount)}.`,
+      )
+    }
+  }
+  for (const prev of byKey.values()) {
+    if (seen.has(prev.charge_key)) continue
+    out.push(fromStored(prev))
+    flags.push(`Kept stored ${prev.charge_key}. The calculator did not rebuild it.`)
+  }
   return { charges: out, flags }
 }

@@ -722,6 +722,41 @@ describe('recalculateCharges — an approved zone price', () => {
       charge_date: '2026-10-07',
       cost: null,
     })
+    const run = (h.db.tables.sync_runs as FakeRow[]).find((row) => row.source === 'charges' && row.status === 'ok')
+    expect(run?.mode).toBe('preserve_stored')
+  })
+
+  it('does not move a preexisting calculator date or amount', async () => {
+    h.db.tables.order_charges = [{
+      id: 'old-ship',
+      order_id: 'order-a',
+      client_id: 'client-1',
+      charge_key: 'shipment:900',
+      charge_type: 'shipping',
+      label: 'Shipping',
+      quantity: 1,
+      unit_rate: null,
+      amount: 14.78,
+      cost: 8.22,
+      cost_basis: 'measured',
+      rate_id: 'rate-ship',
+      cost_rate_id: null,
+      charge_date: '2026-10-08',
+      charge_date_source: 'ship_date',
+      source: 'calculator',
+      is_estimate: false,
+      calculated_at: '2020-01-01T00:00:00.000Z',
+    }]
+
+    await recalculateCharges(async () => [zonedOrder()])
+
+    expect(shippingRows()).toHaveLength(1)
+    expect(shippingRows()[0]).toMatchObject({
+      charge_date: '2026-10-08',
+      amount: 14.78,
+      cost: 8.22,
+      source: 'calculator',
+    })
   })
 
   it('does not add a second charge and does not reprice the billed at-cost row', async () => {
@@ -750,7 +785,8 @@ describe('recalculateCharges — an approved zone price', () => {
     h.db.tables.order_charges = [{ ...zoneRow }]
     h.db.failOn = (call) =>
       call.table === 'order_charges' && call.verb === 'select'
-      && call.filters.some((filter) => filter.column === 'source')
+      && call.filters.some((filter) => filter.column === 'order_id' && filter.op === 'in')
+      && !call.filters.some((filter) => filter.column === 'calculated_at')
         ? { message: 'connection reset' }
         : null
 

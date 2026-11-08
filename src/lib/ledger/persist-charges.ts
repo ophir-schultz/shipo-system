@@ -6,10 +6,14 @@ import { buildCharges, type BuiltCharge, type ChargeInput } from '@/lib/ledger/c
 import { FREIGHT_SERVICE, freightColumnMissing, linkedFreightPrice } from '@/lib/billing/manual-freight'
 import {
   APPROVED_ZONE_SOURCE,
+  PRESERVE_STORED_MODE,
+  preserveStoredCharges,
   retainApprovedShipping,
   type ApprovedManual,
+  type StoredChargeIdentity,
   type StoredShippingCharge,
 } from '@/lib/ledger/approved-shipping'
+import { CHARGE_TYPES, type ChargeType } from '@/lib/ledger/charge-key'
 
 /**
  * How recently a charge run must have SUCCEEDED for this one to be skipped.
@@ -62,17 +66,19 @@ function moneyOrNull(value: unknown): number | null {
   return Math.round(Number((n * 100).toPrecision(12))) / 100 + 0
 }
 
-function storedShipping(row: Record<string, unknown>): StoredShippingCharge | null {
-  if (row.source !== APPROVED_ZONE_SOURCE || row.charge_type !== 'shipping') return null
+function storedCharge(row: Record<string, unknown>): StoredChargeIdentity | null {
   if (typeof row.order_id !== 'string' || typeof row.charge_key !== 'string') return null
+  if (typeof row.charge_type !== 'string' || !(CHARGE_TYPES as readonly string[]).includes(row.charge_type)) {
+    return null
+  }
   const chargeDate = typeof row.charge_date === 'string' ? row.charge_date.slice(0, 10) : ''
   if (!chargeDate) return null
   return {
     order_id: row.order_id,
     client_id: typeof row.client_id === 'string' ? row.client_id : null,
     charge_key: row.charge_key,
-    charge_type: 'shipping',
-    label: typeof row.label === 'string' ? row.label : 'Shipping',
+    charge_type: row.charge_type as ChargeType,
+    label: typeof row.label === 'string' ? row.label : row.charge_type,
     quantity: moneyOrNull(row.quantity),
     unit_rate: moneyOrNull(row.unit_rate),
     amount: moneyOrNull(row.amount),
@@ -82,28 +88,26 @@ function storedShipping(row: Record<string, unknown>): StoredShippingCharge | nu
     cost_rate_id: typeof row.cost_rate_id === 'string' ? row.cost_rate_id : null,
     charge_date: chargeDate,
     charge_date_source: typeof row.charge_date_source === 'string' ? row.charge_date_source : 'ship_date',
-    source: APPROVED_ZONE_SOURCE,
+    source: typeof row.source === 'string' ? row.source : 'calculator',
     is_estimate: row.is_estimate === true,
   }
 }
 
-async function loadApprovedZoneCharges(
+async function loadStoredCharges(
   orderIds: readonly string[],
-): Promise<{ byOrder: Map<string, StoredShippingCharge[]>; error: string | null }> {
-  const byOrder = new Map<string, StoredShippingCharge[]>()
+): Promise<{ byOrder: Map<string, StoredChargeIdentity[]>; error: string | null }> {
+  const byOrder = new Map<string, StoredChargeIdentity[]>()
   for (let i = 0; i < orderIds.length; i += PROVENANCE_CHUNK) {
     const ids = orderIds.slice(i, i + PROVENANCE_CHUNK)
     const loaded = await readAllPages<Record<string, unknown>>((from, to) => supabaseAdmin
       .from('order_charges')
       .select('order_id, client_id, charge_key, charge_type, label, quantity, unit_rate, amount, cost, cost_basis, rate_id, cost_rate_id, charge_date, charge_date_source, source, is_estimate')
       .in('order_id', ids)
-      .eq('charge_type', 'shipping')
-      .eq('source', APPROVED_ZONE_SOURCE)
       .order('id')
       .range(from, to))
     if (loaded.error) return { byOrder, error: loaded.error.message }
     for (const row of loaded.data ?? []) {
-      const stored = storedShipping(row)
+      const stored = storedCharge(row)
       if (!stored) continue
       const list = byOrder.get(stored.order_id) ?? []
       list.push(stored)
@@ -111,6 +115,11 @@ async function loadApprovedZoneCharges(
     }
   }
   return { byOrder, error: null }
+}
+
+function zoneRows(rows: readonly StoredChargeIdentity[]): StoredShippingCharge[] {
+  return rows.filter((row): row is StoredShippingCharge =>
+    row.source === APPROVED_ZONE_SOURCE && row.charge_type === 'shipping')
 }
 
 async function loadManualFreight(): Promise<{ manuals: ApprovedManual[]; warning: string | null }> {
@@ -312,7 +321,7 @@ export async function recalculateCharges(
   // a concurrent run's fresh charges, which is not recoverable from the app.
   let run: Awaited<ReturnType<typeof openSyncRun>>
   try {
-    run = await openSyncRun({ source: 'charges', mode: 'live' })
+    run = await openSyncRun({ source: 'charges', mode: PRESERVE_STORED_MODE })
   } catch (err) {
     // Losing the race is NOT a failure, and it must not be reported as one.
     // canStart() above is advisory: it reads the open runs, decides, and only
@@ -377,8 +386,8 @@ export async function recalculateCharges(
 
     const inputs = await loadOrders((ctx, detail) => run.warn(ctx, detail))
     const provenance = inputs.length === 0
-      ? { byOrder: new Map<string, StoredShippingCharge[]>(), error: null as string | null }
-      : await loadApprovedZoneCharges(inputs.map((input) => input.order.id))
+      ? { byOrder: new Map<string, StoredChargeIdentity[]>(), error: null as string | null }
+      : await loadStoredCharges(inputs.map((input) => input.order.id))
     if (provenance.error) {
       run.fail('approved shipping unreadable', new Error(
         `Could not read approved zone shipping charges (${provenance.error}). `
@@ -421,14 +430,18 @@ export async function recalculateCharges(
         continue
       }
 
+      const stored = provenance.byOrder.get(input.order.id) ?? []
       const retained = retainApprovedShipping(
         charges,
-        provenance.byOrder.get(input.order.id) ?? [],
+        zoneRows(stored),
         freight.manuals,
         { cancelled: input.order.cancelled },
       )
-      for (const flag of retained.flags) run.warn('approved shipping', flag)
-      charges = retained.charges
+      const preserved = preserveStoredCharges(retained.charges, stored, {
+        cancelled: input.order.cancelled,
+      })
+      for (const flag of [...retained.flags, ...preserved.flags]) run.warn('approved shipping', flag)
+      charges = preserved.charges
 
       builtOk.push(input.order.id)
 
