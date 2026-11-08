@@ -6,6 +6,7 @@ import { parseScan, duplicatesWithin } from '@/lib/scan/parse'
 // lib/ because vitest excludes `.test.tsx`. See client-list.ts for why an
 // empty dropdown on this screen is worse than an error on it.
 import { readClientList, type Client } from '@/lib/clients/client-list'
+import { serializationClientAllowed } from '@/lib/scan/nayax-scope'
 import { scanCoverage, type CustomerOrderLine } from '@/lib/scan/order-lines'
 
 // ============================================================
@@ -73,7 +74,7 @@ export default function ScanPage() {
           setLoadError(list.error)
           return
         }
-        setClients(list.data)
+        setClients(list.data.filter((client) => serializationClientAllowed(client.name)))
         setLoaded(true)
       })
       // A network failure is a failure, not a client list with nobody on it.
@@ -250,7 +251,7 @@ export default function ScanPage() {
         </p>
         <p className="text-sm mt-2">
           <a href="/serials" className="text-[#1A73E8]">Serial history</a>
-          <span className="text-[#6B7A8D]"> keeps every scanned serial. A pick is sent on the customer order once that order is fully scanned. Nayax receives the serials from Zenventory through its existing API connection.</span>
+          <span className="text-[#6B7A8D]"> keeps every scanned serial. Serialization scan and pick are Nayax only. A pick is sent on the customer order once that order is fully scanned. Nayax receives the serials from Zenventory through its existing API connection.</span>
         </p>
         <p className={`mt-3 rounded-lg border px-3 py-2 text-xs ${claimReady ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
           {claimNote}
@@ -272,18 +273,20 @@ export default function ScanPage() {
               onChange={(e) => setClientId(e.target.value)}
               className={field}
             >
-              {/* Three states, not one. "Select a client…" over a list that
+              {/* Three states, not one. "Select Nayax…" over a list that
                   has not arrived yet tells the operator to pick from nothing,
                   and over a SUCCESSFUL read that returned nobody it tells
-                  them to keep waiting for a list that is never coming. A read
-                  FAILURE does not reach here at all -- loadError returns
-                  above, in place of the whole station. */}
+                  them to keep waiting for a list that is never coming. The
+                  empty choice must not say "Nayax": that is also the real
+                  option, and Load order lines stays off until a client id
+                  is chosen. A read FAILURE does not reach here at all --
+                  loadError returns above, in place of the whole station. */}
               <option value="">
                 {!loaded
                   ? 'Loading clients…'
                   : clients.length === 0
-                    ? 'No active clients'
-                    : 'Select a client…'}
+                    ? 'Nayax is not available'
+                    : 'Select Nayax…'}
               </option>
               {clients.map((c) => (
                 <option key={c.id} value={c.id}>

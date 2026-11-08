@@ -5,6 +5,7 @@ import { requireStaff } from '@/lib/require-staff'
 import { duplicatesWithin } from '@/lib/scan/parse'
 import { getCustomerOrders } from '@/lib/api/zenventory'
 import { readZenventoryClientCredentials } from '@/lib/zenventory/client-env'
+import { NAYAX_SCAN_ONLY, serializationClientAllowed } from '@/lib/scan/nayax-scope'
 import { queueDecision, readCustomerOrder } from '@/lib/scan/order-lines'
 import { readAllPages } from '@/lib/db/page'
 import {
@@ -71,6 +72,22 @@ export async function POST(req: Request) {
     .filter(Boolean)
 
   if (!serials.length) return bad('No serials in that scan.')
+
+  const { data: client, error: clientError } = await supabaseAdmin
+    .from('clients')
+    .select('name')
+    .eq('id', body.client_id)
+    .maybeSingle()
+  if (clientError) {
+    return NextResponse.json(
+      { error: `Could not read the client: ${clientError.message}` },
+      { status: 503 },
+    )
+  }
+  if (!client) return NextResponse.json({ error: 'No client has that id.' }, { status: 404 })
+  if (!serializationClientAllowed(client.name)) {
+    return NextResponse.json({ error: NAYAX_SCAN_ONLY }, { status: 403 })
+  }
 
   // The database rejects this too, but catching it here lets us name
   // the offending values instead of returning a constraint violation.

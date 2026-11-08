@@ -5,6 +5,7 @@ import { getLegacyCustomerOrder, getScanCustomerOrder } from '@/lib/api/zenvento
 import { readOrderReadCredentials, zenventoryEnvNames } from '@/lib/zenventory/client-env'
 import { loadScanOrder } from '@/lib/scan/load-order'
 import { readCustomerOrder } from '@/lib/scan/order-lines'
+import { NAYAX_SCAN_ONLY, serializationClientAllowed } from '@/lib/scan/nayax-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,6 +48,14 @@ export async function GET(req: Request) {
       secureConfigured: false,
       reason: 'No client has that id.',
     }, { status: 404 })
+  }
+  if (!serializationClientAllowed(client.name)) {
+    return NextResponse.json({
+      loaded: false,
+      lines: null,
+      secureConfigured: false,
+      reason: NAYAX_SCAN_ONLY,
+    }, { status: 403 })
   }
 
   const creds = readOrderReadCredentials(client.name ?? '')

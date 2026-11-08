@@ -14,6 +14,7 @@ import { createSupabasePushStore } from '@/lib/scan/push-store'
 import { runPush, type RunnableJob } from '@/lib/scan/run-push'
 import { createZenventoryTransport } from '@/lib/scan/zenventory-transport'
 import type { PushSerialRef } from '@/lib/scan/zenventory-pick'
+import { NAYAX_SCAN_ONLY, queuedOutsideNayax } from '@/lib/scan/nayax-scope'
 
 export const dynamic = 'force-dynamic'
 
@@ -177,6 +178,27 @@ export async function POST() {
   const loaded = await loadPlans()
   if (loaded.error) {
     return NextResponse.json({ enabled: true, mode, wrote: false, error: loaded.error }, { status: 500 })
+  }
+  const open = loaded.plans.filter((job) => job.status !== 'done')
+  if (open.length > 0) {
+    const ids = [...new Set(open.map((job) => job.clientId))]
+    const { data: clients, error: clientError } = await supabaseAdmin
+      .from('clients')
+      .select('id, name')
+      .in('id', ids)
+    if (clientError) {
+      return NextResponse.json({ enabled: true, mode, wrote: false, error: clientError.message }, { status: 503 })
+    }
+    const names = new Map((clients ?? []).map((row) => [row.id as string, (row.name as string | null) ?? null]))
+    if (queuedOutsideNayax(open, names).length > 0) {
+      return NextResponse.json({
+        enabled: true,
+        mode,
+        wrote: false,
+        jobs: [],
+        error: NAYAX_SCAN_ONLY,
+      }, { status: 403 })
+    }
   }
   if (mode === 'dry-run') return NextResponse.json(describe(loaded.plans, mode))
 
