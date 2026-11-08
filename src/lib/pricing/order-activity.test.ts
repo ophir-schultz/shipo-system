@@ -123,8 +123,8 @@ describe('order activity rows', () => {
       to: '2026-11-30',
       list,
       orders: [
-        { id: 'o105', orderNumber: 'SO-105', lines: [{ sku: 'C-9', qty: 105, scannable: true }] },
-        { id: 'oR', orderNumber: 'SO-R', lines: [{ sku: 'R-9', qty: 105, scannable: null }] },
+        { id: 'o105', orderNumber: 'SO-105', lines: [{ sku: 'C-9', qty: 400, picked: 105, scannable: true, pickDate: '2026-11-04' }] },
+        { id: 'oR', orderNumber: 'SO-R', lines: [{ sku: 'R-9', qty: 105, picked: 105, scannable: null, pickDate: '2026-11-04' }] },
       ],
       parcels: [
         {
@@ -163,10 +163,57 @@ describe('order activity rows', () => {
     const priced = activity.rows.find((row) => row.orderNumber === 'SO-105')
     const unknown = activity.rows.find((row) => row.orderNumber === 'SO-R')
     expect(priced?.pickPrice).toBe('9.10')
+    expect(priced?.qty).toBe('105')
     expect(priced?.total).toBe('10.10')
     expect(unknown?.pickPrice).toBe('')
     expect(unknown?.total).toBe('')
-    expect(activity.coverage.pickKnown).toBe(9.1)
+    expect(activity.coverage.pickKnown).toBeNull()
+  })
+
+  it('keeps an undated pick off the row and does not price ordered units', () => {
+    const activity = buildOrderActivity({
+      clientId: 'nayax',
+      from: '2026-11-01',
+      to: '2026-11-30',
+      list,
+      orders: [
+        { id: 'dated', orderNumber: 'SO-DATED', lines: [{ sku: 'C-9', qty: 400, picked: 105, scannable: true, pickDate: '2026-11-04' }] },
+        { id: 'open', orderNumber: 'SO-OPEN', lines: [{ sku: 'C-9', qty: 400, picked: 105, scannable: true, pickDate: null }] },
+        { id: 'idle', orderNumber: 'SO-IDLE', lines: [{ sku: 'C-9', qty: 400, picked: 0, scannable: true, pickDate: null }] },
+      ],
+      parcels: ['SO-DATED', 'SO-OPEN', 'SO-IDLE'].map((orderNumber) => ({
+        id: orderNumber,
+        orderNumber,
+        shipDate: '2026-11-04',
+        recipientName: 'A',
+        trackingNumber: orderNumber,
+        zone: '2',
+        zipcode: '10001',
+        weight: '1',
+        volumeWeight: '',
+        storedRate: 1,
+        shipmentKey: `shipment:${orderNumber}`,
+      })),
+      charges: ['SO-DATED', 'SO-OPEN', 'SO-IDLE'].map((orderNumber) => ({
+        chargeKey: `shipment:${orderNumber}`,
+        amount: 1,
+        unitRate: 1,
+      })),
+      serials: [],
+    })
+    const dated = activity.rows.find((row) => row.orderNumber === 'SO-DATED')
+    const open = activity.rows.find((row) => row.orderNumber === 'SO-OPEN')
+    const idle = activity.rows.find((row) => row.orderNumber === 'SO-IDLE')
+    expect(dated?.pickPrice).toBe('9.10')
+    expect(dated?.qty).toBe('105')
+    expect(open?.pickPrice).toBe('')
+    expect(open?.qty).toBe('105')
+    expect(idle?.pickPrice).toBe('0.00')
+    expect(idle?.qty).toBe('0')
+    expect(activity.coverage.pickDateUnknown).toEqual(['SO-OPEN'])
+    expect(activity.coverage.nothingPicked).toEqual(['SO-IDLE'])
+    expect(activity.coverage.picks.find((pick) => pick.orderNumber === 'SO-OPEN')?.amount).toBe(9.1)
+    expect(activity.coverage.pickKnown).toBeNull()
   })
 
   it('does not treat a ledger amount with no stored rate as the client price', () => {

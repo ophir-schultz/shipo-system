@@ -10,11 +10,42 @@ function page(n: number, total: number, count: number, items: CatalogPage['items
 
 describe('item list scan flags', () => {
   it('does not request the item list when no API pair is configured', async () => {
-    const loaded = await loadScanCatalog('Nayax', {})
+    let called = 0
+    const loaded = await loadScanCatalog('Nayax', {
+      env: {},
+      stored: null,
+      readPage: async () => {
+        called += 1
+        return {}
+      },
+    })
+    expect(called).toBe(0)
     expect(loaded.ok).toBe(false)
     expect(loaded.bySku.size).toBe(0)
     expect(loaded.note).toContain('ZEN_NAYAX_KEY')
     expect(loaded.note).toContain('prefix was not used')
+  })
+
+  it('uses the stored client pair when the env pair is absent and does not print it', async () => {
+    let called = 0
+    const loaded = await loadScanCatalog('Nayax', {
+      env: {},
+      stored: { apiKey: 'stored-key', apiSecret: 'stored-secret' },
+      readPage: async () => {
+        called += 1
+        return {
+          items: [{ sku: 'C-9', serialized: true }],
+          meta: { page: 1, totalPages: 1, count: 1 },
+        }
+      },
+    })
+    expect(called).toBe(1)
+    expect(loaded.ok).toBe(true)
+    expect(loaded.bySku.get('C-9')).toBe(true)
+    expect(loaded.note).toContain('clients.zenventory_api_key')
+    expect(loaded.note).toContain('not the flag on the ship day')
+    expect(loaded.note).not.toContain('stored-secret')
+    expect(loaded.note).not.toContain('stored-key')
   })
 
   it('reads a boolean serialized flag and refuses a page without a count', () => {

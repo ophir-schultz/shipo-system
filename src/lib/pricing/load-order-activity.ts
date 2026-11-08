@@ -85,12 +85,12 @@ export async function loadOrderActivity(
   if (failed) return { activity: null, error: failed.message }
 
   const orderRows = ordersRes.data ?? []
-  const items: { order_id: string | null; sku: string | null; quantity_ordered: unknown; quantity_picked: unknown }[] = []
+  const items: { order_id: string | null; sku: string | null; quantity_ordered: unknown; quantity_picked: unknown; pick_date: string | null }[] = []
   for (let i = 0; i < orderRows.length; i += CHUNK) {
     const ids = orderRows.slice(i, i + CHUNK).map((order) => order.id)
     const page = await readAllPages<typeof items[number]>((start, end) => supabaseAdmin
       .from('order_items')
-      .select('order_id, sku, quantity_ordered, quantity_picked')
+      .select('order_id, sku, quantity_ordered, quantity_picked, pick_date')
       .in('order_id', ids)
       .order('id')
       .range(start, end))
@@ -103,10 +103,18 @@ export async function loadOrderActivity(
     if (!item.order_id) continue
     const picked = priceOf(item.quantity_picked)
     const ordered = priceOf(item.quantity_ordered)
-    const qty = picked != null && picked > 0 ? picked : ordered
-    if (qty == null || qty <= 0) continue
+    if (picked == null && (ordered == null || ordered <= 0)) continue
+    const pickDate = typeof item.pick_date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(item.pick_date)
+      ? item.pick_date.slice(0, 10)
+      : null
     const list = linesByOrder.get(item.order_id) ?? []
-    list.push({ sku: item.sku ?? '', qty, scannable: null })
+    list.push({
+      sku: item.sku ?? '',
+      qty: picked != null && picked > 0 ? picked : 0,
+      picked,
+      pickDate,
+      scannable: null,
+    })
     linesByOrder.set(item.order_id, list)
   }
 
@@ -152,7 +160,7 @@ export async function loadOrderActivity(
   const list = await priceListFor(clientId, clientName)
   let scanNote = ''
   if (list?.devicePick && list.accessoryPick && !list.orderPick) {
-    const scan = await loadScanCatalog(clientName)
+    const scan = await loadScanCatalog(clientName, { clientId })
     scanNote = scan.note
     if (scan.ok) {
       for (const order of orders) assignScanFlags(order.lines, scan.bySku)

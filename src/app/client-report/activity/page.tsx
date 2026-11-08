@@ -52,9 +52,12 @@ export default async function OrderActivityPage({
           105 scannable units are $9.10, which is 5 × $1.50 + 5 × $0.32.
           400 accessories are $80. 100 accessories are $20. A line with no scan requirement is unknown.
           Stored orders do not keep that flag, and a customer-order line does not carry it.
-          This current-derived preview reads Item.serialized from the Zenventory item list when that list is complete.
-          A missing, conflicting, or unread SKU stays unknown. An R or D prefix is not used, and a count of serials is not used.
-          The prefix total is not a verified client price. This preview is not a production bill.
+          This current-derived preview reads Item.serialized from the current Zenventory item list when that list is complete.
+          That list is not the flag on the ship day. A missing, conflicting, or unread SKU stays unknown.
+          An R or D prefix is not used, and a count of serials is not used.
+          Quantity is units picked. Ordered quantity is not substituted. Nothing picked is 0.
+          A missing picked quantity stays blank. A missing pick date stays off the row amount.
+          A pick date outside this range stays off the row amount. This preview is not a production bill.
           A full box in this rule is 20 scannable units. It is not the physical box material fee.
           Shipping is shown only when one parcel has one client price. A stored rate that
           disagrees with the ledger charge is left blank.
@@ -96,7 +99,7 @@ export default async function OrderActivityPage({
         <>
           <div className="rounded-xl border border-[#CBD5E1] bg-white p-5 text-sm text-[#0B1220]">
             <p>{activity.coverage.datedOrders} orders in {from} to {to}. The date is the ship day in America/New_York.</p>
-            <p className="mt-1">Pick on the dated rows: {activity.coverage.pickKnown == null ? 'unknown' : `$${activity.coverage.pickKnown.toFixed(2)}`}. Orders the price list did not price: {activity.coverage.pickUnknownOrders}. A full carton is the carton rate. Leftover device units are the remainder rate. Other units are the accessory rate.</p>
+            <p className="mt-1">Pick included on these rows: {activity.coverage.pickKnown == null ? 'unknown' : `$${activity.coverage.pickKnown.toFixed(2)}`}. Orders left off that sum: {activity.coverage.pickUnknownOrders}. The amount below is the current item list on picked units. It is included only when the pick date is inside this range. It is not amount due, and it is not a ship-day price.</p>
             {activity.coverage.picks.length > 0 && (
               <div className="mt-3 max-h-80 overflow-auto">
                 <table className="w-full text-xs">
@@ -108,7 +111,8 @@ export default async function OrderActivityPage({
                       <th className="py-1 pr-2 text-right">Remainder</th>
                       <th className="py-1 pr-2 text-right">Other units</th>
                       <th className="py-1 pr-2">Rate</th>
-                      <th className="py-1 text-right">Charge</th>
+                      <th className="py-1 pr-2">Pick date status</th>
+                      <th className="py-1 text-right">Current list</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -120,6 +124,7 @@ export default async function OrderActivityPage({
                         <td className="py-1 pr-2 text-right">{pick.remainder}</td>
                         <td className="py-1 pr-2 text-right">{pick.accessoryUnits}</td>
                         <td className="py-1 pr-2">{pick.rateLabel || 'Unknown'}</td>
+                        <td className="py-1 pr-2">{pick.status}</td>
                         <td className="py-1 text-right">{pick.amount == null ? 'Unknown' : `$${pick.amount.toFixed(2)}`}</td>
                       </tr>
                     ))}
@@ -131,6 +136,9 @@ export default async function OrderActivityPage({
             <p className="mt-1">Parcels in the period with no matching order, not given a row: {activity.coverage.unmatchedParcels.length === 0 ? 'none' : activity.coverage.unmatchedParcels.join(', ')}.</p>
             <p className="mt-1">Shipping left blank because the stored rate and the ledger charge disagree: {activity.coverage.shippingConflicts.length === 0 ? 'none' : activity.coverage.shippingConflicts.join(', ')}.</p>
             <p className="mt-1">Shipping left blank because the order has more than one parcel: {activity.coverage.shippingAmbiguous.length === 0 ? 'none' : activity.coverage.shippingAmbiguous.join(', ')}.</p>
+            <p className="mt-1">Nothing picked: {activity.coverage.nothingPicked.length === 0 ? 'none' : activity.coverage.nothingPicked.join(', ')}.</p>
+            <p className="mt-1">Pick date unknown, kept out of the row amount: {activity.coverage.pickDateUnknown.length === 0 ? 'none' : activity.coverage.pickDateUnknown.join(', ')}.</p>
+            <p className="mt-1">Pick date outside this range, kept out of the row amount: {activity.coverage.pickOutsidePeriod.length === 0 ? 'none' : activity.coverage.pickOutsidePeriod.join(', ')}.</p>
             {activity.coverage.scanNote !== '' && <p className="mt-2">{activity.coverage.scanNote}</p>}
             {activity.coverage.peakNote !== '' && <p className="mt-2">{activity.coverage.peakNote}</p>}
             <p className="mt-2">The pick follows the stored price list. A different written schedule is not applied. Matching this list is not approval of another schedule.</p>

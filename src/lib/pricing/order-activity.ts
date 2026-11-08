@@ -15,6 +15,7 @@ import { priceOf } from '@/lib/billing/unpriced'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
 import { rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
 import { money, peakOmissionNote, priceClassifiedPick } from '@/lib/pricing/engine'
+import { assessPickWork, type PickWorkStatus } from '@/lib/pricing/pick-work'
 import type { ClientReportRow } from '@/lib/pricing/client-report'
 import type { PriceListDocument } from '@/lib/pricing/types'
 
@@ -23,6 +24,10 @@ export interface ActivityLine {
   qty: number
   /** True when the SKU must be scanned. Null when the stored line does not say. */
   scannable: boolean | null
+  /** Units picked. Undefined uses `qty`. Null means the picked count was not recorded. */
+  picked?: number | null
+  /** Pick day. Undefined or null means the day is not stored. */
+  pickDate?: string | null
 }
 
 export interface ActivityOrder {
@@ -75,7 +80,11 @@ export interface ActivityOrderPick {
   accessoryUnits: number
   /** Cartons times the carton rate, leftover times the remainder rate, other units times their rate. */
   rateLabel: string
+  /** Current item-list reading on picked units. Not a period charge by itself. */
   amount: number | null
+  /** Amount placed on the client row. Null is not zero. */
+  billedAmount: number | null
+  status: string
 }
 
 export interface ActivityCoverage {
@@ -90,6 +99,9 @@ export interface ActivityCoverage {
   peakNote: string
   /** How the scan requirement was read. Empty when this price list does not use it. */
   scanNote: string
+  nothingPicked: string[]
+  pickDateUnknown: string[]
+  pickOutsidePeriod: string[]
 }
 
 export interface OrderActivity {
@@ -198,9 +210,20 @@ export function buildOrderActivity(input: {
   const unmatchedParcels: string[] = []
   const rows: ClientReportRow[] = []
   const picks: ActivityOrderPick[] = []
+  const nothingPicked: string[] = []
+  const pickDateUnknown: string[] = []
+  const pickOutsidePeriod: string[] = []
   let pickCents = 0
   let pickKnown = 0
   let pickUnknownOrders = 0
+  const pickStatus: Record<PickWorkStatus, string> = {
+    'nothing-picked': 'nothing picked',
+    'qty-unknown': 'picked quantity unknown',
+    unclassified: 'classification unknown',
+    'date-unknown': 'pick date unknown',
+    outside: 'outside this period',
+    priced: 'included',
+  }
 
   for (const parcel of input.parcels) {
     if (isVoidedShipment(parcel.raw)) continue
@@ -222,19 +245,24 @@ export function buildOrderActivity(input: {
     }
     if (date < input.from || date > input.to) continue
 
-    const parts = orderPickParts(input.list, order.lines.map((line) => ({
+    const worked = order.lines.map((line) => ({
       sku: line.sku,
-      qty: line.qty,
+      picked: line.picked !== undefined ? line.picked : line.qty,
       scannable: line.scannable ?? null,
-    })))
+      pickDate: line.pickDate ?? null,
+    }))
+    const parts = assessPickWork(worked, input.list, { from: input.from, to: input.to })
     const deviceRate = input.list?.devicePick
     const otherRate = input.list?.accessoryPick
-    const rateLabel = parts.amount == null
-      ? 'classification unknown'
+    const rateLabel = parts.catalogAmount == null
+      ? pickStatus[parts.status]
       : deviceRate
         ? `${parts.cartons} × ${deviceRate.cartonRate.toFixed(2)} + ${parts.remainder} × ${deviceRate.remainderRate.toFixed(2)}`
           + (otherRate ? ` + ${parts.accessoryUnits} × ${otherRate.unitRate.toFixed(2)}` : '')
         : ''
+    if (parts.status === 'nothing-picked') nothingPicked.push(number)
+    if (parts.status === 'date-unknown') pickDateUnknown.push(number)
+    if (parts.status === 'outside') pickOutsidePeriod.push(number)
     picks.push({
       orderNumber: number,
       deviceUnits: parts.deviceUnits,
@@ -242,12 +270,14 @@ export function buildOrderActivity(input: {
       remainder: parts.remainder,
       accessoryUnits: parts.accessoryUnits,
       rateLabel,
-      amount: parts.amount,
+      amount: parts.catalogAmount,
+      billedAmount: parts.billedAmount,
+      status: pickStatus[parts.status],
     })
-    if (parts.amount == null) pickUnknownOrders += 1
+    if (parts.billedAmount == null) pickUnknownOrders += 1
     else {
       pickKnown += 1
-      pickCents += Math.round(parts.amount * 100)
+      pickCents += Math.round(parts.billedAmount * 100)
     }
 
     let shipping: number | null = null
@@ -265,10 +295,10 @@ export function buildOrderActivity(input: {
       .filter((serial) => serial.orderNumber.trim() === number)
       .map((serial) => serial.serial)
     const parcel = parcels.length === 1 ? parcels[0] : null
-    const pickText = parts.amount == null ? '' : parts.amount.toFixed(2)
+    const pickText = parts.billedAmount == null ? '' : parts.billedAmount.toFixed(2)
     const shipText = shipping == null ? '' : shipping.toFixed(2)
-    const total = parts.amount != null && shipping != null
-      ? (Math.round(parts.amount * 100) + Math.round(shipping * 100)) / 100
+    const total = parts.billedAmount != null && shipping != null
+      ? (Math.round(parts.billedAmount * 100) + Math.round(shipping * 100)) / 100
       : null
 
     rows.push({
@@ -278,8 +308,8 @@ export function buildOrderActivity(input: {
       recipientName: parcel?.recipientName ?? '',
       trackingNumber: parcel?.trackingNumber ?? '',
       sku: order.lines.map((line) => line.sku).join('\n'),
-      qty: order.lines.map((line) => String(line.qty)).join('\n'),
-      qtyCount: String(order.lines.reduce((sum, line) => sum + line.qty, 0)),
+      qty: worked.map((line) => line.picked == null ? '' : String(line.picked)).join('\n'),
+      qtyCount: worked.some((line) => line.picked == null) ? '' : String(parts.units),
       serialNumber: serials.join('\n'),
       pickPrice: pickText,
       boxPrice: '',
@@ -300,11 +330,14 @@ export function buildOrderActivity(input: {
       unmatchedParcels,
       shippingConflicts,
       shippingAmbiguous,
-      pickKnown: pickKnown === 0 ? null : pickCents / 100,
+      pickKnown: rows.length === 0 || pickUnknownOrders > 0 ? null : pickCents / 100,
       pickUnknownOrders,
       picks,
       peakNote: peakOmissionNote(input.list, rows.map((row) => row.date ?? '')),
       scanNote: input.scanNote ?? '',
+      nothingPicked,
+      pickDateUnknown,
+      pickOutsidePeriod,
     },
   }
 }

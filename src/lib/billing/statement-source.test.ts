@@ -234,6 +234,54 @@ describe('statement pick & pack', () => {
     expect(priced[0].amount).toBe(21.5)
   })
 
+  it('prices picked units on the current list and does not bill an undated or outside pick', () => {
+    const nayax = loadRepoPriceList('Nayax').list!
+    const period = { from: '2026-11-01', to: '2026-11-30' }
+    const notes: string[] = []
+    const excluded = new Set<string>()
+    const rows = pickPackRows([
+      {
+        orderId: 'so404',
+        orderNumber: 'SO601065404',
+        chargeDate: '2026-11-06',
+        lines: [
+          { sku: 'DEV', qty: 300, picked: 100, scannable: true, pickDate: '2026-11-06' },
+          { sku: 'ACC', qty: 900, picked: 175, scannable: false, pickDate: '2026-11-06' },
+        ],
+      },
+      {
+        orderId: 'so551',
+        orderNumber: 'SO601065551',
+        chargeDate: '2026-11-06',
+        lines: [{ sku: 'DEV', qty: 40, picked: 0, scannable: true, pickDate: null }],
+      },
+      {
+        orderId: 'undated',
+        orderNumber: 'SO-UNDATED',
+        chargeDate: '2026-11-06',
+        lines: [{ sku: 'DEV', qty: 20, picked: 20, scannable: true, pickDate: null }],
+      },
+      {
+        orderId: 'early',
+        orderNumber: 'SO-EARLY',
+        chargeDate: '2026-11-06',
+        lines: [{ sku: 'DEV', qty: 20, picked: 20, scannable: true, pickDate: '2026-10-01' }],
+      },
+    ], nayax, { period, notes, excluded })
+    const billed = rows.find((row) => row.order_id === 'so404')
+    expect(billed?.amount).toBe(42.5)
+    expect(billed?.quantity).toBe(275)
+    expect(billed?.charge_date).toBe('2026-11-06')
+    expect(rows.find((row) => row.order_id === 'so551')).toMatchObject({ amount: 0, quantity: 0, label: 'Pick & pack (nothing picked)' })
+    expect(rows.find((row) => row.order_id === 'undated')?.amount).toBeNull()
+    expect(rows.find((row) => row.order_id === 'early')).toBeUndefined()
+    expect(excluded.has('early')).toBe(true)
+    expect(notes.join(' ')).toContain('$1.50')
+    expect(notes.join(' ')).toContain('not amount due')
+    expect(notes.join(' ')).toContain('outside this period')
+    expect(rows.reduce((sum, row) => sum + (row.amount ?? 0), 0)).toBe(42.5)
+  })
+
   it('uses the picked quantity when one was recorded', () => {
     expect(lineQty(4, 2)).toBe(2)
     expect(lineQty(4, 0)).toBe(4)

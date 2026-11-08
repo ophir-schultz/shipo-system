@@ -14,6 +14,7 @@ import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import type { PriceListDocument, SkuQty } from '@/lib/pricing/types'
 import { assignScanFlags } from '@/lib/pricing/scan-catalog'
 import { loadScanCatalog } from '@/lib/pricing/load-scan-catalog'
+import { assessPickWork } from '@/lib/pricing/pick-work'
 
 // Shipping on a statement used to come only from order_charges. Orcam's
 // ledger rows are unpriced: that client has no shipping line on the warehouse
@@ -435,6 +436,7 @@ export function lineQty(ordered: unknown, picked: unknown): number | null {
 
 export interface PickOrder {
   orderId: string
+  orderNumber?: string
   chargeDate: string
   lines: SkuQty[]
 }
@@ -466,6 +468,11 @@ function baseCharge(
 export function pickPackRows(
   orders: readonly PickOrder[],
   list: PriceListDocument | null,
+  options?: {
+    period?: { from: string; to: string } | null
+    notes?: string[]
+    excluded?: Set<string>
+  },
 ): StatementChargeRow[] {
   if (!list) return []
   const rows: StatementChargeRow[] = []
@@ -496,6 +503,57 @@ export function pickPackRows(
           amount: money(extra * tier.additionalRate),
           charge_key: `pickpack-extra:${order.orderId}`,
         }))
+      }
+      continue
+    }
+    const tracked = order.lines.some((line) => line.picked !== undefined)
+    if (tracked) {
+      const work = assessPickWork(order.lines.map((line) => ({
+        sku: line.sku,
+        picked: line.picked === undefined ? line.qty : line.picked,
+        scannable: line.scannable === undefined ? null : line.scannable,
+        pickDate: line.pickDate ?? null,
+      })), list, options?.period ?? null)
+      const who = order.orderNumber || order.orderId
+      const catalog = work.catalogAmount == null ? null : work.catalogAmount.toFixed(2)
+      if (work.status === 'outside') {
+        options?.excluded?.add(order.orderId)
+        options?.notes?.push(
+          `Order ${who}: pick date ${work.pickDate} is outside this period. The current item list would price ${work.units} picked units at $${catalog}. That figure is not in this period and is not a ship-day price.`,
+        )
+        continue
+      }
+      if (work.status === 'nothing-picked') {
+        rows.push(baseCharge(order, {
+          label: 'Pick & pack (nothing picked)',
+          quantity: 0,
+          amount: 0,
+        }))
+        continue
+      }
+      if (work.status === 'priced') {
+        rows.push(baseCharge(order, {
+          label: 'Pick & pack',
+          quantity: work.units,
+          amount: work.billedAmount,
+          charge_date: work.pickDate || order.chargeDate,
+        }))
+        continue
+      }
+      const label = work.status === 'qty-unknown'
+        ? 'Pick & pack (picked quantity unknown)'
+        : work.status === 'date-unknown'
+          ? 'Pick & pack (pick date unknown)'
+          : 'Pick & pack (classification unknown)'
+      rows.push(baseCharge(order, {
+        label,
+        quantity: work.units || null,
+        amount: null,
+      }))
+      if (work.status === 'date-unknown' && catalog != null) {
+        options?.notes?.push(
+          `Order ${who}: the current item list would price ${work.units} picked units at $${catalog}. The pick date is unknown, so this is not amount due and it is not a ship-day price.`,
+        )
       }
       continue
     }
@@ -794,7 +852,7 @@ export async function priceStatementCharges(
   const items = await readChunked(orderIds, (chunk) => readAllPages((from, to) =>
     supabaseAdmin
       .from('order_items')
-      .select('order_id, sku, quantity_ordered, quantity_picked')
+      .select('order_id, sku, quantity_ordered, quantity_picked, pick_date')
       .in('order_id', chunk)
       .order('order_id')
       .order('id')
@@ -808,45 +866,79 @@ export async function priceStatementCharges(
       sku: string | null
       quantity_ordered: unknown
       quantity_picked: unknown
+      pick_date: string | null
     }
     if (!record.order_id) continue
-    const qty = lineQty(record.quantity_ordered, record.quantity_picked)
-    if (qty === null) continue
+    const picked = priceOf(record.quantity_picked)
+    const ordered = priceOf(record.quantity_ordered)
+    if (picked == null && (ordered == null || ordered <= 0)) continue
     const list = linesByOrder.get(record.order_id) ?? []
-    list.push({ sku: record.sku ?? '', qty })
+    const pickDate = typeof record.pick_date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(record.pick_date)
+      ? record.pick_date.slice(0, 10)
+      : null
+    list.push({
+      sku: record.sku ?? '',
+      qty: lineQty(ordered, picked) ?? 0,
+      picked,
+      pickDate,
+    })
     linesByOrder.set(record.order_id, list)
   }
 
   const list = await priceListFor(clientId, clientName)
   let scanNote = ''
   if (list?.devicePick && list.accessoryPick && !list.orderPick) {
-    const scan = await loadScanCatalog(clientName)
+    const scan = await loadScanCatalog(clientName, { clientId })
     scanNote = scan.note
     if (scan.note) basisReviews.push(scan.note)
     if (scan.ok) {
       for (const lines of linesByOrder.values()) assignScanFlags(lines, scan.bySku)
     }
   }
+  const orderNumbers = new Map(pickOrders.flatMap((order) => order.orderId ? [[order.orderId, order.orderNumber] as const] : []))
+  const pickNotes: string[] = []
+  const excluded = new Set<string>()
   let picks = pickPackRows([...linesByOrder.entries()].map(([orderId, lines]) => ({
     orderId,
+    orderNumber: orderNumbers.get(orderId) ?? '',
     chargeDate: dateByOrder.get(orderId) ?? next[0]?.charge_date ?? '',
     lines,
-  })), list)
-  const orderNumbers = new Map(pickOrders.flatMap((order) => order.orderId ? [[order.orderId, order.orderNumber] as const] : []))
-  if (picks.some((row) => row.label === 'Pick & pack (classification unknown)')) {
+  })), list, { period: range ?? null, notes: pickNotes, excluded })
+  for (const note of pickNotes) basisReviews.push(note)
+  const classified = Boolean(list?.devicePick && list.accessoryPick && !list.orderPick)
+  if (classified) {
+    const covered = new Set(picks.map((row) => row.order_id).filter((id): id is string => id != null))
+    const missed = pickOrders.filter((order) => order.orderId != null && !covered.has(order.orderId) && !excluded.has(order.orderId))
+    const unknownPicks: StatementChargeRow[] = missed.map((order) => ({
+      charge_type: 'pick',
+      label: 'Pick & pack (not priced)',
+      quantity: null,
+      unit_rate: null,
+      amount: null,
+      is_estimate: false,
+      charge_date: order.chargeDate || range?.from || '',
+      order_id: order.orderId,
+      charge_key: `pickpack-unknown:${order.orderId}`,
+    }))
+    const open = [...picks, ...unknownPicks].some((row) => row.amount == null)
+    const peakNote = peakOmissionNote(list, picks.map((row) => row.charge_date))
+    if (peakNote) basisReviews.push(peakNote)
     return {
-      charges: [...next, ...picks],
+      charges: [...next, ...picks, ...unknownPicks],
       pickPack: {
-        billed: false,
+        billed: !open && picks.some((row) => row.amount != null),
         rate: null,
-        reason: scanNote
-          ? `Pick is unknown. ${scanNote} No rate-card pick was substituted.`
-          : 'Pick is unknown. Order lines do not say whether the SKU must be scanned. The R/D prefix was not used, and no rate-card pick was substituted.',
+        reason: 'Pick uses units picked, not units ordered. Nothing picked is 0. A missing picked quantity or a missing pick date stays unknown and is not amount due. A pick date outside this period is left out. '
+          + (scanNote || 'The scan requirement was not read.')
+          + ' No rate-card pick was substituted. The current item list is not a ship-day price.',
       },
       error: null,
       freightReviews,
       basisReviews,
-      pickDetails: pickOrderDetails(picks, 'unknown', orderNumbers),
+      pickDetails: [
+        ...pickOrderDetails(picks.filter((row) => row.amount != null), 'price-list', orderNumbers),
+        ...pickOrderDetails([...picks.filter((row) => row.amount == null), ...unknownPicks], 'unknown', orderNumbers),
+      ],
     }
   }
   if (hasPricedPick(picks)) {

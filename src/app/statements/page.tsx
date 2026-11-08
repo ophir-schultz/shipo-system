@@ -448,7 +448,7 @@ function StatementTable(
         <p className="mt-1 text-xs text-slate-100">{pickReason}</p>
         <p className="mt-1 text-xs text-slate-200">
           <a href="/client-report/activity" className="font-semibold text-white underline">Order activity</a>
-          {' '}lists each order on the 16 workbook columns. The imported client report is not this list.
+          {' '}lists each order on the 16 workbook columns. Quantity there is units picked. A missing pick date is not amount due. The current item list is not a ship-day price. The imported client report is not this list.
         </p>
         {pickDetails.length === 0 ? (
           <p className="mt-2 text-xs text-slate-100">No per-order pick line in this period.</p>
