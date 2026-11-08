@@ -475,6 +475,65 @@ describe('GET /api/statements/download: the period can be named by grain OR by d
     expect((await res.json()).error).toMatch(/No period/)
   })
 
+  it('does not call a known client amount unpriced when the unit rate is absent', async () => {
+    const data = structuredClone(seed())
+    const shipments = data.shipments as Array<typeof data.shipments[number] & { client_rate?: number | null }>
+    shipments.push({
+      id: 's3', shipstation_shipment_id: 557, ship_date: `${RANGE.from}T12:00:00Z`,
+      carrier: 'ups', service: 'ground', tracking_number: '1Z557', weight: 2,
+      recipient_city: 'Miami', recipient_state: 'FL', recipient_zip: '33101',
+      actual_cost: 7.77, profit_loss: 1.11, is_loss: false, client_id: CLIENT,
+      client_rate: null,
+    })
+    const extraCharges = data.order_charges as Array<Omit<typeof data.order_charges[number], 'unit_rate' | 'amount'> & {
+      unit_rate: number | null
+      amount: number | null
+    }>
+    extraCharges.push(
+      {
+        id: 'ch6', client_id: CLIENT, order_id: 'o2', charge_date: RANGE.from,
+        charge_type: 'pick', label: 'Pick & pack', quantity: 23,
+        unit_rate: null, amount: 4.2, is_estimate: false,
+        charge_key: 'pickpack:o2',
+      },
+      {
+        id: 'ch7', client_id: CLIENT, order_id: 'o1', charge_date: RANGE.from,
+        charge_type: 'shipping', label: 'Shipping', quantity: 1,
+        unit_rate: null, amount: 8.2, is_estimate: false,
+        charge_key: 'shipment:557',
+      },
+      {
+        id: 'ch8', client_id: CLIENT, order_id: 'o2', charge_date: RANGE.from,
+        charge_type: 'storage', label: 'Storage', quantity: 1,
+        unit_rate: null, amount: null, is_estimate: false,
+        charge_key: 'storage:1',
+      },
+    )
+    h.db = createFakeSupabase(data)
+    const wb = await workbook(await GET(url()))
+    const charges = rowsOf(wb, 'Charges')
+    expect(charges.find((row) => row['Line'] === 'Pick & pack')).toMatchObject({
+      Rate: 'see amount', 'Amount ($)': 4.2, Quantity: 23,
+    })
+    expect(charges.find((row) => row['Amount ($)'] === 8.2)).toMatchObject({
+      Rate: 'see amount', Charge: 'shipping',
+    })
+    expect(charges.find((row) => row['Line'] === 'Storage')).toMatchObject({
+      Rate: 'UNPRICED', 'Amount ($)': 'UNPRICED',
+    })
+    const statement = rowsOf(wb, 'Statement')
+    expect(statement.find((row) => row['Line'] === 'Pick & pack')).toMatchObject({
+      Rate: 'see amount', 'Amount ($)': 4.2, 'Unpriced rows': 0,
+    })
+    expect(statement.find((row) => row['Line'] === 'Storage')).toMatchObject({
+      'Amount ($)': 'UNPRICED', 'Unpriced rows': 1,
+    })
+    const text = JSON.stringify(wb.SheetNames.map((name) => rowsOf(wb, name)))
+    expect(text).not.toContain('7.77')
+    expect(text).not.toContain('1.11')
+    expect(text).not.toMatch(/actual_cost|profit_loss|Margin|Profit/)
+  })
+
   it('still refuses an unknown grain', async () => {
     // Unchanged behaviour, pinned because the validation moved. 'weekly' used
     // to fall through periodRange onto the year arm.

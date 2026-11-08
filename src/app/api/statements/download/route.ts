@@ -11,7 +11,7 @@ import {
   buildStatement, statementTotal, resolvePeriod,
 } from '@/lib/billing/statement'
 import {
-  rateText, periodLabel, coverageNote, estimateNote,
+  rateText, periodLabel, coverageNote, estimateNote, chargeRateCell,
 } from '@/lib/billing/statement-view'
 import {
   readOrderNumbers, readShipmentFacts, shipmentIdFromChargeKey,
@@ -332,7 +332,10 @@ export async function GET(req: Request) {
     'Charge': c.charge_type,
     'Line': c.label,
     'Quantity': moneyCell(priceOf(c.quantity)),
-    'Rate': moneyCell(priceOf(c.unit_rate)),
+    // A blank unit rate is not an unpriced amount. chargeRateCell keeps
+    // "see amount" for a known client charge and UNPRICED only when the
+    // amount itself is missing. It does not divide amount by quantity.
+    'Rate': chargeRateCell(c),
     'Amount ($)': moneyCell(priceOf(c.amount)),
     'Priced from an assumed rate': c.is_estimate === true ? 'yes' : 'no',
   }))

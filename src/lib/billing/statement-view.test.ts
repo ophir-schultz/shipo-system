@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { rateText, periodLabel, coverageNote, estimateNote, grainChoice } from '@/lib/billing/statement-view'
+import { chargeRateCell, rateText, periodLabel, coverageNote, estimateNote, grainChoice } from '@/lib/billing/statement-view'
 import { buildStatement, periodRange, GRAINS, type StatementCharge } from '@/lib/billing/statement'
-import { UNPRICED_DASH } from '@/lib/billing/unpriced'
+import { UNPRICED_CELL, UNPRICED_DASH } from '@/lib/billing/unpriced'
 
 // Every assertion here is about a sentence that appears on a document a client
 // is invoiced from. The ones worth the most are the two that decide whether a
@@ -69,6 +69,24 @@ describe('rateText', () => {
 
     const none = buildStatement([charge({ unit_rate: null })], range)
     expect(rateText(none.lines[0])).toBe('see amount')
+  })
+})
+
+describe('chargeRateCell', () => {
+  it('keeps a stored unit rate, including zero', () => {
+    expect(chargeRateCell({ unit_rate: 0.32, amount: 6.4 })).toBe(0.32)
+    expect(chargeRateCell({ unit_rate: 0, amount: 0 })).toBe(0)
+  })
+
+  it('says see amount when the client charge is known and no unit rate was stored', () => {
+    expect(chargeRateCell({ unit_rate: null, amount: 4.2 })).toBe('see amount')
+    expect(chargeRateCell({ unit_rate: null, amount: 0 })).toBe('see amount')
+  })
+
+  it('says UNPRICED only when the amount is unknown, and does not invent a rate', () => {
+    expect(chargeRateCell({ unit_rate: null, amount: null })).toBe(UNPRICED_CELL)
+    expect(chargeRateCell({ unit_rate: '', amount: '' })).toBe(UNPRICED_CELL)
+    expect(chargeRateCell({ unit_rate: null, amount: 4.2 })).toBe('see amount')
   })
 })
 

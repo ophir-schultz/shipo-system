@@ -4,7 +4,8 @@ import {
   pickPackRows, pickRateOnCard, pickRowsFromCard, shippingChargesFromShipments,
 } from './statement-source'
 import { buildStatement } from './statement'
-import { rateText } from './statement-view'
+import { chargeRateCell, rateText } from './statement-view'
+import { pricePick } from '@/lib/pricing/engine'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import type { StatementChargeRow } from './statement-charges'
 
@@ -72,6 +73,18 @@ describe('statement pick & pack', () => {
       { label: 'Additional items', quantity: 2, rate: '$0.1000', amount: 0.2 },
       { label: 'Pick & pack', quantity: 2, rate: '$0.5000', amount: 1 },
     ])
+  })
+
+  it('prices a Nayax order from the price list without storing one unit rate', () => {
+    const nayax = loadRepoPriceList('Nayax').list
+    expect(nayax).not.toBeNull()
+    const lines = [{ sku: 'R100', qty: 21 }, { sku: 'CABLE', qty: 2 }]
+    const rows = pickPackRows([{ orderId: 'o1', chargeDate: '2026-10-08', lines }], nayax)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].unit_rate).toBeNull()
+    expect(rows[0].amount).toBe(pricePick(nayax!, lines).amount)
+    expect(rows[0].amount).not.toBeNull()
+    expect(chargeRateCell(rows[0])).toBe('see amount')
   })
 
   it('uses the picked quantity when one was recorded', () => {

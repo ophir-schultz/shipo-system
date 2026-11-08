@@ -1,4 +1,4 @@
-import { UNPRICED_DASH } from '@/lib/billing/unpriced'
+import { priceOf, UNPRICED_CELL, UNPRICED_DASH } from '@/lib/billing/unpriced'
 import { isGrain, type DateRange, type Grain, type StatementLine } from '@/lib/billing/statement'
 
 // The sentences the statement screen prints about its own figures.
@@ -43,6 +43,26 @@ export function rateText(line: Pick<StatementLine, 'unit_rate' | 'rates'>): stri
   // returns the unknown dash rather than asserting either of the two sentences
   // above about a state neither of them describes.
   return UNPRICED_DASH
+}
+
+/**
+ * Rate cell on one charge row.
+ *
+ * A known amount with no single unit rate is the same fact the summary
+ * prints as "see amount": Nayax pick rows store the price-list total and
+ * leave the unit rate empty because one order mixes a carton rate and an
+ * accessory rate. A shipping row keeps its ledger amount when no zone
+ * client price replaces it. Neither case is an unknown charge, and neither
+ * case is filled from carrier cost. Dividing the amount by the quantity
+ * would invent a rate the list did not state.
+ *
+ * UNPRICED is only for a row whose amount is itself unknown.
+ */
+export function chargeRateCell(row: { unit_rate: unknown; amount: unknown }): number | string {
+  const rate = priceOf(row.unit_rate)
+  if (rate !== null) return rate
+  if (priceOf(row.amount) !== null) return PASS_THROUGH_RATE
+  return UNPRICED_CELL
 }
 
 /**
