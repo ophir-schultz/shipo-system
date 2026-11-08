@@ -178,8 +178,9 @@ export default function AutoSync() {
               not one. A shipment with no agreed price is a price nobody has
               agreed -- the fix is a rate, not a repair. */}
           <p className="mt-3 text-amber-700">
-            This is the last status check. It did not sync. A missing shipment rate is a
-            rate-card gap. A missing pick date stays blank until a real pick time is known.
+            This is the last status check. It did not sync. A null shipment rate stays
+            in that count, including a voided label. A missing pick date stays blank
+            until a real pick time is known.
           </p>
         </div>
       )}

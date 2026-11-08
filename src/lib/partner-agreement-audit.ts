@@ -40,10 +40,26 @@ export type FindingKind =
   | 'status_conflict'
   /** Out for signature longer than anyone should take. */
   | 'stale_sent'
-  /** We could not ask DocuSign about it at all. */
+  /** A completed lookup did not return this envelope, or returned a status this check does not map. */
   | 'unknown_envelope'
+  /** DocuSign was asked and the request did not finish. Not a missing envelope. */
+  | 'lookup_failed'
+  /** The API credentials are absent, so DocuSign was not asked. One finding, not one per partner. */
+  | 'not_configured'
   /** Sent, apparently, but nothing recorded to check it against. */
   | 'no_envelope_id'
+
+/** How far the DocuSign read got. Absent means the caller did not classify that envelope. */
+export interface AgreementLookup {
+  /** False when the API credentials are missing and no envelope was requested. */
+  configured: boolean
+  /** GETs that finished and DocuSign did not have the envelope. */
+  notFound?: ReadonlySet<string>
+  /** GETs that did not finish: token, network, or a non-404 error. */
+  failed?: ReadonlySet<string>
+  /** GETs that finished with a status string this check does not map. */
+  unrecognized?: ReadonlySet<string>
+}
 
 export interface Finding {
   kind: FindingKind
@@ -66,7 +82,8 @@ export interface Finding {
  * all-clear inside the stale window, so defaulting to it would mean any
  * state DocuSign adds later is silently treated as fine — the exact
  * shape of the failure this file exists to catch. Null surfaces as
- * `unknown_envelope`, which asks a human to look.
+ * `unknown_envelope` only after a completed lookup. A missing configuration
+ * is not that.
  */
 export function docusignVerdict(status: string | null | undefined): EnvelopeVerdict | null {
   switch (status) {
@@ -101,11 +118,12 @@ function daysSince(iso: string | null, now: Date): number | null {
 /**
  * Compare both systems and return what disagrees.
  *
- * `verdicts` maps envelope id to what DocuSign said. An envelope MISSING
- * from that map is not "fine" — it means the lookup did not answer, and
- * that is reported as `unknown_envelope`. The failure this whole module
- * guards against is a check that goes quiet when it should not, so the
- * one thing it may never do is treat an absent answer as agreement.
+ * `verdicts` maps envelope id to what a completed DocuSign read said.
+ * `lookup.configured` false means DocuSign was not asked: one configuration
+ * line, and never `unknown_envelope`. A finished read that did not have the
+ * envelope is `unknown_envelope`. A read that did not finish is
+ * `lookup_failed` and does not say the envelope is missing. An envelope in
+ * none of those sets is not treated as agreement.
  *
  * `staleDays` is how long an unsigned agreement may sit before it is
  * worth a mention. It is a warning, not an incident: a partner taking a
@@ -116,13 +134,44 @@ export function auditAgreements(
   verdicts: Map<string, EnvelopeVerdict>,
   now: Date,
   staleDays = 7,
+  lookup: AgreementLookup = { configured: true },
 ): Finding[] {
   const found: Finding[] = []
-
-  for (const row of rows) {
+  const checkable = rows.filter((row) => {
     const status = (row.agreement_status ?? '').trim()
-    if (status !== SENT && status !== SIGNED) continue
+    return status === SENT || status === SIGNED
+  })
 
+  if (!lookup.configured) {
+    if (checkable.length > 0) {
+      found.push({
+        kind: 'not_configured',
+        severity: 'warn',
+        partnerId: '',
+        name: '',
+        email: null,
+        envelopeId: null,
+        detail: 'not checked — DocuSign not configured',
+      })
+    }
+    for (const row of checkable) {
+      if ((row.agreement_status ?? '').trim() === SENT && !row.agreement_envelope_id) {
+        found.push({
+          partnerId: row.id,
+          name: row.name,
+          email: row.email,
+          envelopeId: null,
+          kind: 'no_envelope_id',
+          severity: 'warn',
+          detail: 'Agreement recorded as sent, but no envelope id was stored, so nothing can verify it.',
+        })
+      }
+    }
+    return found
+  }
+
+  for (const row of checkable) {
+    const status = (row.agreement_status ?? '').trim()
     const base = {
       partnerId: row.id,
       name: row.name,
@@ -144,17 +193,32 @@ export function auditAgreements(
       continue
     }
 
-    const verdict = verdicts.get(row.agreement_envelope_id)
+    const envelopeId = row.agreement_envelope_id
+    const verdict = verdicts.get(envelopeId)
 
     if (!verdict) {
-      found.push({
-        ...base,
-        kind: 'unknown_envelope',
-        severity: 'warn',
-        detail:
-          'DocuSign could not be asked about this envelope. Not an all-clear — check the credentials ' +
-          'point at the same DocuSign account the envelope lives in.',
-      })
+      if (lookup.notFound?.has(envelopeId)) {
+        found.push({
+          ...base,
+          kind: 'unknown_envelope',
+          severity: 'warn',
+          detail: 'DocuSign was asked and did not have this envelope.',
+        })
+      } else if (lookup.unrecognized?.has(envelopeId)) {
+        found.push({
+          ...base,
+          kind: 'unknown_envelope',
+          severity: 'warn',
+          detail: 'DocuSign was asked and returned a status this check does not recognize.',
+        })
+      } else {
+        found.push({
+          ...base,
+          kind: 'lookup_failed',
+          severity: 'warn',
+          detail: 'DocuSign was asked and the lookup did not finish. This is not a missing envelope.',
+        })
+      }
       continue
     }
 

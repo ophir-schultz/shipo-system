@@ -47,24 +47,40 @@ const rows = (data ?? []) as AgreementRow[]
 
 const cfg = docusignConfig(process.env)
 const verdicts = new Map<string, EnvelopeVerdict>()
+const notFound = new Set<string>()
+const failed = new Set<string>()
+const unrecognized = new Set<string>()
 
 if (!cfg) {
-  console.log('DocuSign is not configured — every envelope will report as unanswerable.\n')
+  console.log('not checked — DocuSign not configured\n')
 } else {
   const ids = [...new Set(rows.map((r) => r.agreement_envelope_id).filter((v): v is string => !!v))]
   for (const id of ids) {
-    const verdict = docusignVerdict(await envelopeStatus(id, cfg))
-    if (verdict) verdicts.set(id, verdict)
+    const read = await envelopeStatus(id, cfg)
+    if (read.outcome === 'not_found') notFound.add(id)
+    else if (read.outcome === 'failed') failed.add(id)
+    else {
+      const verdict = docusignVerdict(read.status)
+      if (verdict) verdicts.set(id, verdict)
+      else unrecognized.add(id)
+    }
   }
   console.log(`Asked DocuSign about ${ids.length} envelope(s); ${verdicts.size} answered.\n`)
 }
 
-const findings = auditAgreements(rows, verdicts, new Date())
+const findings = auditAgreements(rows, verdicts, new Date(), 7, {
+  configured: cfg !== null,
+  notFound,
+  failed,
+  unrecognized,
+})
 
 console.log(`${rows.length} partner row(s) checked.`)
 
 if (findings.length === 0) {
-  console.log('No disagreement between Shipo and DocuSign.')
+  console.log(cfg
+    ? 'No disagreement between Shipo and DocuSign.'
+    : 'not checked — DocuSign not configured')
   process.exit(0)
 }
 

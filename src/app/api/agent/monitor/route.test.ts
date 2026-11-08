@@ -1007,3 +1007,43 @@ describe('GET /api/agent/monitor: the report is switched off', () => {
     expect(body.errors.some((e) => e.includes('NOT DELIVERED'))).toBe(true)
   })
 })
+
+describe('partner agreement warning when DocuSign is not configured', () => {
+  it('says the check did not run, once, and does not send or relabel the partners', async () => {
+    h.db = createFakeSupabase({
+      shipments: [],
+      rate_adjustments: [],
+      order_items: [],
+      referral_partners: [
+        {
+          id: 'p1', name: 'Ada', email: 'ada@example.com', agreement_status: 'sent',
+          agreement_sent_at: '2026-10-01T00:00:00Z', agreement_signed_at: null,
+          agreement_envelope_id: 'env-a',
+        },
+        {
+          id: 'p2', name: 'Bea', email: 'bea@example.com', agreement_status: 'signed',
+          agreement_sent_at: '2026-10-01T00:00:00Z', agreement_signed_at: '2026-10-02T00:00:00Z',
+          agreement_envelope_id: 'env-b',
+        },
+      ],
+    })
+    vi.stubEnv('MONITOR_EMAIL', '')
+    for (const name of [
+      'DOCUSIGN_INTEGRATION_KEY', 'DOCUSIGN_USER_ID', 'DOCUSIGN_ACCOUNT_ID',
+      'DOCUSIGN_PRIVATE_KEY', 'DOCUSIGN_ACCOUNT_BASE_URI', 'DOCUSIGN_OAUTH_HOST',
+    ]) vi.stubEnv(name, '')
+
+    const res = await GET(new Request('https://shipo.test/api/agent/monitor'))
+    const body = await res.json() as MonitorBody
+    const lines = body.log.filter((line) => line.includes('Partner agreement'))
+
+    expect(lines).toEqual(['⚠ Partner agreements: not checked — DocuSign not configured'])
+    expect(JSON.stringify(body)).not.toContain('unknown_envelope')
+    expect(JSON.stringify(body)).not.toMatch(/not found|invalid association/i)
+    expect(h.sendEmail).not.toHaveBeenCalled()
+    expect(h.db.tables.referral_partners).toEqual([
+      expect.objectContaining({ id: 'p1', agreement_status: 'sent', agreement_envelope_id: 'env-a' }),
+      expect.objectContaining({ id: 'p2', agreement_status: 'signed', agreement_envelope_id: 'env-b' }),
+    ])
+  })
+})
