@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty, pickOrdersFromShipments,
-  pickPackRows, pickRateOnCard, pickRowsFromCard, shippingChargesFromShipments,
+  applyManualFullFreight, applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty,
+  nayaxManualFreight, pickOrdersFromShipments, pickPackRows, pickRateOnCard, pickRowsFromCard,
+  shippingChargesFromShipments,
 } from './statement-source'
+import { statementAmountDueCell, statementFigures } from './statement-view'
+import { monthlyMinimumBill } from './monthly-minimum'
 import { buildStatement } from './statement'
 import { chargeRateCell, rateText } from './statement-view'
 import { pricePick } from '@/lib/pricing/engine'
@@ -39,6 +42,100 @@ describe('statement shipping uses the zone-matrix price', () => {
   it('does not add pick & pack when the ledger already priced one', () => {
     expect(hasPricedPick([charge({ charge_type: 'pick', amount: 0.5 })])).toBe(true)
     expect(hasPricedPick([charge({ charge_type: 'pick', amount: null })])).toBe(false)
+  })
+})
+
+describe('Nayax freight with no zone price', () => {
+  const atCost = (id: string, amount: number): StatementChargeRow => charge({
+    charge_key: `shipment:${id}`,
+    amount,
+    unit_rate: null,
+    label: 'Shipping',
+  })
+  const october = { from: '2026-10-01', to: '2026-10-31' }
+  const agreed = {
+    status: 'standard' as const,
+    dollars: 395,
+    reason: 'The matching rate sheet uses the standard monthly minimum.',
+  }
+
+  it('is only the Nayax approval, not every at-cost client', () => {
+    expect(nayaxManualFreight('Nayax')).toBe(true)
+    expect(nayaxManualFreight('Orcam')).toBe(false)
+  })
+
+  it('does not bill the carrier cost when no manual full price is linked', () => {
+    const costs = [437.08, 105.65, 140.88, 77.75, 117.37]
+    const rows = applyManualFullFreight(
+      costs.map((amount, index) => atCost(String(1600 + index), amount)),
+      [],
+    )
+    expect(rows.map((row) => row.amount)).toEqual([null, null, null, null, null])
+    expect(rows.every((row) => row.label === 'Shipping (full price pending)')).toBe(true)
+    expect(JSON.stringify(rows)).not.toContain('437.08')
+    expect(JSON.stringify(rows)).not.toContain('actual_cost')
+    const statement = buildStatement([
+      ...rows,
+      charge({ charge_type: 'pick', label: 'Pick & pack', amount: 1548.64, unit_rate: 0.5, charge_key: 'pick:1' }),
+    ], october)
+    const figures = statementFigures(statement, monthlyMinimumBill({
+      from: october.from, to: october.to, rows: statement.lines.flatMap(() => []), agreed,
+    }))
+    expect(statement.sum.unpriced).toBe(5)
+    expect(statement.sum.total).toBeCloseTo(1548.64, 2)
+    expect(figures.subtotalLabel).toBe('Known subtotal (partial)')
+    expect(statementAmountDueCell(figures)).toBe('not final')
+  })
+
+  it('uses one linked full price and does not also keep the carrier cost', () => {
+    const rows = applyManualFullFreight(
+      [atCost('900', 437.08)],
+      [{ shipmentId: '900', amount: 510 }],
+    )
+    expect(rows).toEqual([expect.objectContaining({ amount: 510, unit_rate: 510 })])
+    expect(JSON.stringify(rows)).not.toContain('437.08')
+  })
+
+  it('leaves the charge unknown when two manual prices name the same shipment', () => {
+    const rows = applyManualFullFreight(
+      [atCost('900', 437.08)],
+      [
+        { shipmentId: '900', amount: 510 },
+        { shipmentId: '900', amount: 520 },
+      ],
+    )
+    expect(rows[0].amount).toBeNull()
+    expect(rows[0].label).toBe('Shipping (full price pending)')
+    expect(JSON.stringify(rows)).not.toMatch(/510|520|437\.08/)
+  })
+
+  it('does not match a manual price by amount or by a missing shipment id', () => {
+    const rows = applyManualFullFreight(
+      [atCost('900', 437.08)],
+      [{ shipmentId: '', amount: 437.08 }, { shipmentId: '901', amount: 999 }],
+    )
+    expect(rows[0].amount).toBeNull()
+    expect(JSON.stringify(rows)).not.toContain('999')
+  })
+
+  it('leaves a zone price in place and does not add the manual charge beside it', () => {
+    const zoned = applyZonePrices(
+      [atCost('900', 437.08)],
+      new Map([['900', 22.4]]),
+    )
+    const rows = applyManualFullFreight(zoned, [{ shipmentId: '900', amount: 510 }])
+    expect(rows).toHaveLength(1)
+    expect(rows[0].amount).toBe(22.4)
+    expect(rows[0].unit_rate).toBe(22.4)
+  })
+
+  it('does not drop a voided zero or a non-shipping charge', () => {
+    const rows = applyManualFullFreight([
+      charge({ charge_key: 'shipment:1', label: 'Shipping (voided)', amount: 0, unit_rate: null }),
+      charge({ charge_type: 'pick', label: 'Pick & pack', amount: 4.2, unit_rate: null, charge_key: 'pickpack:1' }),
+    ], [])
+    expect(rows[0].amount).toBe(0)
+    expect(rows[1].amount).toBe(4.2)
   })
 })
 

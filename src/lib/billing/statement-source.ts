@@ -6,6 +6,7 @@ import type { StatementChargeRow } from '@/lib/billing/statement-charges'
 import { money, pricePick } from '@/lib/pricing/engine'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
 import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { zenventorySlug } from '@/lib/zenventory/client-env'
 import type { DateRange } from '@/lib/billing/statement'
 import { parsePriceList } from '@/lib/pricing/parse-price-list'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
@@ -23,6 +24,59 @@ import type { PriceListDocument, SkuQty } from '@/lib/pricing/types'
 // was omitting it from the statement entirely.
 
 const IN_CHUNK = 150
+
+/**
+ * Nayax freight with no zone price is not billed at carrier cost.
+ *
+ * The warehouse log is where the full client charge, markup included, is
+ * typed. That log has a client, a date, a service name, and a total. It has
+ * no shipment id and no order id. A date or an amount is not enough to say
+ * which parcel a typed line belongs to, so this does not read the log and
+ * does not match on dollars.
+ *
+ * A manual price is used only when the caller already has that shipment id.
+ * Two prices for one shipment are left unknown. No zone price and no single
+ * manual price leaves the client amount unknown. The ledger row stays; its
+ * stored cost is not cleared and not shown.
+ */
+export function nayaxManualFreight(clientName: string): boolean {
+  return zenventorySlug(clientName) === 'NAYAX'
+}
+
+export interface ManualFreightPrice {
+  shipmentId: string
+  amount: number | null
+}
+
+export function applyManualFullFreight(
+  charges: readonly StatementChargeRow[],
+  manuals: readonly ManualFreightPrice[],
+): StatementChargeRow[] {
+  const byShipment = new Map<string, ManualFreightPrice[]>()
+  for (const manual of manuals) {
+    const id = manual.shipmentId.trim()
+    if (!id) continue
+    const list = byShipment.get(id) ?? []
+    list.push(manual)
+    byShipment.set(id, list)
+  }
+  return charges.map((charge) => {
+    if (charge.charge_type !== 'shipping') return charge
+    if (priceOf(charge.unit_rate) !== null) return charge
+    if (typeof charge.label === 'string' && /\(voided\)/i.test(charge.label)) return charge
+    const shipmentId = shipmentIdFromChargeKey(charge.charge_key)
+    if (shipmentId === null) return charge
+    const links = byShipment.get(shipmentId) ?? []
+    if (links.length !== 1) {
+      return { ...charge, amount: null, label: 'Shipping (full price pending)' }
+    }
+    const full = priceOf(links[0].amount)
+    if (full === null) {
+      return { ...charge, amount: null, label: 'Shipping (full price pending)' }
+    }
+    return { ...charge, amount: full, unit_rate: full, label: 'Shipping' }
+  })
+}
 
 export function applyZonePrices(
   charges: readonly StatementChargeRow[],
@@ -424,6 +478,7 @@ export async function priceStatementCharges(
     const id = shipmentIdFromChargeKey(charge.charge_key)
     return id === null || !voidedIds.has(id)
   }), rates)
+  if (nayaxManualFreight(clientName)) next = applyManualFullFreight(next, [])
 
   let shipmentOrders: ShipmentPickOrder[] = []
   if (range && !next.some((charge) => charge.charge_type === 'shipping')) {
