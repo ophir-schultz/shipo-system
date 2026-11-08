@@ -152,6 +152,20 @@ describe('GET /api/scan/order', () => {
     expect(body.reason).not.toContain('fixture-secret')
   })
 
+  it('does not read Creative Pea or an unknown client', async () => {
+    h.client = { data: { id: 'c1', name: 'Creative Pea' }, error: null }
+    const pea = await call()
+    expect(pea.status).toBe(403)
+    expect((await pea.json()).reason).toContain('Nayax only')
+    expect(h.orders).not.toHaveBeenCalled()
+    expect(h.legacy).not.toHaveBeenCalled()
+
+    h.client = { data: null, error: null }
+    const missing = await call()
+    expect(missing.status).toBe(404)
+    expect(h.orders).not.toHaveBeenCalled()
+  })
+
   it('rejects a caller who is not staff before reading the order', async () => {
     h.requireStaff.mockResolvedValue(NextResponse.json({ error: 'Not authorised.' }, { status: 401 }))
     const res = await call()

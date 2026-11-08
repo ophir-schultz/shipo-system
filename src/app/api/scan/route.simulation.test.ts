@@ -131,6 +131,21 @@ afterEach(() => {
 })
 
 describe('simulated POST /api/scan', () => {
+  it('does not record Creative Pea or an unknown client', async () => {
+    h.client = { data: { name: 'Creative Pea' }, error: null }
+    const pea = await scan()
+    expect(pea.status).toBe(403)
+    expect((await pea.json()).error).toContain('Nayax only')
+    expect(h.rpc).not.toHaveBeenCalled()
+    expect(h.orders).not.toHaveBeenCalled()
+
+    h.client = { data: null, error: null }
+    const missing = await scan()
+    expect(missing.status).toBe(404)
+    expect(h.rpc).not.toHaveBeenCalled()
+    expect(h.orders).not.toHaveBeenCalled()
+  })
+
   it('refuses a caller who is not staff before any scan is stored', async () => {
     h.requireStaff.mockResolvedValue(NextResponse.json({ error: 'Not authorised.' }, { status: 401 }))
     const res = await scan()
