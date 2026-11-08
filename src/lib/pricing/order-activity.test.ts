@@ -109,6 +109,66 @@ describe('order activity rows', () => {
     expect(JSON.stringify(activity.rows)).not.toContain('104.92')
   })
 
+  it('prices 105 scannable units at 9.10 and leaves a prefix-only line unknown', () => {
+    const flagged = orderPickParts(list, [{ sku: 'C-9', qty: 105, scannable: true }])
+    expect(flagged.cartons).toBe(5)
+    expect(flagged.remainder).toBe(5)
+    expect(flagged.amount).toBe(9.1)
+    const accessory = orderPickParts(list, [{ sku: 'R-9', qty: 105, scannable: false }])
+    expect(accessory.cartons).toBe(0)
+    expect(accessory.amount).toBe(21)
+    const activity = buildOrderActivity({
+      clientId: 'nayax',
+      from: '2026-11-01',
+      to: '2026-11-30',
+      list,
+      orders: [
+        { id: 'o105', orderNumber: 'SO-105', lines: [{ sku: 'C-9', qty: 105, scannable: true }] },
+        { id: 'oR', orderNumber: 'SO-R', lines: [{ sku: 'R-9', qty: 105, scannable: null }] },
+      ],
+      parcels: [
+        {
+          id: 'p105',
+          orderNumber: 'SO-105',
+          shipDate: '2026-11-04',
+          recipientName: 'A',
+          trackingNumber: 'T105',
+          zone: '2',
+          zipcode: '10001',
+          weight: '1',
+          volumeWeight: '',
+          storedRate: 1,
+          shipmentKey: 'shipment:105',
+        },
+        {
+          id: 'pR',
+          orderNumber: 'SO-R',
+          shipDate: '2026-11-04',
+          recipientName: 'A',
+          trackingNumber: 'TR',
+          zone: '2',
+          zipcode: '10001',
+          weight: '1',
+          volumeWeight: '',
+          storedRate: 1,
+          shipmentKey: 'shipment:r',
+        },
+      ],
+      charges: [
+        { chargeKey: 'shipment:105', amount: 1, unitRate: 1 },
+        { chargeKey: 'shipment:r', amount: 1, unitRate: 1 },
+      ],
+      serials: [],
+    })
+    const priced = activity.rows.find((row) => row.orderNumber === 'SO-105')
+    const unknown = activity.rows.find((row) => row.orderNumber === 'SO-R')
+    expect(priced?.pickPrice).toBe('9.10')
+    expect(priced?.total).toBe('10.10')
+    expect(unknown?.pickPrice).toBe('')
+    expect(unknown?.total).toBe('')
+    expect(activity.coverage.pickKnown).toBe(9.1)
+  })
+
   it('does not treat a ledger amount with no stored rate as the client price', () => {
     expect(clientShippingPrice(null, { chargeKey: 'shipment:1', amount: 10, unitRate: null }).amount).toBeNull()
   })

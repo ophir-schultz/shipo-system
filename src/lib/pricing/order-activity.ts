@@ -219,7 +219,11 @@ export function buildOrderActivity(input: {
     }
     if (date < input.from || date > input.to) continue
 
-    const parts = orderPickParts(input.list, order.lines.map((line) => ({ sku: line.sku, qty: line.qty })))
+    const parts = orderPickParts(input.list, order.lines.map((line) => ({
+      sku: line.sku,
+      qty: line.qty,
+      scannable: line.scannable ?? null,
+    })))
     const deviceRate = input.list?.devicePick
     const otherRate = input.list?.accessoryPick
     const rateLabel = parts.amount == null

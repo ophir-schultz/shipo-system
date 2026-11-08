@@ -100,6 +100,8 @@ function Header() {
       <h2 className="text-2xl font-bold text-[#0B1220]">Billing</h2>
       <p className="text-[#4B4F58] text-sm mt-1">
         Full billing breakdown per client — shipments, warehouse, adjustments.
+        Nayax pick is not calculated on this screen. Statements and order activity leave it unknown until a stored line says the SKU must be scanned. An R or D prefix is not that flag.
+        Shipping on this screen is the stored rate-card price. It can differ from the statement when that price and the ledger charge disagree.
         A line with no price is not $0. This is not company net profit.
         <a href="/client-report/activity" className="ml-1 font-semibold text-[#0B3361] underline">Order activity</a>
       </p>
