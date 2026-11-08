@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { queuedOutsideNayax, serializationClientAllowed } from './nayax-scope'
 
@@ -22,5 +23,12 @@ describe('serialization is Nayax only', () => {
       { id: 'gone', clientId: 'missing', status: 'pending' },
       { id: 'done', clientId: 'pea', status: 'done' },
     ], names)).toEqual(['pea', 'gone'])
+  })
+
+  it('labels the empty scan choice Select Nayax, distinct from the Nayax row', () => {
+    const page = readFileSync('src/app/scan/page.tsx', 'utf8')
+    expect(page).toContain("'Select Nayax…'")
+    expect(page).not.toContain(": 'Nayax'}")
+    expect(page).toContain('serializationClientAllowed')
   })
 })

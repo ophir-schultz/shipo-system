@@ -273,18 +273,20 @@ export default function ScanPage() {
               onChange={(e) => setClientId(e.target.value)}
               className={field}
             >
-              {/* Three states, not one. "Select a client…" over a list that
+              {/* Three states, not one. "Select Nayax…" over a list that
                   has not arrived yet tells the operator to pick from nothing,
                   and over a SUCCESSFUL read that returned nobody it tells
-                  them to keep waiting for a list that is never coming. A read
-                  FAILURE does not reach here at all -- loadError returns
-                  above, in place of the whole station. */}
+                  them to keep waiting for a list that is never coming. The
+                  empty choice must not say "Nayax": that is also the real
+                  option, and Load order lines stays off until a client id
+                  is chosen. A read FAILURE does not reach here at all --
+                  loadError returns above, in place of the whole station. */}
               <option value="">
                 {!loaded
                   ? 'Loading clients…'
                   : clients.length === 0
                     ? 'Nayax is not available'
-                    : 'Nayax'}
+                    : 'Select Nayax…'}
               </option>
               {clients.map((c) => (
                 <option key={c.id} value={c.id}>
