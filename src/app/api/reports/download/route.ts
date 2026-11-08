@@ -3,7 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase'
 import * as XLSX from 'xlsx'
 import { requireStaff } from '@/lib/require-staff'
 import { readAllPages } from '@/lib/db/page'
-import { easternAddDays, easternCalendarDay, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { easternAddDays, easternMidnightIso } from '@/lib/ledger/eastern-day'
+import { shipmentDateColumns } from '@/lib/billing/ship-day-label'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
 import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 // `priceOf` is no longer imported here. The profit-loss branch was its only
@@ -166,7 +167,7 @@ export async function GET(req: Request) {
     rows = withoutVoided(data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
-      'Ship Date': easternCalendarDay(s.ship_date),
+      ...shipmentDateColumns(s.ship_date, s.raw_data),
       'Carrier': s.carrier,
       'Service': s.service,
       'Tracking': s.tracking_number,
@@ -330,7 +331,7 @@ export async function GET(req: Request) {
     rows = withoutVoided(data ?? []).map((s: any) => ({
       'Order #': s.order_number,
       'Client': s.clients?.name ?? '',
-      'Ship Date': easternCalendarDay(s.ship_date),
+      ...shipmentDateColumns(s.ship_date, s.raw_data),
       'Carrier': s.carrier,
       'Service': s.service,
       'Recipient': s.recipient_name,

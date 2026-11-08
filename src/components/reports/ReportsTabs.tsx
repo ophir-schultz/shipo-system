@@ -12,6 +12,7 @@ import {
 import { embedOne, type Embed } from '@/lib/db/read'
 import { scopeRows, undatedNote, unattributedNote, type Scoped } from '@/lib/billing/date-range'
 import { easternCalendarDay } from '@/lib/ledger/eastern-day'
+import { presentShipDay, SHIP_DATE_FILTER_NOTE } from '@/lib/billing/ship-day-label'
 import { billableWarehouse, isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 import {
   REPORT_TABS, reportTabById, reportTypeForTab, tabRequiresClient,
@@ -103,6 +104,7 @@ type ReportLossShipment = Attributed & {
   order_number: string
   clients: ClientRef
   ship_date: string | null
+  raw_data?: unknown
   carrier: string | null
   service: string | null
   actual_cost: Money
@@ -1114,13 +1116,14 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
           </div>
         ))}
       </div>
+      <p className="px-5 py-2 text-[11px] text-[#6B7A8D]">{SHIP_DATE_FILTER_NOTE}</p>
       <div className="overflow-auto max-h-[520px]">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-[#F1F5FB]">
             <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
               <th className="px-5 py-3">Order #</th>
               <th className="px-4 py-3">Client</th>
-              <th className="px-4 py-3">Date</th>
+              <th className="px-4 py-3">Ship date</th>
               <th className="px-4 py-3">Carrier / Service</th>
               <th className="px-4 py-3">Tracking</th>
               <th className="px-4 py-3 text-right">We Paid</th>
@@ -1133,7 +1136,17 @@ function ShipmentsTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportS
               <tr key={s.id ?? s.order_number} className={`border-b border-[#E2E8F0]/40 hover:bg-[#EEF3FA]/30 ${s.is_loss ? 'bg-red-50' : ''}`}>
                 <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? <span className="text-[#6B7A8D]">—</span>}</td>
-                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{easternCalendarDay(s.ship_date) || '—'}</td>
+                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">
+                  {(() => {
+                    const day = presentShipDay(s.ship_date, s.raw_data)
+                    return (
+                      <>
+                        <div>{day.shipDate || '—'}</div>
+                        {day.differs ? <div className="text-[10px] text-amber-700">Stored ship day {day.storedShipDay}</div> : null}
+                      </>
+                    )
+                  })()}
+                </td>
                 <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-[#6B7A8D]">{s.tracking_number ?? '—'}</td>
                 <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
@@ -1182,13 +1195,14 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
           </div>
         ))}
       </div>
+      <p className="px-5 py-2 text-[11px] text-[#6B7A8D]">{SHIP_DATE_FILTER_NOTE}</p>
       <div className="overflow-auto max-h-[520px]">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-[#F1F5FB]">
             <tr className="text-[#4B4F58] text-left border-b border-[#E2E8F0] text-xs uppercase">
               <th className="px-5 py-3">Order #</th>
               <th className="px-4 py-3">Client</th>
-              <th className="px-4 py-3">Date</th>
+              <th className="px-4 py-3">Ship date</th>
               <th className="px-4 py-3">Carrier / Service</th>
               <th className="px-4 py-3 text-right">We Paid</th>
               <th className="px-4 py-3 text-right">Charged</th>
@@ -1200,7 +1214,17 @@ function LossTable({ rows, clientId, dateFrom, dateTo }: TableProps<ReportLossSh
               <tr key={s.id ?? s.order_number} className="border-b border-[#E2E8F0]/40 hover:bg-red-50">
                 <td className="px-5 py-2.5 font-mono text-xs text-[#3A4658]">{s.order_number}</td>
                 <td className="px-4 py-2.5">{embedOne(s.clients)?.name ?? '—'}</td>
-                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">{easternCalendarDay(s.ship_date) || '—'}</td>
+                <td className="px-4 py-2.5 text-[#4B4F58] text-xs">
+                  {(() => {
+                    const day = presentShipDay(s.ship_date, s.raw_data)
+                    return (
+                      <>
+                        <div>{day.shipDate || '—'}</div>
+                        {day.differs ? <div className="text-[10px] text-amber-700">Stored ship day {day.storedShipDay}</div> : null}
+                      </>
+                    )
+                  })()}
+                </td>
                 <td className="px-4 py-2.5 text-[#3A4658] text-xs">{[s.carrier, s.service].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="px-4 py-2.5 text-right">{formatPrice(s.actual_cost)}</td>
                 <td className={`px-4 py-2.5 text-right ${isPriced(s.client_rate) ? '' : 'text-amber-700'}`}>
