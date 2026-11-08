@@ -109,6 +109,49 @@ begin
 end
 $cron$;
 
+-- The columns this file updates or joins must exist. A missing column
+-- refuses the file. voidDate and voideDate are not gates.
+do $columns$
+declare
+  missing text;
+begin
+  select string_agg(format('%s.%s', needed.tbl, needed.col), ', ' order by needed.tbl, needed.col)
+    into missing
+  from (values
+    ('order_charges', 'id'),
+    ('order_charges', 'charge_date'),
+    ('order_charges', 'amount'),
+    ('order_charges', 'charge_date_source'),
+    ('order_charges', 'client_id'),
+    ('order_charges', 'order_id'),
+    ('orders', 'id'),
+    ('orders', 'order_number'),
+    ('orders', 'cancelled'),
+    ('orders', 'client_id'),
+    ('shipments', 'client_id'),
+    ('shipments', 'order_number'),
+    ('shipments', 'ship_date'),
+    ('shipments', 'raw_data'),
+    ('sync_runs', 'source'),
+    ('sync_runs', 'status'),
+    ('sync_runs', 'mode'),
+    ('sync_runs', 'client_id'),
+    ('sync_runs', 'finished_at')
+  ) as needed(tbl, col)
+  where not exists (
+    select 1
+    from information_schema.columns c
+    where c.table_schema = 'public'
+      and c.table_name = needed.tbl
+      and c.column_name = needed.col
+  );
+  if missing is not null then
+    raise exception 'required columns missing: %. Nothing was changed.', missing;
+  end if;
+end
+$columns$;
+
+
 
 create temporary table charge_date_repair_snapshot (
   id uuid primary key,
