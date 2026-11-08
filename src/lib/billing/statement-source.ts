@@ -12,6 +12,8 @@ import type { DateRange } from '@/lib/billing/statement'
 import { parsePriceList } from '@/lib/pricing/parse-price-list'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import type { PriceListDocument, SkuQty } from '@/lib/pricing/types'
+import { assignScanFlags } from '@/lib/pricing/scan-catalog'
+import { loadScanCatalog } from '@/lib/pricing/load-scan-catalog'
 
 // Shipping on a statement used to come only from order_charges. Orcam's
 // ledger rows are unpriced: that client has no shipping line on the warehouse
@@ -816,6 +818,15 @@ export async function priceStatementCharges(
   }
 
   const list = await priceListFor(clientId, clientName)
+  let scanNote = ''
+  if (list?.devicePick && list.accessoryPick && !list.orderPick) {
+    const scan = await loadScanCatalog(clientName)
+    scanNote = scan.note
+    if (scan.note) basisReviews.push(scan.note)
+    if (scan.ok) {
+      for (const lines of linesByOrder.values()) assignScanFlags(lines, scan.bySku)
+    }
+  }
   let picks = pickPackRows([...linesByOrder.entries()].map(([orderId, lines]) => ({
     orderId,
     chargeDate: dateByOrder.get(orderId) ?? next[0]?.charge_date ?? '',
@@ -828,7 +839,9 @@ export async function priceStatementCharges(
       pickPack: {
         billed: false,
         rate: null,
-        reason: 'Pick is unknown. Order lines do not say whether the SKU must be scanned. The R/D prefix was not used, and no rate-card pick was substituted.',
+        reason: scanNote
+          ? `Pick is unknown. ${scanNote} No rate-card pick was substituted.`
+          : 'Pick is unknown. Order lines do not say whether the SKU must be scanned. The R/D prefix was not used, and no rate-card pick was substituted.',
       },
       error: null,
       freightReviews,

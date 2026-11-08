@@ -88,6 +88,8 @@ export interface ActivityCoverage {
   pickUnknownOrders: number
   picks: ActivityOrderPick[]
   peakNote: string
+  /** How the scan requirement was read. Empty when this price list does not use it. */
+  scanNote: string
 }
 
 export interface OrderActivity {
@@ -176,6 +178,7 @@ export function buildOrderActivity(input: {
   parcels: readonly ActivityParcel[]
   charges: readonly ActivityShippingCharge[]
   serials: readonly ActivitySerial[]
+  scanNote?: string
 }): OrderActivity {
   const chargeByKey = new Map(input.charges.map((charge) => [charge.chargeKey, charge]))
   const parcelsByOrder = new Map<string, ActivityParcel[]>()
@@ -301,6 +304,7 @@ export function buildOrderActivity(input: {
       pickUnknownOrders,
       picks,
       peakNote: peakOmissionNote(input.list, rows.map((row) => row.date ?? '')),
+      scanNote: input.scanNote ?? '',
     },
   }
 }

@@ -51,8 +51,10 @@ export default async function OrderActivityPage({
           20 scannable units plus 100 accessories are $21.50. 122 scannable units are $9.64.
           105 scannable units are $9.10, which is 5 × $1.50 + 5 × $0.32.
           400 accessories are $80. 100 accessories are $20. A line with no scan requirement is unknown.
-          Order lines do not store that flag. The Zenventory order read has it, and it is not kept here.
-          An R or D prefix is not used. The prefix total is not a verified client price.
+          Stored orders do not keep that flag, and a customer-order line does not carry it.
+          This current-derived preview reads Item.serialized from the Zenventory item list when that list is complete.
+          A missing, conflicting, or unread SKU stays unknown. An R or D prefix is not used, and a count of serials is not used.
+          The prefix total is not a verified client price. This preview is not a production bill.
           A full box in this rule is 20 scannable units. It is not the physical box material fee.
           Shipping is shown only when one parcel has one client price. A stored rate that
           disagrees with the ledger charge is left blank.
@@ -129,6 +131,7 @@ export default async function OrderActivityPage({
             <p className="mt-1">Parcels in the period with no matching order, not given a row: {activity.coverage.unmatchedParcels.length === 0 ? 'none' : activity.coverage.unmatchedParcels.join(', ')}.</p>
             <p className="mt-1">Shipping left blank because the stored rate and the ledger charge disagree: {activity.coverage.shippingConflicts.length === 0 ? 'none' : activity.coverage.shippingConflicts.join(', ')}.</p>
             <p className="mt-1">Shipping left blank because the order has more than one parcel: {activity.coverage.shippingAmbiguous.length === 0 ? 'none' : activity.coverage.shippingAmbiguous.join(', ')}.</p>
+            {activity.coverage.scanNote !== '' && <p className="mt-2">{activity.coverage.scanNote}</p>}
             {activity.coverage.peakNote !== '' && <p className="mt-2">{activity.coverage.peakNote}</p>}
             <p className="mt-2">The pick follows the stored price list. A different written schedule is not applied. Matching this list is not approval of another schedule.</p>
           </div>

@@ -13,6 +13,8 @@ import {
   type OrderActivity,
 } from '@/lib/pricing/order-activity'
 import type { PriceListDocument } from '@/lib/pricing/types'
+import { assignScanFlags } from '@/lib/pricing/scan-catalog'
+import { loadScanCatalog } from '@/lib/pricing/load-scan-catalog'
 
 const CHUNK = 150
 
@@ -148,8 +150,16 @@ export async function loadOrderActivity(
   }
 
   const list = await priceListFor(clientId, clientName)
+  let scanNote = ''
+  if (list?.devicePick && list.accessoryPick && !list.orderPick) {
+    const scan = await loadScanCatalog(clientName)
+    scanNote = scan.note
+    if (scan.ok) {
+      for (const order of orders) assignScanFlags(order.lines, scan.bySku)
+    }
+  }
   return {
-    activity: buildOrderActivity({ clientId, from, to, list, orders, parcels, charges, serials }),
+    activity: buildOrderActivity({ clientId, from, to, list, orders, parcels, charges, serials, scanNote }),
     error: null,
   }
 }
