@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { isPeakDate, pricePeak } from './engine'
 import { loadRepoPriceList } from './repo-price-lists'
 import {
   buildOrderActivity,
@@ -22,6 +23,25 @@ describe('order pick uses cartons', () => {
     expect(oneCarton.cartons).toBe(1)
     expect(oneCarton.amount).toBe(device.cartonRate)
     expect(oneCarton.amount).not.toBe(20 * device.remainderRate)
+  })
+
+  it('leaves November peak unknown because box is named and missing', () => {
+    const peak = list.peak!
+    for (const day of ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05']) {
+      expect(isPeakDate(day, peak.fromMonthDay, peak.toMonthDay)).toBe(true)
+      expect(isPeakDate(day, '10-15', '01-16')).toBe(true)
+    }
+    const priced = pricePeak(list, '2026-11-04', {
+      devicePick: 75.68,
+      accessoryPick: 148.6,
+      box: null,
+      receiving: null,
+      storage: null,
+      labour: null,
+      materials: null,
+    })
+    expect(priced.amount).toBeNull()
+    expect(priced.reasons.join(' ')).toContain('box')
   })
 })
 

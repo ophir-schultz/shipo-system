@@ -14,7 +14,7 @@
 import { priceOf } from '@/lib/billing/unpriced'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
 import { rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
-import { money, normalizeSku, pricePick } from '@/lib/pricing/engine'
+import { money, normalizeSku, peakOmissionNote, pricePick } from '@/lib/pricing/engine'
 import type { ClientReportRow } from '@/lib/pricing/client-report'
 import type { PriceListDocument, SkuQty } from '@/lib/pricing/types'
 
@@ -83,6 +83,7 @@ export interface ActivityCoverage {
   pickKnown: number | null
   pickUnknownOrders: number
   picks: ActivityOrderPick[]
+  peakNote: string
 }
 
 export interface OrderActivity {
@@ -278,6 +279,7 @@ export function buildOrderActivity(input: {
       pickKnown: pickKnown === 0 ? null : pickCents / 100,
       pickUnknownOrders,
       picks,
+      peakNote: peakOmissionNote(input.list, rows.map((row) => row.date ?? '')),
     },
   }
 }

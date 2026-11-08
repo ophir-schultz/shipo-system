@@ -3,7 +3,7 @@ import { readAllPages, type PageResult } from '@/lib/db/page'
 import { priceOf } from '@/lib/billing/unpriced'
 import { shipmentIdFromChargeKey } from '@/lib/billing/statement-detail'
 import type { StatementChargeRow } from '@/lib/billing/statement-charges'
-import { money, pricePick } from '@/lib/pricing/engine'
+import { money, peakOmissionNote, pricePick } from '@/lib/pricing/engine'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
 import { easternAddDays, easternMidnightIso, rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
 import { zenventorySlug } from '@/lib/zenventory/client-env'
@@ -824,9 +824,11 @@ export async function priceStatementCharges(
       order_id: order.orderId,
       charge_key: `pickpack-unknown:${order.orderId}`,
     }))
+    const peakNote = peakOmissionNote(list, picks.map((row) => row.charge_date))
+    if (peakNote) basisReviews.push(peakNote)
     return {
       charges: [...next, ...picks, ...unknownPicks],
-      pickPack: { billed: true, rate: null, reason: 'Pick & pack came from the price list, one order at a time, not from a stored ledger pick charge. An order the list does not price is unknown.' },
+      pickPack: { billed: true, rate: null, reason: 'Pick & pack came from the price list, one order at a time, not from a stored ledger pick charge. An order the list does not price is unknown. The price-list peak is not included.' },
       error: null,
       freightReviews,
       basisReviews,

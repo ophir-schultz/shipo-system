@@ -342,6 +342,21 @@ export function pricePeak(
   return part(money((basisCents / 100) * list.peak.pct / 100))
 }
 
+/**
+ * What to say when a pick total was built without calling pricePeak.
+ * No amount is returned. A named part that is unknown would make the
+ * surcharge itself unknown, so this does not propose a percentage of pick alone.
+ */
+export function peakOmissionNote(list: PriceListDocument | null, dates: readonly string[]): string {
+  if (!list?.peak) return ''
+  const inside = dates.filter((date) =>
+    date !== '' && isPeakDate(date, list.peak!.fromMonthDay, list.peak!.toMonthDay))
+  if (inside.length === 0) return ''
+  const names = list.peak.appliesTo.join(', ')
+  const boxNamed = list.peak.appliesTo.includes('box')
+  return `The price list names a ${list.peak.pct}% peak from ${list.peak.fromMonthDay} through ${list.peak.toMonthDay} on ${names}. ${inside.length} date(s) here are inside that window. The pick total does not include that peak. ${boxNamed ? 'Box is one of the named parts. With no box code, the peak function leaves the surcharge unknown. It does not use pick alone and it does not treat the missing box as zero.' : ''} This is not a waiver and not a charge.`
+}
+
 function partAmount(parts: WarehouseParts, key: PeakBasis): number | null {
   if (key === 'device_pick') return parts.devicePick
   if (key === 'accessory_pick') return parts.accessoryPick

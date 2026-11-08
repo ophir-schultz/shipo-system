@@ -123,6 +123,8 @@ export default async function OrderActivityPage({
             <p className="mt-1">Parcels in the period with no matching order, not given a row: {activity.coverage.unmatchedParcels.length === 0 ? 'none' : activity.coverage.unmatchedParcels.join(', ')}.</p>
             <p className="mt-1">Shipping left blank because the stored rate and the ledger charge disagree: {activity.coverage.shippingConflicts.length === 0 ? 'none' : activity.coverage.shippingConflicts.join(', ')}.</p>
             <p className="mt-1">Shipping left blank because the order has more than one parcel: {activity.coverage.shippingAmbiguous.length === 0 ? 'none' : activity.coverage.shippingAmbiguous.join(', ')}.</p>
+            {activity.coverage.peakNote !== '' && <p className="mt-2">{activity.coverage.peakNote}</p>}
+            <p className="mt-2">The pick follows the stored price list. A different written schedule is not applied. Matching this list is not approval of another schedule.</p>
           </div>
           <div className="overflow-x-auto rounded-xl bg-white p-5">
             <table className="min-w-full text-sm">
