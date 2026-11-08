@@ -1,5 +1,6 @@
 import axios, { AxiosError } from 'axios'
 import { legacyMissReason, legacyOrderId, matchLegacyOrders } from '@/lib/scan/legacy-orders'
+import { readCustomerOrder } from '@/lib/scan/order-lines'
 
 // Zenventory has TWO APIs on two DIFFERENT paths. Neither of them is /api —
 // that path does not exist on the host and returns an Apache HTML 404 page,
@@ -11,11 +12,20 @@ const BASE_URL = 'https://app.zenventory.com/rest'
 // Legacy REST API — SecureKey header (endpoints not present in API 2.0)
 const LEGACY_BASE_URL = 'https://app.zenventory.com/services/rest'
 
-function makeClient(apiKey: string, apiSecret: string) {
+/** Basic header for API 2.0. The value is the key, then the secret, UTF-8. */
+export function v2Authorization(apiKey: string, apiSecret: string): string {
+  return 'Basic ' + Buffer.from(`${apiKey}:${apiSecret}`, 'utf8').toString('base64')
+}
+
+function makeClient(apiKey: string, apiSecret: string, baseURL = BASE_URL) {
+  // No Content-Type on these GETs. A JSON content type is for a body, and the
+  // read that returns the Nayax order does not send one.
   return axios.create({
-    baseURL: BASE_URL,
-    auth: { username: apiKey, password: apiSecret },
-    headers: { 'Content-Type': 'application/json' },
+    baseURL,
+    headers: {
+      Accept: 'application/json',
+      Authorization: v2Authorization(apiKey, apiSecret),
+    },
     timeout: 15000,
   })
 }
@@ -82,6 +92,41 @@ export async function getInventory(
       params: { page: params?.page ?? 1, perPage: params?.perPage ?? 1 },
     })
     return res.data
+  } catch (err) {
+    throw new Error(`Zenventory API error: ${extractError(err)}`)
+  }
+}
+
+/**
+ * The scan read. The first request is the bare GET that returns this
+ * account's order. A filtered GET is a second read only when that page
+ * does not contain the number. A 401 on the bare GET stops there.
+ */
+export async function getScanCustomerOrder(
+  apiKey: string,
+  apiSecret: string,
+  orderRef: string,
+  baseURL = BASE_URL,
+): Promise<unknown> {
+  const c = makeClient(apiKey, apiSecret, baseURL)
+  let listed: unknown
+  try {
+    listed = (await c.get('/customer-orders')).data
+  } catch (err) {
+    throw new Error(`Zenventory API error: ${extractError(err)}`)
+  }
+  const read = readCustomerOrder(listed, orderRef)
+  if (read.ok || !read.reason.startsWith('No order matches')) return listed
+  try {
+    const filtered = await c.get('/customer-orders', {
+      params: {
+        page: 1,
+        perPage: 100,
+        orderNumber: orderRef,
+        orderNumberConditional: 'matches',
+      },
+    })
+    return filtered.data
   } catch (err) {
     throw new Error(`Zenventory API error: ${extractError(err)}`)
   }

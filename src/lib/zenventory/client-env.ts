@@ -54,11 +54,18 @@ export interface ZenventoryEnvCredentials {
    * the secure variable is unset. Null means the pick cannot be sent.
    */
   secureKey: string | null
+  /** Env name that supplied the key. A name, never the value. */
+  keySource: string
+  /** Env name that supplied the secret. A name, never the value. */
+  secretSource: string
 }
 
 function present(value: string | undefined): string | null {
   if (typeof value !== 'string') return null
-  const trimmed = value.trim()
+  let trimmed = value.trim().replace(/^\uFEFF/, '')
+  const quoted = (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  if (quoted && trimmed.length >= 2) trimmed = trimmed.slice(1, -1).trim()
   return trimmed === '' ? null : trimmed
 }
 
@@ -120,6 +127,8 @@ export function readZenventoryClientCredentials(
       apiKey: apiKey.value,
       apiSecret: apiSecret.value,
       secureKey,
+      keySource: apiKey.label,
+      secretSource: apiSecret.label,
     },
   }
 }
@@ -163,6 +172,8 @@ export function readOrderReadCredentials(
       apiKey: apiKey.value ?? '',
       apiSecret: apiSecret.value ?? '',
       secureKey: dedicatedSecure.value,
+      keySource: apiKey.label,
+      secretSource: apiSecret.label,
     },
   }
 }

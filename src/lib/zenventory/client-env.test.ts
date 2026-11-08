@@ -141,6 +141,41 @@ describe('per-client Zenventory env credentials', () => {
     expect(read.credentials.secureKey).not.toBe(read.credentials.apiSecret)
   })
 
+  it('strips a file-upload wrapper and keeps a clean key unchanged', () => {
+    const quoted = readOrderReadCredentials('Nayax', {
+      ZEN_NAYAX_KEY: '"fixture-key"',
+      ZEN_NAYAX_SECRET: "'fixture-secret'\n",
+      ZEN_NAYAX_SECURE: '\uFEFFfixture-secure',
+    })
+    expect(quoted.ok).toBe(true)
+    if (!quoted.ok) return
+    expect(quoted.credentials.apiKey).toBe('fixture-key')
+    expect(quoted.credentials.apiSecret).toBe('fixture-secret')
+    expect(quoted.credentials.secureKey).toBe('fixture-secure')
+    expect(quoted.credentials.keySource).toBe('ZEN_NAYAX_KEY')
+    expect(quoted.credentials.secretSource).toBe('ZEN_NAYAX_SECRET')
+
+    const clean = readOrderReadCredentials('Nayax', {
+      ZEN_NAYAX_KEY: 'fixture-key',
+      ZEN_NAYAX_SECRET: 'fixture-secret',
+    })
+    expect(clean.ok).toBe(true)
+    if (!clean.ok) return
+    expect(clean.credentials.apiKey).toBe('fixture-key')
+    expect(clean.credentials.apiSecret).toBe('fixture-secret')
+  })
+
+  it('names the legacy variables when those are the ones set', () => {
+    const read = readOrderReadCredentials('Nayax', {
+      ZENVENTORY_KEY_NAYAX: 'old-key',
+      ZENVENTORY_SECRET_NAYAX: 'old-secret',
+    })
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.credentials.keySource).toBe('ZENVENTORY_KEY_NAYAX')
+    expect(read.credentials.secretSource).toBe('ZENVENTORY_SECRET_NAYAX')
+  })
+
   it('says not configured when the client has no slug', () => {
     const read = readZenventoryClientCredentials('Unknown Co', {
       ZEN_UNKNOWN_KEY: 'key',

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { requireStaff } from '@/lib/require-staff'
-import { getCustomerOrders, getLegacyCustomerOrder } from '@/lib/api/zenventory'
+import { getLegacyCustomerOrder, getScanCustomerOrder } from '@/lib/api/zenventory'
 import { readOrderReadCredentials, zenventoryEnvNames } from '@/lib/zenventory/client-env'
 import { loadScanOrder } from '@/lib/scan/load-order'
 import { readCustomerOrder } from '@/lib/scan/order-lines'
@@ -64,11 +64,7 @@ export async function GET(req: Request) {
     orderRef,
     credentials: creds.credentials,
     secureLabel: `${names.secure} or ${names.legacySecure}`,
-    readV2: (apiKey, apiSecret) => getCustomerOrders(apiKey, apiSecret, {
-      page: 1,
-      perPage: 100,
-      orderNumber: orderRef,
-    }),
+    readV2: (apiKey, apiSecret) => getScanCustomerOrder(apiKey, apiSecret, orderRef),
     readLegacy: (secureKey) => getLegacyCustomerOrder(secureKey, orderRef),
   })
   if (!loaded.loaded) {
@@ -77,7 +73,9 @@ export async function GET(req: Request) {
       lines: null,
       secureConfigured: creds.credentials.secureKey != null,
       source: null,
-      reason: loaded.reason,
+      reason: `${loaded.reason} API 2.0 used ${creds.credentials.keySource} and ${creds.credentials.secretSource}.`
+        + (process.env.VERCEL_DEPLOYMENT_ID ? ` Deployment ${process.env.VERCEL_DEPLOYMENT_ID}.` : '')
+        + (process.env.VERCEL_GIT_COMMIT_SHA ? ` Build ${process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7)}.` : ''),
     }, { status: 502 })
   }
   const body = loaded.body

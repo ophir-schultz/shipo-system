@@ -9,7 +9,14 @@ const h = vi.hoisted(() => ({
   legacy: vi.fn(),
   creds: {
     ok: true as boolean,
-    credentials: { slug: 'NAYAX', apiKey: 'fixture-key', apiSecret: 'fixture-secret', secureKey: null as string | null },
+    credentials: {
+      slug: 'NAYAX',
+      apiKey: 'fixture-key',
+      apiSecret: 'fixture-secret',
+      secureKey: null as string | null,
+      keySource: 'ZEN_NAYAX_KEY',
+      secretSource: 'ZEN_NAYAX_SECRET',
+    },
     notice: '',
   },
 }))
@@ -27,7 +34,7 @@ vi.mock('@/lib/supabase', () => ({
   },
 }))
 vi.mock('@/lib/api/zenventory', () => ({
-  getCustomerOrders: h.orders,
+  getScanCustomerOrder: h.orders,
   getLegacyCustomerOrder: h.legacy,
 }))
 vi.mock('@/lib/zenventory/client-env', () => ({
@@ -56,7 +63,14 @@ beforeEach(() => {
   h.legacy.mockReset()
   h.creds = {
     ok: true,
-    credentials: { slug: 'NAYAX', apiKey: 'fixture-key', apiSecret: 'fixture-secret', secureKey: null },
+    credentials: {
+      slug: 'NAYAX',
+      apiKey: 'fixture-key',
+      apiSecret: 'fixture-secret',
+      secureKey: null,
+      keySource: 'ZEN_NAYAX_KEY',
+      secretSource: 'ZEN_NAYAX_SECRET',
+    },
     notice: '',
   }
   h.client = { data: { id: 'c1', name: 'Nayax' }, error: null }
@@ -85,11 +99,7 @@ describe('GET /api/scan/order', () => {
     const text = JSON.stringify(body)
     expect(text).not.toContain('fixture-key')
     expect(text).not.toContain('fixture-secret')
-    expect(h.orders).toHaveBeenCalledWith('fixture-key', 'fixture-secret', {
-      page: 1,
-      perPage: 100,
-      orderNumber: 'SO-100',
-    })
+    expect(h.orders).toHaveBeenCalledWith('fixture-key', 'fixture-secret', 'SO-100')
   })
 
   it('reads the legacy order when API 2.0 returns 401 and does not send the secret as the key', async () => {
@@ -136,6 +146,10 @@ describe('GET /api/scan/order', () => {
     expect(body.loaded).toBe(false)
     expect(body.lines).toBeNull()
     expect(body.reason).toContain('401')
+    expect(body.reason).toContain('ZEN_NAYAX_KEY')
+    expect(body.reason).toContain('ZEN_NAYAX_SECRET')
+    expect(body.reason).not.toContain('fixture-key')
+    expect(body.reason).not.toContain('fixture-secret')
   })
 
   it('rejects a caller who is not staff before reading the order', async () => {
