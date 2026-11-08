@@ -15,7 +15,7 @@ export async function syncClientAssignments(daysBack = 30) {
   // Load all active clients that have Zenventory credentials
   const { data: clients, error: clientsErr } = await supabaseAdmin
     .from('clients')
-    .select('id, name')
+    .select('id, name, zenventory_api_key, zenventory_api_secret')
     .eq('active', true)
 
   // The error is raised separately from the empty case on purpose. This query
@@ -111,7 +111,12 @@ export async function syncClientAssignments(daysBack = 30) {
   const notConfigured: string[] = []
 
   for (const client of clients) {
-    const creds = readZenventoryClientCredentials(client.name ?? '')
+    const creds = readZenventoryClientCredentials(client.name ?? '', process.env, {
+      stored: {
+        apiKey: client.zenventory_api_key,
+        apiSecret: client.zenventory_api_secret,
+      },
+    })
     if (!creds.ok) {
       notConfigured.push(creds.notice)
       continue

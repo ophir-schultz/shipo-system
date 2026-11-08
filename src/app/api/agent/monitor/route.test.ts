@@ -141,6 +141,20 @@ describe('GET /api/agent/monitor: per-item sync failures reach has_issues', () =
     expect(body.log).toContain('✓ Client mapping: 12 shipments assigned')
   })
 
+  it('does not call an unconfigured Zenventory client a successful mapping', async () => {
+    const body = await run({
+      ...cleanClientResult,
+      updated: 0,
+      clients_synced: 0,
+      clients_not_configured: 2,
+      not_configured: ['Orcam Zenventory is not configured. Missing ZEN_ORCAM_KEY.'],
+    })
+    expect(body.has_issues).toBe(true)
+    expect(body.log.some((line) => line.startsWith('✓ Client mapping'))).toBe(false)
+    expect(body.errors.some((line) => line.includes('no per-client key'))).toBe(true)
+    expect(body.errors.join(' ')).toContain('A global API key is not used')
+  })
+
   it('sets has_issues on items_failed alone, with clients_failed still zero', async () => {
     // THE PRODUCTION CASE, end to end. One lost shipment assignment inside a
     // client that otherwise synced: clients_failed is 0, which is what used to
