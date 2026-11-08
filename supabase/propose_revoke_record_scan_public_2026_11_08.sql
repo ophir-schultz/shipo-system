@@ -5,6 +5,9 @@
 -- The live scan route calls record_scan_claimed. This file does not
 -- replace either function, does not grant anything, and does not
 -- touch record_scan_claimed.
+-- Product scope, 2026-11-08: serialization scan and pick are Nayax
+-- only. This revoke does not enforce that. Creative Pea and every
+-- other client stay outside scan and pick.
 -- It would revoke EXECUTE from public, anon, and authenticated.
 -- service_role and the owner stay able to call it.
 -- This ends in ROLLBACK. The production approval does not approve it.
