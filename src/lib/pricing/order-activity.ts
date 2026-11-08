@@ -71,6 +71,8 @@ export interface ActivityOrderPick {
   cartons: number
   remainder: number
   accessoryUnits: number
+  /** Cartons times the carton rate, leftover times the remainder rate, other units times their rate. */
+  rateLabel: string
   amount: number | null
 }
 
@@ -212,12 +214,19 @@ export function buildOrderActivity(input: {
     if (date < input.from || date > input.to) continue
 
     const parts = orderPickParts(input.list, order.lines.map((line) => ({ sku: line.sku, qty: line.qty })))
+    const deviceRate = input.list?.devicePick
+    const otherRate = input.list?.accessoryPick
+    const rateLabel = deviceRate
+      ? `${parts.cartons} × ${deviceRate.cartonRate.toFixed(2)} + ${parts.remainder} × ${deviceRate.remainderRate.toFixed(2)}`
+        + (otherRate ? ` + ${parts.accessoryUnits} × ${otherRate.unitRate.toFixed(2)}` : '')
+      : ''
     picks.push({
       orderNumber: number,
       deviceUnits: parts.deviceUnits,
       cartons: parts.cartons,
       remainder: parts.remainder,
       accessoryUnits: parts.accessoryUnits,
+      rateLabel,
       amount: parts.amount,
     })
     if (parts.amount == null) pickUnknownOrders += 1

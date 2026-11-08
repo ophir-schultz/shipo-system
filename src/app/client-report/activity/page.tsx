@@ -46,12 +46,14 @@ export default async function OrderActivityPage({
         <h2 className="text-2xl font-bold">Order activity</h2>
         <p className="mt-1 text-sm text-[#3A4658]">
           One row per order, using the same 16 columns as the imported workbook.
-          This is not that workbook. Pick is the price list applied to each order:
-          whole cartons at the carton rate, leftover device units at the remainder rate,
-          and other units at the accessory rate. A reading that prices every device unit
-          at the remainder rate is higher by the carton difference, and it is not the amount used here.
+          This is not that workbook. Device pick is per order: a full box is 20 device units at $1.50.
+          100 units are $7.50. 122 units are 6 × $1.50 plus 2 × $0.32, which is $9.64.
+          20 units are $1.50. 19 units are $6.08. 0 units are $0.
+          That full box is a count of device units. It is not the physical box material fee.
+          Material stays blank without a box code. Other SKUs keep their own rate.
+          This does not reclassify them and does not add a peak percentage.
           Shipping is shown only when one parcel has one client price. A stored rate that
-          disagrees with the ledger charge is left blank. Material is blank until a box code is known.
+          disagrees with the ledger charge is left blank.
           A blank is unknown, not zero, and it is not a final total.
         </p>
         <p className="mt-2 text-sm">
@@ -101,7 +103,8 @@ export default async function OrderActivityPage({
                       <th className="py-1 pr-2 text-right">Cartons</th>
                       <th className="py-1 pr-2 text-right">Remainder</th>
                       <th className="py-1 pr-2 text-right">Other units</th>
-                      <th className="py-1 text-right">Pick</th>
+                      <th className="py-1 pr-2">Rate</th>
+                      <th className="py-1 text-right">Charge</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -112,6 +115,7 @@ export default async function OrderActivityPage({
                         <td className="py-1 pr-2 text-right">{pick.cartons}</td>
                         <td className="py-1 pr-2 text-right">{pick.remainder}</td>
                         <td className="py-1 pr-2 text-right">{pick.accessoryUnits}</td>
+                        <td className="py-1 pr-2">{pick.rateLabel || 'Unknown'}</td>
                         <td className="py-1 text-right">{pick.amount == null ? 'Unknown' : `$${pick.amount.toFixed(2)}`}</td>
                       </tr>
                     ))}

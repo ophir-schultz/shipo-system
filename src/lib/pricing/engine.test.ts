@@ -59,6 +59,18 @@ function list(over: Partial<PriceListDocument> = {}): PriceListDocument {
 }
 
 describe('pricePick', () => {
+  it('follows the confirmed device box of 20 at 1.50 and leftover units at 0.32', () => {
+    const card = list()
+    const device = (qty: number) => pricePick(card, [{ sku: 'R1', qty }]).amount
+    expect(device(100)).toBe(7.5)
+    expect(device(122)).toBe(9.64)
+    expect(device(20)).toBe(1.5)
+    expect(device(19)).toBe(6.08)
+    expect(device(0)).toBe(0)
+    expect(pricePick(card, []).amount).toBe(0)
+    expect(pricePick(card, [{ sku: 'C1', qty: 122 }]).amount).toBe(24.4)
+  })
+
   it('bills full cartons at the carton rate and the remainder at the unit rate', () => {
     const priced = pricePick(list(), [
       { sku: 'R144GUSY01S10', qty: 30 },
