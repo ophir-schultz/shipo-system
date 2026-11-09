@@ -8,9 +8,10 @@ import {
 import { billableWarehouse } from '@/lib/billing/warehouse-card-lines'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
 import {
-  reconcile, combineReconciled, reconciledOrUnknown, marginPct, exclusionNote,
+  reconcile, combineReconciled, reconciledOrUnknown, marginPct,
   excludedCount, invoiceableRevenue, otherIncome,
 } from '@/lib/billing/profit-rollup'
+import { staffMarginWarning, summarizeRateGaps } from '@/lib/billing/dashboard-gap'
 import { read, readErrors, type Read } from '@/lib/db/read'
 import { readAllPages } from '@/lib/db/page'
 import {
@@ -30,6 +31,9 @@ interface PeriodRow {
   actual_cost: number | null
   client_rate: number | null
   profit_loss: number | null
+  client_id?: string | null
+  zone?: number | null
+  raw_data?: unknown
 }
 interface ShipmentTotalsRow extends PeriodRow {
   is_loss: boolean | null
@@ -223,7 +227,7 @@ async function getDashboardData() {
     // code having changed. See the header of src/lib/db/page.ts.
     readAllPages<ShipmentTotalsRow>((from, to) =>
       supabaseAdmin.from('shipments')
-        .select('actual_cost, client_rate, profit_loss, is_loss, raw_data')
+        .select('actual_cost, client_rate, profit_loss, is_loss, client_id, zone, raw_data')
         .order('id').range(from, to)),
     // NOT paged, deliberately: this is the worst-50 list, and `.limit(50)` is
     // the answer rather than a truncation of it.
@@ -233,13 +237,13 @@ async function getDashboardData() {
       .select('order_number, client_id, actual_cost, client_rate, profit_loss, clients(name), ship_date, carrier, service, tracking_number, raw_data')
       .eq('is_loss', true).order('profit_loss', { ascending: true }).limit(50),
     readAllPages<PeriodRow>((from, to) =>
-      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, raw_data')
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, client_id, zone, raw_data')
         .gte('ship_date', weekInstant).order('id').range(from, to)),
     readAllPages<PeriodRow>((from, to) =>
-      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, raw_data')
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, client_id, zone, raw_data')
         .gte('ship_date', monthInstant).order('id').range(from, to)),
     readAllPages<PeriodRow>((from, to) =>
-      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, raw_data')
+      supabaseAdmin.from('shipments').select('actual_cost, client_rate, profit_loss, client_id, zone, raw_data')
         .gte('ship_date', yearInstant).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('rate_adjustments')
       .select('id, order_number, adjustment_amount, reason, adjustment_date, client_id, clients(name)')
@@ -257,7 +261,7 @@ async function getDashboardData() {
     // and that is precisely why it is paged now rather than when it breaks.
     readAllPages<ClientMonthRow>((from, to) =>
       supabaseAdmin.from('shipments')
-        .select('client_id, actual_cost, client_rate, profit_loss, is_loss, clients(name), raw_data')
+        .select('client_id, actual_cost, client_rate, profit_loss, is_loss, zone, clients(name), raw_data')
         .gte('ship_date', monthInstant).order('id').range(from, to)),
     readAllPages((from, to) => supabaseAdmin.from('warehouse_daily_log')
       .select('client_id, total, notes').gte('log_date', monthStart).order('id').range(from, to)),
@@ -352,7 +356,10 @@ async function getDashboardData() {
       unrated: unreadable ? 0 : r.unrated,
       uncosted: unreadable ? 0 : r.uncosted,
       unmeasured: unreadable ? 0 : r.unmeasured,
-      exclusions: unreadable ? '' : exclusionNote(r),
+      // One note. The costed rows with a null rate used to be printed as
+      // unrated, again as the exclusion sentence, and again as unpriced
+      // billable revenue. Those three counts are the same shipments.
+      exclusions: unreadable ? '' : staffMarginWarning(r, summarizeRateGaps(shipments.rows)),
       // Rows whose stored `profit_loss` disagrees with rate minus cost. The
       // old profit line WAS that column, so this count is a measure of how
       // wrong the figure this change replaces actually was.
@@ -396,6 +403,10 @@ async function getDashboardData() {
   const breakdownTotal = combineReconciled(
     ...clientBreakdown.map(c => c.rollup))
   const breakdownKnown = reconciledOrUnknown(breakdownTotal)
+  const breakdownClientIds = new Set(clientBreakdown.map(c => c.id))
+  const breakdownGaps = summarizeRateGaps(
+    clientShipments.rows.filter((shipment) =>
+      shipment.client_id != null && breakdownClientIds.has(shipment.client_id)))
   // combinePriced() of nothing is a counted-nothing, which totalOrUnknown
   // correctly calls a real 0 -- a month with no warehouse lines billed none.
   const breakdownWarehouse = combinePriced(
@@ -431,7 +442,9 @@ async function getDashboardData() {
     breakdownProfitTotal: breakdownKnown.profit,
     breakdownMarginPct: marginPct(breakdownTotal),
     breakdownExcluded: excludedCount(breakdownTotal),
-    breakdownExclusions: exclusionNote(breakdownTotal),
+    // Same rows the footer total reconciled. A shipment with no client is on
+    // the month card and not in any client row, so the footer does not claim it.
+    breakdownExclusions: staffMarginWarning(breakdownTotal, breakdownGaps),
     breakdownWarehouseTotal: totalOrUnknown(breakdownWarehouse),
     breakdownWarehouseUnpriced: breakdownWarehouse.unpriced,
   }
@@ -936,11 +949,8 @@ function PeriodCard({ title, p }: { title: string; p: PeriodFigures }) {
             <p className="text-[#6B7A8D] text-xs pt-1">
               Over {p.reconciled} of {p.shipments} shipments
             </p>
-            {p.unrated > 0 && (
-              <p className="text-amber-700 text-xs">
-                Excluded this period: {p.unrated} unrated shipment{p.unrated === 1 ? '' : 's'} with no agreed rate. That cost is left out of the margin. It is not $0.
-              </p>
-            )}
+            {/* One warning. The null-rate rows are a single cohort, so this
+                does not also print them as unrated and again as unpriced. */}
             <p className="text-amber-700 text-xs">⚠ {p.exclusions}</p>
           </>
         )}
@@ -954,10 +964,6 @@ function PeriodCard({ title, p }: { title: string; p: PeriodFigures }) {
             <span className="text-[#3A4658]">{formatPrice(p.billable)}</span>
           </div>
         )}
-        {p.billableUnpriced > 0 && (
-          <p className="text-amber-700 text-xs">⚠ {unpricedNote(p.billableUnpriced)}</p>
-        )}
-
         {/* Below the rule and outside the margin, which is the entire point of
             this line. Folded into revenue -- where it used to live -- every
             warehouse dollar widened the gap between the revenue and cost
