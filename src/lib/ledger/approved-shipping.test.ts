@@ -116,6 +116,22 @@ describe('approved zone shipping', () => {
 })
 
 describe('manual full freight', () => {
+  it('does not add a second charge when Nayax shipping is already the zone rate', () => {
+    const result = retainApprovedShipping(
+      [built({ amount: 24.24, unit_rate: 24.24, source: 'rate_card', cost: 17.52 })],
+      [],
+      [manual],
+    )
+    expect(shipping(result.charges)).toHaveLength(1)
+    expect(shipping(result.charges)[0]).toMatchObject({
+      amount: 24.24,
+      unit_rate: 24.24,
+      source: 'rate_card',
+    })
+    expect(result.flags.join('\n')).toMatch(/already has a unit rate/)
+    expect(result.flags.join('\n')).not.toMatch(/second charge/)
+  })
+
   it('keeps one shipping charge and does not add an at-cost duplicate', () => {
     const atCost = built()
     const first = retainApprovedShipping([atCost], [], [manual])

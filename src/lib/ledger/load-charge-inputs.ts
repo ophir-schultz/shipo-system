@@ -3,6 +3,7 @@ import { readAllPages, type PageResult } from '@/lib/db/page'
 import { classifySku } from '@/lib/billing/classify-sku'
 import { easternAddDays, easternMidnightIso, shipCalendarDay } from '@/lib/ledger/eastern-day'
 import { shipmentInChargeWindow } from '@/lib/ledger/charge-window'
+import { zenventorySlug } from '@/lib/zenventory/client-env'
 import type { ChargeInput } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
 
@@ -145,6 +146,7 @@ interface ShipmentRow {
   order_number: string | null
   ship_date: string | null
   actual_cost: number | string | null
+  client_rate: number | string | null
   raw_data: Record<string, unknown> | null
 }
 interface RateRow {
@@ -202,6 +204,21 @@ export async function loadChargeInputs(
 
   if (orders.length === 0) return []
 
+  const clientIds = [...new Set(orders.flatMap((order) => order.client_id ? [order.client_id] : []))]
+  const nayaxIds = new Set<string>()
+  if (clientIds.length > 0) {
+    const clientRows = await fetchAllPages<{ id: string; name: string | null }>('clients', (from, to) =>
+      supabaseAdmin
+        .from('clients')
+        .select('id, name')
+        .in('id', clientIds)
+        .order('id', { ascending: true })
+        .range(from, to))
+    for (const row of clientRows) {
+      if (zenventorySlug(row.name ?? '') === 'NAYAX') nayaxIds.add(row.id)
+    }
+  }
+
   const items: ItemRow[] = []
   for (const ids of chunk(orders.map((o) => o.id), IN_CHUNK)) {
     items.push(...await fetchAllPages<ItemRow>('order_items', (from, to) =>
@@ -242,7 +259,7 @@ export async function loadChargeInputs(
     shipments.push(...await fetchAllPages<ShipmentRow>('shipments', (from, to) =>
       supabaseAdmin
         .from('shipments')
-        .select('id, client_id, shipstation_shipment_id, order_number, ship_date, actual_cost, raw_data')
+        .select('id, client_id, shipstation_shipment_id, order_number, ship_date, actual_cost, client_rate, raw_data')
         .in('order_number_key', batch)
         .order('id', { ascending: true })
         .range(from, to)))
@@ -400,6 +417,7 @@ export async function loadChargeInputs(
         // defaults to false, so a null here means "not cancelled", not
         // "unknown" — there is no third state to preserve.
         cancelled: o.cancelled === true,
+        billStoredClientRate: o.client_id != null && nayaxIds.has(o.client_id),
       },
       items: (itemsByOrder.get(o.id) ?? [])
         .filter((it) => !shipmentOnly.has(o.id)
@@ -440,6 +458,7 @@ export async function loadChargeInputs(
         // Existing charge_date rows are not rewritten here.
         shipDate: warehouseDate(s.ship_date, s.raw_data?.shipDate),
         actualCost: num(s.actual_cost),
+        clientRate: num(s.client_rate),
         // ShipStation reports a void on the shipment payload. There is no
         // column for it yet, so it is read from raw_data. Presence, not
         // truthiness, for the date fields: they hold a date string when voided
