@@ -345,9 +345,11 @@ export function fmtMonth(s: string | null): string {
  *      operating_costs has a month that order_charges does not, which is what
  *      you get the moment September's rent is entered before the charge
  *      calculator has run for September -- or every charge in the month has a
- *      null `amount` (at-cost freight whose carrier has not reported yet).
- *      In the first case all three *_rows counts are > 0, so the "missing
- *      category" branch below finds nothing to name.
+ *      null `amount`. A null amount is a charge with no selling price. That
+ *      is not the same fact as at-cost freight whose carrier has not
+ *      reported, and it is not a free shipment. In the first case all three
+ *      *_rows counts are > 0, so the "missing category" branch below finds
+ *      nothing to name.
  *  (b) one or more of o.overhead / o.direct_labor / o.direct_storage is null,
  *      each being a `sum(...) filter (...)` that matched no row.
  *
@@ -369,13 +371,34 @@ export function netProfitUnavailableReason(row: MonthlyRow): string {
   // (a) first: on an overhead-only row every r.* column is null, and blaming a
   // cost category there would state a false cause beside a row of em-dashes.
   if (row.revenue === null) {
+    const unpriced = (row.revenue_unknown_charges ?? 0) > 0
+      ? ' Every charge is unpriced, so the carrier cost is not a loss'
+      : ''
     if (noCostsAtAll) {
-      return `no billed revenue and no operating costs recorded for ${month}`
+      return `no billed revenue and no operating costs recorded for ${month}.${unpriced}`
     }
     if (missing.length > 0) {
-      return `no billed revenue recorded for ${month}, and no ${missing.join(', ')} cost either`
+      return `no billed revenue recorded for ${month}, and no ${missing.join(', ')} cost either.${unpriced}`
     }
-    return `no billed revenue recorded for ${month}`
+    return `no billed revenue recorded for ${month}.${unpriced}`
+  }
+
+  // A partly priced month. sum(amount) skipped the blank prices, but
+  // sum(cost) kept their carrier cost, so the view's net is not a loss
+  // and must not be printed as one. Say so even when operating costs are
+  // also missing, because "no operating costs" alone leaves the carrier
+  // cost looking like the hole.
+  const unpricedCharges = row.revenue_unknown_charges ?? 0
+  if (unpricedCharges > 0) {
+    const charges = unpricedCharges === 1
+      ? '1 charge has no price'
+      : `${unpricedCharges} charges have no price`
+    const unpriced = `${charges} on the ledger, so net profit is unknown and their carrier cost is not a loss`
+    if (noCostsAtAll) return `${unpriced}, and no operating costs entered for ${month}`
+    if (missing.length > 0) {
+      return `${unpriced}, and no ${missing.join(', ')} cost recorded for ${month}`
+    }
+    return `${unpriced} for ${month}`
   }
 
   // (b)
@@ -390,15 +413,132 @@ export function netProfitUnavailableReason(row: MonthlyRow): string {
 }
 
 /**
+ * What the ledger may print in a Gross Margin cell.
+ *
+ * `pnl_monthly.gross_margin` and `pnl_client_monthly.gross_margin` are
+ * `sum(amount) - coalesce(sum(cost), 0)`. `sum(amount)` skips a null price.
+ * `sum(cost)` does not skip the carrier cost of that same row. When any
+ * charge has no price, the column is known revenue minus every known
+ * carrier cost, including costs that have no selling price. That is not a
+ * margin and it is not a loss. The screen prints "unknown" instead.
+ *
+ * A null cost is the other hole, and it biases the other way: `sum(cost)`
+ * skips it, so a month whose prices are all known still reads high until
+ * those carrier costs arrive. That number may be shown, with that caveat.
+ * It must not be described as "unpriced charges treated as free".
+ */
+export interface PresentedMargin {
+  /** Null means print "unknown", never a dollar figure. */
+  amount: number | null
+  unknownRevenueCharges: number
+  unknownCostCharges: number
+  /** Why the figure is withheld, or why a shown figure is still incomplete. */
+  note: string | null
+}
+
+function knownCount(n: number | null | undefined): number {
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
+}
+
+/**
+ * The margin a staff ledger cell may print.
+ *
+ * Call this instead of rendering `row.gross_margin`. The raw column stays
+ * on the row so a reader of the view can see what the database computed;
+ * printing it while `unknownRevenueCharges` is positive is how the ledger
+ * showed September, October and November as losses.
+ */
+export function presentGrossMargin(row: {
+  gross_margin: number | null
+  revenue_unknown_charges: number | null
+  cost_unknown_charges: number | null
+}): PresentedMargin {
+  const unknownRevenueCharges = knownCount(row.revenue_unknown_charges)
+  const unknownCostCharges = knownCount(row.cost_unknown_charges)
+
+  if (unknownRevenueCharges > 0) {
+    const charges = unknownRevenueCharges === 1
+      ? '1 charge has no price on the ledger'
+      : `${unknownRevenueCharges} charges have no price on the ledger`
+    const missingCost = unknownCostCharges > 0
+      ? ` ${unknownCostCharges === 1 ? '1 charge also has' : `${unknownCostCharges} charges also have`} no carrier cost yet.`
+      : ''
+    return {
+      amount: null,
+      unknownRevenueCharges,
+      unknownCostCharges,
+      note: `${charges}, so margin is unknown. Their carrier cost is not a loss. `
+        + `A negative number in this column used to subtract that carrier cost from known revenue. `
+        + `That number was not money lost on priced work.${missingCost}`,
+    }
+  }
+
+  if (unknownCostCharges > 0) {
+    return {
+      amount: row.gross_margin,
+      unknownRevenueCharges: 0,
+      unknownCostCharges,
+      note: unknownCostCharges === 1
+        ? '1 charge has no carrier cost yet. This margin leaves that cost out, so it reads high until the carrier cost arrives.'
+        : `${unknownCostCharges} charges have no carrier cost yet. This margin leaves those costs out, so it reads high until the carrier costs arrive.`,
+    }
+  }
+
+  return {
+    amount: row.gross_margin,
+    unknownRevenueCharges: 0,
+    unknownCostCharges: 0,
+    note: null,
+  }
+}
+
+/** Caption above the monthly P&L table. */
+export const MONTHLY_PNL_CAPTION =
+  'Gross margin is a dollar amount only when every charge in the month has a price. '
+  + 'If any charge has no price, margin is unknown: the carrier cost of those charges is money paid to the carrier, not a loss, and it is not subtracted here. '
+  + 'The red negative numbers this column used to show were that carrier cost set against known revenue. They were not actual losses. '
+  + 'When every price is known but some carrier costs are still missing, the margin leaves those costs out and reads high until they arrive. '
+  + 'The “? charges” mark beside Revenue means the selling price is blank. The same mark beside a shown margin means the carrier cost is blank. '
+  + 'Overhead, direct labor and direct storage are the operating costs subtracted from gross margin to reach net profit; an “unknown” there is a category with no row for the month, not a zero.'
+
+/** Caption above the per-client P&L table. */
+export const CLIENT_PNL_CAPTION =
+  'Gross margin only — overheads are not allocated to individual clients. '
+  + 'Margin is unknown when any charge in the row has no price. That unknown is not a loss: the old negative figure subtracted the carrier cost of those unpriced charges from known revenue. '
+  + 'The “? charges” mark beside Revenue counts charges with a blank price. A shown margin with that mark beside it is missing carrier cost and reads high until the cost arrives.'
+
+/**
+ * Tooltip for the “+N?” beside Revenue.
+ *
+ * A blank amount is a missing selling price. On the ledger today that is a
+ * shipping charge with no rate, not at-cost freight waiting on the carrier.
+ */
+export const UNKNOWN_REVENUE_TOOLTIP =
+  'These charges have no selling price on the ledger, so their revenue is unknown. They are not free. '
+  + 'This is a missing price, often a shipping line with no rate. It does not mean the carrier has failed to report what it charged. '
+  + 'Their carrier cost is not a loss.'
+
+/**
+ * Tooltip for Direct Cost / Cost (known) when the row also has unpriced charges.
+ * The dollars are real carrier cost. Subtracting them from Revenue is the old fake loss.
+ */
+export const DIRECT_COST_WITH_UNPRICED_NOTE =
+  'This total includes the carrier cost of charges that have no price. '
+  + 'Do not subtract it from Revenue and read the difference as a loss. That difference is what this column used to show, and it was not money lost.'
+
+/**
  * The net profit a screen may print.
  *
- * A number is shown only when revenue is known and every operating-cost
- * category has at least one row. A stored net that equals gross margin
- * because operating_costs is empty is not printed: that is gross standing
- * in for net, and it is unavailable, not zero.
+ * A number is shown only when every charge has a price and every
+ * operating-cost category has at least one row. A stored net that equals
+ * gross margin because operating_costs is empty is not printed: that is
+ * gross standing in for net, and it is unavailable, not zero. A stored net
+ * that subtracts the carrier cost of unpriced charges is not printed
+ * either: that is not a loss.
  */
 export function publishedNetProfit(row: MonthlyRow): number | null {
   if (row.revenue === null) return null
+  if ((row.revenue_unknown_charges ?? 0) > 0) return null
   if (!row.overhead_rows || !row.direct_labor_rows || !row.direct_storage_rows) return null
   return row.net_profit
 }

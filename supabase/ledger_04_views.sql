@@ -278,15 +278,18 @@ select date_trunc('month', c.charge_date)::date as period_month,
        count(*)                                 as charges,
        sum(c.amount)                            as revenue,
        -- The mirror image of cost_unknown_charges, and needed for the same
-       -- reason. `order_charges.amount` is nullable BY DESIGN: an at-cost
-       -- freight line is billed at whatever the carrier charged, so until the
-       -- carrier reports, the REVENUE is unknown too -- not zero
-       -- (ledger_03_charges.sql:66-71, calculate-charges.ts:205-215).
-       -- `sum()` skips those nulls silently, so revenue reads confidently low
-       -- with nothing beside it to say so. An at-cost-heavy client whose
-       -- carrier costs lag would show a systematically understated margin
-       -- while `cost_unknown_charges: 0` actively asserted nothing was
-       -- missing. Task 16 must display this wherever it displays revenue.
+       -- reason. `order_charges.amount` is nullable BY DESIGN: null means the
+       -- selling price is not known yet, not that the charge was free
+       -- (ledger_03_charges.sql:66-71). The calculator leaves amount null when
+       -- no shipping rate is in effect, when the rate cell is empty, when the
+       -- rate type is not one it can price, and when an at-cost freight line
+       -- has no carrier figure to bill. Those are different questions. The
+       -- blank prices on the ledger are missing rate-card shipping amounts
+       -- whose carrier cost is already filled in — not "at-cost freight the
+       -- carrier has not reported". `sum()` skips the nulls, so revenue is
+       -- only the priced charges, with nothing in the number itself to say
+       -- so. Display this count wherever revenue is displayed, and do not
+       -- describe it as unreported at-cost freight.
        count(*) filter (where c.amount is null) as revenue_unknown_charges,
        -- THIS COLUMN ONLY: sum() skips nulls, so an unknown cost does not
        -- become a zero here -- which is why it is named cost_known and not
@@ -294,22 +297,25 @@ select date_trunc('month', c.charge_date)::date as period_month,
        -- have it.
        sum(c.cost)                              as cost_known,
        count(*) filter (where c.cost is null)   as cost_unknown_charges,
-       -- READ THE coalesce. It treats every unpriced charge as FREE, so this is
-       -- the margin over the priced subset only, and it reads HIGH by whatever
-       -- the unknown costs turn out to be -- by the full billed amount of those
-       -- charges in the worst case, and by everything when no cost in the group
-       -- is known at all (the coalesce then returns 0 and the figure equals
-       -- revenue). It is not "gross margin"; it is "gross margin so far".
+       -- NOT a margin when any amount is null. sum(amount) skips a blank
+       -- price. sum(cost) keeps the carrier cost of that same row. The
+       -- subtraction is then known revenue minus every known cost, including
+       -- costs that have no selling price. With those rows the figure reads
+       -- LOW, by exactly the carrier cost of the unpriced charges. It is a
+       -- fake loss, not "unpriced charges treated as free".
        --
-       -- That is a deliberate ruling, not an oversight. Null-propagating this
-       -- the way net_profit does would blank the column in essentially every
-       -- real month -- one unpriced charge anywhere in a client-month is enough
-       -- -- which destroys the view's purpose. The caveat is carried by
-       -- cost_unknown_charges sitting immediately beside it instead.
+       -- The other hole reads the other way. A null COST is skipped by
+       -- sum(cost), and coalesce turns an all-null cost total into 0, so a
+       -- month whose prices are all known still reads HIGH until those
+       -- carrier costs arrive. cost_unknown_charges counts that hole.
+       -- revenue_unknown_charges counts the blank prices. They are not the
+       -- same fact.
        --
-       -- SO: Task 16 must never render gross_margin without
-       -- cost_unknown_charges beside it. Alone, this number is an
-       -- overstatement presented as a fact.
+       -- The expression below is unchanged. This file is applied by pasting
+       -- it into the database, and this edit does not do that. The ledger
+       -- screen (presentGrossMargin in src/lib/ledger/summary.ts) refuses to
+       -- print the column whenever revenue_unknown_charges > 0. Do not put
+       -- the number back on the screen.
        sum(c.amount) - coalesce(sum(c.cost), 0) as gross_margin,
        bool_or(c.is_estimate)                   as has_estimates
 from order_charges c
@@ -371,17 +377,15 @@ select coalesce(r.period_month, o.period_month) as period_month,
        r.direct_cost,
        r.revenue_unknown_charges,
        r.cost_unknown_charges,
-       -- Same coalesce, same caveat as pnl_client_monthly.gross_margin: an
-       -- unpriced charge is treated as FREE, so this is the margin over the
-       -- priced subset and it reads HIGH by however much the unknown costs turn
-       -- out to be -- equal to revenue outright in a month where no cost is
-       -- known. Deliberate: the alternative is a permanently blank column,
-       -- since one unpriced charge anywhere in the business-month would null it.
-       -- cost_unknown_charges above carries the caveat, and Task 16 must never
-       -- render gross_margin without it -- alone this is an overstatement
-       -- presented as a fact. Contrast net_profit below, which DOES propagate
-       -- null, because there the missing input is a whole category of cost
-       -- rather than a countable handful of charges.
+       -- Same expression as pnl_client_monthly.gross_margin, and the same
+       -- two holes. A blank price (revenue_unknown_charges) makes this read
+       -- LOW: the carrier cost of that charge is subtracted and its revenue
+       -- is not added. That is not a loss. A blank cost
+       -- (cost_unknown_charges) makes it read HIGH, because the missing cost
+       -- is not subtracted. The ledger screen prints a dollar margin only
+       -- when revenue_unknown_charges is 0, and it says so when the figure
+       -- is withheld. The expression is left in place so re-reading this
+       -- file does not require a database write.
        r.revenue - coalesce(r.direct_cost, 0)   as gross_margin,
        o.overhead, o.direct_labor, o.direct_storage,
        o.overhead_rows, o.direct_labor_rows, o.direct_storage_rows,
