@@ -66,11 +66,15 @@ export interface RateCardLine {
 export const SHIPPING_RATE_TYPES = new Set(['at_cost', 'flat', 'cost_plus'])
 
 export interface ChargeInput {
-  order:     { id: string; clientId: string | null; cancelled: boolean }
+  order:     { id: string; clientId: string | null; cancelled: boolean
+               /** Nayax only. A stored zone rate is the client shipping price. */
+               billStoredClientRate?: boolean }
   items:     Array<{ id: string; sku: string | null; quantityPicked: number | null
                      isComponent: boolean; pickDate: string | null }>
   shipments: Array<{ id: string; shipmentId: number; shipDate: string
-                     actualCost: number | null; voided: boolean }>
+                     actualCost: number | null; voided: boolean
+                     /** Zone rate already stored on the shipment. Null when the card has no price. */
+                     clientRate?: number | null }>
   rateCard:  RateCardLine[]
   costRates: CostRateRow[]
   peakSurchargePct: number
@@ -349,7 +353,15 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // it as unpriced as well would send someone to fix the rate card when the
     // problem is the shipment id. `onWarn` is the same channel the ambiguous
     // rate card uses, and persist-charges.ts funnels it into sync_runs.errors.
-    if (!rate) {
+    const storedRate = s.clientRate
+    const storedOk = typeof storedRate === 'number' && Number.isFinite(storedRate)
+    // Nayax only. A null zone rate does not become a rate-card charge.
+    // A voided label stays a known zero and is not billed the zone rate.
+    const useStoredRate = input.order.billStoredClientRate === true && storedOk && !s.voided
+
+    if (useStoredRate) {
+      // The zone rate is the client price. The warehouse card is not consulted.
+    } else if (!rate) {
       onWarn?.('unpriced shipment', `client ${clientId ?? 'unattributed'}: `
         + `no shipping rate is in effect on ${s.shipDate} for shipment `
         + `${s.shipmentId}; the carrier cost `
@@ -466,6 +478,7 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // type this code has never heard of, so forgetting to add an arm produced
     // a wrong number. Now it produces a flagged null.
     const amount = s.voided ? 0
+                 : useStoredRate ? storedRate!
                  : !rate ? null
                  : rate.rateType === 'at_cost' ? s.actualCost
                  : rate.rateType === 'cost_plus'
@@ -493,7 +506,8 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
       // not `rate`, which is null by design on those rows. On an unrecognised
       // type it is null for the same reason the amount is: we do not know what
       // the populated `rate` cell was supposed to mean.
-      unit_rate: !rate ? null
+      unit_rate: useStoredRate ? storedRate!
+               : !rate ? null
                : !SHIPPING_RATE_TYPES.has(rate.rateType) ? null
                : rate.rateType === 'cost_plus' ? rate.markup
                : rate.rate,
@@ -504,7 +518,7 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
       cost_rate_id: null,
       charge_date: s.shipDate,
       charge_date_source: 'ship_date',
-      source: 'calculator',
+      source: useStoredRate ? 'rate_card' : 'calculator',
       is_estimate: false,
     })
   }

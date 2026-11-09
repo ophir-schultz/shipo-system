@@ -159,6 +159,31 @@ describe('loadChargeInputs — the shipment join', () => {
     expect(filter?.value).toContain('A1')
   })
 
+  it('passes a Nayax zone rate into the charge input and leaves another client off that path', async () => {
+    seed({
+      orders: [dated(), dated({ id: 'o2', client_id: 'client-b', order_key: 'B1', order_number: 'b1' })],
+      clients: [
+        { id: 'client-a', name: 'Nayax' },
+        { id: 'client-b', name: 'Orcam' },
+      ],
+      shipments: [
+        { id: 's1', client_id: 'client-a', shipstation_shipment_id: 900,
+          order_number: 'a1', order_number_key: 'A1',
+          ship_date: '2026-09-11T14:00:00Z', actual_cost: 17.52, client_rate: 24.24, raw_data: {} },
+        { id: 's2', client_id: 'client-b', shipstation_shipment_id: 901,
+          order_number: 'b1', order_number_key: 'B1',
+          ship_date: '2026-09-11T14:00:00Z', actual_cost: 8, client_rate: 12, raw_data: {} },
+      ],
+    })
+    const inputs = await loadChargeInputs(WINDOW)
+    const nayax = inputs.find((input) => input.order.id === 'o1')
+    const other = inputs.find((input) => input.order.id === 'o2')
+    expect(nayax?.order.billStoredClientRate).toBe(true)
+    expect(nayax?.shipments[0].clientRate).toBeCloseTo(24.24, 2)
+    expect(other?.order.billStoredClientRate).toBe(false)
+    expect(other?.shipments[0].clientRate).toBeCloseTo(12, 2)
+  })
+
   it('attaches a label whose order number differs only in case', async () => {
     seed({
       orders: [dated()],

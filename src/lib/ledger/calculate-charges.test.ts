@@ -153,6 +153,64 @@ describe('buildCharges', () => {
     })).toEqual([])
   })
 
+  it('bills Nayax the stored zone rate and keeps that price on a second run', () => {
+    const input: ChargeInput = {
+      ...base,
+      order: { ...base.order, billStoredClientRate: true },
+      shipments: [{
+        id: 's103', shipmentId: 345810929, shipDate: '2026-11-04',
+        actualCost: 17.52, voided: false, clientRate: 24.24,
+      }],
+    }
+    const first = buildCharges(input)
+    const second = buildCharges(input)
+    expect(first).toHaveLength(1)
+    expect(second).toHaveLength(1)
+    for (const out of [first, second]) {
+      expect(out.filter((row) => row.charge_type === 'surcharge')).toEqual([])
+      expect(out[0]).toMatchObject({
+        charge_key: 'shipment:345810929',
+        amount: expect.closeTo(24.24, 2),
+        unit_rate: expect.closeTo(24.24, 2),
+        source: 'rate_card',
+        cost: expect.closeTo(17.52, 2),
+      })
+    }
+  })
+
+  it('leaves Nayax on the existing rule when the zone rate is null', () => {
+    const out = buildCharges({
+      ...base,
+      order: { ...base.order, billStoredClientRate: true },
+      shipments: [{
+        id: 's404', shipmentId: 404, shipDate: '2026-11-06',
+        actualCost: 104.92, voided: false, clientRate: null,
+      }],
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      amount: expect.closeTo(104.92, 2),
+      unit_rate: null,
+      source: 'calculator',
+    })
+  })
+
+  it('does not bill another client the stored zone rate', () => {
+    const out = buildCharges({
+      ...base,
+      shipments: [{
+        id: 's-other', shipmentId: 700, shipDate: '2026-11-04',
+        actualCost: 17.52, voided: false, clientRate: 24.24,
+      }],
+    })
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      amount: expect.closeTo(17.52, 2),
+      unit_rate: null,
+      source: 'calculator',
+    })
+  })
+
   it('bills shipping at cost and records the carrier cost', () => {
     const out = buildCharges({ ...base, shipments: [
       { id: 's1', shipmentId: 555, shipDate: '2026-09-02', actualCost: 8.20, voided: false },
