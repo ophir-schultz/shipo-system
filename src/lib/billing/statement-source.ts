@@ -110,6 +110,25 @@ function sameCents(a: number, b: number): boolean {
 }
 
 /**
+ * Nayax client shipping is the stored zone rate when that rate exists.
+ * A different ledger amount is not the client price and is not rewritten.
+ */
+export function applyNayaxRateCard(
+  charges: readonly StatementChargeRow[],
+  clientRateByShipmentId: ReadonlyMap<string, number | null>,
+): StatementChargeRow[] {
+  return charges.map((charge) => {
+    if (charge.charge_type !== 'shipping') return charge
+    if (charge.label === 'Shipping (full price pending)') return charge
+    const id = shipmentIdFromChargeKey(charge.charge_key)
+    if (id === null || !clientRateByShipmentId.has(id)) return charge
+    const rate = clientRateByShipmentId.get(id)
+    if (rate == null) return charge
+    return { ...charge, amount: rate, unit_rate: rate, label: 'Shipping' }
+  })
+}
+
+/**
  * A stored zone rate fills a shipping charge only when the ledger amount is
  * blank. A ledger amount that differs from the stored rate is left as it is:
  * neither figure is chosen as the client price.
@@ -138,6 +157,7 @@ export function applyZonePrices(
 export function shippingDisagreements(
   charges: readonly StatementChargeRow[],
   clientRateByShipmentId: ReadonlyMap<string, number | null>,
+  options?: { rateCardIsClientPrice?: boolean },
 ): string[] {
   const notes: string[] = []
   for (const charge of charges) {
@@ -147,9 +167,9 @@ export function shippingDisagreements(
     const rate = clientRateByShipmentId.get(id)
     const ledger = priceOf(charge.amount)
     if (rate == null || ledger == null || sameCents(ledger, rate)) continue
-    notes.push(
-      `Shipment ${id}: ledger shipping amount ${ledger.toFixed(2)} and stored rate ${rate.toFixed(2)} disagree. Neither is the client charge.`,
-    )
+    notes.push(options?.rateCardIsClientPrice
+      ? `Shipment ${id}: ledger shipping amount ${ledger.toFixed(2)} differs from the rate-card client price ${rate.toFixed(2)}. The client price is the rate card. The ledger row needs a separately approved correction. Nothing was written.`
+      : `Shipment ${id}: ledger shipping amount ${ledger.toFixed(2)} and stored rate ${rate.toFixed(2)} disagree. Neither is the client charge.`)
   }
   return notes
 }
@@ -183,6 +203,7 @@ export function uncoveredShipmentCharges(
   rows: readonly (ShipmentForStatement & { id: string })[],
   coveredKeys: ReadonlySet<string>,
   fallbackDate: string,
+  options?: { useRateCard?: boolean },
 ): StatementChargeRow[] {
   const out: StatementChargeRow[] = []
   for (const row of rows) {
@@ -193,12 +214,13 @@ export function uncoveredShipmentCharges(
     const key = keyed || `coverage:${row.id}`
     if (coveredKeys.has(key)) continue
     const day = shipCalendarDay(row.ship_date, rawShipDate(row.raw_data)) || fallbackDate
+    const rate = options?.useRateCard ? priceOf(row.client_rate) : null
     out.push({
       charge_type: 'shipping',
-      label: 'Shipping (not on the ledger)',
+      label: rate == null ? 'Shipping (not on the ledger)' : 'Shipping',
       quantity: 1,
-      unit_rate: null,
-      amount: null,
+      unit_rate: rate,
+      amount: rate,
       is_estimate: false,
       charge_date: day,
       order_id: null,
@@ -727,10 +749,12 @@ export async function priceStatementCharges(
     const id = shipmentIdFromChargeKey(charge.charge_key)
     return id === null || !voidedIds.has(id)
   })
-  const basisReviews = shippingDisagreements(openCharges, rates)
+  const nayax = nayaxManualFreight(clientName)
+  const basisReviews = shippingDisagreements(openCharges, rates, { rateCardIsClientPrice: nayax })
   let next = applyZonePrices(openCharges, rates)
+  if (nayax) next = applyNayaxRateCard(next, rates)
   let freightReviews: string[] = []
-  if (nayaxManualFreight(clientName)) {
+  if (nayax) {
     const linked = await readLinkedFreight(clientId, range)
     if (linked.error) return { charges: next, pickPack: UNREAD_PICK, error: linked.error, freightReviews, basisReviews, pickDetails: [] }
     const applied = applyManualFullFreight(next, linked.rows)
@@ -756,6 +780,7 @@ export async function priceStatementCharges(
       (windowRows.data ?? []) as (ShipmentForStatement & { id: string })[],
       covered,
       range.from,
+      { useRateCard: nayax },
     )
     if (missing.length > 0) {
       basisReviews.push(

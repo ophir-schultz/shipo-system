@@ -109,23 +109,32 @@ describe('order activity rows', () => {
       }],
       charges: [{ chargeKey: 'shipment:345810929', amount: 17.52, unitRate: null }],
       serials: [],
+      billRateCard: true,
     })
     const row = activity.rows[0]
     expect(row.date).toBe('2026-11-04')
-    expect(row.shippingPrice).toBe('')
-    expect(row.shippingPrice).not.toBe('0')
-    expect(row.shippingPrice).not.toContain('24.24')
+    expect(row.shippingPrice).toBe('24.24')
     expect(row.shippingPrice).not.toContain('17.52')
+    expect(row.shippingStatus).toBe('')
     expect(row.weight).toBe('192')
-    expect(row.shippingStatus).toContain('disagree')
     expect(row.weightNote).toContain('12 lb')
     const staff = activity.coverage.shippingStaff.join(' ')
     expect(staff).toContain('24.24')
     expect(staff).toContain('17.52')
+    expect(staff).toContain('approved correction')
     expect(staff).toContain('charge date is not read')
-    expect(reportCells(row)[10]).toBe('')
-    expect(reportToCsv([row])).not.toContain('Shipping pending')
-    expect(reportToCsv([row])).not.toContain('24.24')
+    expect(reportCells(row)[10]).toBe('24.24')
+    expect(reportToCsv([row])).toContain('24.24')
+    expect(reportToCsv([row])).not.toContain('17.52')
+  })
+
+  it('leaves Nayax shipping pending when the rate card has no price', () => {
+    const priced = clientShippingPrice(null, {
+      chargeKey: 'shipment:404', amount: 104.92, unitRate: null,
+    }, { billRateCard: true })
+    expect(priced.amount).toBeNull()
+    expect(priced.clientReason).toContain('Shipping pending')
+    expect(priced.clientReason).not.toContain('104.92')
   })
 
   it('shows an undated order with nothing picked as non-billed zero', () => {

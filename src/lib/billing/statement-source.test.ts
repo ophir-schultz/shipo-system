@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyManualFullFreight, applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty,
+  applyManualFullFreight, applyNayaxRateCard, applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty,
   shippingDisagreements, uncoveredShipmentCharges, withholdDisagreedShipping,
   nayaxManualFreight, pickOrdersFromShipments, pickPackRows, pickRateOnCard, pickRowsFromCard,
   shippingChargesFromShipments,
@@ -122,6 +122,32 @@ describe('Nayax freight with no zone price', () => {
     ).charges
     expect(rows[0].amount).toBeNull()
     expect(JSON.stringify(rows)).not.toContain('999')
+  })
+
+  it('bills Nayax the rate-card price and does not rewrite the ledger figure into the client row', () => {
+    const before = [atCost('345810929', 17.52, '2026-11-03')]
+    const rates = new Map<string, number | null>([['345810929', 24.24]])
+    const billed = applyNayaxRateCard(applyZonePrices(before, rates), rates)
+    expect(billed[0].amount).toBe(24.24)
+    expect(billed[0].unit_rate).toBe(24.24)
+    const held = withholdDisagreedShipping(before, billed, rates)
+    expect(held[0].amount).toBe(24.24)
+    expect(JSON.stringify(held)).not.toContain('17.52')
+    const note = shippingDisagreements(before, rates, { rateCardIsClientPrice: true })[0]
+    expect(note).toContain('24.24')
+    expect(note).toContain('17.52')
+    expect(note).toContain('approved correction')
+    expect(note).toContain('Nothing was written')
+  })
+
+  it('does not bill Nayax at the ledger amount when the rate card has no price', () => {
+    const before = [atCost('404', 104.92)]
+    const rates = new Map<string, number | null>([['404', null]])
+    const billed = applyNayaxRateCard(before, rates)
+    const pending = applyManualFullFreight(billed, [])
+    expect(pending.charges[0].amount).toBeNull()
+    expect(pending.charges[0].label).toBe('Shipping (full price pending)')
+    expect(JSON.stringify(pending.charges)).not.toContain('104.92')
   })
 
   it('does not replace a ledger amount with a different stored rate', () => {

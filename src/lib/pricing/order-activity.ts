@@ -203,12 +203,21 @@ const SHIP_PENDING = 'Shipping pending.'
 export function clientShippingPrice(
   storedRate: number | null,
   charge: ActivityShippingCharge | undefined,
+  options?: { billRateCard?: boolean },
 ): ShippingPrice {
   const ledger = charge ? priceOf(charge.amount) : null
   const unit = charge ? priceOf(charge.unitRate) : null
   if (storedRate != null && ledger != null) {
     if (sameCents(storedRate, ledger)) {
       return { amount: storedRate, status: 'agreed', clientReason: '', staffReason: '' }
+    }
+    if (options?.billRateCard) {
+      return {
+        amount: storedRate,
+        status: 'stored-rate',
+        clientReason: '',
+        staffReason: `The parcel key matched. Ledger shipping amount ${ledger.toFixed(2)} differs from the rate-card client price ${storedRate.toFixed(2)}. The client price is the rate card. The ledger row needs a separately approved correction. Nothing was written. The charge date is not read.`,
+      }
     }
     return {
       amount: null,
@@ -249,6 +258,8 @@ export function buildOrderActivity(input: {
   charges: readonly ActivityShippingCharge[]
   serials: readonly ActivitySerial[]
   scanNote?: string
+  /** Nayax: a stored zone rate is the client shipping price. */
+  billRateCard?: boolean
 }): OrderActivity {
   const chargeByKey = new Map(input.charges.map((charge) => [charge.chargeKey, charge]))
   const parcelsByOrder = new Map<string, ActivityParcel[]>()
@@ -386,7 +397,7 @@ export function buildOrderActivity(input: {
     if (parcels.length === 1) {
       const parcel = parcels[0]
       const charge = parcel.shipmentKey ? chargeByKey.get(parcel.shipmentKey) : undefined
-      const priced = clientShippingPrice(parcel.storedRate, charge)
+      const priced = clientShippingPrice(parcel.storedRate, charge, { billRateCard: input.billRateCard })
       if (priced.status === 'conflict') shippingConflicts.push(number)
       shipping = priced.amount
       shippingStatus = priced.clientReason

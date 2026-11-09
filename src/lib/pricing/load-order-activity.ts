@@ -13,6 +13,7 @@ import {
   type OrderActivity,
 } from '@/lib/pricing/order-activity'
 import type { PriceListDocument } from '@/lib/pricing/types'
+import { zenventorySlug } from '@/lib/zenventory/client-env'
 import { assignScanFlags } from '@/lib/pricing/scan-catalog'
 import { loadScanCatalog } from '@/lib/pricing/load-scan-catalog'
 
@@ -169,7 +170,10 @@ export async function loadOrderActivity(
     }
   }
   return {
-    activity: buildOrderActivity({ clientId, from, to, list, orders, parcels, charges, serials, scanNote }),
+    activity: buildOrderActivity({
+      clientId, from, to, list, orders, parcels, charges, serials, scanNote,
+      billRateCard: zenventorySlug(clientName) === 'NAYAX',
+    }),
     error: null,
   }
 }
