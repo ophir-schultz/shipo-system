@@ -74,16 +74,27 @@ export const SHIPPING_RATE_TYPES = new Set(['at_cost', 'flat', 'cost_plus'])
  * already writes as `charge_date`, not the order date: the charge window
  * still loads October orders, and one order can carry a label on each side
  * of this day.
+ *
+ * This bound is Nayax only. Every other client uses a stored numeric
+ * `client_rate` on any ship day. The loader sets `storedClientRateFrom` to
+ * this constant for Nayax and leaves it null otherwise.
  */
 export const NAYAX_STORED_ZONE_RATE_FROM = '2026-11-01'
 
 export interface ChargeInput {
   order:     { id: string; clientId: string | null; cancelled: boolean
                /**
-                * Nayax only. A stored zone rate is the shipping price on
-                * ship days on or after `NAYAX_STORED_ZONE_RATE_FROM`.
+                * A stored numeric `client_rate` is the shipping price.
+                * Set for every attributed client. A null rate still follows
+                * the warehouse card, and a voided label stays a known zero.
                 */
-               billStoredClientRate?: boolean }
+               billStoredClientRate?: boolean
+               /**
+                * Nayax only. When set, the stored rate applies on ship days
+                * on or after this day. Null for every other client, so a
+                * stored rate applies on any ship day, including October.
+                */
+               storedClientRateFrom?: string | null }
   items:     Array<{ id: string; sku: string | null; quantityPicked: number | null
                      isComponent: boolean; pickDate: string | null }>
   shipments: Array<{ id: string; shipmentId: number; shipDate: string
@@ -370,12 +381,18 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // rate card uses, and persist-charges.ts funnels it into sync_runs.errors.
     const storedRate = s.clientRate
     const storedOk = typeof storedRate === 'number' && Number.isFinite(storedRate)
-    // Nayax only, and only from November 2026. A null zone rate does not
-    // become a rate-card charge. A voided label stays a known zero and is
-    // not billed the zone rate. An earlier ship day — October 2026 included,
-    // which the 30-day charge window still loads — stays on the warehouse
-    // card, so a stored zone price cannot rewrite an at-cost row.
-    const storedZoneDay = s.shipDate.slice(0, 10) >= NAYAX_STORED_ZONE_RATE_FROM
+    // A stored numeric zone rate is the client price for every client.
+    // A null zone rate does not become a rate-card charge: heavy freight
+    // and international parcels with no zone price stay on the warehouse
+    // card, or unpriced when that card has no shipping line. A voided
+    // label stays a known zero and is not billed the zone rate.
+    //
+    // The November 2026 bound is Nayax only (`storedClientRateFrom`).
+    // October Nayax labels are at cost today, and the charge window still
+    // loads them. A stored zone price must not rewrite those rows. Every
+    // other client has a null bound, so October uses the stored rate.
+    const from = input.order.storedClientRateFrom
+    const storedZoneDay = from == null || s.shipDate.slice(0, 10) >= from
     const useStoredRate = input.order.billStoredClientRate === true
       && storedOk
       && !s.voided
