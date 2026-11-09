@@ -28,6 +28,10 @@ describe('eastern calendar', () => {
     expect(easternWeekStart('2026-09-29')).toBe('2026-09-28')
     expect(easternWeekStart('2026-09-27')).toBe('2026-09-21')
     expect(easternMidnightIso(easternWeekStart('2026-11-03'))).toBe('2026-11-02T05:00:00.000Z')
+    // Monday 9 Nov 2026 is the first day of its own week. A $0 This Week card
+    // that morning is an empty window, not a date that slipped into last week.
+    expect(easternWeekStart('2026-11-09')).toBe('2026-11-09')
+    expect(easternMidnightIso('2026-11-09')).toBe('2026-11-09T05:00:00.000Z')
   })
 
   it('places midnight on the Eastern offset, including winter', () => {
