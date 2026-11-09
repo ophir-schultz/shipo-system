@@ -24,7 +24,13 @@ function check(name: string, actual: unknown, expected: unknown) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `\n        expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`}`)
 }
 
-const standing: ReferralPartner = { id: 'p1', name: 'Standing Partner', company: null, status: 'active' }
+const standing: ReferralPartner = {
+  id: 'p1', name: 'Standing Partner', company: null, status: 'active',
+  // These fixtures are partners already on the programme. Commission
+  // and the bonus are calculated only after the agreement is signed.
+  agreement_status: 'signed',
+  agreement_signed_at: '2026-01-01T00:00:00Z',
+}
 
 // A partner on BESPOKE terms written by hand in the DB: the two volume
 // bars set, and bonus_min_revenue deliberately NULL — no dollar route.
@@ -39,6 +45,8 @@ const founding: ReferralPartner = {
   id: 'p2', name: 'Bespoke Partner', company: null, status: 'active',
   signup_bonus_amount: 500, bonus_min_units: 1500, bonus_min_orders: 500,
   bonus_min_revenue: null, founding_partner: true,
+  agreement_status: 'signed',
+  agreement_signed_at: '2026-01-01T00:00:00Z',
 }
 
 const inv = (o: Partial<FbaInvoice>): FbaInvoice => ({

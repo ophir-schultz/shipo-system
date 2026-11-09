@@ -24,7 +24,19 @@
 // This is a `.ts` and not part of the component because `vitest.config.ts` has
 // `include: ['src/**/*.test.ts']` — nothing in a `.tsx` can be covered.
 
-export const PARTNER_TERMS_VERSION = '2026-11-06'
+export const PARTNER_TERMS_VERSION = '2026-11-09'
+
+/**
+ * Agreement clause 3.8: a partner may object to a statement within
+ * sixty days after it is first made available. This is not the
+ * thirty-day payment timing in clause 3.6, and not the withdrawn
+ * "60 days active" bonus wait.
+ */
+export const STATEMENT_DISPUTE_WINDOW_DAYS = 60
+
+export function statementDisputeWindowPhrase(): string {
+  return `within ${STATEMENT_DISPUTE_WINDOW_DAYS} days`
+}
 
 export interface TermsSection {
   heading: string
@@ -45,7 +57,9 @@ export const PARTNER_TERMS_SECTIONS: ReadonlyArray<TermsSection> = [
     body:
       'Amounts shown here are our good-faith calculation at the time you look at ' +
       'them, not a final account. Lines marked "not final" are not owed, and any ' +
-      'figure may be restated once the month is final. If you disagree with a figure, tell us in writing within 30 days of ' +
+      'figure may be restated once the month is final. If you disagree with a figure, tell us in writing ' +
+      statementDisputeWindowPhrase() +
+      ' of ' +
       'receiving the statement it appears on. If we overpay you, we recover it by ' +
       'offsetting the amount against what we owe you later — offset only, never a ' +
       'demand that you refund money — as set out in Section 3.9 of your agreement.',

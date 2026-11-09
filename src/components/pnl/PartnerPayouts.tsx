@@ -4,6 +4,7 @@ import {
   computeOwed,
   summarize,
   REFERRAL_TERMS,
+  partnerAgreementSigned,
   type ReferralPartner,
   type PayoutRecord,
 } from '@/lib/referrals'
@@ -99,7 +100,7 @@ interface PartnerBlock {
 export default async function PartnerPayouts() {
   const partnersRes = await supabaseAdmin
     .from('referral_partners')
-    .select('id, name, company, status, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue')
+    .select('id, name, company, status, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue, agreement_status, agreement_signed_at')
     .order('name')
 
   if (partnersRes.error) {
@@ -391,8 +392,14 @@ function MonthRow({
   // margin is the single easiest mistake to make on this screen.
   const ourMargin = partnerNet === null ? null : partnerNet - num(m.cost_labour_not_deducted)
 
-  const commission =
-    partnerNet === null || !m.payable ? null : Math.round(partnerNet * REFERRAL_TERMS.COMMISSION_RATE * 100) / 100
+  // Same gate as computeOwed. An unsigned partner's month still shows
+  // billed and cost, and the amount owed on it is $0. "not payable"
+  // stays reserved for a month whose inputs are not final.
+  const commission = !partnerAgreementSigned(block.partner)
+    ? 0
+    : partnerNet === null || !m.payable
+      ? null
+      : Math.round(partnerNet * REFERRAL_TERMS.COMMISSION_RATE * 100) / 100
 
   const delta = reconcile(m, block.ledger)
   const charges = block.chargesByClientMonth.get(monthKey(clientId, m.period_month.slice(0, 7))) ?? []

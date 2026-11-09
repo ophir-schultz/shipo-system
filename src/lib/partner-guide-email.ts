@@ -1,4 +1,5 @@
 import { portalAccessBlock, type AccessCandidate } from '@/lib/partner-access'
+import { statementDisputeWindowPhrase } from '@/lib/partner-terms'
 
 // THE PARTNER'S GUIDE TO THE PORTAL. Carries no credential.
 //
@@ -233,7 +234,7 @@ export function buildPartnerGuideEmail(partner: GuideCandidate, origin: string):
               <div style="border-top:1px solid ${SURFACE};padding-top:16px;font-size:12px;line-height:19px;color:${MUTED}">
                 Questions about a figure, or something that looks wrong? Reply to this email or write
                 to <a href="mailto:Support@shipousa.com" style="color:${INK}">Support@shipousa.com</a>
-                within 30 days of receiving a statement.
+                ${statementDisputeWindowPhrase()} of receiving a statement.
                 <br /><br />
                 Shipo will never ask you for a password, and the only thing we will ever email you to
                 type in is a short sign-in code you asked for yourself.
@@ -282,7 +283,7 @@ export function buildPartnerGuideEmail(partner: GuideCandidate, origin: string):
     'client appearing with no money against it yet is normal.',
     '',
     'Questions about a figure, or something that looks wrong? Reply to this email or',
-    'write to Support@shipousa.com within 30 days of receiving a statement.',
+    `write to Support@shipousa.com ${statementDisputeWindowPhrase()} of receiving a statement.`,
     '',
     'Shipo will never ask you for a password, and the only thing we will ever email you',
     'to type in is a short sign-in code you asked for yourself.',

@@ -10,6 +10,8 @@ describe('stored flat commission is not the payout', () => {
       name: 'Partner',
       company: null,
       status: 'active',
+      agreement_status: 'signed',
+      agreement_signed_at: '2026-01-01T00:00:00Z',
       commission_type: 'flat',
       commission_value: 0,
     } as ReferralPartner & { commission_type: string; commission_value: number }

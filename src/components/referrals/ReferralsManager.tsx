@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { showError, showSuccess } from '@/components/ui/Toast'
-import { REFERRAL_TERMS, netProfit, totalCosts, commissionOn } from '@/lib/referrals'
+import { REFERRAL_TERMS, netProfit, totalCosts, commissionOn, partnerAgreementSigned } from '@/lib/referrals'
 import {
   agreementLabel,
   invitePreconditionReason,
@@ -248,7 +248,14 @@ export default function ReferralsManager({
       <ClientsPanel clients={clients} partners={partners} busy={busy} call={call} />
 
       {/* ---- FBA invoices ---- */}
-      <InvoicesPanel invoices={invoices} clients={clients} busy={busy} call={call} clientName={clientName} />
+      <InvoicesPanel
+        invoices={invoices}
+        clients={clients}
+        partners={partners}
+        busy={busy}
+        call={call}
+        clientName={clientName}
+      />
     </div>
   )
 }
@@ -701,12 +708,14 @@ function ClientsPanel({
 function InvoicesPanel({
   invoices,
   clients,
+  partners,
   busy,
   call,
   clientName,
 }: {
   invoices: Invoice[]
   clients: Client[]
+  partners: Partner[]
   busy: string | null
   call: (url: string, body: unknown, method?: string, tag?: string) => Promise<boolean>
   clientName: (id: string) => string
@@ -727,11 +736,21 @@ function InvoicesPanel({
 
   const referred = clients.filter((c) => c.referral_partner_id)
 
+  // The 5% figure is owed only when that client's partner has signed.
+  // A sent or unsigned agreement previews as $0, the same answer
+  // computeOwed gives the payout table.
+  const agreementSignedFor = (clientId: string) => {
+    const client = clients.find((c) => c.id === clientId)
+    if (!client?.referral_partner_id) return false
+    const partner = partners.find((p) => p.id === client.referral_partner_id)
+    return !!partner && partnerAgreementSigned(partner)
+  }
+
   // live preview of what the partner will see
   const n = (v: string) => (Number.isFinite(Number(v)) ? Number(v) : 0)
   const previewCosts = n(f.cost_freight) + n(f.cost_materials) + n(f.cost_storage) + n(f.cost_processing)
   const previewProfit = Math.max(0, n(f.amount) - previewCosts)
-  const previewShare = previewProfit * REFERRAL_TERMS.COMMISSION_RATE
+  const previewShare = agreementSignedFor(f.clientId) ? previewProfit * REFERRAL_TERMS.COMMISSION_RATE : 0
   const costsExceed = n(f.amount) > 0 && previewCosts > n(f.amount)
 
   async function add() {
@@ -832,6 +851,11 @@ function InvoicesPanel({
               <span className="text-[#4B4F58]">
                 Net profit <span className="text-gray-200">{fmt(previewProfit)}</span> · partner gets{' '}
                 <span className="text-blue-700">{fmt(previewShare)}</span>
+                {f.clientId && !agreementSignedFor(f.clientId) && (
+                  <span className="block text-xs text-[#6B7A8D] mt-1">
+                    Agreement is not signed, so commission on this month is $0.
+                  </span>
+                )}
               </span>
             )}
           </div>
@@ -878,7 +902,9 @@ function InvoicesPanel({
                   <td className="py-2 pr-3 text-right text-[#3A4658]">{fmt(i.amount)}</td>
                   <td className="py-2 pr-3 text-right text-[#6B7A8D]">{fmt(totalCosts(i))}</td>
                   <td className="py-2 pr-3 text-right text-gray-200">{fmt(netProfit(i))}</td>
-                  <td className="py-2 pr-3 text-right text-blue-700">{fmt(commissionOn(i))}</td>
+                  <td className="py-2 pr-3 text-right text-blue-700">
+                    {fmt(agreementSignedFor(i.client_id) ? commissionOn(i) : 0)}
+                  </td>
                   <td className="py-2 text-right">
                     <button
                       onClick={() => remove(i.id)}
