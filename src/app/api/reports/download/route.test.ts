@@ -1,6 +1,12 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import * as XLSX from 'xlsx'
 import { createFakeSupabase, type FakeDb } from '@/lib/ledger/fake-supabase'
+import {
+  INTERNAL_COST_PROFIT_BANNER,
+  reportDownloadFilename,
+} from '@/lib/billing/report-types'
 
 // THE ROUTE HANDLER, because the artefact under test is a FILE.
 //
@@ -56,10 +62,35 @@ async function bodyText(res: Response) {
   return Buffer.from(await res.arrayBuffer()).toString('binary')
 }
 
-/** The first sheet of an xlsx response, as row objects. */
+/** The workbook, so tests can read the tab name as well as the rows. */
+async function workbook(res: Response) {
+  return XLSX.read(Buffer.from(await res.arrayBuffer()), { type: 'buffer' })
+}
+
+/**
+ * The first sheet, as row objects.
+ *
+ * Shipments, Profit and Losses put an internal warning on row 1 and the
+ * column names on row 2. sheet_to_json would otherwise treat the warning as
+ * the header. Other sheets still start with the header.
+ */
 async function sheetRows(res: Response) {
-  const wb = XLSX.read(Buffer.from(await res.arrayBuffer()), { type: 'buffer' })
-  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as Record<string, unknown>[]
+  const wb = await workbook(res)
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as unknown[][]
+  const start = typeof matrix[0]?.[0] === 'string' && String(matrix[0][0]).startsWith('INTERNAL')
+    ? 1
+    : 0
+  const header = (matrix[start] ?? []).map((cell) => (cell == null ? '' : String(cell)))
+  return matrix.slice(start + 1).map((row) => {
+    const record: Record<string, unknown> = {}
+    header.forEach((key, i) => {
+      if (!key) return
+      const value = row?.[i]
+      if (value !== undefined && value !== null && value !== '') record[key] = value
+    })
+    return record
+  })
 }
 
 beforeEach(() => {
@@ -385,7 +416,7 @@ describe('GET /api/reports/download: profit summary is a shipment client rate', 
     const csv = await bodyText(await GET(url({
       type: 'profit-loss', dateFrom: FROM, dateTo: TO, format: 'csv',
     })))
-    const header = csv.split('\n')[0]
+    const header = csv.split('\n').find((line) => line.includes('Shipment client rate ($)')) ?? ''
     expect(header).toContain('Shipment client rate ($)')
     expect(header).not.toMatch(/Date/)
     expect(csv).toContain('6313.47')
@@ -473,5 +504,78 @@ describe('GET /api/reports/download: ship date is the carrier calendar day', () 
       'Stored ship day': '2026-09-30',
     })
     expect(byOrder.get('SO-INSTANT')).toMatchObject({ 'Ship Date': '2026-09-30' })
+  })
+})
+
+describe('GET /api/reports/download: cost and profit files say they are internal', () => {
+  const costTypes = ['shipments', 'profit-loss', 'loss-shipments'] as const
+
+  it('puts the warning on every cost-and-profit sheet and in the filename', async () => {
+    h.db = createFakeSupabase({
+      ...structuredClone(EMPTY_TABLES),
+      shipments: [{
+        id: 's1', order_number: 'SO1', client_id: 'c1', clients: { name: 'Kivema' },
+        ship_date: '2026-10-12', carrier: 'ups', service: 'ground',
+        tracking_number: '1Z', recipient_name: 'A', recipient_city: 'Dover',
+        recipient_state: 'DE', weight: 1, actual_cost: 4, client_rate: 9,
+        profit_loss: 5, is_loss: false, source: 'shipstation', raw_data: {},
+      }],
+    })
+
+    for (const type of costTypes) {
+      const res = await GET(url({ type, dateFrom: FROM, dateTo: TO, clientId: 'c1' }))
+      expect(res.ok, type).toBe(true)
+      const filename = res.headers.get('content-disposition') ?? ''
+      expect(filename, type).toContain(reportDownloadFilename(type, FROM, TO, 'xlsx'))
+      expect(filename, type).toContain('INTERNAL-contains-Shipo-cost-and-profit-not-for-clients')
+      expect(filename, type).toContain('not-for-clients')
+
+      const wb = await workbook(res)
+      expect(wb.SheetNames[0], type).toMatch(/^INTERNAL /)
+      const matrix = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 }) as unknown[][]
+      expect(matrix[0]?.[0], type).toBe(INTERNAL_COST_PROFIT_BANNER)
+
+      const csvRes = await GET(url({
+        type, dateFrom: FROM, dateTo: TO, format: 'csv', clientId: 'c1',
+      }))
+      const csv = Buffer.from(await csvRes.arrayBuffer()).toString('utf8')
+      expect(csv.split('\n')[0], type).toBe(`"${INTERNAL_COST_PROFIT_BANNER}"`)
+      expect(csvRes.headers.get('content-disposition')).toContain(
+        reportDownloadFilename(type, FROM, TO, 'csv'))
+
+      const pdfRes = await GET(url({ type, dateFrom: FROM, dateTo: TO, format: 'pdf' }))
+      expect(pdfRes.headers.get('content-disposition')).toContain(
+        reportDownloadFilename(type, FROM, TO, 'pdf'))
+      const pdf = Buffer.from(await pdfRes.arrayBuffer()).toString('latin1')
+      expect(pdf, type).toContain('INTERNAL')
+      expect(pdf, type).toContain('not for clients')
+      expect(pdf, type).toContain('Shipo cost and profit')
+    }
+  })
+
+  it('does not put that warning on sheets that are not cost and profit', async () => {
+    for (const type of ['adjustments', 'billing', 'warehouse'] as const) {
+      const res = await GET(url({ type, dateFrom: FROM, dateTo: TO }))
+      const filename = res.headers.get('content-disposition') ?? ''
+      expect(filename, type).not.toContain('INTERNAL')
+      expect(filename, type).toContain(`${type}-report-${FROM}-to-${TO}.xlsx`)
+      const wb = await workbook(res)
+      expect(wb.SheetNames[0], type).not.toMatch(/^INTERNAL/)
+      const matrix = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 }) as unknown[][]
+      expect(String(matrix[0]?.[0] ?? ''), type).not.toContain('Shipo cost')
+    }
+  })
+
+  it('leaves the client statement and client report downloads unlabelled and without this banner', () => {
+    const root = process.cwd()
+    for (const file of [
+      'src/app/api/statements/download/route.ts',
+      'src/app/api/client-reports/download/route.ts',
+    ]) {
+      const source = readFileSync(join(root, file), 'utf8')
+      expect(source, file).not.toContain(INTERNAL_COST_PROFIT_BANNER)
+      expect(source, file).not.toContain('reportDownloadFilename')
+      expect(source, file).not.toContain('Carrier Cost')
+    }
   })
 })
