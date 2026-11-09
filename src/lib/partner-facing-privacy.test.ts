@@ -90,7 +90,8 @@ describe('the partner flow keeps its gates and then shows only the payout', () =
   it('asks for the current terms before a statement', () => {
     expect(needsAcceptance([])).toBe(true)
     expect(needsAcceptance([{ terms_version: '2026-10-13' }])).toBe(true)
-    expect(needsAcceptance([{ terms_version: '2026-11-06' }])).toBe(false)
+    expect(needsAcceptance([{ terms_version: '2026-11-06' }])).toBe(true)
+    expect(needsAcceptance([{ terms_version: '2026-11-09' }])).toBe(false)
   })
 
   it('terms, roster copy, and the guide do not describe costs or the rate', () => {

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { requireStaff } from '@/lib/require-staff'
 import {
   bonusAmount,
+  partnerAgreementSigned,
   type ReferralPartner,
   type ReferredClient,
 } from '@/lib/referrals'
@@ -45,13 +46,19 @@ async function resolveBonusAmount(
 
   const { data: partnerRow, error: partnerErr } = await supabaseAdmin
     .from('referral_partners')
-    .select('id, name, company, status, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue')
+    .select('id, name, company, status, signup_bonus_amount, bonus_min_units, bonus_min_orders, bonus_min_revenue, agreement_status, agreement_signed_at')
     .eq('id', mine.referral_partner_id)
     .maybeSingle()
   if (partnerErr) return { amount: null, error: partnerErr.message }
 
   const partner = partnerRow as ReferralPartner | null
   if (!partner) return { amount: null, error: 'This client is not linked to a referral partner.' }
+  if (!partnerAgreementSigned(partner)) {
+    return {
+      amount: null,
+      error: "This partner's agreement is not signed, so the signup bonus is not owed. Nothing was recorded.",
+    }
+  }
 
   return { amount: bonusAmount(partner) }
 }
@@ -134,6 +141,31 @@ export async function POST(req: Request) {
     // browser sends `amount`, and a stale tab is enough to send $500
     // for a place that was taken minutes ago by someone else. The only
     // trustworthy figure is the one computed at the moment of approval.
+    //
+    // The agreement gate is the same one computeOwed uses. Approving
+    // does not calculate a second rate, and it must not record the
+    // standing bonus for a partner who has not signed.
+    const partnerId = typeof body.referral_partner_id === 'string' ? body.referral_partner_id : ''
+    if (!partnerId) {
+      return NextResponse.json({
+        error: 'referral_partner_id is required to approve a payout. Nothing was recorded.',
+      }, { status: 400 })
+    }
+    const { data: gatePartner, error: gateErr } = await supabaseAdmin
+      .from('referral_partners')
+      .select('agreement_status, agreement_signed_at')
+      .eq('id', partnerId)
+      .maybeSingle()
+    if (gateErr) {
+      return NextResponse.json({
+        error: `Could not check the agreement, so nothing was recorded: ${gateErr.message}`,
+      }, { status: 503 })
+    }
+    if (!gatePartner || !partnerAgreementSigned(gatePartner)) {
+      return NextResponse.json({
+        error: "This partner's agreement is not signed, so nothing is owed. Nothing was recorded.",
+      }, { status: 409 })
+    }
     if (row.kind === 'signup_bonus' && row.client_id) {
       const resolved = await resolveBonusAmount(String(row.client_id))
       if (resolved.amount === null) {

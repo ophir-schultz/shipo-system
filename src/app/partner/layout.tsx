@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { statementDisputeWindowPhrase } from '@/lib/partner-terms'
 
 // The partner portal is a separate surface from the staff app: no
 // sidebar, no internal navigation, nothing that hints at the rest
@@ -61,7 +62,7 @@ export default function PartnerLayout({ children }: { children: React.ReactNode 
           >
             Support@shipousa.com
           </a>{' '}
-          within 30 days of receiving the statement.
+          {statementDisputeWindowPhrase()} of receiving the statement.
         </p>
         <p className="mt-2">
           These figures are private to your account. Shipo LLC · 310 Cornell Dr, Suite B4, Wilmington, DE 19801

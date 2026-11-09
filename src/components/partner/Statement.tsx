@@ -32,6 +32,7 @@ import {
 } from '@/lib/partner-activity'
 import { CLAIM_PARTNER_TEXT, claimPartnerState } from '@/lib/partner-claims'
 import { projectPartnerStatement } from '@/lib/partner-facing'
+import { statementDisputeWindowPhrase } from '@/lib/partner-terms'
 import SignOutButton from '@/components/partner/SignOutButton'
 import ClaimForm from '@/components/partner/ClaimForm'
 import BatchClaimForm from '@/components/partner/BatchClaimForm'
@@ -503,7 +504,7 @@ export default async function Statement({ partner }: { partner: StatementPartner
         </div>
         <p className="text-sm leading-relaxed text-gray-500">
           The amounts above are your commission and any sign-up bonus. If you disagree with a statement, tell us in
-          writing within 30 days of receiving it.
+          writing {statementDisputeWindowPhrase()} of receiving it.
         </p>
       </section>
     </div>

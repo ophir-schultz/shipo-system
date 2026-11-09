@@ -20,6 +20,10 @@
 //     invoice, whatever the amount. (Until 2026-10-12 this read
 //     "$500 or more billed in a calendar month" plus "60 days
 //     active"; both were dropped.)
+//   • Nothing is owed until THIS partner's agreement is signed.
+//     A row that is only "sent", or unsigned, earns $0 even when a
+//     client is linked and monthly invoices exist. A W-9 still
+//     blocks payment, not this calculation.
 //
 // Nothing here moves money. It computes what is OWED so Ophir can
 // review each line and approve it. Every payout stays `pending`
@@ -143,6 +147,42 @@ export interface ReferralPartner {
   bonus_min_orders?: number | null // a contracted DTC-order bar
   bonus_min_revenue?: number | null // a contracted revenue bar
   founding_partner?: boolean | null // legacy flag; prices nothing
+
+  // Written together by the DocuSign completion stamp, and the same
+  // columns portal access already reads. Optional so a caller that
+  // forgets them fails closed in partnerAgreementSigned — absent is
+  // not signed, and an unsigned partner is not owed a payout.
+  agreement_status?: string | null
+  agreement_signed_at?: string | null
+}
+
+/**
+ * Whether this partner's agreement is signed, so a bonus or a
+ * commission may be calculated.
+ *
+ * The real columns are `agreement_status` and `agreement_signed_at`
+ * on referral_partners. The completion stamp writes both: status
+ * `signed` and the timestamp. Portal access treats status exactly
+ * `signed` as the signature (see AGREEMENT_SIGNED). A paper signature
+ * is recorded the same way and may have no timestamp, so status
+ * `signed` earns on its own.
+ *
+ * A timestamp on its own also counts. The one exception is a later
+ * decline or void: those updates change status and leave
+ * `agreement_signed_at` in place, so a leftover timestamp must not
+ * keep paying a partner whose agreement is no longer in force.
+ *
+ * `sent`, `not_sent`, blank, and a missing field are not signed.
+ */
+export function partnerAgreementSigned(partner: {
+  agreement_status?: string | null
+  agreement_signed_at?: string | null
+}): boolean {
+  const status = typeof partner.agreement_status === 'string' ? partner.agreement_status.trim() : ''
+  if (status === 'declined' || status === 'voided') return false
+  if (status === 'signed') return true
+  const signedAt = typeof partner.agreement_signed_at === 'string' ? partner.agreement_signed_at.trim() : ''
+  return signedAt.length > 0
 }
 
 export interface ReferredClient {
@@ -557,6 +597,13 @@ export function computeOwed(
     if (!client.referral_partner_id) continue
     const partner = partnerById.get(client.referral_partner_id)
     if (!partner) continue
+
+    // The standing $300 and 5% accrue only after the agreement is
+    // signed. Skipping the client emits no line, so an unsigned
+    // partner cannot be approved for a payout that is not owed.
+    // The W-9 is deliberately not read here: it blocks marking a
+    // payout paid, and the amount still accrues while the form is out.
+    if (!partnerAgreementSigned(partner)) continue
 
     const statusFor = (key: string): { status: PayoutStatus; recordId?: string } => {
       const rec = payoutByKey.get(key)
