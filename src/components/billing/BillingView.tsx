@@ -342,7 +342,7 @@ export default function BillingView({ data }: { data: BillingData }) {
           <SummaryCard label="Warehouse Charges" value={`$${warehouseTotal.toFixed(2)}`} sub={notes(unpricedNote(warehouseSum.unpriced, 'day'), undatedNote(warehouseFiltered.undated, 'day')) || `${warehouse.length} entries`} color={warehouseSum.unpriced > 0 || warehouseFiltered.undated > 0 ? 'orange' : 'gray'} />
           <SummaryCard label="Pending Adjustments" value={formatSignedPrice(totalOrUnknown(pendingAdjSum))} sub={notes(unpricedNote(pendingAdjSum.unpriced, 'adjustment'), undatedNote(adjustmentsFiltered.undated, 'adjustment')) || `${pendingAdjRows.length} pending`} color="orange" />
           <SummaryCard label="Total to Bill" value={formatPrice(totalOrUnknown(billTotal))} sub={notes(unbillableNote, undatedNote(shipmentsFiltered.undated + adjustmentsFiltered.undated, 'line')) || 'Shipping + WH + Adj'} color={billTotal.unpriced > 0 || shipmentsFiltered.undated + adjustmentsFiltered.undated > 0 ? 'orange' : 'green'} />
-          <SummaryCard label="Loss Shipments" value={lossCount.toString()} sub={lossCount > 0 ? '⚠️ Needs review' : '✓ All profitable'} color={lossCount > 0 ? 'red' : 'gray'} />
+          <SummaryCard label="Loss Shipments" value={lossCount.toString()} sub={lossCount > 0 ? 'Needs review' : shippingRevenueSum.unpriced > 0 ? 'Unpriced shipments are not in this count' : 'No priced shipment is flagged'} color={lossCount > 0 ? 'red' : 'gray'} />
         </div>
       )}
 

@@ -80,6 +80,31 @@ export async function getCustomerOrders(
   }
 }
 
+/**
+ * One page of GET /items. perPage is 20–100. active true is the default
+ * and leaves inactive SKUs out of this page. The caller must read every
+ * page or use none of them.
+ */
+export async function getItems(
+  apiKey: string,
+  apiSecret: string,
+  params: { page: number; perPage: number; active: boolean },
+) {
+  const c = makeClient(apiKey, apiSecret)
+  try {
+    const res = await c.get('/items', {
+      params: {
+        page: params.page,
+        perPage: params.perPage,
+        active: params.active,
+      },
+    })
+    return res.data
+  } catch (err) {
+    throw new Error(`Zenventory API error: ${extractError(err)}`)
+  }
+}
+
 /** One read of GET /inventory. The count is meta.count when Zenventory sends it. */
 export async function getInventory(
   apiKey: string,

@@ -695,8 +695,11 @@ export default async function LedgerPage() {
                       <td className="py-2.5 pr-3 font-mono text-xs text-blue-700">
                         {r.sku}
                         {r.is_component && (
-                          <span className="ml-1 rounded bg-[#1e3a5f] px-1 text-[0.65rem] text-blue-700">
-                            component
+                          <span
+                            className="ml-1 rounded bg-[#1e3a5f] px-1 text-[0.65rem] text-sky-100"
+                            title="Stored SKU class on the order line. This is not a scan requirement and it is not a pick price."
+                          >
+                            stored component
                           </span>
                         )}
                       </td>

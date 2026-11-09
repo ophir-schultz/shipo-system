@@ -207,6 +207,22 @@ export interface StatementFigures {
   amountDue: number | null
 }
 
+/** Lines with no price, split by charge type so pick lines and shipping lines are not one order count. */
+export function unpricedLinesNote(
+  lines: readonly { charge_type: string; sum: { unpriced: number } }[],
+): string {
+  const byType = new Map<string, number>()
+  for (const line of lines) {
+    if (line.sum.unpriced <= 0) continue
+    byType.set(line.charge_type, (byType.get(line.charge_type) ?? 0) + line.sum.unpriced)
+  }
+  const counts = [...byType.entries()]
+  const total = counts.reduce((sum, [, count]) => sum + count, 0)
+  if (total <= 0) return ''
+  const parts = counts.map(([type, count]) => `${count} ${type}`)
+  return `${total} lines have no price (${parts.join(' and ')}). That count is lines, not orders. They are not included`
+}
+
 /**
  * Subtotal and amount due for one statement.
  *

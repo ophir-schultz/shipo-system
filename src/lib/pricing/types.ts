@@ -141,6 +141,16 @@ export interface PriceListDocument {
 export interface SkuQty {
   sku: string
   qty: number
+  /** True when the SKU must be scanned. Omit or null when that is not stored. */
+  scannable?: boolean | null
+  /**
+   * Units actually picked. Set by the report loader. Undefined means the
+   * caller already put the worked quantity in `qty` (older tests).
+   * Null means the picked count was not recorded. Zero means nothing was picked.
+   */
+  picked?: number | null
+  /** Calendar day the pick was recorded. Null when that day is not stored. */
+  pickDate?: string | null
 }
 
 export interface BoxLine {

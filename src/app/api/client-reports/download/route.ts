@@ -13,6 +13,7 @@ import {
 } from '@/lib/pricing/client-report'
 import { withStoredSerials, type RawScanSerial } from '@/lib/pricing/report-serials'
 import { isMigrationMissing } from '@/lib/db/read'
+import { loadOrderActivity } from '@/lib/pricing/load-order-activity'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,6 +39,40 @@ export async function GET(req: Request) {
   }
   if (!clientId) {
     return NextResponse.json({ error: 'Choose a client. A report is approved for one client at a time.' }, { status: 400 })
+  }
+
+  if (url.searchParams.get('source') === 'activity') {
+    const client = await supabaseAdmin.from('clients').select('name').eq('id', clientId).maybeSingle()
+    if (client.error) return NextResponse.json({ error: client.error.message }, { status: 500 })
+    const loaded = await loadOrderActivity(clientId, client.data?.name ?? '', dateFrom, dateTo)
+    if (loaded.error || !loaded.activity) {
+      return NextResponse.json({ error: loaded.error ?? 'Order activity could not be read.' }, { status: 500 })
+    }
+    const rows = loaded.activity.rows
+    const filename = `order-activity-${dateFrom}-${dateTo}`
+    if (format === 'csv') {
+      return new NextResponse(reportToCsv(rows), {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${filename}.csv"`,
+        },
+      })
+    }
+    if (format === 'pdf') {
+      const pdf = await reportToPdf(rows, `Order activity ${dateFrom} to ${dateTo}`)
+      return new NextResponse(new Uint8Array(pdf), {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="${filename}.pdf"`,
+        },
+      })
+    }
+    return new NextResponse(new Uint8Array(reportToXlsx(rows)), {
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${filename}.xlsx"`,
+      },
+    })
   }
 
   const approvalsRes = await supabaseAdmin

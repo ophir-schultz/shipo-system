@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyManualFullFreight, applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty,
+  applyManualFullFreight, applyNayaxRateCard, applyZonePrices, decidePickRate, hasPricedPick, isPickPackService, lineQty,
+  shippingDisagreements, uncoveredShipmentCharges, withholdDisagreedShipping,
   nayaxManualFreight, pickOrdersFromShipments, pickPackRows, pickRateOnCard, pickRowsFromCard,
   shippingChargesFromShipments,
 } from './statement-source'
@@ -123,17 +124,65 @@ describe('Nayax freight with no zone price', () => {
     expect(JSON.stringify(rows)).not.toContain('999')
   })
 
-  it('leaves a zone price in place and does not add the manual charge beside it', () => {
-    const zoned = applyZonePrices(
-      [atCost('900', 437.08)],
-      new Map([['900', 22.4]]),
-    )
+  it('bills Nayax the rate-card price and does not rewrite the ledger figure into the client row', () => {
+    const before = [atCost('345810929', 17.52, '2026-11-03')]
+    const rates = new Map<string, number | null>([['345810929', 24.24]])
+    const billed = applyNayaxRateCard(applyZonePrices(before, rates), rates)
+    expect(billed[0].amount).toBe(24.24)
+    expect(billed[0].unit_rate).toBe(24.24)
+    const held = withholdDisagreedShipping(before, billed, rates)
+    expect(held[0].amount).toBe(24.24)
+    expect(JSON.stringify(held)).not.toContain('17.52')
+    const note = shippingDisagreements(before, rates, { rateCardIsClientPrice: true })[0]
+    expect(note).toContain('24.24')
+    expect(note).toContain('17.52')
+    expect(note).toContain('approved correction')
+    expect(note).toContain('Nothing was written')
+  })
+
+  it('does not bill Nayax at the ledger amount when the rate card has no price', () => {
+    const before = [atCost('404', 104.92)]
+    const rates = new Map<string, number | null>([['404', null]])
+    const billed = applyNayaxRateCard(before, rates)
+    const pending = applyManualFullFreight(billed, [])
+    expect(pending.charges[0].amount).toBeNull()
+    expect(pending.charges[0].label).toBe('Shipping (full price pending)')
+    expect(JSON.stringify(pending.charges)).not.toContain('104.92')
+  })
+
+  it('does not replace a ledger amount with a different stored rate', () => {
+    const before = [atCost('900', 10)]
+    const rates = new Map<string, number | null>([['900', 14]])
+    const zoned = applyZonePrices(before, rates)
+    expect(zoned[0].amount).toBe(10)
+    const held = withholdDisagreedShipping(before, zoned, rates)
+    expect(held[0].amount).toBeNull()
+    expect(held[0].label).toBe('Shipping (price not final)')
+    expect(JSON.stringify(held)).not.toContain('14')
+    expect(shippingDisagreements(before, rates)[0]).toContain('disagree')
+  })
+
+  it('keeps a linked full freight price when the stored rate differs', () => {
+    const before = [atCost('900', 437.08)]
+    const rates = new Map<string, number | null>([['900', 22.4]])
+    const zoned = applyZonePrices(before, rates)
     const applied = applyManualFullFreight(zoned, [{ shipmentId: '900', amount: 510, logDate: '2026-10-09' }])
-    const rows = applied.charges
-    expect(applied.reviews[0]).toMatch(/zone price/)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].amount).toBe(22.4)
-    expect(rows[0].unit_rate).toBe(22.4)
+    const held = withholdDisagreedShipping(before, applied.charges, rates)
+    expect(held[0].amount).toBe(510)
+    expect(JSON.stringify(held)).not.toContain('437.08')
+    expect(JSON.stringify(held)).not.toContain('22.4')
+  })
+
+  it('lists a shipment with no ledger shipping charge and does not price it', () => {
+    const rows = uncoveredShipmentCharges([
+      { id: 's1', shipstation_shipment_id: '77', order_number: 'SO-9', ship_date: '2026-11-06', client_rate: 104.92 },
+    ], new Set(['shipment:1']), '2026-11-01')
+    expect(rows).toEqual([expect.objectContaining({
+      charge_key: 'shipment:77',
+      amount: null,
+      label: 'Shipping (not on the ledger)',
+    })])
+    expect(JSON.stringify(rows)).not.toContain('104.92')
   })
 
   it('does not drop a voided zero, a pick, or a non-freight shipping line', () => {
@@ -153,6 +202,16 @@ describe('Nayax freight with no zone price', () => {
     expect(applied.charges[0].amount).toBeNull()
     expect(applied.reviews[0]).toMatch(/2026-10-10/)
     expect(JSON.stringify(applied.charges)).not.toContain('510')
+  })
+})
+
+describe('pick is per order, not every device unit at the remainder rate', () => {
+  it('charges one carton at the carton rate', () => {
+    const list = loadRepoPriceList('Nayax').list
+    expect(list?.devicePick).toBeTruthy()
+    const priced = pricePick(list!, [{ sku: 'R-100', qty: 20 }])
+    expect(priced.amount).toBe(list!.devicePick!.cartonRate)
+    expect(priced.amount).not.toBe(20 * list!.devicePick!.remainderRate)
   })
 })
 
@@ -189,16 +248,64 @@ describe('statement pick & pack', () => {
     ])
   })
 
-  it('prices a Nayax order from the price list without storing one unit rate', () => {
+  it('does not price a Nayax order from the R/D prefix when scan requirement is missing', () => {
     const nayax = loadRepoPriceList('Nayax').list
     expect(nayax).not.toBeNull()
     const lines = [{ sku: 'R100', qty: 21 }, { sku: 'CABLE', qty: 2 }]
     const rows = pickPackRows([{ orderId: 'o1', chargeDate: '2026-10-08', lines }], nayax)
-    expect(rows).toHaveLength(1)
-    expect(rows[0].unit_rate).toBeNull()
-    expect(rows[0].amount).toBe(pricePick(nayax!, lines).amount)
-    expect(rows[0].amount).not.toBeNull()
-    expect(chargeRateCell(rows[0])).toBe('see amount')
+    expect(rows[0].amount).toBeNull()
+    expect(rows[0].label).toBe('Pick & pack (classification unknown)')
+    const classified = [{ sku: 'R100', qty: 20, scannable: true }, { sku: 'CABLE', qty: 100, scannable: false }]
+    const priced = pickPackRows([{ orderId: 'o1', chargeDate: '2026-10-08', lines: classified }], nayax)
+    expect(priced[0].amount).toBe(21.5)
+  })
+
+  it('prices picked units on the current list and does not bill an undated or outside pick', () => {
+    const nayax = loadRepoPriceList('Nayax').list!
+    const period = { from: '2026-11-01', to: '2026-11-30' }
+    const notes: string[] = []
+    const excluded = new Set<string>()
+    const rows = pickPackRows([
+      {
+        orderId: 'so404',
+        orderNumber: 'SO601065404',
+        chargeDate: '2026-11-06',
+        lines: [
+          { sku: 'DEV', qty: 300, picked: 100, scannable: true, pickDate: '2026-11-06' },
+          { sku: 'ACC', qty: 900, picked: 175, scannable: false, pickDate: '2026-11-06' },
+        ],
+      },
+      {
+        orderId: 'so551',
+        orderNumber: 'SO601065551',
+        chargeDate: '2026-11-06',
+        lines: [{ sku: 'DEV', qty: 40, picked: 0, scannable: true, pickDate: null }],
+      },
+      {
+        orderId: 'undated',
+        orderNumber: 'SO-UNDATED',
+        chargeDate: '2026-11-06',
+        lines: [{ sku: 'DEV', qty: 20, picked: 20, scannable: true, pickDate: null }],
+      },
+      {
+        orderId: 'early',
+        orderNumber: 'SO-EARLY',
+        chargeDate: '2026-11-06',
+        lines: [{ sku: 'DEV', qty: 20, picked: 20, scannable: true, pickDate: '2026-10-01' }],
+      },
+    ], nayax, { period, notes, excluded })
+    const billed = rows.find((row) => row.order_id === 'so404')
+    expect(billed?.amount).toBe(42.5)
+    expect(billed?.quantity).toBe(275)
+    expect(billed?.charge_date).toBe('2026-11-06')
+    expect(rows.find((row) => row.order_id === 'so551')).toMatchObject({ amount: 0, quantity: 0, label: 'Pick & pack (nothing picked)' })
+    expect(rows.find((row) => row.order_id === 'undated')?.amount).toBeNull()
+    expect(rows.find((row) => row.order_id === 'early')).toBeUndefined()
+    expect(excluded.has('early')).toBe(true)
+    expect(notes.join(' ')).toContain('$1.50')
+    expect(notes.join(' ')).toContain('not amount due')
+    expect(notes.join(' ')).toContain('outside this period')
+    expect(rows.reduce((sum, row) => sum + (row.amount ?? 0), 0)).toBe(42.5)
   })
 
   it('uses the picked quantity when one was recorded', () => {

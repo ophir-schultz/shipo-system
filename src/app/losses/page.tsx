@@ -10,6 +10,11 @@ import ViewUnreadable from '@/components/ui/ViewUnreadable'
 import { SHIP_DAY_LABEL_NOTE } from '@/lib/billing/ship-day-label'
 import { ShipDay } from '@/components/shipments/ShipDay'
 import { withoutVoided } from '@/lib/billing/voided-shipment'
+import {
+  barShare, classifyParcel, COVERAGE_REASON, orderKeyOf, readIdChunks,
+  shippingChargeKey, summarizeCoverage,
+  type Coverage, type CoverageOrder, type CoverageSummary, type ShippingChargeRow,
+} from '@/lib/billing/loss-coverage'
 
 // Read at REQUEST time, never at build time. Without this the App Router
 // prerenders this page during `next build`. The 2026-10-21 preview build
@@ -67,7 +72,7 @@ async function getLossData() {
   const [lossRes, allRes] = await Promise.all([
     readAllPages((from, to) => supabaseAdmin
       .from('shipments')
-      .select('id, order_number, ship_date, carrier, service, weight, billed_weight, actual_cost, client_rate, profit_loss, zone, recipient_state, client_id, clients(name), raw_data')
+      .select('id, order_number, ship_date, carrier, service, weight, billed_weight, actual_cost, client_rate, profit_loss, zone, recipient_state, client_id, shipstation_shipment_id, clients(name), raw_data')
       .eq('is_loss', true)
       .order('profit_loss', { ascending: true })
       .order('id')
@@ -89,6 +94,36 @@ async function getLossData() {
   const lossRead = read('shipments (losses)', lossRes)
   const allRead = read('shipments (all assigned)', allRes)
   const unreadable = readErrors(lossRead, allRead)
+  // Charges are a second fact. A failed read must not become "no charge",
+  // and it must not suppress the rate-card shortfall above.
+  const preview = unreadable ? [] : withoutVoided(lossRead.rows)
+  const chargeKeys = preview.flatMap((row) => {
+    const key = shippingChargeKey((row as { shipstation_shipment_id?: unknown }).shipstation_shipment_id)
+    return key == null ? [] : [key]
+  })
+  const orderKeys = preview.flatMap((row) => {
+    const key = orderKeyOf((row as { order_number?: unknown }).order_number)
+    return key == null ? [] : [key]
+  })
+  const chargeRead = await readIdChunks<ShippingChargeRow>(chargeKeys, (chunk) =>
+    readAllPages((from, to) => supabaseAdmin
+      .from('order_charges')
+      .select('client_id, charge_key, charge_type, amount')
+      .eq('charge_type', 'shipping')
+      .in('charge_key', [...chunk])
+      .order('id')
+      .range(from, to)))
+  const orderRead = await readIdChunks<CoverageOrder>(orderKeys, (chunk) =>
+    readAllPages((from, to) => supabaseAdmin
+      .from('orders')
+      .select('client_id, order_key')
+      .in('order_key', [...chunk])
+      .order('id')
+      .range(from, to)))
+  const coverageReads = {
+    charges: chargeRead.error ? 'failed' as const : 'ok' as const,
+    orders: orderRead.error ? 'failed' as const : 'ok' as const,
+  }
   // Everything below is inside the thunk, so on the failure path not one of
   // these aggregations runs. A full set of byClient / byService / byZone /
   // byWeight breakdowns reading "no losses" should not exist in the program at
@@ -96,6 +131,13 @@ async function getLossData() {
   return loaded(unreadable, () => {
     const losses = withoutVoided(lossRead.rows)
     const all = withoutVoided(allRead.rows)
+    const coverage = losses.map((s) => classifyParcel({
+      clientId: (s as { client_id?: string | null }).client_id ?? null,
+      orderNumber: (s as { order_number?: string | null }).order_number ?? null,
+      shipstationShipmentId: (s as { shipstation_shipment_id?: unknown }).shipstation_shipment_id,
+      carrierCost: (s as { actual_cost?: unknown }).actual_cost,
+    }, chargeRead.rows, orderRead.rows, coverageReads))
+    const coverageSummary = summarizeCoverage(coverage)
 
     const totalShipments = all.length
     // ONE reconciliation, not three sums. The previous version summed
@@ -176,6 +218,8 @@ async function getLossData() {
       // here is exactly how the old accumulators managed to understate a loss
       // total with nothing on the screen to say so.
       unmeasuredLosses: lossSum.unpriced,
+      coverage,
+      coverageSummary,
       lossCount: losses.length,
       lossRate: totalShipments > 0 ? (losses.length / totalShipments) * 100 : 0,
       byClient: byClient.map(([name, v]) => ({ name, ...v })).sort((a, b) => b.lossAmt - a.lossAmt),
@@ -190,7 +234,10 @@ function Header() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-[#0B1220]">Loss Analysis</h2>
-      <p className="text-[#4B4F58] text-sm mt-1">All shipments where carrier cost exceeded what we charged the client</p>
+      <p className="text-[#4B4F58] text-sm mt-1">
+        Shipments whose stored rate-card price is below the stored carrier cost.
+        That is a rate-card shortfall. It is not a recorded shipping charge, not an invoice, and not money confirmed as lost.
+      </p>
     </div>
   )
 }
@@ -210,6 +257,9 @@ export default async function LossesPage() {
   // rows; the annotation is what makes deleting the check above a compile error
   // rather than a silent return to printing "-$0.00" over an unread table.
   const d: LoadedData<typeof page> = page.data
+  const clientMax = Math.max(0, ...d.byClient.map((c) => c.lossAmt))
+  const zoneMax = Math.max(0, ...d.byZone.map(([, v]) => v.lossAmt))
+  const weightMax = Math.max(0, ...d.byWeight.map(([, v]) => v.lossAmt))
   const fmt = (n: number) => `$${Math.abs(n).toFixed(2)}`
   /** A figure whose every contributing row was withheld is a dash, not $0.00. */
   const fmtOrDash = (n: number | null) => (n === null ? UNPRICED_DASH : fmt(n))
@@ -329,8 +379,8 @@ export default async function LossesPage() {
 
       {/* Summary bar */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Loss Shipments" value={d.lossCount.toString()} sub={`${d.lossRate.toFixed(1)}% of all shipments`} color="red" />
-        <StatCard label="Total Loss Amount" value={`-${fmt(d.totalLossAmt)}`} sub="Money we lost on those shipments" color="red" />
+        <StatCard label="Rate-card shortfall" value={d.lossCount.toString()} sub={`${d.lossRate.toFixed(1)}% of assigned shipments, voids excluded`} color="red" />
+        <StatCard label="Shortfall amount" value={`-${fmt(d.totalLossAmt)}`} sub="Stored rate-card price below stored carrier cost. Recorded shipping charges are not in this figure." color="red" />
         {/* Both cards below are built from the SAME reconciled rows, so the
             figures in them subtract: Revenue minus Carrier cost is exactly Net
             Profit, to the cent. They used to come from three separate sums over
@@ -342,19 +392,19 @@ export default async function LossesPage() {
             same rule as before: an UNKNOWN profit is not green, because the
             neutral card is the one that does not answer a question it cannot
             answer. */}
-        <StatCard label="Net Profit (reconciled)"
+        <StatCard label="Rate-card price minus carrier cost"
           value={d.totalProfit === null ? UNPRICED_DASH : `${d.totalProfit >= 0 ? '+' : '-'}${fmt(d.totalProfit)}`}
           sub={[
             d.reconciledShipments === d.totalShipments
               ? `All ${d.totalShipments} assigned shipments`
               : `${d.reconciledShipments} of ${d.totalShipments} shipments — both sides known`,
-            d.marginPct !== null ? `${d.marginPct.toFixed(1)}% margin` : '',
+            d.marginPct !== null ? `${d.marginPct.toFixed(1)}% of the rate-card price` : '',
           ].filter(Boolean).join(' · ')}
           color={d.totalProfit === null ? 'unknown' : d.totalProfit >= 0 ? 'green' : 'red'} />
-        <StatCard label="Revenue vs Cost"
+        <StatCard label="Rate-card price / carrier cost"
           value={`${fmtOrDash(d.totalRevenue)} / ${fmtOrDash(d.totalCost)}`}
           sub={[
-            'Revenue / Carrier cost — these subtract to Net Profit',
+            'Stored rate-card price / stored carrier cost. Recorded shipping charges are not included',
             d.unpricedShipments > 0 ? `${d.unpricedShipments} with no agreed rate` : '',
             d.uncostedShipments > 0 ? `${d.uncostedShipments} awaiting carrier cost` : '',
             d.unmeasuredShipments > 0 ? `${d.unmeasuredShipments} with neither` : '',
@@ -366,7 +416,7 @@ export default async function LossesPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* By Client */}
         <div className="bg-white rounded-xl p-5">
-          <h3 className="font-semibold text-[#0B1220] mb-3">By Client</h3>
+          <h3 className="font-semibold text-[#0B1220] mb-3">Shortfall by client</h3>
           {d.byClient.length === 0
             ? <p className="text-[#6B7A8D] text-sm">No losses</p>
             : <div className="space-y-2">
@@ -380,7 +430,7 @@ export default async function LossesPage() {
                     <div className="h-1.5 bg-[#EEF3FA] rounded-full overflow-hidden">
                       <div
                         className="h-full bg-red-500 rounded-full"
-                        style={{ width: `${Math.min(100, (c.lossAmt / (d.byClient[0]?.lossAmt || 1)) * 100)}%` }}
+                        style={{ width: `${barShare(c.lossAmt, clientMax)}%` }}
                       />
                     </div>
                     <p className="text-xs text-[#6B7A8D] mt-0.5">{c.count} shipments</p>
@@ -393,7 +443,7 @@ export default async function LossesPage() {
 
         {/* By Zone */}
         <div className="bg-white rounded-xl p-5">
-          <h3 className="font-semibold text-[#0B1220] mb-3">By Zone</h3>
+          <h3 className="font-semibold text-[#0B1220] mb-3">Shortfall by zone</h3>
           {d.byZone.length === 0
             ? <p className="text-[#6B7A8D] text-sm">No zone data — run Recalculate after uploading zone chart</p>
             : <div className="space-y-2">
@@ -407,7 +457,7 @@ export default async function LossesPage() {
                     <div className="h-1.5 bg-[#EEF3FA] rounded-full overflow-hidden">
                       <div
                         className="h-full bg-orange-500 rounded-full"
-                        style={{ width: `${Math.min(100, (v.lossAmt / (d.byZone[0]?.[1]?.lossAmt || 1)) * 100)}%` }}
+                        style={{ width: `${barShare(v.lossAmt, zoneMax)}%` }}
                       />
                     </div>
                     <p className="text-xs text-[#6B7A8D] mt-0.5">{v.count} shipments</p>
@@ -420,7 +470,7 @@ export default async function LossesPage() {
 
         {/* By Weight */}
         <div className="bg-white rounded-xl p-5">
-          <h3 className="font-semibold text-[#0B1220] mb-3">By Weight (billed)</h3>
+          <h3 className="font-semibold text-[#0B1220] mb-3">Shortfall by billed weight</h3>
           {d.byWeight.length === 0
             ? <p className="text-[#6B7A8D] text-sm">No data</p>
             : <div className="space-y-2">
@@ -434,7 +484,7 @@ export default async function LossesPage() {
                     <div className="h-1.5 bg-[#EEF3FA] rounded-full overflow-hidden">
                       <div
                         className="h-full bg-purple-500 rounded-full"
-                        style={{ width: `${Math.min(100, (v.lossAmt / Math.max(...d.byWeight.map(([, x]) => x.lossAmt))) * 100)}%` }}
+                        style={{ width: `${barShare(v.lossAmt, weightMax)}%` }}
                       />
                     </div>
                     <p className="text-xs text-[#6B7A8D] mt-0.5">{v.count} shipments</p>
@@ -445,6 +495,8 @@ export default async function LossesPage() {
           }
         </div>
       </div>
+
+      <CoveragePanel summary={d.coverageSummary} />
 
       {/* By Carrier/Service */}
       <div className="bg-white rounded-xl p-5">
@@ -510,13 +562,17 @@ export default async function LossesPage() {
                     <th className="pb-2 pr-3 text-right">Wt (oz)</th>
                     <th className="pb-2 pr-3 text-center">Zone</th>
                     <th className="pb-2 pr-3 text-right">State</th>
-                    <th className="pb-2 pr-3 text-right">We Paid</th>
-                    <th className="pb-2 pr-3 text-right">Charged</th>
-                    <th className="pb-2 text-right">Loss</th>
+                    <th className="pb-2 pr-3 text-right">Carrier cost</th>
+                    <th className="pb-2 pr-3 text-right">Rate-card price</th>
+                    <th className="pb-2 pr-3 text-right">Rate-card shortfall</th>
+                    <th className="pb-2 pr-3 text-right">Recorded shipping charge</th>
+                    <th className="pb-2 text-right">Recorded minus carrier cost</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {d.losses.map((s: any) => (
+                  {d.losses.map((s: any, index: number) => {
+                    const covered: Coverage = d.coverage[index]
+                    return (
                     <tr key={s.id} className="border-b border-[#E2E8F0]/30 hover:bg-red-50">
                       <td className="py-2 pr-3 text-[#4B4F58]"><ShipDay stored={s.ship_date} raw={s.raw_data} /></td>
                       <td className="py-2 pr-3 font-mono text-[#3A4658]">{s.order_number}</td>
@@ -534,13 +590,22 @@ export default async function LossesPage() {
                       <td className="py-2 pr-3 text-right text-[#4B4F58]">{s.recipient_state ?? '—'}</td>
                       <td className="py-2 pr-3 text-right text-[#3A4658]">{formatPrice(s.actual_cost)}</td>
                       <td className="py-2 pr-3 text-right text-[#3A4658]">{formatPrice(s.client_rate)}</td>
-                      <td className="py-2 text-right font-bold text-red-700">{lossFigure(s.profit_loss)}</td>
+                      <td className="py-2 pr-3 text-right font-bold text-red-700">{lossFigure(s.profit_loss)}</td>
+                      <td className="py-2 pr-3 text-right text-[#3A4658]">
+                        {covered.kind === 'recorded'
+                          ? formatPrice(covered.recordedAmount)
+                          : <span>Unknown<span className="block text-[10px] font-normal text-[#6B7A8D]">{COVERAGE_REASON[covered.kind]}</span></span>}
+                      </td>
+                      <td className="py-2 text-right text-[#3A4658]">
+                        {covered.recordedMinusCost == null ? 'Unknown' : `${covered.recordedMinusCost < 0 ? '-' : ''}$${Math.abs(covered.recordedMinusCost).toFixed(2)}`}
+                      </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-red-200">
-                    <td colSpan={7} className="pt-3 text-red-700 text-xs font-semibold">TOTAL LOSSES</td>
+                    <td colSpan={7} className="pt-3 text-red-700 text-xs font-semibold">RATE-CARD SHORTFALL</td>
                     {/* Every row in this table has is_loss = true, which can
                         only be set when both figures are known, so neither of
                         these totals can be withholding anything. sumPriced is
@@ -549,6 +614,12 @@ export default async function LossesPage() {
                     <td className="pt-3 text-right text-[#3A4658] text-xs">${sumPriced(d.losses, 'actual_cost').total.toFixed(2)}</td>
                     <td className="pt-3 text-right text-[#3A4658] text-xs">${sumPriced(d.losses, 'client_rate').total.toFixed(2)}</td>
                     <td className="pt-3 text-right font-bold text-red-700">-${d.totalLossAmt.toFixed(2)}</td>
+                    <td className="pt-3 text-right text-[#6B7A8D] text-xs">Matched parcels only</td>
+                    <td className="pt-3 text-right text-[#3A4658] text-xs">
+                      {d.coverageSummary.recordedMinusCost == null
+                        ? 'Unknown'
+                        : `${d.coverageSummary.recordedMinusCost < 0 ? '-' : ''}$${Math.abs(d.coverageSummary.recordedMinusCost).toFixed(2)}`}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
@@ -556,6 +627,32 @@ export default async function LossesPage() {
           )
         }
       </div>
+    </div>
+  )
+}
+
+function CoveragePanel({ summary }: { summary: CoverageSummary }) {
+  const difference = summary.recordedMinusCost
+  return (
+    <div className="bg-white rounded-xl p-5">
+      <h3 className="font-semibold text-[#0B1220]">Recorded shipping charge</h3>
+      <p className="text-sm text-[#4B4F58] mt-1">
+        A number is shown only when one shipping charge has the key shipment:&lt;ShipStation id&gt; and the same client as the parcel.
+        Manual freight, adjustments, and warehouse lines are not applied. A missing charge is not $0 and is not added to the rate-card shortfall.
+      </p>
+      <p className="text-sm mt-3 text-[#0B1220]">
+        {summary.matched} matched parcel{summary.matched === 1 ? '' : 's'}.
+        {' '}Recorded charge minus carrier cost:{' '}
+        {difference == null ? 'Unknown' : `${difference < 0 ? '-' : ''}$${Math.abs(difference).toFixed(2)}`}.
+        {difference === 0 ? ' Zero means those matched charges equal the stored carrier cost. It is not a confirmed result.' : ''}
+      </p>
+      {summary.unknown > 0 && (
+        <ul className="mt-3 space-y-1 text-xs text-[#3A4658]">
+          {(Object.entries(summary.reasons) as [keyof typeof COVERAGE_REASON, number][]).map(([kind, count]) => (
+            <li key={kind}>{count} — {COVERAGE_REASON[kind]}</li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

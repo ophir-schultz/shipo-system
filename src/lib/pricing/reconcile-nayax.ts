@@ -1,5 +1,6 @@
-// Prices every order on the Nayax billing workbook and lists where the
-// price list does not land on the sheet's figure.
+// Compares the historical Nayax workbook with the prefix reading that sheet used.
+// It does not price a live order and it does not rewrite an import.
+// A live pick needs a stored scan requirement. pricePick's R/D split is not that flag.
 //
 // The workbook is not read here. Callers pass orders already taken off the
 // sheet (fixtures/nayax-orders.json), so this stays pure and the fixture can

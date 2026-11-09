@@ -3,7 +3,7 @@ import { readAllPages, type PageResult } from '@/lib/db/page'
 import { priceOf } from '@/lib/billing/unpriced'
 import { shipmentIdFromChargeKey } from '@/lib/billing/statement-detail'
 import type { StatementChargeRow } from '@/lib/billing/statement-charges'
-import { money, pricePick } from '@/lib/pricing/engine'
+import { money, peakOmissionNote, priceClassifiedPick } from '@/lib/pricing/engine'
 import { isVoidedShipment } from '@/lib/billing/voided-shipment'
 import { easternAddDays, easternMidnightIso, rawShipDate, shipCalendarDay } from '@/lib/ledger/eastern-day'
 import { zenventorySlug } from '@/lib/zenventory/client-env'
@@ -12,6 +12,9 @@ import type { DateRange } from '@/lib/billing/statement'
 import { parsePriceList } from '@/lib/pricing/parse-price-list'
 import { loadRepoPriceList } from '@/lib/pricing/repo-price-lists'
 import type { PriceListDocument, SkuQty } from '@/lib/pricing/types'
+import { assignScanFlags } from '@/lib/pricing/scan-catalog'
+import { loadScanCatalog } from '@/lib/pricing/load-scan-catalog'
+import { assessPickWork } from '@/lib/pricing/pick-work'
 
 // Shipping on a statement used to come only from order_charges. Orcam's
 // ledger rows are unpriced: that client has no shipping line on the warehouse
@@ -102,18 +105,129 @@ export function applyManualFullFreight(
   return { charges: chargesOut, reviews }
 }
 
+function sameCents(a: number, b: number): boolean {
+  return Math.round(a * 100) === Math.round(b * 100)
+}
+
+/**
+ * Nayax client shipping is the stored zone rate when that rate exists.
+ * A different ledger amount is not the client price and is not rewritten.
+ */
+export function applyNayaxRateCard(
+  charges: readonly StatementChargeRow[],
+  clientRateByShipmentId: ReadonlyMap<string, number | null>,
+): StatementChargeRow[] {
+  return charges.map((charge) => {
+    if (charge.charge_type !== 'shipping') return charge
+    if (charge.label === 'Shipping (full price pending)') return charge
+    const id = shipmentIdFromChargeKey(charge.charge_key)
+    if (id === null || !clientRateByShipmentId.has(id)) return charge
+    const rate = clientRateByShipmentId.get(id)
+    if (rate == null) return charge
+    return { ...charge, amount: rate, unit_rate: rate, label: 'Shipping' }
+  })
+}
+
+/**
+ * A stored zone rate fills a shipping charge only when the ledger amount is
+ * blank. A ledger amount that differs from the stored rate is left as it is:
+ * neither figure is chosen as the client price.
+ */
 export function applyZonePrices(
   charges: readonly StatementChargeRow[],
   clientRateByShipmentId: ReadonlyMap<string, number | null>,
 ): StatementChargeRow[] {
   return charges.map((charge) => {
     if (charge.charge_type !== 'shipping') return charge
+    if (charge.label === 'Shipping (full price pending)') return charge
     const id = shipmentIdFromChargeKey(charge.charge_key)
     if (id === null || !clientRateByShipmentId.has(id)) return charge
     const rate = clientRateByShipmentId.get(id)
     if (rate === null || rate === undefined) return charge
-    return { ...charge, amount: rate, unit_rate: rate }
+    const ledger = priceOf(charge.amount)
+    if (ledger === null) return { ...charge, amount: rate, unit_rate: rate }
+    if (sameCents(ledger, rate)) {
+      return charge.unit_rate == null ? { ...charge, unit_rate: rate } : charge
+    }
+    return charge
   })
+}
+
+/** Staff-only. Both figures, because they were not selected as the client price. */
+export function shippingDisagreements(
+  charges: readonly StatementChargeRow[],
+  clientRateByShipmentId: ReadonlyMap<string, number | null>,
+  options?: { rateCardIsClientPrice?: boolean },
+): string[] {
+  const notes: string[] = []
+  for (const charge of charges) {
+    if (charge.charge_type !== 'shipping') continue
+    const id = shipmentIdFromChargeKey(charge.charge_key)
+    if (id === null || !clientRateByShipmentId.has(id)) continue
+    const rate = clientRateByShipmentId.get(id)
+    const ledger = priceOf(charge.amount)
+    if (rate == null || ledger == null || sameCents(ledger, rate)) continue
+    notes.push(options?.rateCardIsClientPrice
+      ? `Shipment ${id}: ledger shipping amount ${ledger.toFixed(2)} differs from the rate-card client price ${rate.toFixed(2)}. The client price is the rate card. The ledger row needs a separately approved correction. Nothing was written.`
+      : `Shipment ${id}: ledger shipping amount ${ledger.toFixed(2)} and stored rate ${rate.toFixed(2)} disagree. Neither is the client charge.`)
+  }
+  return notes
+}
+
+/**
+ * After freight, a disagreed ledger amount is not the client price.
+ * A freight full price that replaced it is kept. A pending line stays pending.
+ */
+export function withholdDisagreedShipping(
+  before: readonly StatementChargeRow[],
+  after: readonly StatementChargeRow[],
+  clientRateByShipmentId: ReadonlyMap<string, number | null>,
+): StatementChargeRow[] {
+  const prior = new Map(before.map((charge) => [charge.charge_key, charge]))
+  return after.map((charge) => {
+    if (charge.charge_type !== 'shipping') return charge
+    if (charge.label === 'Shipping (full price pending)') return charge
+    const id = shipmentIdFromChargeKey(charge.charge_key)
+    if (id === null) return charge
+    const rate = clientRateByShipmentId.get(id)
+    const ledger = priceOf(prior.get(charge.charge_key)?.amount)
+    if (rate == null || ledger == null || sameCents(ledger, rate)) return charge
+    const now = priceOf(charge.amount)
+    if (now != null && !sameCents(now, ledger)) return charge
+    return { ...charge, amount: null, unit_rate: null, label: 'Shipping (price not final)' }
+  })
+}
+
+/** A parcel in the period with no ledger shipping charge. Amount stays unknown. */
+export function uncoveredShipmentCharges(
+  rows: readonly (ShipmentForStatement & { id: string })[],
+  coveredKeys: ReadonlySet<string>,
+  fallbackDate: string,
+  options?: { useRateCard?: boolean },
+): StatementChargeRow[] {
+  const out: StatementChargeRow[] = []
+  for (const row of rows) {
+    if (isVoidedShipment(row.raw_data)) continue
+    const sid = row.shipstation_shipment_id
+    const keyed = sid != null && String(sid) !== '' ? `shipment:${sid}` : ''
+    if (keyed && coveredKeys.has(keyed)) continue
+    const key = keyed || `coverage:${row.id}`
+    if (coveredKeys.has(key)) continue
+    const day = shipCalendarDay(row.ship_date, rawShipDate(row.raw_data)) || fallbackDate
+    const rate = options?.useRateCard ? priceOf(row.client_rate) : null
+    out.push({
+      charge_type: 'shipping',
+      label: rate == null ? 'Shipping (not on the ledger)' : 'Shipping',
+      quantity: 1,
+      unit_rate: rate,
+      amount: rate,
+      is_estimate: false,
+      charge_date: day,
+      order_id: null,
+      charge_key: key,
+    })
+  }
+  return out
 }
 
 export interface ShipmentForStatement {
@@ -344,6 +458,7 @@ export function lineQty(ordered: unknown, picked: unknown): number | null {
 
 export interface PickOrder {
   orderId: string
+  orderNumber?: string
   chargeDate: string
   lines: SkuQty[]
 }
@@ -375,6 +490,11 @@ function baseCharge(
 export function pickPackRows(
   orders: readonly PickOrder[],
   list: PriceListDocument | null,
+  options?: {
+    period?: { from: string; to: string } | null
+    notes?: string[]
+    excluded?: Set<string>
+  },
 ): StatementChargeRow[] {
   if (!list) return []
   const rows: StatementChargeRow[] = []
@@ -408,9 +528,72 @@ export function pickPackRows(
       }
       continue
     }
-    const priced = pricePick(list, order.lines)
-    if (priced.amount === null) continue
+    const tracked = order.lines.some((line) => line.picked !== undefined)
+    if (tracked) {
+      const work = assessPickWork(order.lines.map((line) => ({
+        sku: line.sku,
+        picked: line.picked === undefined ? line.qty : line.picked,
+        scannable: line.scannable === undefined ? null : line.scannable,
+        pickDate: line.pickDate ?? null,
+      })), list, options?.period ?? null)
+      const who = order.orderNumber || order.orderId
+      const catalog = work.catalogAmount == null ? null : work.catalogAmount.toFixed(2)
+      if (work.status === 'outside') {
+        options?.excluded?.add(order.orderId)
+        options?.notes?.push(
+          `Order ${who}: pick date ${work.pickDate} is outside this period. The current item list would price ${work.units} picked units at $${catalog}. That figure is not in this period and is not a ship-day price.`,
+        )
+        continue
+      }
+      if (work.status === 'nothing-picked') {
+        rows.push(baseCharge(order, {
+          label: 'Pick & pack (nothing picked)',
+          quantity: 0,
+          amount: 0,
+        }))
+        continue
+      }
+      if (work.status === 'priced') {
+        rows.push(baseCharge(order, {
+          label: 'Pick & pack',
+          quantity: work.units,
+          amount: work.billedAmount,
+          charge_date: work.pickDate || order.chargeDate,
+        }))
+        continue
+      }
+      const label = work.status === 'qty-unknown'
+        ? 'Pick & pack (picked quantity unknown)'
+        : work.status === 'date-unknown'
+          ? 'Pick & pack (pick date unknown)'
+          : 'Pick & pack (classification unknown)'
+      rows.push(baseCharge(order, {
+        label,
+        quantity: work.units || null,
+        amount: null,
+      }))
+      if (work.status === 'date-unknown' && catalog != null) {
+        options?.notes?.push(
+          `Order ${who}: the current item list would price ${work.units} picked units at $${catalog}. The pick date is unknown, so this is not amount due and it is not a ship-day price.`,
+        )
+      }
+      continue
+    }
+    const priced = priceClassifiedPick(list, order.lines.map((line) => ({
+      sku: line.sku,
+      qty: line.qty,
+      scannable: line.scannable === undefined ? null : line.scannable,
+    })))
     const items = order.lines.reduce((sum, line) => sum + line.qty, 0)
+    if (priced.amount === null) {
+      rows.push(baseCharge(order, {
+        label: 'Pick & pack (classification unknown)',
+        quantity: items,
+        unit_rate: null,
+        amount: null,
+      }))
+      continue
+    }
     rows.push(baseCharge(order, {
       quantity: items,
       amount: priced.amount,
@@ -488,6 +671,35 @@ const UNREAD_PICK: PickPackDecision = {
   reason: 'Pick & pack skipped: a read failed before the rate card could be checked.',
 }
 
+export interface PickOrderDetail {
+  orderId: string | null
+  orderNumber: string
+  chargeDate: string
+  quantity: number | null
+  amount: number | null
+  label: string
+  /** Where the amount came from. Not a commercial approval. */
+  source: 'ledger' | 'price-list' | 'rate-card' | 'unknown'
+}
+
+export function pickOrderDetails(
+  rows: readonly StatementChargeRow[],
+  source: PickOrderDetail['source'],
+  orderNumbers: ReadonlyMap<string, string> = new Map(),
+): PickOrderDetail[] {
+  return rows
+    .filter((row) => row.charge_type === 'pick' || row.charge_type === 'pack')
+    .map((row) => ({
+      orderId: row.order_id,
+      orderNumber: row.order_id ? orderNumbers.get(row.order_id) ?? '' : '',
+      chargeDate: row.charge_date,
+      quantity: priceOf(row.quantity),
+      amount: priceOf(row.amount),
+      label: row.label,
+      source,
+    }))
+}
+
 export async function priceStatementCharges(
   clientId: string,
   clientName: string,
@@ -498,6 +710,9 @@ export async function priceStatementCharges(
   pickPack: PickPackDecision
   error: { message: string } | null
   freightReviews: string[]
+  /** Staff only. Not written into a client file. */
+  basisReviews: string[]
+  pickDetails: PickOrderDetail[]
 }> {
   const shipmentIds = [...new Set(charges.flatMap((charge) => {
     if (charge.charge_type !== 'shipping') return []
@@ -516,7 +731,7 @@ export async function priceStatementCharges(
         .order('shipstation_shipment_id')
         .order('id')
         .range(from, to)))
-    if (priced.error) return { charges, pickPack: UNREAD_PICK, error: priced.error, freightReviews: [] }
+    if (priced.error) return { charges, pickPack: UNREAD_PICK, error: priced.error, freightReviews: [], basisReviews: [], pickDetails: [] }
     for (const row of priced.data ?? []) {
       const record = row as { shipstation_shipment_id: number | string | null; client_rate: unknown; raw_data?: unknown }
       if (record.shipstation_shipment_id === null) continue
@@ -529,18 +744,50 @@ export async function priceStatementCharges(
     }
   }
 
-  let next = applyZonePrices(charges.filter((charge) => {
+  const openCharges = charges.filter((charge) => {
     if (charge.charge_type !== 'shipping') return true
     const id = shipmentIdFromChargeKey(charge.charge_key)
     return id === null || !voidedIds.has(id)
-  }), rates)
+  })
+  const nayax = nayaxManualFreight(clientName)
+  const basisReviews = shippingDisagreements(openCharges, rates, { rateCardIsClientPrice: nayax })
+  let next = applyZonePrices(openCharges, rates)
+  if (nayax) next = applyNayaxRateCard(next, rates)
   let freightReviews: string[] = []
-  if (nayaxManualFreight(clientName)) {
+  if (nayax) {
     const linked = await readLinkedFreight(clientId, range)
-    if (linked.error) return { charges: next, pickPack: UNREAD_PICK, error: linked.error, freightReviews }
+    if (linked.error) return { charges: next, pickPack: UNREAD_PICK, error: linked.error, freightReviews, basisReviews, pickDetails: [] }
     const applied = applyManualFullFreight(next, linked.rows)
     next = applied.charges
     freightReviews = applied.reviews
+  }
+  next = withholdDisagreedShipping(openCharges, next, rates)
+  if (range) {
+    const windowRows = await readAllPages((from, to) => supabaseAdmin
+      .from('shipments')
+      .select('id, shipstation_shipment_id, order_number, ship_date, client_rate, raw_data')
+      .eq('client_id', clientId)
+      .gte('ship_date', easternMidnightIso(range.from))
+      .lt('ship_date', easternMidnightIso(easternAddDays(range.to, 1)))
+      .order('ship_date')
+      .order('id')
+      .range(from, to))
+    if (windowRows.error) {
+      return { charges: next, pickPack: UNREAD_PICK, error: windowRows.error, freightReviews, basisReviews, pickDetails: [] }
+    }
+    const covered = new Set(next.filter((charge) => charge.charge_type === 'shipping').map((charge) => charge.charge_key))
+    const missing = uncoveredShipmentCharges(
+      (windowRows.data ?? []) as (ShipmentForStatement & { id: string })[],
+      covered,
+      range.from,
+      { useRateCard: nayax },
+    )
+    if (missing.length > 0) {
+      basisReviews.push(
+        `${missing.length} shipment${missing.length === 1 ? '' : 's'} in this period ${missing.length === 1 ? 'has' : 'have'} no ledger shipping charge. ${missing.length === 1 ? 'It is' : 'They are'} unknown, not a client charge.`,
+      )
+    }
+    next = [...next, ...missing]
   }
 
   let shipmentOrders: ShipmentPickOrder[] = []
@@ -555,7 +802,7 @@ export async function priceStatementCharges(
         .order('ship_date')
         .order('id')
         .range(from, to))
-    if (shipped.error) return { charges: next, pickPack: UNREAD_PICK, error: shipped.error, freightReviews }
+    if (shipped.error) return { charges: next, pickPack: UNREAD_PICK, error: shipped.error, freightReviews, basisReviews, pickDetails: [] }
     const rows = (shipped.data ?? []) as ShipmentForStatement[]
     const numbers = [...new Set(rows.flatMap((row) => {
       const number = row.order_number?.trim() ?? ''
@@ -572,7 +819,7 @@ export async function priceStatementCharges(
           .order('order_number')
           .order('id')
           .range(from, to)))
-      if (orders.error) return { charges: next, pickPack: UNREAD_PICK, error: orders.error, freightReviews }
+      if (orders.error) return { charges: next, pickPack: UNREAD_PICK, error: orders.error, freightReviews, basisReviews, pickDetails: [] }
       for (const row of orders.data ?? []) {
         const record = row as { id: string | null; order_number: string | null }
         if (!record.id || !record.order_number || orderIdByNumber.has(record.order_number)) continue
@@ -589,6 +836,8 @@ export async function priceStatementCharges(
       pickPack: { billed: true, rate: null, reason: 'Pick & pack was already priced on the ledger.' },
       error: null,
       freightReviews,
+      basisReviews,
+      pickDetails: [],
     }
   }
 
@@ -620,18 +869,20 @@ export async function priceStatementCharges(
       },
       error: null,
       freightReviews,
+      basisReviews,
+      pickDetails: [],
     }
   }
 
   const items = await readChunked(orderIds, (chunk) => readAllPages((from, to) =>
     supabaseAdmin
       .from('order_items')
-      .select('order_id, sku, quantity_ordered, quantity_picked')
+      .select('order_id, sku, quantity_ordered, quantity_picked, pick_date')
       .in('order_id', chunk)
       .order('order_id')
       .order('id')
       .range(from, to)))
-  if (items.error) return { charges: next, pickPack: UNREAD_PICK, error: items.error, freightReviews }
+  if (items.error) return { charges: next, pickPack: UNREAD_PICK, error: items.error, freightReviews, basisReviews, pickDetails: [] }
 
   const linesByOrder = new Map<string, SkuQty[]>()
   for (const row of items.data ?? []) {
@@ -640,27 +891,107 @@ export async function priceStatementCharges(
       sku: string | null
       quantity_ordered: unknown
       quantity_picked: unknown
+      pick_date: string | null
     }
     if (!record.order_id) continue
-    const qty = lineQty(record.quantity_ordered, record.quantity_picked)
-    if (qty === null) continue
+    const picked = priceOf(record.quantity_picked)
+    const ordered = priceOf(record.quantity_ordered)
+    if (picked == null && (ordered == null || ordered <= 0)) continue
     const list = linesByOrder.get(record.order_id) ?? []
-    list.push({ sku: record.sku ?? '', qty })
+    const pickDate = typeof record.pick_date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(record.pick_date)
+      ? record.pick_date.slice(0, 10)
+      : null
+    list.push({
+      sku: record.sku ?? '',
+      qty: lineQty(ordered, picked) ?? 0,
+      picked,
+      pickDate,
+    })
     linesByOrder.set(record.order_id, list)
   }
 
   const list = await priceListFor(clientId, clientName)
+  let scanNote = ''
+  if (list?.devicePick && list.accessoryPick && !list.orderPick) {
+    const scan = await loadScanCatalog(clientName, { clientId })
+    scanNote = scan.note
+    if (scan.note) basisReviews.push(scan.note)
+    if (scan.ok) {
+      for (const lines of linesByOrder.values()) assignScanFlags(lines, scan.bySku)
+    }
+  }
+  const orderNumbers = new Map(pickOrders.flatMap((order) => order.orderId ? [[order.orderId, order.orderNumber] as const] : []))
+  const pickNotes: string[] = []
+  const excluded = new Set<string>()
   let picks = pickPackRows([...linesByOrder.entries()].map(([orderId, lines]) => ({
     orderId,
+    orderNumber: orderNumbers.get(orderId) ?? '',
     chargeDate: dateByOrder.get(orderId) ?? next[0]?.charge_date ?? '',
     lines,
-  })), list)
-  if (hasPricedPick(picks)) {
+  })), list, { period: range ?? null, notes: pickNotes, excluded })
+  for (const note of pickNotes) basisReviews.push(note)
+  const classified = Boolean(list?.devicePick && list.accessoryPick && !list.orderPick)
+  if (classified) {
+    const covered = new Set(picks.map((row) => row.order_id).filter((id): id is string => id != null))
+    const missed = pickOrders.filter((order) => order.orderId != null && !covered.has(order.orderId) && !excluded.has(order.orderId))
+    const unknownPicks: StatementChargeRow[] = missed.map((order) => ({
+      charge_type: 'pick',
+      label: 'Pick & pack (not priced)',
+      quantity: null,
+      unit_rate: null,
+      amount: null,
+      is_estimate: false,
+      charge_date: order.chargeDate || range?.from || '',
+      order_id: order.orderId,
+      charge_key: `pickpack-unknown:${order.orderId}`,
+    }))
+    const open = [...picks, ...unknownPicks].some((row) => row.amount == null)
+    const peakNote = peakOmissionNote(list, picks.map((row) => row.charge_date))
+    if (peakNote) basisReviews.push(peakNote)
     return {
-      charges: [...next, ...picks],
-      pickPack: { billed: true, rate: null, reason: 'Pick & pack came from the price list, not the rate card.' },
+      charges: [...next, ...picks, ...unknownPicks],
+      pickPack: {
+        billed: !open && picks.some((row) => row.amount != null),
+        rate: null,
+        reason: 'Pick uses units picked, not units ordered. Nothing picked is 0. A missing picked quantity or a missing pick date stays unknown and is not amount due. A pick date outside this period is left out. '
+          + (scanNote || 'The scan requirement was not read.')
+          + ' No rate-card pick was substituted. The current item list is not a ship-day price.',
+      },
       error: null,
       freightReviews,
+      basisReviews,
+      pickDetails: [
+        ...pickOrderDetails(picks.filter((row) => row.amount != null), 'price-list', orderNumbers),
+        ...pickOrderDetails([...picks.filter((row) => row.amount == null), ...unknownPicks], 'unknown', orderNumbers),
+      ],
+    }
+  }
+  if (hasPricedPick(picks)) {
+    const covered = new Set(picks.map((row) => row.order_id).filter((id): id is string => id != null))
+    const missed = pickOrders.filter((order) => order.orderId != null && !covered.has(order.orderId))
+    const unknownPicks: StatementChargeRow[] = missed.map((order) => ({
+      charge_type: 'pick',
+      label: 'Pick & pack (not priced)',
+      quantity: null,
+      unit_rate: null,
+      amount: null,
+      is_estimate: false,
+      charge_date: order.chargeDate || range?.from || '',
+      order_id: order.orderId,
+      charge_key: `pickpack-unknown:${order.orderId}`,
+    }))
+    const peakNote = peakOmissionNote(list, picks.map((row) => row.charge_date))
+    if (peakNote) basisReviews.push(peakNote)
+    return {
+      charges: [...next, ...picks, ...unknownPicks],
+      pickPack: { billed: true, rate: null, reason: 'Pick & pack came from the price list, one order at a time, not from a stored ledger pick charge. An order the list does not price is unknown. The price-list peak is not included.' },
+      error: null,
+      freightReviews,
+      basisReviews,
+      pickDetails: [
+        ...pickOrderDetails(picks, 'price-list', orderNumbers),
+        ...pickOrderDetails(unknownPicks, 'unknown', orderNumbers),
+      ],
     }
   }
 
@@ -668,16 +999,24 @@ export async function priceStatementCharges(
     .from('client_warehouse_rates')
     .select('*')
     .eq('client_id', clientId)
-  if (card.error) return { charges: next, pickPack: UNREAD_PICK, error: card.error, freightReviews }
+  if (card.error) return { charges: next, pickPack: UNREAD_PICK, error: card.error, freightReviews, basisReviews, pickDetails: [] }
   const onDate = [...pickOrders.map((order) => order.chargeDate)].sort()[0] ?? range?.from ?? ''
   const decision = decidePickRate((card.data ?? []) as PickCardRow[], onDate)
   if (!decision.billed || decision.rate === null) {
-    return { charges: next, pickPack: decision, error: null, freightReviews }
+    return { charges: next, pickPack: decision, error: null, freightReviews, basisReviews, pickDetails: [] }
   }
   const missingJoin = pickOrders.filter((order) => order.orderId === null).length
   const reason = missingJoin === 0
     ? `${decision.reason.replace(/\.$/, '')} (${pickOrders.length} orders).`
     : `${decision.reason.replace(/\.$/, '')} (${pickOrders.length} orders). ${missingJoin} order number${missingJoin === 1 ? '' : 's'} had no orders row for this client, so pick & pack was billed from the shipment order number.`
-  next = [...next, ...pickRowsFromCard(pickOrders, decision.rate)]
-  return { charges: next, pickPack: { billed: true, rate: decision.rate, reason }, error: null, freightReviews }
+  const cardPicks = pickRowsFromCard(pickOrders, decision.rate)
+  next = [...next, ...cardPicks]
+  return {
+    charges: next,
+    pickPack: { billed: true, rate: decision.rate, reason },
+    error: null,
+    freightReviews,
+    basisReviews,
+    pickDetails: pickOrderDetails(cardPicks, 'rate-card', orderNumbers),
+  }
 }

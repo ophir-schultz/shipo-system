@@ -4,6 +4,7 @@ import {
   isPeakDate,
   money,
   priceBoxes,
+  priceClassifiedPick,
   priceClientReport,
   priceLabour,
   priceMaterials,
@@ -59,6 +60,32 @@ function list(over: Partial<PriceListDocument> = {}): PriceListDocument {
 }
 
 describe('pricePick', () => {
+  it('prices a known scan requirement and does not trust the prefix', () => {
+    const card = list()
+    const scan = (lines: { sku: string; qty: number; scannable: boolean | null }[]) =>
+      priceClassifiedPick(card, lines).amount
+    expect(scan([{ sku: 'R1', qty: 20, scannable: true }, { sku: 'C1', qty: 100, scannable: false }])).toBe(21.5)
+    expect(scan([{ sku: 'R1', qty: 122, scannable: true }])).toBe(9.64)
+    expect(scan([{ sku: 'R1', qty: 105, scannable: true }])).toBe(9.1)
+    expect(scan([{ sku: 'C1', qty: 400, scannable: false }])).toBe(80)
+    expect(scan([{ sku: 'C1', qty: 100, scannable: false }])).toBe(20)
+    expect(scan([{ sku: 'R1', qty: 20, scannable: null }])).toBeNull()
+    expect(scan([{ sku: 'R1', qty: 20, scannable: false }])).toBe(4)
+    expect(scan([{ sku: 'C1', qty: 20, scannable: true }])).toBe(1.5)
+  })
+
+  it('follows the confirmed device box of 20 at 1.50 and leftover units at 0.32', () => {
+    const card = list()
+    const device = (qty: number) => pricePick(card, [{ sku: 'R1', qty }]).amount
+    expect(device(100)).toBe(7.5)
+    expect(device(122)).toBe(9.64)
+    expect(device(20)).toBe(1.5)
+    expect(device(19)).toBe(6.08)
+    expect(device(0)).toBe(0)
+    expect(pricePick(card, []).amount).toBe(0)
+    expect(pricePick(card, [{ sku: 'C1', qty: 122 }]).amount).toBe(24.4)
+  })
+
   it('bills full cartons at the carton rate and the remainder at the unit rate', () => {
     const priced = pricePick(list(), [
       { sku: 'R144GUSY01S10', qty: 30 },
