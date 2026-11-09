@@ -6,8 +6,9 @@
 // route; see the header of src/lib/ledger/summary.ts for why that was removed.
 //
 // Governing principle: cost = null means UNKNOWN; cost = 0 means FREE.
-// Every margin figure on this screen shows its caveat (unknown-cost count)
-// beside it. A number without its caveat is worse than no number.
+// A blank selling price is also UNKNOWN, not free. Gross margin is printed
+// only for rows whose every charge has a price. The view's gross_margin
+// subtracts carrier cost of unpriced charges and must not be shown as a loss.
 
 import {
   getLedgerSummary,
@@ -15,6 +16,11 @@ import {
   confidenceLabel,
   netProfitUnavailableReason,
   publishedNetProfit,
+  presentGrossMargin,
+  MONTHLY_PNL_CAPTION,
+  CLIENT_PNL_CAPTION,
+  UNKNOWN_REVENUE_TOOLTIP,
+  DIRECT_COST_WITH_UNPRICED_NOTE,
   varianceUnavailableText,
   PICK_ROW_LIMIT,
   type MonthlyRow,
@@ -162,6 +168,43 @@ function NetProfitUnknown({ row }: { row: MonthlyRow }) {
     <span className="text-xs text-orange-500" title={`Net profit cannot be computed: ${reason}.`}>
       unknown — {reason}
     </span>
+  )
+}
+
+/**
+ * Gross margin for one monthly or per-client row.
+ *
+ * The dollar figure comes from presentGrossMargin, which withholds the
+ * view's subtraction whenever any charge has no price. The withheld cell
+ * says "unknown — not a loss" in the open, not only in a tooltip, so the
+ * old red number cannot be read as money lost.
+ */
+function GrossMarginCell({ row }: {
+  row: {
+    gross_margin: number | null
+    revenue_unknown_charges: number | null
+    cost_unknown_charges: number | null
+  }
+}) {
+  const shown = presentGrossMargin(row)
+  if (shown.unknownRevenueCharges > 0) {
+    return (
+      <td className="py-2.5 pr-3 text-right">
+        <span className="text-slate-500" title={shown.note ?? undefined}>
+          unknown — not a loss
+        </span>
+      </td>
+    )
+  }
+  return (
+    <td className="py-2.5 pr-3 text-right">
+      <span className={marginClass(shown.amount)} title={shown.note ?? undefined}>{fmt(shown.amount)}</span>
+      {shown.unknownCostCharges > 0 && (
+        <span className="ml-1 text-xs text-orange-500" title={shown.note ?? undefined}>
+          +{int(shown.unknownCostCharges)}?
+        </span>
+      )}
+    </td>
   )
 }
 
@@ -461,10 +504,12 @@ export default async function LedgerPage() {
 
       {/* ----------------------------------------------------------------
           2. MONTHLY P&L
-          gross_margin is revenue minus coalesce(cost, 0) — it treats
-          every unpriced charge as FREE and reads HIGH. cost_unknown_charges
-          carries the caveat. net_profit propagates null from any missing
-          input, including a missing revenue side.
+          The view's gross_margin subtracts carrier cost even when the
+          selling price is blank. presentGrossMargin withholds that number.
+          A missing carrier cost is the separate case that reads high, and
+          only that case is labelled that way. net_profit is withheld for
+          the same unpriced charges, and also when an operating-cost
+          category has no row.
           ---------------------------------------------------------------- */}
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
@@ -472,10 +517,7 @@ export default async function LedgerPage() {
           <RowCount shown={monthly.length} total={counts.monthly} unreadable={!!failed.monthly} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
-          Gross margin treats every unpriced charge as free — it reads high when costs are unknown.
-          The &quot;? charges&quot; column shows how many lines have unknown cost or revenue. Overhead,
-          direct labor and direct storage are the operating costs subtracted from gross margin to reach
-          net profit; an &quot;unknown&quot; there is a category with no row for the month, not a zero.
+          {MONTHLY_PNL_CAPTION}
         </p>
         {failed.monthly ? (
           <ViewUnreadable message={failed.monthly} />
@@ -507,26 +549,20 @@ export default async function LedgerPage() {
                       {(r.revenue_unknown_charges ?? 0) > 0 && (
                         <span
                           className="ml-1 text-xs text-orange-500"
-                          title="Revenue for these charges is not yet known — at-cost freight lines where the carrier has not reported."
+                          title={UNKNOWN_REVENUE_TOOLTIP}
                         >
                           +{int(r.revenue_unknown_charges)}?
                         </span>
                       )}
                     </td>
-                    {/* Direct cost */}
-                    <td className="py-2.5 pr-3 text-right text-slate-400">{fmt(r.direct_cost)}</td>
-                    {/* Gross margin — ALWAYS show cost_unknown_charges beside it */}
-                    <td className="py-2.5 pr-3 text-right">
-                      <span className={marginClass(r.gross_margin)}>{fmt(r.gross_margin)}</span>
-                      {(r.cost_unknown_charges ?? 0) > 0 && (
-                        <span
-                          className="ml-1 text-xs text-orange-500"
-                          title="This many charges have no cost loaded — gross margin is overstated by whatever those costs turn out to be."
-                        >
-                          +{int(r.cost_unknown_charges)}?
-                        </span>
-                      )}
+                    {/* Direct cost. Includes carrier cost of unpriced charges. */}
+                    <td
+                      className="py-2.5 pr-3 text-right text-slate-400"
+                      title={(r.revenue_unknown_charges ?? 0) > 0 ? DIRECT_COST_WITH_UNPRICED_NOTE : undefined}
+                    >
+                      {fmt(r.direct_cost)}
                     </td>
+                    <GrossMarginCell row={r} />
                     {/* The three operating-cost categories that make up net_profit */}
                     <td className="py-2.5 pr-3 text-right">
                       <AllocationCell value={r.overhead} rows={r.overhead_rows} label="overhead" />
@@ -567,9 +603,8 @@ export default async function LedgerPage() {
       {/* ----------------------------------------------------------------
           3. PER-CLIENT P&L
           Gross margin only — overheads are not allocated to clients.
-          gross_margin = revenue - coalesce(cost, 0): reads HIGH when
-          costs unknown. cost_unknown_charges is the caveat.
-          revenue_unknown_charges: at-cost freight lines not yet reported.
+          Same withholding rule as the monthly table: a blank price makes
+          the view's gross_margin a fake loss, so the cell says unknown.
           ---------------------------------------------------------------- */}
       <div className="rounded-xl bg-slate-800 p-5">
         <div className="mb-1 flex items-start justify-between">
@@ -577,7 +612,7 @@ export default async function LedgerPage() {
           <RowCount shown={clients.length} total={counts.clients} unreadable={!!failed.clients} />
         </div>
         <p className="mb-4 text-xs text-slate-500">
-          Gross margin only — overheads are not allocated to individual clients. Margin treats unpriced charges as free; &quot;? charges&quot; shows how many are unknown.
+          {CLIENT_PNL_CAPTION}
         </p>
         {failed.clients ? (
           <ViewUnreadable message={failed.clients} />
@@ -613,30 +648,26 @@ export default async function LedgerPage() {
                       {r.revenue_unknown_charges > 0 && (
                         <span
                           className="ml-1 text-xs text-orange-500"
-                          title="Revenue for these charges is not yet known — at-cost freight lines where the carrier has not reported."
+                          title={UNKNOWN_REVENUE_TOOLTIP}
                         >
                           +{int(r.revenue_unknown_charges)}?
                         </span>
                       )}
                     </td>
-                    {/* Cost (known) — nulls are NOT coalesced here; column is cost_known */}
-                    <td className="py-2.5 pr-3 text-right">
+                    {/* Cost (known) — nulls are NOT coalesced here; column is cost_known.
+                        It still includes carrier cost of charges whose price is blank. */}
+                    <td
+                      className="py-2.5 pr-3 text-right"
+                      title={r.revenue_unknown_charges > 0 ? DIRECT_COST_WITH_UNPRICED_NOTE : undefined}
+                    >
                       <span className="text-slate-400">{fmt(r.cost_known)}</span>
                       {r.cost_unknown_charges > 0 && (
-                        <span className="ml-1 text-xs text-orange-500" title="This many charges have no cost loaded.">
+                        <span className="ml-1 text-xs text-orange-500" title="This many charges have no carrier cost loaded.">
                           +{int(r.cost_unknown_charges)}?
                         </span>
                       )}
                     </td>
-                    {/* Gross margin — ALWAYS show cost_unknown_charges beside it */}
-                    <td className="py-2.5 pr-3 text-right">
-                      <span className={marginClass(r.gross_margin)}>{fmt(r.gross_margin)}</span>
-                      {r.cost_unknown_charges > 0 && (
-                        <span className="ml-1 text-xs text-orange-500">
-                          +{int(r.cost_unknown_charges)}?
-                        </span>
-                      )}
-                    </td>
+                    <GrossMarginCell row={r} />
                     {/* Flags */}
                     <td className="py-2.5 text-right">
                       {r.has_estimates && (

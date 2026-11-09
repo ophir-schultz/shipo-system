@@ -13,7 +13,14 @@ import { recordsToCsv, recordsToPdf } from '@/lib/billing/tabular-file'
 // sheets never needed it: they pass `client_rate` and `actual_cost` straight
 // into cells, where a null arrives as a blank rather than as 0.00, which is
 // already the honest rendering.
-import { isReportType, REPORT_TYPES } from '@/lib/billing/report-types'
+import {
+  INTERNAL_COST_PROFIT_BANNER,
+  internalReportSheetName,
+  isReportType,
+  reportDownloadFilename,
+  reportFileCarriesShipoCost,
+  REPORT_TYPES,
+} from '@/lib/billing/report-types'
 import {
   combineReconciled, marginPct, reconcile, reconciledOrUnknown,
   SHIPMENT_MARGIN_HEADER, SHIPMENT_RATE_BASIS, SHIPMENT_RATE_HEADER,
@@ -422,33 +429,44 @@ export async function GET(req: Request) {
 
   if (rows.length === 0) rows = [{ 'No Data': 'No records found for the selected period' }]
 
-  const wb = XLSX.utils.book_new()
-  const ws = XLSX.utils.json_to_sheet(rows)
+  // Shipments, Profit and Losses carry carrier cost and profit and can be
+  // filtered to one client, next to the Statement tab. The banner and the
+  // filename say the file is internal. Billing, adjustments and warehouse
+  // do not get that sentence, because it would claim they contain cost and
+  // profit when they do not. The statement download is a different route
+  // and is not labelled here.
+  const internal = reportFileCarriesShipoCost(type)
+  const banner = internal ? INTERNAL_COST_PROFIT_BANNER : null
+  const tabName = internal ? internalReportSheetName(sheetName) : sheetName
 
-  // Auto column widths
+  const wb = XLSX.utils.book_new()
+  const ws = banner ? sheetWithBanner(rows, banner) : XLSX.utils.json_to_sheet(rows)
+
+  // Auto column widths. The banner is merged across the columns, so it does
+  // not need the first column to be as wide as the sentence.
   const colWidths = Object.keys(rows[0]).map(k => ({ wch: Math.max(k.length, 15) }))
   ws['!cols'] = colWidths
 
-  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  XLSX.utils.book_append_sheet(wb, ws, tabName)
   const format = searchParams.get('format') ?? 'xlsx'
   if (format !== 'xlsx' && format !== 'csv' && format !== 'pdf') {
     return NextResponse.json({ error: 'format must be xlsx, csv or pdf' }, { status: 400 })
   }
-  const filename = `${type}-report-${dateFrom}-to-${dateTo}`
+  const filename = reportDownloadFilename(type, dateFrom!, dateTo!, format)
   if (format === 'csv') {
-    return new NextResponse(recordsToCsv(rows), {
+    return new NextResponse(banner ? `"${banner.replace(/"/g, '""')}"\n${recordsToCsv(rows)}` : recordsToCsv(rows), {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${filename}.csv"`,
+        'Content-Disposition': `attachment; filename="${filename}"`,
       },
     })
   }
   if (format === 'pdf') {
-    const pdf = await recordsToPdf(rows, `${sheetName} ${dateFrom} to ${dateTo}`)
+    const pdf = await recordsToPdf(rows, `${sheetName} ${dateFrom} to ${dateTo}`, banner)
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}.pdf"`,
+        'Content-Disposition': `attachment; filename="${filename}"`,
       },
     })
   }
@@ -458,7 +476,28 @@ export async function GET(req: Request) {
   return new NextResponse(buf, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="${filename}.xlsx"`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
     },
   })
+}
+
+/**
+ * Column headers stay on row 2. Row 1 is the internal warning, merged across
+ * the table so it is the first thing a spreadsheet opens on.
+ *
+ * Built as an array of arrays rather than json_to_sheet. That helper's first
+ * row is the header, and this version of the xlsx types has no origin option
+ * to start the table one row down. Putting the warning in the data would make
+ * Excel treat the warning as the column names.
+ */
+function sheetWithBanner(rows: Record<string, unknown>[], banner: string) {
+  const header = Object.keys(rows[0] ?? {})
+  const body = rows.map((row) => header.map((key) => {
+    const value = row[key]
+    return value === undefined || value === null ? '' : value
+  }))
+  const ws = XLSX.utils.aoa_to_sheet([[banner], header, ...body])
+  const cols = Math.max(header.length, 1)
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: cols - 1 } }]
+  return ws
 }

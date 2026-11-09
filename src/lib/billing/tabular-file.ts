@@ -32,7 +32,11 @@ function wrapLines(doc: { splitTextToSize: (text: string, width: number) => stri
   return lines.length > 0 ? lines : ['']
 }
 
-export async function recordsToPdf(rows: Array<Record<string, unknown>>, title: string): Promise<Buffer> {
+export async function recordsToPdf(
+  rows: Array<Record<string, unknown>>,
+  title: string,
+  banner?: string | null,
+): Promise<Buffer> {
   const { jsPDF } = await import('jspdf')
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const keys = Object.keys(rows[0] ?? { Note: 'No rows' })
@@ -47,6 +51,17 @@ export async function recordsToPdf(rows: Array<Record<string, unknown>>, title: 
   doc.setFontSize(6)
   const colW = (PDF_WIDTH - 16) / keys.length
   let y = 20
+  if (banner) {
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.setTextColor(153, 27, 27)
+    const bannerLines = wrapLines(doc, banner, PDF_RIGHT - PDF_LEFT)
+    doc.text(bannerLines, PDF_LEFT, y)
+    y += bannerLines.length * 5 + 2
+    doc.setTextColor(11, 18, 32)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6)
+  }
   const header = (top: number) => {
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(6)

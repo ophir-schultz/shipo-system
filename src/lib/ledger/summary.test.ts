@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createFakeSupabase, type FakeDb } from '@/lib/ledger/fake-supabase'
 
@@ -10,6 +12,11 @@ const {
   getLedgerSummary,
   netProfitUnavailableReason,
   publishedNetProfit,
+  presentGrossMargin,
+  MONTHLY_PNL_CAPTION,
+  CLIENT_PNL_CAPTION,
+  UNKNOWN_REVENUE_TOOLTIP,
+  DIRECT_COST_WITH_UNPRICED_NOTE,
   threeMonthWindowStart,
   fmtMonth,
   mapVarianceRows,
@@ -205,6 +212,149 @@ describe('publishedNetProfit', () => {
 
   it('does not treat a real zero net as missing', () => {
     expect(publishedNetProfit(monthlyRow({ net_profit: 0 }))).toBe(0)
+  })
+
+  it('withholds a net that subtracts the carrier cost of unpriced charges', () => {
+    // The view's net is revenue minus every known cost, including costs whose
+    // selling price is blank. Printing it would be the same fake loss as the
+    // gross margin, one column to the right.
+    const row = monthlyRow({
+      revenue: 1625.62,
+      direct_cost: 2140.19,
+      revenue_unknown_charges: 94,
+      gross_margin: -514.57,
+      net_profit: -514.57,
+    })
+    expect(publishedNetProfit(row)).toBeNull()
+    const reason = netProfitUnavailableReason(row)
+    expect(reason).toContain('94 charges have no price')
+    expect(reason).toContain('not a loss')
+    expect(reason.toLowerCase()).not.toContain('at-cost freight')
+  })
+})
+
+describe('presentGrossMargin', () => {
+  it('does not present the carrier cost of unpriced charges as a loss', () => {
+    // September, October and November on the ledger: priced margin is about
+    // $0, $0 and +$328, and the view's gross_margin is the negative of the
+    // unpriced rows' carrier cost (or that cost minus the priced margin).
+    const september = presentGrossMargin({
+      gross_margin: -1990.95,
+      revenue_unknown_charges: 186,
+      cost_unknown_charges: 0,
+    })
+    expect(september.amount).toBeNull()
+    expect(september.unknownRevenueCharges).toBe(186)
+    expect(september.note).toContain('186 charges have no price')
+    expect(september.note).toContain('not a loss')
+    expect(september.note).toContain('not money lost')
+    expect(september.note?.toLowerCase()).not.toContain('reads high')
+    expect(september.note?.toLowerCase()).not.toContain('at-cost')
+    expect(september.note?.toLowerCase()).not.toContain('free')
+
+    const october = presentGrossMargin({
+      gross_margin: -4059.67,
+      revenue_unknown_charges: 447,
+      cost_unknown_charges: 0,
+    })
+    expect(october.amount).toBeNull()
+    expect(october.note).toContain('not a loss')
+
+    const november = presentGrossMargin({
+      gross_margin: -514.57,
+      revenue_unknown_charges: 94,
+      cost_unknown_charges: 0,
+    })
+    expect(november.amount).toBeNull()
+    expect(november.note).toContain('94 charges have no price')
+  })
+
+  it('still shows a real loss when every charge has a price', () => {
+    const shown = presentGrossMargin({
+      gross_margin: -12.5,
+      revenue_unknown_charges: 0,
+      cost_unknown_charges: 0,
+    })
+    expect(shown.amount).toBe(-12.5)
+    expect(shown.note).toBeNull()
+  })
+
+  it('shows a complete priced margin, including zero', () => {
+    expect(presentGrossMargin({
+      gross_margin: 328.38,
+      revenue_unknown_charges: 0,
+      cost_unknown_charges: 0,
+    }).amount).toBe(328.38)
+    expect(presentGrossMargin({
+      gross_margin: 0,
+      revenue_unknown_charges: 0,
+      cost_unknown_charges: 0,
+    }).amount).toBe(0)
+  })
+
+  it('keeps a shown margin when only the carrier cost is missing, and says it reads high', () => {
+    // This is the case the old caption described, and the only case it was
+    // true for. A null cost is left out of the subtraction. A null price is not.
+    const shown = presentGrossMargin({
+      gross_margin: 40,
+      revenue_unknown_charges: 0,
+      cost_unknown_charges: 3,
+    })
+    expect(shown.amount).toBe(40)
+    expect(shown.unknownCostCharges).toBe(3)
+    expect(shown.note).toContain('reads high')
+    expect(shown.note?.toLowerCase()).not.toContain('unpriced')
+    expect(shown.note?.toLowerCase()).not.toContain('free')
+  })
+
+  it('withholds the figure when both the price and the cost are missing somewhere', () => {
+    const shown = presentGrossMargin({
+      gross_margin: -10,
+      revenue_unknown_charges: 2,
+      cost_unknown_charges: 1,
+    })
+    expect(shown.amount).toBeNull()
+    expect(shown.note).toContain('not a loss')
+    expect(shown.note).toContain('no carrier cost yet')
+  })
+})
+
+describe('ledger margin copy', () => {
+  const page = readFileSync(join(process.cwd(), 'src/app/ledger/page.tsx'), 'utf8')
+  const lower = page.toLowerCase()
+
+  it('does not say unpriced charges are free, read high, or are at-cost freight', () => {
+    expect(lower).not.toContain('at-cost freight')
+    expect(lower).not.toContain('treats every unpriced')
+    expect(lower).not.toContain('treats unpriced charges as free')
+    expect(lower).not.toContain('reads high when costs are unknown')
+    expect(page).toContain('unknown — not a loss')
+    expect(page).toContain('MONTHLY_PNL_CAPTION')
+    expect(page).toContain('presentGrossMargin')
+  })
+
+  it('explains the old negative numbers in the captions and the revenue tooltip', () => {
+    for (const text of [MONTHLY_PNL_CAPTION, CLIENT_PNL_CAPTION, UNKNOWN_REVENUE_TOOLTIP, DIRECT_COST_WITH_UNPRICED_NOTE]) {
+      expect(text.toLowerCase()).not.toContain('at-cost freight')
+      expect(text.toLowerCase()).not.toContain('treated as free')
+      expect(text.toLowerCase()).not.toContain('treats every unpriced')
+    }
+    expect(MONTHLY_PNL_CAPTION).toContain('not actual losses')
+    expect(MONTHLY_PNL_CAPTION).toContain('not a loss')
+    expect(CLIENT_PNL_CAPTION).toContain('not a loss')
+    expect(UNKNOWN_REVENUE_TOOLTIP).toContain('does not mean the carrier has failed to report')
+    expect(UNKNOWN_REVENUE_TOOLTIP).toContain('not free')
+    expect(DIRECT_COST_WITH_UNPRICED_NOTE).toContain('not money lost')
+    // "reads high" survives only as the missing-carrier-cost caveat.
+    expect(MONTHLY_PNL_CAPTION).toContain('reads high until they arrive')
+    expect(CLIENT_PNL_CAPTION).toContain('reads high until the cost arrives')
+  })
+
+  it('does not add this staff wording to the partner portal', () => {
+    const partner = readFileSync(join(process.cwd(), 'src/components/partner/Statement.tsx'), 'utf8')
+    expect(partner).not.toContain('presentGrossMargin')
+    expect(partner).not.toContain('MONTHLY_PNL_CAPTION')
+    expect(partner).not.toContain('not a loss')
   })
 })
 

@@ -111,6 +111,56 @@ export const REPORT_TYPES: readonly ReportType[] =
   REPORT_TABS.map(t => t.reportType).filter((t): t is ReportType => t !== null)
 
 /**
+ * Title row on a staff export that contains Shipo's carrier cost and profit.
+ *
+ * The Shipments, Profit and Losses downloads sit beside the client Statement
+ * tab and accept a single-client filter. Nothing in the old file said it was
+ * internal, so it could be emailed as if it were the client's copy. This
+ * sentence is the label on every such sheet and, in hyphenated form, in the
+ * filename. It is not added to the statement or the client report.
+ */
+export const INTERNAL_COST_PROFIT_BANNER =
+  'INTERNAL — contains Shipo cost and profit, not for clients'
+
+/**
+ * Shipments, Profit and Losses. Those three sheets carry carrier cost and
+ * profit. Adjustments, billing and warehouse do not, and must not be labelled
+ * as if they did.
+ */
+export function reportFileCarriesShipoCost(type: string): boolean {
+  return type === 'shipments' || type === 'profit-loss' || type === 'loss-shipments'
+}
+
+/**
+ * Workbook tab name. Excel allows 31 characters. The internal prefix fits
+ * the names this route already uses.
+ */
+export function internalReportSheetName(sheetName: string): string {
+  const labeled = `INTERNAL ${sheetName}`
+  return labeled.length <= 31 ? labeled : labeled.slice(0, 31)
+}
+
+/**
+ * Saved filename.
+ *
+ * Cost-and-profit exports say they are internal in the name itself, because
+ * the Reports screen writes `a.download` and that name is what a staff member
+ * attaches to an email. Other exports keep the plain report name.
+ */
+export function reportDownloadFilename(
+  type: string,
+  dateFrom: string,
+  dateTo: string,
+  extension: string,
+): string {
+  const dates = `${dateFrom}-to-${dateTo}`
+  if (reportFileCarriesShipoCost(type)) {
+    return `INTERNAL-contains-Shipo-cost-and-profit-not-for-clients-${type}-report-${dates}.${extension}`
+  }
+  return `${type}-report-${dates}.${extension}`
+}
+
+/**
  * Is this the name of an export we can build?
  *
  * Takes `string | null` because it is fed straight from

@@ -287,6 +287,15 @@ describe('ReportsTabs', () => {
       .toEqual([])
   })
 
+  it('saves a cost-and-profit download under the internal filename', () => {
+    // The browser uses a.download, not Content-Disposition. A route-only
+    // filename would leave the file the staff member actually saves looking
+    // like a client export.
+    expect(source).toContain('reportDownloadFilename(')
+    expect(source).toContain('reportFileCarriesShipoCost(')
+    expect(source).not.toContain('a.download = `${reportType}-${dateFrom}-${dateTo}.${format}`')
+  })
+
   it('gates every requiresClient tab through the registry, in exactly one place', () => {
     /**
      * The companion to the test above, for the OTHER thing the registry

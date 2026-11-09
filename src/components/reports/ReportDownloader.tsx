@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { showError, showSuccess } from '@/components/ui/Toast'
+import { reportDownloadFilename, reportFileCarriesShipoCost } from '@/lib/billing/report-types'
 import { easternMonthStart, easternToday } from '@/lib/ledger/eastern-day'
 
 const colors: Record<string, string> = {
@@ -38,7 +39,9 @@ export default function ReportDownloader({ report, clients }: { report: any; cli
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${report.id}-${dateFrom}-${dateTo}.${format}`
+      a.download = reportFileCarriesShipoCost(report.id)
+        ? reportDownloadFilename(report.id, dateFrom, dateTo, format)
+        : `${report.id}-${dateFrom}-${dateTo}.${format}`
       a.click()
       URL.revokeObjectURL(url)
       showSuccess('Report downloaded', `${report.title} exported as ${format.toUpperCase()}`)
