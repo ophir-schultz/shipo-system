@@ -16,6 +16,16 @@ describe('tabular downloads', () => {
     expect(pdf.toString('latin1')).toContain('SO1')
   })
 
+  it('prints an internal banner when one is passed, and leaves it off otherwise', async () => {
+    const banner = 'INTERNAL — contains Shipo cost and profit, not for clients'
+    const labelled = pdfText(await recordsToPdf(rows, 'Shipments', banner))
+    expect(labelled).toContain('INTERNAL')
+    expect(labelled).toContain('Shipo cost and profit')
+    expect(labelled).toContain('not for clients')
+    const plain = pdfText(await recordsToPdf(rows, 'Statement'))
+    expect(plain).not.toContain('Shipo cost and profit')
+  })
+
   it('keeps a long coverage note, including the part past the old 80-character cut', async () => {
     const note = 'No charge for this client is recorded before 2026-10-07, so the figures above cover 2026-10-07 to 2026-10-31 and not the whole period.'
     const marker = 'NOTE-CONTINUES-ON-NEXT-PAGE'

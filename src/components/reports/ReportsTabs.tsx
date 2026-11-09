@@ -16,7 +16,8 @@ import { easternCalendarDay } from '@/lib/ledger/eastern-day'
 import { SHIP_DATE_FILTER_NOTE, shipDateWithStored } from '@/lib/billing/ship-day-label'
 import { billableWarehouse, isRecordedOnlyNote } from '@/lib/billing/warehouse-card-lines'
 import {
-  REPORT_TABS, reportTabById, reportTypeForTab, tabRequiresClient,
+  REPORT_TABS, reportDownloadFilename, reportFileCarriesShipoCost,
+  reportTabById, reportTypeForTab, tabRequiresClient,
 } from '@/lib/billing/report-types'
 import { reportHeading } from '@/lib/billing/report-heading'
 import ShipoMark from '@/components/ui/ShipoMark'
@@ -246,7 +247,13 @@ export default function ReportsTabs({ data }: { data: ReportsData }) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${reportType}-${dateFrom}-${dateTo}.${format}`
+      // Cost-and-profit files say so in the saved name. The route sets the
+      // same name on Content-Disposition; this attribute is the one the
+      // browser actually writes, and it used to be a plain date range that
+      // looked like a client export.
+      a.download = reportFileCarriesShipoCost(reportType)
+        ? reportDownloadFilename(reportType, dateFrom, dateTo, format)
+        : `${reportType}-${dateFrom}-${dateTo}.${format}`
       a.click()
       URL.revokeObjectURL(url)
       showSuccess('Report downloaded')

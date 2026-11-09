@@ -115,8 +115,9 @@ export interface BuiltCharge {
   // In every case the client WILL be invoiced once the figure exists, so 0
   // understates revenue and reads in every downstream view as a label we gave
   // away free. Each path warns separately; pnl_client_monthly counts them all
-  // as revenue_unknown_charges and nulls the month's margin rather than
-  // reporting a flattered one.
+  // as revenue_unknown_charges. The ledger screen withholds margin for any
+  // month that has one, because the view would subtract the carrier cost and
+  // the result would look like a loss.
   unit_rate: number | null; amount: number | null; cost: number | null
   cost_basis: string | null; rate_id: string | null; cost_rate_id: string | null
   charge_date: string; charge_date_source: string; source: string
@@ -379,8 +380,9 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // means no line is in effect on this date (add one, or extend an
     // effective_to), whereas this means the line exists and its rate cell is
     // empty (fill that cell). Both now produce amount null, which
-    // pnl_client_monthly counts as revenue_unknown_charges and which nulls the
-    // month's margin rather than overstating it.
+    // pnl_client_monthly counts as revenue_unknown_charges. The ledger screen
+    // withholds margin for that count instead of printing the carrier cost
+    // as a loss.
     // A THIRD WAY, and the one the old catch-all hid completely. The line is in
     // effect and its rate cell is populated — so neither guard above fires —
     // but its rate_type is not one this code prices. Billing `rate.rate` here
