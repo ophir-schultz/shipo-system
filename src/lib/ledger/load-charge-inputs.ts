@@ -417,6 +417,9 @@ export async function loadChargeInputs(
         // defaults to false, so a null here means "not cancelled", not
         // "unknown" — there is no third state to preserve.
         cancelled: o.cancelled === true,
+        // Nayax is named here, not the month. buildCharges applies the
+        // November 2026 ship-day bound per label, because this flag is on
+        // the order and one order can ship on both sides of that day.
         billStoredClientRate: o.client_id != null && nayaxIds.has(o.client_id),
       },
       items: (itemsByOrder.get(o.id) ?? [])

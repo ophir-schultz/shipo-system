@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildCharges, type ChargeInput, type RateCardLine } from '@/lib/ledger/calculate-charges'
+import { buildCharges, NAYAX_STORED_ZONE_RATE_FROM, type ChargeInput, type RateCardLine } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
 
 // Every rate card in the database today has null effective dates: the columns
@@ -179,20 +179,120 @@ describe('buildCharges', () => {
   })
 
   it('leaves Nayax on the existing rule when the zone rate is null', () => {
+    // Heavy freight with no zone price, including a November label and an
+    // October one, stays on the warehouse card. A null client_rate is not a
+    // rate-card charge in either month.
+    for (const shipDate of ['2026-10-15', '2026-11-06']) {
+      const out = buildCharges({
+        ...base,
+        order: { ...base.order, billStoredClientRate: true },
+        shipments: [{
+          id: 's404', shipmentId: 404, shipDate,
+          actualCost: 104.92, voided: false, clientRate: null,
+        }],
+      })
+      expect(out).toHaveLength(1)
+      expect(out[0]).toMatchObject({
+        amount: expect.closeTo(104.92, 2),
+        unit_rate: null,
+        source: 'calculator',
+        charge_date: shipDate,
+      })
+    }
+  })
+
+  it('keeps October Nayax shipping at cost when a zone rate is stored', () => {
+    // The charge window still loads these ship days. The stored zone price
+    // must not replace the at-cost amount the calculator already writes.
     const out = buildCharges({
       ...base,
       order: { ...base.order, billStoredClientRate: true },
-      shipments: [{
-        id: 's404', shipmentId: 404, shipDate: '2026-11-06',
-        actualCost: 104.92, voided: false, clientRate: null,
-      }],
+      items: [
+        { id: 'i-oct', sku: 'R1', quantityPicked: 4, isComponent: false, pickDate: '2026-10-29' },
+      ],
+      shipments: [
+        { id: 's-oct-29', shipmentId: 1029, shipDate: '2026-10-29',
+          actualCost: 17.52, voided: false, clientRate: 24.24 },
+        { id: 's-oct-07', shipmentId: 1007, shipDate: '2026-10-07',
+          actualCost: 8.10, voided: false, clientRate: 19.40 },
+      ],
     })
-    expect(out).toHaveLength(1)
-    expect(out[0]).toMatchObject({
-      amount: expect.closeTo(104.92, 2),
+    const shipping = out.filter((row) => row.charge_type === 'shipping')
+    expect(shipping).toHaveLength(2)
+    expect(shipping.find((row) => row.charge_key === 'shipment:1029')).toMatchObject({
+      amount: expect.closeTo(17.52, 2),
+      unit_rate: null,
+      source: 'calculator',
+      cost: expect.closeTo(17.52, 2),
+      charge_date: '2026-10-29',
+    })
+    expect(shipping.find((row) => row.charge_key === 'shipment:1007')).toMatchObject({
+      amount: expect.closeTo(8.10, 2),
+      unit_rate: null,
+      source: 'calculator',
+      cost: expect.closeTo(8.10, 2),
+      charge_date: '2026-10-07',
+    })
+    // Pick-and-pack is the warehouse card, not the shipping zone rate.
+    expect(out.find((row) => row.charge_type === 'pick')).toMatchObject({
+      charge_key: 'item:i-oct:pick',
+      unit_rate: 0.32,
+      amount: expect.closeTo(1.28, 2),
+      source: 'calculator',
+    })
+  })
+
+  it('bills Nayax the stored zone rate from the November ship day and not the day before', () => {
+    expect(NAYAX_STORED_ZONE_RATE_FROM).toBe('2026-11-01')
+    const out = buildCharges({
+      ...base,
+      order: { ...base.order, billStoredClientRate: true },
+      shipments: [
+        { id: 's-oct-31', shipmentId: 1031, shipDate: '2026-10-31',
+          actualCost: 9.00, voided: false, clientRate: 14.50 },
+        { id: 's-nov-01', shipmentId: 1101, shipDate: '2026-11-01',
+          actualCost: 9.00, voided: false, clientRate: 14.50 },
+        { id: 's-dec', shipmentId: 1201, shipDate: '2026-12-15',
+          actualCost: 9.00, voided: false, clientRate: 14.50 },
+      ],
+    })
+    expect(out.find((row) => row.charge_key === 'shipment:1031')).toMatchObject({
+      amount: expect.closeTo(9.00, 2),
       unit_rate: null,
       source: 'calculator',
     })
+    for (const key of ['shipment:1101', 'shipment:1201']) {
+      expect(out.find((row) => row.charge_key === key)).toMatchObject({
+        amount: expect.closeTo(14.50, 2),
+        unit_rate: expect.closeTo(14.50, 2),
+        source: 'rate_card',
+        cost: expect.closeTo(9.00, 2),
+      })
+    }
+  })
+
+  it('gives a voided Nayax label zero in October and November', () => {
+    for (const shipDate of ['2026-10-20', '2026-11-04']) {
+      const out = buildCharges({
+        ...base,
+        order: { ...base.order, billStoredClientRate: true },
+        shipments: [{
+          id: 's-void', shipmentId: 5561, shipDate,
+          actualCost: 9.10, voided: true, clientRate: 24.24,
+        }],
+      })
+      expect(out).toHaveLength(1)
+      expect(out[0].amount).not.toBeNull()
+      expect(out[0].cost).not.toBeNull()
+      expect(out[0]).toMatchObject({
+        amount: expect.closeTo(0, 2),
+        cost: expect.closeTo(0, 2),
+        unit_rate: null,
+        source: 'calculator',
+        label: 'Shipping (voided)',
+        charge_date: shipDate,
+      })
+    }
   })
 
   it('does not bill another client the stored zone rate', () => {

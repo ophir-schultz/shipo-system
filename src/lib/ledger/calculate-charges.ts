@@ -65,9 +65,24 @@ export interface RateCardLine {
  */
 export const SHIPPING_RATE_TYPES = new Set(['at_cost', 'flat', 'cost_plus'])
 
+/**
+ * First ship day on which a Nayax zone rate is the client shipping price.
+ *
+ * October 2026 and earlier stay on the warehouse card. Those labels are at
+ * cost today, and repricing them was not approved. November 2026 and later
+ * keep the stored zone rate. The comparison is the ship day `buildCharges`
+ * already writes as `charge_date`, not the order date: the charge window
+ * still loads October orders, and one order can carry a label on each side
+ * of this day.
+ */
+export const NAYAX_STORED_ZONE_RATE_FROM = '2026-11-01'
+
 export interface ChargeInput {
   order:     { id: string; clientId: string | null; cancelled: boolean
-               /** Nayax only. A stored zone rate is the client shipping price. */
+               /**
+                * Nayax only. A stored zone rate is the shipping price on
+                * ship days on or after `NAYAX_STORED_ZONE_RATE_FROM`.
+                */
                billStoredClientRate?: boolean }
   items:     Array<{ id: string; sku: string | null; quantityPicked: number | null
                      isComponent: boolean; pickDate: string | null }>
@@ -355,9 +370,16 @@ export function buildCharges(input: ChargeInput, onWarn?: ChargeWarn): BuiltChar
     // rate card uses, and persist-charges.ts funnels it into sync_runs.errors.
     const storedRate = s.clientRate
     const storedOk = typeof storedRate === 'number' && Number.isFinite(storedRate)
-    // Nayax only. A null zone rate does not become a rate-card charge.
-    // A voided label stays a known zero and is not billed the zone rate.
-    const useStoredRate = input.order.billStoredClientRate === true && storedOk && !s.voided
+    // Nayax only, and only from November 2026. A null zone rate does not
+    // become a rate-card charge. A voided label stays a known zero and is
+    // not billed the zone rate. An earlier ship day — October 2026 included,
+    // which the 30-day charge window still loads — stays on the warehouse
+    // card, so a stored zone price cannot rewrite an at-cost row.
+    const storedZoneDay = s.shipDate.slice(0, 10) >= NAYAX_STORED_ZONE_RATE_FROM
+    const useStoredRate = input.order.billStoredClientRate === true
+      && storedOk
+      && !s.voided
+      && storedZoneDay
 
     if (useStoredRate) {
       // The zone rate is the client price. The warehouse card is not consulted.
