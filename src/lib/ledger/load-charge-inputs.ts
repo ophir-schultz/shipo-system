@@ -4,7 +4,7 @@ import { classifySku } from '@/lib/billing/classify-sku'
 import { easternAddDays, easternMidnightIso, shipCalendarDay } from '@/lib/ledger/eastern-day'
 import { shipmentInChargeWindow } from '@/lib/ledger/charge-window'
 import { zenventorySlug } from '@/lib/zenventory/client-env'
-import type { ChargeInput } from '@/lib/ledger/calculate-charges'
+import { NAYAX_STORED_ZONE_RATE_FROM, type ChargeInput } from '@/lib/ledger/calculate-charges'
 import type { CostRateRow } from '@/lib/ledger/cost-rate'
 
 // Assembles ChargeInput[] for every order touched in the window. One query per
@@ -417,10 +417,15 @@ export async function loadChargeInputs(
         // defaults to false, so a null here means "not cancelled", not
         // "unknown" — there is no third state to preserve.
         cancelled: o.cancelled === true,
-        // Nayax is named here, not the month. buildCharges applies the
-        // November 2026 ship-day bound per label, because this flag is on
-        // the order and one order can ship on both sides of that day.
-        billStoredClientRate: o.client_id != null && nayaxIds.has(o.client_id),
+        // Every attributed client. A stored numeric client_rate is the
+        // shipping price. buildCharges leaves a null rate on the warehouse
+        // card. Nayax is the one exception to the ship day: October stays
+        // at cost, and the bound is applied per label because one order
+        // can ship on both sides of that day.
+        billStoredClientRate: o.client_id != null,
+        storedClientRateFrom: o.client_id != null && nayaxIds.has(o.client_id)
+          ? NAYAX_STORED_ZONE_RATE_FROM
+          : null,
       },
       items: (itemsByOrder.get(o.id) ?? [])
         .filter((it) => !shipmentOnly.has(o.id)

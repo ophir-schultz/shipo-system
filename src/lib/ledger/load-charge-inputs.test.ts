@@ -8,6 +8,7 @@ vi.mock('@/lib/supabase', () => ({
 
 const { loadChargeInputs, fetchAllPages } =
   await import('@/lib/ledger/load-charge-inputs')
+const { NAYAX_STORED_ZONE_RATE_FROM } = await import('@/lib/ledger/calculate-charges')
 
 const WINDOW = '2026-09-01'
 
@@ -159,29 +160,49 @@ describe('loadChargeInputs — the shipment join', () => {
     expect(filter?.value).toContain('A1')
   })
 
-  it('passes a Nayax zone rate into the charge input and leaves another client off that path', async () => {
+  it('passes a Nayax zone rate with the November bound and bills every other client from a stored rate', async () => {
+    const others = [
+      ['client-b', 'Orcam', 'B1'],
+      ['client-c', 'Creative Pea', 'C1'],
+      ['client-d', 'Crisp Power', 'D1'],
+      ['client-e', 'Kivema', 'E1'],
+      ['client-f', 'SitnStand', 'F1'],
+      ['client-g', 'Suteka', 'G1'],
+      ['client-h', 'Time Systems (UK)', 'H1'],
+    ] as const
     seed({
-      orders: [dated(), dated({ id: 'o2', client_id: 'client-b', order_key: 'B1', order_number: 'b1' })],
+      orders: [
+        dated(),
+        ...others.map(([id, , key]) => dated({
+          id: `o-${id}`, client_id: id, order_key: key, order_number: key.toLowerCase(),
+        })),
+      ],
       clients: [
         { id: 'client-a', name: 'Nayax' },
-        { id: 'client-b', name: 'Orcam' },
+        ...others.map(([id, name]) => ({ id, name })),
       ],
       shipments: [
         { id: 's1', client_id: 'client-a', shipstation_shipment_id: 900,
           order_number: 'a1', order_number_key: 'A1',
           ship_date: '2026-09-11T14:00:00Z', actual_cost: 17.52, client_rate: 24.24, raw_data: {} },
-        { id: 's2', client_id: 'client-b', shipstation_shipment_id: 901,
-          order_number: 'b1', order_number_key: 'B1',
-          ship_date: '2026-09-11T14:00:00Z', actual_cost: 8, client_rate: 12, raw_data: {} },
+        ...others.map(([id, , key], index) => ({
+          id: `s-${id}`, client_id: id, shipstation_shipment_id: 901 + index,
+          order_number: key.toLowerCase(), order_number_key: key,
+          ship_date: '2026-09-11T14:00:00Z', actual_cost: 8, client_rate: 12, raw_data: {},
+        })),
       ],
     })
     const inputs = await loadChargeInputs(WINDOW)
     const nayax = inputs.find((input) => input.order.id === 'o1')
-    const other = inputs.find((input) => input.order.id === 'o2')
     expect(nayax?.order.billStoredClientRate).toBe(true)
+    expect(nayax?.order.storedClientRateFrom).toBe(NAYAX_STORED_ZONE_RATE_FROM)
     expect(nayax?.shipments[0].clientRate).toBeCloseTo(24.24, 2)
-    expect(other?.order.billStoredClientRate).toBe(false)
-    expect(other?.shipments[0].clientRate).toBeCloseTo(12, 2)
+    for (const [id] of others) {
+      const input = inputs.find((row) => row.order.id === `o-${id}`)
+      expect(input?.order.billStoredClientRate).toBe(true)
+      expect(input?.order.storedClientRateFrom).toBeNull()
+      expect(input?.shipments[0].clientRate).toBeCloseTo(12, 2)
+    }
   })
 
   it('attaches a label whose order number differs only in case', async () => {
